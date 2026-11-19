@@ -23,6 +23,11 @@ Revised 2026-11-19 for HupBaHa's review of PR #1647 (six protocol blockers):
 6. The RFC 9421 request context behind proxies is fixed (§5.3.1); second round: fields are parsed
    as RFC 8941 dictionaries holding exactly one `url4` member.
 
+Third round (same day): every phase change in §5.9 is a fenced compare-and-set and the effect journal
+is written before any send; the fingerprint has exact field encodings and a golden vector; C6 is
+pinned to `@path=/url4/peer/v1` plus the `q=` query; C2 refusals follow the T9 rule; duplicate
+dictionary keys are refused before parsing collapses them.
+
 The direction (RFC 9421 plus signed grants) is unchanged, and #1450's fail-closed refusals still stand.
 
 ## Decisions requested from Kevin
@@ -209,6 +214,11 @@ HTTP/3.
 - **Structured fields are parsed, not split on commas.** `Signature-Input`, `Signature` (RFC 9421) and
   `Content-Digest` (RFC 9530) are Structured Field dictionaries (RFC 8941). Each is parsed as one; a
   parse failure is `x.peer_auth_failed`.
+  - **Duplicate keys are refused before the dictionary is built.** RFC 8941 §4.2.2 keeps the last
+    value of a repeated key, so a check on the parsed result cannot see the repeat. The verifier
+    parses the members in order and refuses with `x.peer_auth_failed` the moment a member name
+    repeats (for example `url4=…, url4=…` or `sha-256=…, sha-256=…`). This is a deliberate
+    deviation from RFC 8941's "last wins", for these three fields only.
   - `Signature-Input` and `Signature` must each hold **exactly one member, labelled `url4`**. Any
     other member is refused, so a peer request carries one signature only. That member must carry
     `tag="url4-peer"` and `alg="ed25519"` and cover at least the §5.3 components that apply to the
@@ -287,8 +297,15 @@ carry a signature.
 
   | In the expression | Outbound rewrite (caller) | Signed `@path` | Receiver dispatch |
   |---|---|---|---|
-  | C6 `url4://n2.example/v1(…)` | `https://n2.example/url4/peer/v1…` | `/url4/peer/v1…` (raw) | strip `/url4/peer` once, then run the existing `/v1` eval handler |
+  | C6 `url4://n2.example/v1(…)!…` | `https://n2.example/url4/peer/v1?q=…` | `@path` exactly `/url4/peer/v1`; `@query` exactly `?[params&]q=…` as built by `encode_subrequest` | strip `/url4/peer` once, then run the existing `/v1` eval handler on the unchanged raw query |
   | C2 `url4://n2.example/blob/sha256/<hex>` | `https://n2.example/url4/peer/blob/sha256/<hex>` | `/url4/peer/blob/sha256/<hex>` | strip `/url4/peer` once, then run the existing blob handler |
+
+  C6 carries the expression in the query, as url4 does today: `@path` is exactly `/url4/peer/v1`, with
+  no further segments, and `@query` is the raw query that `url4.wire.subrequest.encode_subrequest`
+  produces, ending in `q=` and the wire-escaped expression (`q` is always last, spec §8). Example:
+  `@path` = `/url4/peer/v1`, `@query` = `?q=(ctx)!Describe`. The receiver hands that raw query, byte for
+  byte, to `extract_expression_params`; it never re-encodes it. Any other path under
+  `/url4/peer/v1/…` is 404.
 
   The caller's `url4://` → `https://` rewrite (today `url4/io/http.py`) inserts `/url4/peer` before
   the path, for peer targets only. The signature always covers the prefixed wire path. The receiver
@@ -329,7 +346,10 @@ For every request on a peer route, in this order:
      exactly the requested blob.
    - The peer's allowlist entry must permit that scope.
 
-   Any failure → `x.peer_not_authorized`. Nested delegation is stopped where the delegated run
+   Any failure → `x.peer_not_authorized`, with one exception (T9): on the blob route, a verified share
+   grant whose `scope` does not cover the requested digest is `source_not_found`, the same answer as a
+   covered digest that is missing from the store (step 10). So a reader cannot tell "not granted" from
+   "does not exist". No grant at all is `x.peer_auth_required` (step 1). Nested delegation is stopped where the delegated run
    executes (§5.10), not here.
 8. **C6 only: claim the idempotency record** (§5.9) before anything else is created. No child run,
    execution or spend exists without a claim.
@@ -410,8 +430,8 @@ have reached a provider.
 - **Key.** The record key is `(caller authority, Idempotency-Key)`. A C6 request must carry exactly one
   `Idempotency-Key`; a missing or malformed key (not 22 base64url characters) is
   `x.peer_idempotency_required`.
-- **Request fingerprint.** sha256 over the RFC 8785 (JCS) serialization of this JSON object. Every key
-  is always present, with `null` when absent:
+- **Request fingerprint.** Lowercase hex sha256 over the UTF-8 bytes of the RFC 8785 (JCS)
+  serialization of this JSON object. Every key is always present, with `null` when absent:
 
   ```
   {"v":1, "method":…, "path":…, "query":…,        // §5.3.1 raw forms
@@ -419,6 +439,31 @@ have reached a provider.
    "auth_token_sha256":…,                          // sha256 hex of the URL4-Auth-Token bytes, or null
    "sub":…, "run":…, "trace":…, "scope":…, "budget":…}   // from the verified grant
   ```
+
+  Exact encodings, so every replica computes the same bytes:
+  - `v`: the integer `1`.
+  - `method`: the request method as an uppercase JSON string.
+  - `path`, `query`: the §5.3.1 `@path` and `@query` values as JSON strings, exactly the raw ASCII
+    bytes received (still percent-encoded; `query` keeps its leading `?`, and is `"?"` when empty).
+    A raw path or query byte outside printable ASCII (0x21–0x7E) is refused with
+    `x.peer_auth_failed` at step 1, so no decoding choice is left.
+  - `content_digest`: the 32 bytes of the `Content-Digest` `sha-256` member (decoded from its sf-binary
+    base64), as 64 lowercase hex characters; `null` when the request has no `Content-Digest`.
+  - `auth_token_sha256`: sha256 of the `URL4-Auth-Token` field value bytes, after removing leading and
+    trailing whitespace (RFC 9110 field value), as 64 lowercase hex; `null` when the field is absent.
+  - `sub`, `run`, `trace`: the grant's JSON strings, unchanged. `scope`: the grant's JSON array of
+    strings, in the grant's order. `budget`: the grant's decimal string, unchanged (never parsed as a
+    number), or `null`.
+
+  Golden vector (normative): `GET`, `@path` `/url4/peer/v1`, `@query` `?q=(ctx)!Describe`, no body,
+  `URL4-Auth-Token: v1.example-encrypted-credential`, grant `sub` `tenant-a`, `run` `run-42`, `trace`
+  `4bf92f3577b34da6a3ce929d0e0e4736`, `scope` `["eval"]`, `budget` `"0.50"`. The JCS string is
+
+  ```
+  {"auth_token_sha256":"f0959e74a1f77de3a6fefc1df4b165d6e900f48ae9430b6d97c5bf2ebbaddb07","budget":"0.50","content_digest":null,"method":"GET","path":"/url4/peer/v1","query":"?q=(ctx)!Describe","run":"run-42","scope":["eval"],"sub":"tenant-a","trace":"4bf92f3577b34da6a3ce929d0e0e4736","v":1}
+  ```
+
+  and the fingerprint is `428854ee62ad9cd0361f495da98fd7601bd4d3dd65c205998c7529700674b917`.
 
   - `URL4-Auth-Token` is in the fingerprint because the receiver decrypts it and uses the credential.
     A key reused with a different credential is a conflict, never a replay of the first credential's
@@ -437,29 +482,45 @@ have reached a provider.
     `x.` code), with no new execution and no new spend;
   - exists, same fingerprint, `outcome_unknown` → `x.peer_outcome_unknown`;
   - exists, same fingerprint, `claimed` or `dispatched` with a live lease → `x.peer_request_in_progress`.
+- **Fenced transitions.** Every phase change is one compare-and-set on the full expected state
+  `(phase, owner, epoch)`. A write whose expected state no longer matches is rejected, and its result
+  is discarded. A transition that takes the record away from an owner (takeover, or a move to
+  `outcome_unknown`) **bumps `epoch` and clears `owner` in the same write**. So a stalled owner that
+  resumes fails every later write, including the one that would complete the record.
+- **Effect journal.** Before each external effect (a paid call, an outbound fetch that costs), the
+  owner appends to the record, by the fenced compare-and-set above, an effect descriptor: provider,
+  operation, the request digest, and a deterministic provider idempotency key `op_id ‖ "/" ‖ n`, where
+  `n` is the effect's 0-based index in the run. Only after that write succeeds is the effect sent,
+  with that key where the provider supports one. An effect that is not in the journal was never sent.
 - **Phases.**
   - `claimed`: nothing external has happened yet. The child run is opened under the claim.
-  - `dispatched`: set by compare-and-set on `(owner, epoch)` **before the first provider call, or any
-    other external effect** (a paid call, an outbound fetch that costs). Every provider call carries
-    `op_id` (plus a per-call suffix) as the provider's idempotency key where the provider supports
-    one.
-  - `completed`: the result is saved by compare-and-set on `(owner, epoch)`. A write from an owner
-    whose epoch is stale is rejected, and that result is discarded.
+  - `dispatched`: set by fenced compare-and-set `claimed → dispatched` together with the first journal
+    entry, before the first send.
+  - `completed`: `dispatched → completed` (or `claimed → completed` for a run with no effects), by
+    fenced compare-and-set, saving the result.
   - `outcome_unknown`: terminal until reconciled.
 - **Failures and expired leases.**
-  - Retryable failure while `claimed` (nothing external happened): the record is deleted, so a retry
-    runs normally.
-  - Expired lease while `claimed`: the next retry takes over by compare-and-set, bumping `epoch`.
-    The old owner's later writes fail the epoch check, and it had dispatched nothing.
-  - Any failure, or an expired lease, while `dispatched`: the record becomes `outcome_unknown`. It is
-    **never deleted and never taken over** for re-execution, because a provider may already have
-    charged or acted.
-- **Reconciliation of `outcome_unknown`.** Where every provider used supports idempotency keys, the
-  receiver may reconcile automatically: it re-issues the same provider calls with the same `op_id`
-  keys, which the providers deduplicate. Then it saves the result and moves to `completed`.
-  Otherwise the record stays `outcome_unknown` until an operator resolves it, by marking it
-  `completed` with a result or by releasing it with an explicit "safe to re-run". The caller surfaces
-  `x.peer_outcome_unknown` and does not retry it automatically.
+  - Retryable failure while `claimed` (nothing external happened): the owner deletes the record by
+    fenced compare-and-set, so a retry runs normally.
+  - Expired lease while `claimed`: the next retry takes over by fenced compare-and-set, bumping `epoch`.
+    The old owner's later writes fail, and it had sent nothing, because sending needs a journal write.
+  - Any failure, or an expired lease, while `dispatched`: fenced compare-and-set
+    `(dispatched, owner, epoch) → (outcome_unknown, owner: none, epoch + 1)`. The record is **never
+    deleted and never taken over** for re-execution, because a provider may already have charged or
+    acted. The old owner's completion now fails the fence.
+- **Reconciliation of `outcome_unknown`.**
+  - Automatic, only when every journaled effect went to a provider that deduplicates by idempotency
+    key **and** the record is still inside that provider's documented dedup horizon (measured from the
+    effect's journal time). The reconciler takes the record by fenced compare-and-set (bumping
+    `epoch`), re-issues exactly the journaled effects with their journaled keys, saves the result and
+    moves to `completed`. Past the shortest horizon among the journaled providers, automatic
+    reconciliation is off.
+  - Otherwise an operator resolves it. "Mark completed with a result" is always allowed. "Release,
+    safe to re-run" needs both: (a) a **proven stop**, meaning the old owner's process is confirmed
+    gone or its epoch is fenced (it is, by the transition above) **and** its lease has expired; and
+    (b) a **proven negative outcome** for every journaled effect, meaning the provider reports that
+    key as not executed or not charged. Without (b) the record stays `outcome_unknown`.
+  - The caller surfaces `x.peer_outcome_unknown` and does not retry automatically.
 - **Retention.** At least 24 h after the record reaches `completed` or is released, and never while it
   is `outcome_unknown`. The guarantee holds only inside this horizon. A key reused after it is a new
   call.
@@ -570,6 +631,13 @@ Request context (§5.3.1), each as a fixed vector (raw request plus expected sig
   - a `url4` member without `tag="url4-peer"`;
   - a value that does not parse as a dictionary.
 - `Content-Digest` with a member other than `sha-256`, or with two members → `x.peer_auth_failed`.
+- Duplicate keys, refused before the dictionary collapses them, each as a fixed raw field value →
+  `x.peer_auth_failed`:
+  - `Signature-Input: url4=("@method");tag="url4-peer", url4=("@path");tag="url4-peer"`;
+  - `Signature: url4=:AAAA:, url4=:BBBB:`;
+  - `Content-Digest: sha-256=:<valid>:, sha-256=:<other>:`, also with the valid value last.
+  A plain RFC 8941 parser would keep the last member in each; the test asserts the refusal.
+- Raw path or query bytes outside 0x21–0x7E → `x.peer_auth_failed` before routing.
   A comma inside `URL4-Authz-Token`, `URL4-Auth-Token` or `Idempotency-Key` → `x.peer_auth_failed`.
 
 At-most-once execution (§5.9). Each test counts provider calls and spend at the receiver, using a
@@ -585,13 +653,23 @@ fake provider that can charge and then drop its response:
   - `sub` or `budget`;
   - `trace`;
   - `URL4-Auth-Token` (and the first token's saved response is not returned).
-- Fingerprint vectors: fixed inputs give a fixed JCS string and sha256, with `null` for absent fields.
+- Fingerprint vectors: the §5.9 golden vector gives exactly its JCS string and
+  `428854ee…674b917`. Variants: no `URL4-Auth-Token` → `null`; a body → its `content_digest` hex; an
+  empty query → `"?"`; a token with surrounding whitespace hashes the same as without. Two replicas
+  compute the same fingerprint for the same request.
 - Retryable failure while `claimed`: the record is deleted, and the retry makes one provider call.
 - Provider charges, then its response is lost (the failure is in `dispatched`): the record becomes
   `outcome_unknown`, and a retry gets `x.peer_outcome_unknown` with zero further provider calls.
-- Lease expiry in `dispatched` (the owner is paused mid-call, then resumes): no takeover, the record is
-  `outcome_unknown`, the old owner's completion is rejected on epoch, and there is one provider call
-  in total.
+- Lease expiry in `dispatched` (the owner is paused mid-call, then resumes): no takeover. The record
+  moves to `outcome_unknown` with `epoch + 1` and no owner. The resumed owner's completion is
+  rejected by the fence (phase and epoch both differ), and there is one provider call in total.
+- A manual "safe to re-run" racing a zombie: the release is refused until the lease has expired and
+  every journaled key has a negative provider outcome. A zombie that passed its pre-send journal
+  write still sends with the journaled key, so the provider deduplicates it.
+- Journal before send: a failure injected between the journal write and the send leaves a journaled
+  effect with no provider call; a send without a journal entry is impossible (asserted on the fake).
+- Automatic reconciliation past the provider's dedup horizon is not attempted; the record stays
+  `outcome_unknown`.
 - Lease expiry in `claimed`: a takeover bumps `epoch`, and the stale owner's writes are rejected. One
   provider call is made in total.
 - Reconciliation: with an idempotency-key provider fake, re-issuing with the same `op_id` keys
@@ -605,8 +683,12 @@ Address mapping (§5.5), end to end over ASGI with the exact #1450 expressions:
   `https://n2.example/url4/peer/v1…`, the signature covers that path, and n2 strips the prefix after
   verification and runs its `/v1` handler. The trace and child run are asserted.
 - C2: `(img:src=url4://n2.example/blob/sha256/<hex>)` with a share grant →
-  `/url4/peer/blob/sha256/<hex>` at n2 and the bytes are returned. Without the grant →
-  `source_not_found`.
+  `/url4/peer/blob/sha256/<hex>` at n2 and the bytes are returned. With no grant →
+  `x.peer_auth_required`. With a verified grant for another digest → `source_not_found`, identical to
+  a covered digest that is missing.
+- C6 wire form: the signed request has `@path` exactly `/url4/peer/v1` and `@query` exactly what
+  `encode_subrequest` built (for example `?q=(ctx)!Describe`); n2's `extract_expression_params` gets
+  that raw query unchanged. `/url4/peer/v1/extra` → 404.
 - A signed request sent to bare `/v1` or `/blob/…` → `x.peer_auth_failed`. A request that is valid
   for `/url4/peer/v1…` and replayed with its path rewritten to `/v1…` fails.
 - A prefix is stripped exactly once: `/url4/peer/url4/peer/v1` does not reach `/v1`.

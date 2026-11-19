@@ -92,3 +92,13 @@ codes, and how C2/C6 are enabled alongside the #1521 destination guard. Design o
      exactly one `url4` member and all other members refused.
 
   §9 vectors are added for each.
+- **2026-11-19 third round (HupBaHa, CHANGES_REQUESTED 16:59Z):** four details made normative:
+  1. §5.9: every transition is a fenced compare-and-set on `(phase, owner, epoch)`; taking a record
+     from its owner bumps `epoch` and clears `owner`. An effect journal with deterministic provider
+     keys is written before each send. Auto-reconciliation is bounded by the provider's dedup
+     horizon; a manual re-run needs a proven stop and a proven negative outcome.
+  2. The fingerprint fields have exact encodings and a golden JCS vector with its sha256.
+  3. C6 is pinned to `@path=/url4/peer/v1` plus the `encode_subrequest` `q=` query. C2: no grant is
+     `x.peer_auth_required`; an uncovered or missing digest is `source_not_found` (T9).
+  4. Duplicate RFC 8941 dictionary keys are refused before the parser collapses them, with fixed
+     vectors.
