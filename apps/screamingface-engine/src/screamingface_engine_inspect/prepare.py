@@ -194,11 +194,14 @@ def case_digest(prepared: Sequence[PreparedCase]) -> str:
 
 
 #: EnigmaEval puzzles held out of the ``enigmaeval`` Benchmark, by ``task_id``.
-#: AIDEV-NOTE: pending team decision on Cases over the 8 MB cap, OME-1874. PROVISIONAL, not a
-#: decision: these three puzzles are over the importer's 8,000,000-byte Case limit with their
+#: WHY held out (owner decision on OME-1874, 2026-11-18, final for this revision): these three
+#: puzzles are over the importer's 8,000,000-byte Case limit (``MAX_CASE_BYTES``) with their
 #: pictures inline, even after the authors' PNG re-save (Puzzle Potluck rows 257 and 258, one
 #: picture each, about 9.7 MB and 12.0 MB inline; PuzzledPint row 283, seven pictures, about
-#: 20.4 MB). Flipping the call is one edit here, then a re-seal of the row's Case Digest.
+#: 20.4 MB). Shrinking their pictures to fit was tried and not taken, since it serves pictures
+#: the authors never published.
+#: AIDEV-NOTE: when the Case cap is raised, drop the ids that then fit, re-seal the row's Case
+#: Digest on linux/amd64 and bump the Benchmark's published revision; never a quiet edit.
 ENIGMAEVAL_HELD_OUT_OVER_CASE_CAP: tuple[str, ...] = (
     "69f3aee766ce8458f2f20eb8",
     "69f3aee766ce8458f2f20eb0",
@@ -2301,8 +2304,9 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         case_digest="2534208d6af2d6c7544bff23a086dd4624080242a77606deff20f08ccc413418",
         case_set_digest="58b8cd38f362d6ab7c7fd4f5f684d00aabaec10693a0be54f225afda30a66fb4",
         keep_sample_metadata=True,
-        # PROVISIONAL, pending team decision on Cases over the 8 MB cap, OME-1874: the three
-        # puzzles of ENIGMAEVAL_HELD_OUT_OVER_CASE_CAP are left out, 1,158 of 1,161.
+        # Owner decision on OME-1874 (2026-11-18): the three puzzles of
+        # ENIGMAEVAL_HELD_OUT_OVER_CASE_CAP are left out, 1,158 of 1,161, until the Case cap is
+        # raised; adding them back is a new revision.
         excluded_sample_ids=ENIGMAEVAL_HELD_OUT_OVER_CASE_CAP,
         source_pins={
             "cais/EnigmaEval": "9ed38dabb105ad900ef850a937014d8653ae9f94",

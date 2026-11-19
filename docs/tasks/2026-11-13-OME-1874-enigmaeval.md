@@ -26,6 +26,6 @@ Ledger: `docs/work/2026-11-13-enigmaeval.md`.
   evaluation use only; the image sentence follows the authors' code; the system prompt folded
   into the user turn is a declared deviation.
 - 2026-11-13: built and sealed inside the linux/amd64 Engine image: 1,158 Cases (three over the
-  8 MB Case cap held out PROVISIONALLY, pending the team's decision), Case Digest `2534208d…`,
+  8 MB Case cap held out by owner decision, 2026-11-18, until the cap is raised), Case Digest `2534208d…`,
   published revision `863b8c98762520a2`. Pending the owner: the over-cap decision, push, PR,
   the paid smoke, Linear → Done.

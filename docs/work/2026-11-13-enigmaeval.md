@@ -51,11 +51,13 @@ inline, and the authors' PNG re-save does not bring them under:
 | 258 | `69f3aee766ce8458f2f20eb0` | Puzzle Potluck | 1 | 10,324,507 | 8,994,741 |
 | 283 | `69f3aee766ce8458f2f20fa8` | PuzzledPint | 7 | 19,760,759 | 15,277,751 |
 
-## Open owner question
+## Owner decision (2026-11-18): the three Cases over the 8 MB cap stay out
 
-- **The three Cases over the 8 MB cap** (rows 257, 258, 283 above): the team decides drop vs
-  other. Built PROVISIONALLY with the three held out by task_id in one named constant beside
-  the prepare row, so the call flips in one place; 1,158 Cases sealed. This is not a decision.
+- **The three Cases over the 8 MB cap** (rows 257, 258, 283 above) are held out, final for this
+  revision, in one named constant beside the prepare row; 1,158 Cases sealed, digest unchanged.
+  Shrinking their pictures to fit (branch `OME-1874-enigmaeval-shrunk-three`) was tried and not
+  taken. When the Case cap is raised they come back with a re-sealed Case Digest and a new
+  published revision. The reviewer of PR 1833 ruled the same on 2026-11-17.
 
 ## Planned changes
 
@@ -156,8 +158,8 @@ inline, and the authors' PNG re-save does not bring them under:
   card. The frontier score is `NotPublished`: the paper's numbers are on the first release, and
   dashboard.safe.ai showed no EnigmaEval score when read.
 - **Declared deviations on the row:** the system prompt arrives as the first text of the user
-  turn; only the reply's text is read (no fallback to reasoning text); three puzzles held out,
-  provisionally.
+  turn; only the reply's text is read (no fallback to reasoning text); three puzzles held out
+  (owner decision, 2026-11-18).
 - **Owner-verify:** the three over-cap puzzles (open question above; flip in
   `ENIGMAEVAL_HELD_OUT_OVER_CASE_CAP`, then re-seal on linux/amd64, which moves the Case Digest and
   the fingerprint); push, PR body and the Linear link both ways; CI's "Build the deployable
@@ -165,3 +167,13 @@ inline, and the authors' PNG re-save does not bring them under:
   one with pictures and one text-only); the 2,310 MiB full-read peak against the run budget; the
   tier (`hard`) and the frontier score against the live dashboard; a Fidelity Record (OME-1471
   agent).
+
+## Follow-up (2026-11-18/19): merge with main, the full-set memory check
+
+- **Merged main** (HLE-Diamond had added its own rows in the same six files): both Benchmarks
+  kept; catalogue 97 rows, 80 withhold; picture notebook twelve Benchmarks; approval manifest
+  re-pinned to main's blobs. Fingerprint `863b8c98762520a2` unchanged on the merged tree.
+- **Full-set memory, measured** (linux/amd64 seal image, the 1,158-Case bundle, the real Cases
+  route plus url4's parser): 5,048 MiB, OOM-killed under the 2,560 MiB run budget; the
+  2,310 MiB figure above measured a whole-file parse, not this path. Cause and fix are in the
+  Engine, not this Benchmark: `OME-1961`, PR 1931 (840 MiB after). This PR lands after it.
