@@ -21,7 +21,7 @@ import time
 from collections import deque
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, Literal, Protocol
 from uuid import UUID
 
@@ -32,6 +32,7 @@ from aigateway.core.auth.models import Account
 from aigateway.core.snapshot_scheduler import Sleep
 
 from .models import STATUS_ABANDONED, STATUS_EXPIRED, STATUS_OPEN, FrozenCopy, FrozenCopyEntry
+from .times import as_utc
 
 if TYPE_CHECKING:
     from aigateway.config import Settings
@@ -66,11 +67,6 @@ _FINISH_PURGE_SQL = (
 MarkOutcome = Literal["marked", "rule no longer true", "lock timeout", "newest entry not found"]
 
 
-def _utc(value: datetime) -> datetime:
-    # WHY: TORTOISE_CONFIG sets no use_tz, so a stored time can come back naive.
-    return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
-
-
 def _is_postgres() -> bool:
     return FrozenCopy._meta.db.capabilities.dialect == "postgres"
 
@@ -80,18 +76,18 @@ async def database_now() -> datetime:
     client = FrozenCopy._meta.db
     if _is_postgres():
         rows = await client.execute_query_dict(_POSTGRES_NOW_SQL)
-        return _utc(rows[0]["now"])
+        return as_utc(rows[0]["now"])
     rows = await client.execute_query_dict(_SQLITE_NOW_SQL)
-    return _utc(datetime.fromisoformat(rows[0]["now"]))
+    return as_utc(datetime.fromisoformat(rows[0]["now"]))
 
 
 async def _idle_since(copy_id: UUID, entry_seq: int, created_at: datetime) -> datetime | None:
     if entry_seq == 0:
-        return _utc(created_at)
+        return as_utc(created_at)
     times: list[Any] = await FrozenCopyEntry.filter(
         frozen_copy_id=copy_id, seq=entry_seq
     ).values_list("created_at", flat=True)
-    return _utc(times[0]) if times else None
+    return as_utc(times[0]) if times else None
 
 
 async def _account_names(ids: set[UUID]) -> dict[UUID, str]:
@@ -131,7 +127,7 @@ class IdleRule:
         self._lock_timeout_ms = lock_timeout_ms
 
     def _is_idle(self, idle_since: datetime, at: datetime) -> bool:
-        return _utc(at) - idle_since >= self._idle
+        return as_utc(at) - idle_since >= self._idle
 
     async def candidates(self, at: datetime) -> list[SweepCandidate]:
         rows = await FrozenCopy.filter(status=STATUS_OPEN).values(
@@ -230,7 +226,7 @@ class FrozenCopySweep:
 
     async def dry_run(self, at: datetime | None = None) -> dict[str, Any]:
         """What a run at `at` would do. It writes nothing."""
-        when = _utc(at) if at is not None else await database_now()
+        when = as_utc(at) if at is not None else await database_now()
         found: list[SweepCandidate] = []
         for rule in self._rules:
             found.extend(c for c in await rule.candidates(when) if c.skip is None)
