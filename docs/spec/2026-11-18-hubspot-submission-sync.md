@@ -47,13 +47,22 @@ A HubSpot outage delays this and never fails or slows a submission.
 - Secrets reach pods from Azure Key Vault through ExternalSecrets (`base/secrets.yaml`).
 - HubSpot, read with the sync key on 2026-11-18 (schema and counts only): scopes
   `crm.objects.{contacts,deals}.{read,write}`, `crm.schemas.{contacts,deals}.read`. The key sees
-  48,764 contacts and 587 deals, 35 of them on 😱 SOTA (pipeline `941434182`). Stages by
-  display order: Onboarding `1450673809` (0), Engaged `1489861179` (1), Submission 1
-  `1450673810` (2), Submission 2 `1450673811` (3), Submission 3 `1450673812` (4), SOTA
-  `1450673813` (5), Dropped out `1450673814` (6). Deal fields: 😱 Leaderboard entry =
-  `sf_leaderboard_url` (string, text); 😱 Submissions = `sf_submission_count` (number). Other
-  fields the meeting touched: deal `sf_last_heard_date` (date), contact `sf_last_active_date`
-  (date).
+  48,764 contacts and 587 deals, 35 of them on 😱 SOTA (pipeline `941434182`).
+- Bennett restructured the pipeline on 2026-11-19 (read back the same day). Stages by display
+  order: Onboarding `1450673809` (0), Engaged `1489861179` (1), Submission 1 `1450673810` (2),
+  Submission 2 `1450673811` (3), Submission 3 `1450673812` (4), Project completed `1493808525`
+  (5), Publication `1493807640` (7), Dropped out `1450673814` (8). The SOTA stage is gone;
+  Project completed, Publication and Dropped out are set by hand.
+- Deal fields: 😱 Leaderboard entry = `sf_leaderboard_url` (string); 😱 Submissions =
+  `sf_submission_count` (number); 😱 SOTA achieved = `sf_sota_achieved` (bool); 😱 SOTA entry =
+  `sf_sota_entry` (string, the leaderboard link). Contact field: 😱 Last Active Date =
+  `sf_last_active_date` (date). Bennett confirmed the sync may write it (2026-11-19).
+- A fusion is a recipe shape, not a model count: parallel members plus a synthesizer
+  (`packages/screamingface/src/screamingface/fusion.py:41`). The Client classifies every run
+  as one `candidate_kind` (`model`, `fusion`, `pipeline`, `corrective_loop`,
+  `self_corrective`, `gate`; `_evaluation/model.py:402`) and sends it in the submission's
+  `metadata`, which the scoreboard stores as-is in `Score.metadata`. OME-1852 chose the same
+  field for its fusion marks.
 
 ## Behaviour
 
@@ -77,10 +86,16 @@ For one submitter:
 
 - **Submission count** = the number of distinct (board, `spec_id`) pairs among their eligible
   scores. A rerun of the same recipe on the same board adds nothing.
-- **Target stage:** SOTA if any of their pairs is on its board's Pareto frontier when the job
-  processes it; otherwise Submission 1, 2 or 3 for a count of 1, 2, or 3 and more.
-- **Forward only:** the card moves only if the target stage is later than its current stage in
-  the pipeline's stage order. A card a person moved further by hand stays where it is.
+- **Target stage:** Submission 1, 2 or 3 for a count of 1, 2, or 3 and more.
+- **Forward only:** a card in Onboarding, Engaged or an earlier Submission stage moves to the
+  target if the target is later. A card in Project completed, Publication or Dropped out is
+  never moved (those are set by hand).
+- **SOTA flag (rule pending Irina, Open question 4a):** when a submission meets the SOTA rule,
+  set `sf_sota_achieved` = true and `sf_sota_entry` to its public page. Set once, never
+  cleared, never moved to a later entry. Only a `candidate_kind` of `fusion` can qualify
+  (Irina, 2026-11-19). Until the rule is fixed, the job does not write these two fields.
+- **😱 Last Active Date (contact):** the time of the newest eligible submission, written
+  only when later than the stored value.
 - **😱 Leaderboard entry:** the public page of the newest eligible submission,
   `https://leaderboard.screamingface.ai/spec.html?benchmark=<id>&spec=<spec_id>`.
 - **😱 Submissions:** the submission count (type to confirm, Open questions).
@@ -93,6 +108,7 @@ For one submitter:
 2. **Card:** read the contact's associated deals and keep those in the SOTA pipeline.
    - none: create one in the stage computed above and associate it with the contact;
    - one in Dropped out: change nothing; the rows are `skipped` with reason `dropped_out`;
+   - one in Project completed or Publication: keep the stage, still update the fields;
    - one in any other stage: update it;
    - more than one: change nothing and mark the row `failed` with reason `ambiguous_card`, so
      a person picks the right card.
@@ -100,8 +116,10 @@ For one submitter:
    only when the property is empty or its latest value came from this integration (its
    history entry's source is this app's integration). Otherwise leave it and log
    `kept_manual_value`.
-4. The job writes only the 😱 Leaderboard entry and 😱 Submissions properties and the deal
-   stage. Pipeline and stage are configured by HubSpot id, never matched by label.
+4. The job writes only: on the card, the stage, 😱 Leaderboard entry, 😱 Submissions, and
+   (once the rule exists) 😱 SOTA achieved and 😱 SOTA entry; on the contact, 😱 Last Active
+   Date and, on create only, the name. Pipeline and stages are configured by HubSpot id,
+   never matched by label.
 
 ## Design
 
@@ -161,7 +179,7 @@ worker. The table is the queue, so the submit path does not change at all.
 |---|---|---|
 | `SCOREBOARD_HUBSPOT_TOKEN` | unset | private app token; unset means dry run |
 | `SCOREBOARD_HUBSPOT_PIPELINE_ID` | unset | the 😱 SOTA pipeline |
-| `SCOREBOARD_HUBSPOT_STAGE_IDS` | unset | ordered stage ids: Submission 1, 2, 3, SOTA |
+| `SCOREBOARD_HUBSPOT_STAGE_IDS` | unset | ordered stage ids the job may move between: Onboarding, Engaged, Submission 1, 2, 3 |
 | `SCOREBOARD_HUBSPOT_INTERNAL_EMAILS` | empty | extra addresses to skip |
 | `SCOREBOARD_PUBLIC_BASE_URL` | `https://leaderboard.screamingface.ai` | for the entry URL |
 
@@ -194,7 +212,9 @@ Unit, against a fake `CrmSink`:
 - eligibility: public board, re-grade, non-email, `openmined.org`, configured internal address,
   mixed case domain;
 - count: reruns on one board count once; the same recipe on two boards counts twice;
-- stage: 1, 2, 3, 4 pairs; a frontier pair gives SOTA; never moves a card backwards;
+- stage: 1, 2, 3, 4 pairs; never moves a card backwards; never moves a card out of Project
+  completed, Publication or Dropped out;
+- Last Active Date: set on create, moved only forward in time;
 - matching: no contact, contact with no card, one card, two cards (`ambiguous_card`);
 - hand-typed value kept; integration-written value updated;
 - a HubSpot error marks rows `failed` with backoff; a retry sends the recorded stage; 429
@@ -220,12 +240,8 @@ deleted after (Bennett's rule).
 ## Open questions
 
 1. **HubSpot names and ids:** answered (Facts).
-1a. **One system-owned date (proposal, needs Bennett):** set the contact's
-   `sf_last_active_date` (😱 Last Active Date) to the newest eligible submission time, and
-   never write any other date. On 2026-11-18 it is empty on all 48,764 contacts, so nobody
-   fills it by hand and the job would own it outright. It is outside Bennett's three fields,
-   and the key cannot create a dedicated property (no `crm.schemas.*.write` scope), so either
-   Bennett agrees to this field or he creates a dedicated one.
+1a. **One system-owned date:** decided (Bennett, 2026-11-19): the sync writes the contact's
+   `sf_last_active_date` on a submission. It was empty on all contacts on 2026-11-18.
 2. **Name "Unknown":** decided (Filip, 2026-11-18): `firstname` = "Unknown", `lastname` empty,
    only on create. Names need not be unique in HubSpot; no contact was named "Unknown" before.
 3. **New card name:** the 35 existing SOTA cards are named after the person (`<first> <last>`
@@ -236,8 +252,11 @@ deleted after (Bennett's rule).
    that all sit in Submission 1 today; none had the sync's fields filled.
 4a. **What qualifies for SOTA (asked Irina, 2026-11-19):** on the Pareto frontier rule, 7 of 8
    people reach SOTA, mostly through the cheapest run or the only entry on a board; only one
-   holds a top score against other submitters. Proposed instead: the top score at processing
-   time, on a board with at least one other submitter. The CSV sent to Irina is not kept in
-   the repo (it lists emails).
+   holds a top score against other submitters. Irina (2026-11-19): SOTA is not a stage but a
+   flag, reached at least once, and only with a fusion, not a solo model; she is still
+   working out which results deserve it. Bennett replaced the stage with the two fields the
+   same day. Still open: the rule itself, and whether a fusion of one model repeated counts
+   (it is `candidate_kind` `fusion` by the Client's definition). The CSV sent to Irina is not
+   kept in the repo (it lists emails).
 5. **Integration source check:** confirm HubSpot's property history marks writes by this
    private app distinctly from UI edits, on the dummy record.
