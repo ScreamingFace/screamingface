@@ -1,5 +1,5 @@
 ---
-ticket: unfiled   # set to OME-N at PR-open (bug, no parent epic: owner decision 2026-11-19)
+ticket: OME-1974
 ---
 
 # Plan: Colab analytics, finish browser round trips inside the cell
