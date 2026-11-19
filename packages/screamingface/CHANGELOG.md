@@ -16,7 +16,8 @@
   hosted"), in the card and in the connection panel. When no amount is known, the card
   shows one "Credits unavailable" box (OME-1935). A hosted panel says "Lookup failed" when
   the credit request fails, and a rejected management key reads "Management key
-  rejected" on the account box (OME-1968).
+  rejected" on the account box (OME-1968). A rejected execution key still reads "Key
+  rejected" on both boxes.
 
 - Notebook credits now show account credit separately from the key spending cap,
   with optional account settings and visible-only five-minute refresh. OpenRouter

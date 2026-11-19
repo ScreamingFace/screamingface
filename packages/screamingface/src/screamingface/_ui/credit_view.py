@@ -126,9 +126,11 @@ def credit_html(status: CreditStatus, *, hosted: bool | None = None) -> str:
         amounts = _amount_html("Hosted allowance", status.hosted, primary=True)
         help_text = "Remaining allowance on your platform key."
     else:
-        amounts = _amount_html(
-            "Account balance", status.account, primary=True, notes=_ACCOUNT_NOTES
-        )
+        # WHY: a rejected execution key rejects both amounts; only blame the management key
+        # when the execution key itself still read (review of PR #1942).
+        rejected = status.key.reason == "credential_rejected"
+        notes = _REASON_NOTES if rejected else _ACCOUNT_NOTES
+        amounts = _amount_html("Account balance", status.account, primary=True, notes=notes)
         amounts += _amount_html("Key allowance", status.key)
         help_text = "Key allowance is a spending cap, not additional credit."
     grid = "sf-credits__grid sf-credits__grid--hosted" if hosted else "sf-credits__grid"
