@@ -121,7 +121,8 @@ from screamingface.warnings import (
 __version__ = resolve_version()
 
 # FEATURE: default-on analytics with best-effort disclosure and explicit opt-out.
-from screamingface._analytics.prompt import offer as _offer_analytics
+# WHY offer_and_settle: in Colab, setup must finish while the importing cell still runs.
+from screamingface._analytics.prompt import offer_and_settle as _offer_analytics
 
 _offer_analytics()
 del _offer_analytics

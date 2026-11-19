@@ -85,6 +85,15 @@ def wait_for_setup(generation: int | None = None) -> None:
             _LOG.debug("Analytics setup skipped")
 
 
+def offer_and_settle() -> None:
+    """Offer setup and, in Colab, wait (bounded) until it finishes inside this cell."""
+    # WHY: Colab only answers a background eval_js while the triggering cell runs; setup left
+    # running after import or connect returned ends `unknown` (2026-11-19 trace). offer()
+    # itself stays non-blocking because the async evaluation path calls it on the event loop.
+    offer()
+    wait_for_setup()
+
+
 def before_evaluation() -> None:
     offer()
     wait_for_setup()

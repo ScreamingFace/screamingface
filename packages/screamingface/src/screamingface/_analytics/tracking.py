@@ -64,6 +64,32 @@ def _finish(record: tuple[Coordinator, Operation] | None, outcome: str | None) -
             _LOG.debug("Analytics terminal event skipped")
 
 
+def _settle(record: tuple[Coordinator, Operation] | None, outcome: str | None) -> None:
+    """In Colab, wait (bounded) until the terminal event has been handed to the browser."""
+    # WHY: Colab answers a background eval_js only while this cell runs; an upload sent after
+    # the call returned is lost and resets consent (2026-11-19 trace). A cancelled call does
+    # not wait: the user asked to stop, and its terminal event stays best-effort.
+    if record is None or outcome in (None, "cancelled") or wiring.origin() != "colab":
+        return
+    try:
+        from screamingface._analytics.colab import bridge
+
+        bridge().flush()
+    except Exception:
+        # INVARIANT: optional analytics can never fail or block product work past the bound.
+        _LOG.debug("Analytics delivery wait skipped")
+
+
+async def _settle_async(record: tuple[Coordinator, Operation] | None, outcome: str | None) -> None:
+    if record is None or outcome in (None, "cancelled") or wiring.origin() != "colab":
+        return
+    try:
+        # WHY: the bounded wait must not block the caller's event loop.
+        await asyncio.to_thread(_settle, record, outcome)
+    except RuntimeError:
+        _LOG.debug("Analytics delivery wait skipped")
+
+
 def _outcome(name: str, result: Any) -> str | None:
     try:
         succeeded = name != "evaluation" or result.ok
@@ -94,16 +120,19 @@ def _sync_wrapper(function: Callable, name: str):
         try:
             result = function(*args, **kwargs)
         except BaseException as exc:
-            _finish(
-                record,
+            outcome = (
                 "cancelled"
                 if isinstance(exc, (KeyboardInterrupt, asyncio.CancelledError))
-                else "failed",
+                else "failed"
             )
+            _finish(record, outcome)
+            _settle(record, outcome)
             raise
         else:
             if record is not None:
-                _finish(record, _outcome(name, result))
+                outcome = _outcome(name, result)
+                _finish(record, outcome)
+                _settle(record, outcome)
             return result
         finally:
             _active.reset(token)
@@ -123,16 +152,19 @@ def _async_wrapper(function: Callable, name: str):
         try:
             result = await function(*args, **kwargs)
         except BaseException as exc:
-            _finish(
-                record,
+            outcome = (
                 "cancelled"
                 if isinstance(exc, (KeyboardInterrupt, asyncio.CancelledError))
-                else "failed",
+                else "failed"
             )
+            _finish(record, outcome)
+            await _settle_async(record, outcome)
             raise
         else:
             if record is not None:
-                _finish(record, _outcome(name, result))
+                outcome = _outcome(name, result)
+                _finish(record, outcome)
+                await _settle_async(record, outcome)
             return result
         finally:
             _active.reset(token)
