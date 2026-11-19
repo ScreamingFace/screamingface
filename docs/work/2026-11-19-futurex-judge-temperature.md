@@ -1,5 +1,5 @@
 ---
-ticket: unfiled   # slug-named ledger; set to OME-N when the issue is filed at PR-open
+ticket: OME-1977
 stack: screamingface-engine
 status: done   # planned | in_progress | done | blocked
 started: 2026-11-19
@@ -62,9 +62,10 @@ Spec: `docs/spec/2026-11-19-futurex-judge-temperature.md` · Plan: `docs/plan/20
 - **Gates:** ruff check OK; ruff format --check OK (1438 files); pyright 0 errors (venv without
   the inspect extra, as CI); check_layering OK; pytest (inspect extra) 13700 passed, 240 skipped,
   8 failed. The same 8 fail on clean `origin/main` c403ebd33 (enigmaeval catalogue rows,
-  import-isolation tests), so they predate this unit. `run_gates.py` stops at the append-only
-  check until the approval record for the two changed prior tests exists (written at PR-open,
-  it needs the issue and branch).
+  import-isolation tests), so they predate this unit. After filing OME-1977 and writing
+  `.claude/test-change-approvals/OME-1977.json`, `run_gates.py screamingface-engine` → ALL GATES
+  GREEN (append-only, ruff, format, pyright, layering, pytest with coverage; venv without the
+  inspect extra, as CI's typecheck).
 - **Deviations:** two prior tests changed with owner approval (2026-11-19):
   `test_benchmark_fingerprints.py` (futurex_past literal, held-id rule) and
   `test_local_task_futurex_past.py` (`_JUDGE_PARAMS` constant only, no assertion changed).
