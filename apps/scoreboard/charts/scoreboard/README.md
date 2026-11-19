@@ -46,6 +46,15 @@ cors:
     - https://screamingface.ai
 ```
 
+## Frozen copy claims
+
+Set `config.gatewayUrl` and `config.gatewayActor` to let the scoreboard claim the frozen copy of
+each new submit that names one in the AI Gateway (OME-1947). At each start, the scoreboard also
+claims the copy of each stored Score. An empty `gatewayUrl` (default) turns the claims off.
+`config.gatewayTimeoutS` (default 5) is the time limit of one call. Refer to the section "Frozen
+copy claims (OME-1947)" in `apps/scoreboard/DEPLOYMENT.md` for the check to do before you set the
+URL, the log records, and the command `python -m scoreboard.claim_copies`.
+
 ## Production
 
 `values-prod.yaml` expects externally managed Postgres through a Secret with a `database-url` key, three app replicas, nginx ingress, TLS, and NetworkPolicy enabled:
