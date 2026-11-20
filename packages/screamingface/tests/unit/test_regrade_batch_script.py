@@ -29,6 +29,7 @@ _EXISTING: str = "3c9a0000-0000-4000-8000-000000000000"
 def _load() -> ModuleType:
     """Import the script by path: `scripts/` is not a package."""
 
+    sys.path.insert(0, str(_SCRIPT.parent))
     spec = importlib.util.spec_from_file_location("regrade_batch", _SCRIPT)
     assert spec is not None and spec.loader is not None
     module: ModuleType = importlib.util.module_from_spec(spec)
@@ -85,7 +86,7 @@ def test_finds_every_old_row_of_a_public_board_and_marks_the_one_with_no_pinned_
     # WHY: the 8 uncached entries on 2026-11-17 need an owner decision, so they must appear in the
     # list, not vanish; the private board and the board that never moved add nothing.
     with httpx.Client(base_url="http://board", transport=httpx.MockTransport(_board)) as http:
-        entries: list[Any] = batch.find_entries(http)
+        entries: list[Any] = batch.find_entries(http, ["inspect-mmlu_pro"])
 
     assert entries == [
         batch.Entry("inspect-mmlu_pro", _OLD, "spec-cached", "copy-a", "a" * 8),
@@ -102,7 +103,7 @@ def test_a_failed_board_read_stops_the_run_instead_of_returning_a_short_list(sta
 
     with httpx.Client(base_url="http://board", transport=httpx.MockTransport(broken)) as http:
         with pytest.raises(batch.BoardReadError):
-            batch.find_entries(http)
+            batch.find_entries(http, ["inspect-mmlu_pro"])
 
 
 class _FakeRegrader:
@@ -166,6 +167,7 @@ def test_each_outcome_is_logged_and_a_second_run_retries_only_the_retryable_one(
         "refused_permanently": 1,
         "refused_retryable": 1,
         "no_pinned_cache": 1,
+        "unresolved": 3,
     }
     by_source: dict[object, dict[str, Any]] = {r["source_score_id"]: r for r in _lines(log)}
     assert by_source["moved"]["new_score_id"] == "new-moved"
@@ -177,7 +179,8 @@ def test_each_outcome_is_logged_and_a_second_run_retries_only_the_retryable_one(
     second: dict[str, int] = batch.regrade_all(regrader, entries, log)
 
     assert regrader.calls == ["judge-outage"]
-    assert second["skipped"] == 3
+    assert second["skipped"] == 4
+    assert second["unresolved"] == 3
 
 
 def test_an_engine_still_on_the_old_revision_is_retried_on_the_next_run(tmp_path: Path) -> None:
@@ -192,8 +195,8 @@ def test_an_engine_still_on_the_old_revision_is_retried_on_the_next_run(tmp_path
     regrader.answers["stale-pod"] = None
     second: dict[str, int] = batch.regrade_all(regrader, [_entry("stale-pod", "s1")], log)
 
-    assert first == {"refused_retryable": 1}
-    assert second == {"regraded": 1}
+    assert first == {"refused_retryable": 1, "unresolved": 1}
+    assert second == {"regraded": 1, "unresolved": 0}
 
 
 def test_the_start_guard_reads_the_revision_a_board_serves_now() -> None:

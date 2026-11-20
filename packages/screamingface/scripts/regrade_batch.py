@@ -1,49 +1,32 @@
-"""OME-1958: move every old leaderboard entry onto its Benchmark's new revision with a re-grade.
+"""Re-grade only OME-1958's 47 explicit board/source/target transitions (Unix).
 
-    uv run --isolated python scripts/regrade_batch.py                     # dry run: list only
-    uv run --isolated python scripts/regrade_batch.py --apply             # re-grade and log
-    uv run --isolated python scripts/regrade_batch.py --apply --benchmark inspect-mmlu_pro
+Run from packages/screamingface after the revision bump is deployed:
+    uv run python scripts/regrade_batch.py                         # read-only preview
+    uv run python scripts/regrade_batch.py --apply --log /path/to/regrade.jsonl
+    uv run python scripts/regrade_batch.py --benchmark inspect-mmlu_pro
 
-Run from ``packages/screamingface``, after the bump is deployed and the board shows the new
-revision. Think of it as a loop over what each board used to show: for every public board, the
-entries still on an older revision are re-graded one by one with ``Client.regrade`` (OME-1909),
-which replays the entry's pinned cache at no Candidate cost and posts a new entry credited to the
-original submitter.
+regrade_transitions.json fixes the scope. Every selected board must serve its exact target;
+missing boards, unknown revisions and truncated reads stop the batch. Only the declared
+source revision is discovered, never unrelated historical revisions or boards.
 
-Stages, in the order they run:
+Use one persistent log path on one operator machine for all scheduled runs. An OS lock
+excludes overlapping processes. Complete records are fsynced; an unterminated final record
+is truncated under the lock before resuming. Malformed complete records require inspection.
+Legacy logs without target/environment identity must be inspected and archived first.
 
-1. Find the entries (``find_entries``), public reads only, no login: each board's revisions
-   (``/v1/leaderboard/{id}/revisions``), then the board at every older revision
-   (``?revision=``), then each row's score id from its pinned cache
-   (``/v1/public/scores/by-pinned-cache/{copy}``). A row with no pinned cache cannot be
-   re-graded; it is logged as ``no_pinned_cache`` for the owner to decide (a paid rerun).
-2. Skip what an earlier run of this log already settled (``settled_ids``): a new entry, an
-   ``already_regraded`` answer, or a permanent refusal. A crash or a Ctrl+C is fixed by running
-   the same command again.
-3. Re-grade each remaining entry (``regrade_all``) and append one JSON line per entry to the log.
-   The SDK refuses, before any run and at no cost, an entry its Benchmark does not list in
-   ``regradable_from`` (``not_regradable``: the Cases changed) or one that is already current.
+Permanent refusals and uncached rows are not retried automatically, but remain unresolved
+(exit 1), even if a later discovery no longer lists them. After an owner decision, record it:
+    uv run python scripts/regrade_batch.py --log /path/to/regrade.jsonl \
+        --resolve 'ENTRY_KEY=Fresh run linked at ...'
+The entry key is printed and stored in each log record. Resolution only updates the local
+log; it never re-grades. Keep the note as evidence of the actual owner action.
 
-Worked example: ``inspect-mmlu_pro`` moved from ``145edec84bfc2324`` to ``4efebd6cc74c2dca``.
-Its board at ``145edec84bfc2324`` shows 3 rows: two with a pinned cache, one without. The dry
-run lists 3 lines; ``--apply`` logs two ``regraded`` lines naming each new score id and one
-``no_pinned_cache`` line naming the row's spec. Run again: both re-graded ids are settled, so
-nothing is posted twice.
-
-Every call of a re-grade, Candidate and judge, replays from the pinned cache, so the run makes
-no model call. A Benchmark whose judge request changed misses on every judged Case and is
-refused (``regrade_incomplete``); re-judging is OME-1979.
-
-On a schedule (cron or launchd, every 30 minutes) the run is safe to repeat: settled entries are
-skipped, and ``--when-revision inspect-mmlu_pro=4efebd6cc74c2dca`` makes a run do nothing until
-that board shows that revision, so the batch starts on its own once the bump is deployed:
-
-    */30 * * * * cd <checkout>/packages/screamingface && uv run --isolated python \
-        scripts/regrade_batch.py --apply --when-revision inspect-mmlu_pro=4efebd6cc74c2dca \
-        --log ~/regrade-log.jsonl >> ~/regrade-cron.log 2>&1
-
-Exit status: 0 when every entry was re-graded or settled (or the guard is not met yet), 1 when
-any was refused or failed.
+Optional --when-revision inspect-mmlu_pro=4efebd6cc74c2dca waits while that board serves
+its declared source revision. The guard must name a selected board and its exact target;
+all selected boards still have to pass target validation before any replay.
+Exit 0: dry run, waiting, or all logged entries resolved; 1: unresolved entries;
+2: invalid input, read/log failure or another batch is running.
+Every replay uses stored replies only. Changed judge requests require OME-1979.
 """
 
 from __future__ import annotations
@@ -57,14 +40,26 @@ from pathlib import Path
 from typing import Any, NamedTuple, Protocol
 
 import httpx
+from regrade_batch_log import (
+    NO_RETRY,
+    RESOLVED,
+    LogError,
+    entry_key,
+    locked_journal,
+)
+from regrade_batch_log import (
+    BatchAlreadyRunning as BatchAlreadyRunning,
+)
+
+TRANSITIONS: dict[str, dict[str, str]] = json.loads(
+    Path(__file__).with_name("regrade_transitions.json").read_text()
+)
 
 #: Rows per board page; the Scoreboard clamps any larger ``top`` to this (MAX_LEADERBOARD_TOP).
 _TOP: int = 200
 _TIMEOUT_S: float = 30.0
 _EXIT_OK: int = 0
 _EXIT_SOME_REFUSED: int = 1
-#: Outcomes a later run never retries: the entry moved, or the SDK said it never will.
-_SETTLED: frozenset[str] = frozenset({"regraded", "already_regraded", "refused_permanently"})
 #: Permanent in the SDK, but a deploy in progress, never the entry: a later run tries again.
 _RETRIED_ANYWAY: frozenset[str] = frozenset({"already_current"})
 
@@ -105,42 +100,50 @@ def _get(http: httpx.Client, path: str, **params: str | int) -> Any:
 
 
 def find_entries(http: httpx.Client, benchmark_ids: Sequence[str] = ()) -> list[Entry]:
-    """Every row each public board shows at a revision older than its current one (stage 1).
-
-    ``benchmark_ids`` narrows the boards; empty means every board. A private board is skipped:
-    the Scoreboard never re-grades a private score.
-    """
-
-    boards: list[Mapping[str, Any]] = _get(http, "/v1/benchmarks")["benchmarks"]
-    wanted: set[str] = set(benchmark_ids)
-    entries: list[Entry] = []
-    for board in boards:
-        board_id: str = str(board["id"])
-        current: str | None = board.get("revision")
-        if (wanted and board_id not in wanted) or current is None:
-            continue
-        if board.get("visibility") != "public":
-            continue
-        # WHY no 404 fallback: a public board always answers its revisions, so a 404 here means
-        # a Scoreboard older than OME-1708; skipping would report "0 entries" and move nothing.
-        revisions: list[Mapping[str, Any]] = _get(http, f"/v1/leaderboard/{board_id}/revisions")[
-            "revisions"
-        ]
-        for summary in revisions:
-            old: str = str(summary["revision"])
-            if old == current or not summary.get("result_count"):
-                continue
-            page: Mapping[str, Any] = _get(
-                http, f"/v1/leaderboard/{board_id}", revision=old, top=_TOP
+    """Read only the 47 declared source revisions, after validating every target."""
+    wanted = set(benchmark_ids) or set(TRANSITIONS)
+    if wanted - TRANSITIONS.keys():
+        raise BoardReadError(f"unknown OME-1958 boards: {sorted(wanted - TRANSITIONS.keys())}")
+    boards = {b["id"]: b for b in _get(http, "/v1/benchmarks")["benchmarks"]}
+    for board_id in sorted(wanted):
+        board = boards.get(board_id, {})
+        if (
+            board.get("visibility") != "public"
+            or board.get("revision") != TRANSITIONS[board_id]["target"]
+        ):
+            raise BoardReadError(
+                f"{board_id}: expected public target {TRANSITIONS[board_id]['target']}"
             )
-            for row in page["entries"]:
-                copy: str | None = row.get("pinned_cache")
-                score_id: str | None = (
-                    str(_get(http, f"/v1/public/scores/by-pinned-cache/{copy}")["score_id"])
-                    if copy
-                    else None
-                )
-                entries.append(Entry(board_id, old, str(row["spec_id"]), copy, score_id))
+    entries: list[Entry] = []
+    for board_id in sorted(wanted):
+        entries.extend(_source_entries(http, board_id))
+    return entries
+
+
+def _source_entries(http: httpx.Client, board_id: str) -> list[Entry]:
+    """Fail closed if a source page cannot enumerate the entire ranked population."""
+    source = TRANSITIONS[board_id]["source"]
+    revisions = _get(http, f"/v1/leaderboard/{board_id}/revisions")["revisions"]
+    summary = next((r for r in revisions if r["revision"] == source), None)
+    if summary is None:
+        return []  # No published runs ever used this source revision.
+    count = summary["result_count"]
+    if not isinstance(count, int) or not 0 <= count <= _TOP:
+        raise BoardReadError(
+            f"{board_id}: source result_count {count} exceeds safe page capacity {_TOP}"
+        )
+    page = _get(http, f"/v1/leaderboard/{board_id}", revision=source, top=_TOP)
+    if len(page["entries"]) != count:
+        raise BoardReadError(f"{board_id}: source page changed or was truncated; retry discovery")
+    entries = []
+    for row in page["entries"]:
+        copy = row.get("pinned_cache")
+        score_id = (
+            str(_get(http, f"/v1/public/scores/by-pinned-cache/{copy}")["score_id"])
+            if copy
+            else None
+        )
+        entries.append(Entry(board_id, source, str(row["spec_id"]), copy, score_id))
     return entries
 
 
@@ -152,21 +155,6 @@ def board_revision(http: httpx.Client, board_id: str) -> str | None:
             revision: object = board.get("revision")
             return None if revision is None else str(revision)
     raise BoardReadError(f"no board {board_id!r} on this Scoreboard")
-
-
-def settled_ids(log_path: Path) -> set[str]:
-    """The source score ids an earlier run of this log already settled (stage 2)."""
-
-    if not log_path.exists():
-        return set()
-    settled: set[str] = set()
-    for line in log_path.read_text().splitlines():
-        if not line.strip():
-            continue
-        record: Mapping[str, Any] = json.loads(line)
-        if record.get("outcome") in _SETTLED and record.get("source_score_id"):
-            settled.add(str(record["source_score_id"]))
-    return settled
 
 
 def _outcome(regrader: _Regrader, entry: Entry) -> dict[str, object]:
@@ -182,7 +170,7 @@ def _outcome(regrader: _Regrader, entry: Entry) -> dict[str, object]:
 
 
 def _refusal(exc: Any) -> dict[str, object]:
-    """A refusal as a log record: permanent ones are settled, retryable ones run again.
+    """A refusal as a log record: permanent ones need owner action; retryable ones run again.
 
     WHY ``already_regraded`` is its own outcome: the board already holds this source's re-grade
     at this revision (a ``LeaderboardError`` naming it), so the entry moved and is settled.
@@ -207,42 +195,55 @@ def regrade_all(
     log_path: Path,
     *,
     now: Callable[[], datetime] = lambda: datetime.now(UTC),
+    resolutions: Mapping[str, str] | None = None,
+    scope: str = "https://leaderboard.screamingface.ai",
 ) -> dict[str, int]:
-    """Re-grade every entry not yet settled and append one log line each (stages 2-3).
-
-    Returns how many entries ended in each outcome this run, ``skipped`` included.
-    """
-
-    settled: set[str] = settled_ids(log_path)
+    """Hold the log lock through replay; count unresolved outcomes across all runs."""
     counts: dict[str, int] = {}
-    with log_path.open("a") as log:
+    with locked_journal(log_path, scope.rstrip("/"), TRANSITIONS) as journal:
+        journal.resolve(resolutions or {}, now().isoformat())
         for entry in entries:
-            record: dict[str, object] = {
+            transition = TRANSITIONS.get(entry.benchmark_id)
+            if transition is None or entry.revision != transition["source"]:
+                raise LogError(f"entry outside OME-1958 source transitions: {entry}")
+            record: dict[str, Any] = {
                 "at": now().isoformat(),
                 "benchmark_id": entry.benchmark_id,
                 "revision": entry.revision,
+                "target_revision": transition["target"],
                 "spec_id": entry.spec_id,
                 "source_score_id": entry.score_id,
             }
-            if entry.score_id is None:
-                record["outcome"] = "no_pinned_cache"
-            elif entry.score_id in settled:
+            key = entry_key(record)
+            previous = journal.records.get(key)
+            if previous and previous["outcome"] in NO_RETRY:
                 counts["skipped"] = counts.get("skipped", 0) + 1
                 continue
-            else:
-                record.update(_outcome(regrader, entry))
-            outcome: str = str(record["outcome"])
+            record.update(
+                {"outcome": "no_pinned_cache"}
+                if entry.score_id is None
+                else _outcome(regrader, entry)
+            )
+            journal.append(record)
+            outcome = str(record["outcome"])
             counts[outcome] = counts.get(outcome, 0) + 1
-            log.write(json.dumps(record) + "\n")
-            log.flush()
-            print(f"{outcome:<20} {entry.benchmark_id} {entry.spec_id} {record.get('code', '')}")
+            print(f"{outcome:<20} {key} {record.get('code', '')}")
+        unresolved = [r for r in journal.records.values() if r["outcome"] not in RESOLVED]
+        counts["unresolved"] = len(unresolved)
+        for record in unresolved:
+            print(f"unresolved {record['entry_key']}: {record['outcome']}")
     return counts
+
+
+def exit_status(counts: Mapping[str, int]) -> int:
+    """Not retrying an entry does not mean its owner work is complete."""
+    return _EXIT_SOME_REFUSED if counts.get("unresolved") else _EXIT_OK
 
 
 def _arguments(argv: Sequence[str]) -> argparse.Namespace:
     """Parse the command line."""
 
-    parser = argparse.ArgumentParser(description="Re-grade every old leaderboard entry (OME-1958).")
+    parser = argparse.ArgumentParser(description="Re-grade the 47 declared OME-1958 transitions.")
     parser.add_argument("--apply", action="store_true", help="re-grade; without it, list only")
     parser.add_argument(
         "--benchmark", action="append", default=[], help="a board id; repeat for several"
@@ -255,7 +256,33 @@ def _arguments(argv: Sequence[str]) -> argparse.Namespace:
         metavar="BOARD=REVISION",
         help="do nothing until BOARD serves REVISION (for a scheduled run)",
     )
-    return parser.parse_args(argv)
+    parser.add_argument(
+        "--resolve",
+        action="append",
+        default=[],
+        metavar="ENTRY_KEY=NOTE",
+        help="record an owner decision in the log, without re-grading",
+    )
+    args = parser.parse_args(argv)
+    unknown = set(args.benchmark) - TRANSITIONS.keys()
+    if unknown:
+        parser.error(f"unknown OME-1958 boards: {sorted(unknown)}")
+    if args.when_revision:
+        board, sep, target = args.when_revision.partition("=")
+        if (
+            not sep
+            or board not in TRANSITIONS
+            or target != TRANSITIONS[board]["target"]
+            or (args.benchmark and board not in args.benchmark)
+        ):
+            parser.error("--when-revision must name a selected OME-1958 board and its exact target")
+    if args.resolve and (args.apply or args.when_revision or args.benchmark):
+        parser.error("--resolve is a separate log-only operation")
+    for value in args.resolve:
+        key, sep, note = value.partition("=")
+        if not key or not sep or not note.strip():
+            parser.error("--resolve requires ENTRY_KEY=NOTE")
+    return args
 
 
 def main(argv: Sequence[str]) -> int:
@@ -265,15 +292,36 @@ def main(argv: Sequence[str]) -> int:
 
     args: argparse.Namespace = _arguments(argv)
     client = sf.Client(**({"scoreboard_url": args.scoreboard_url} if args.scoreboard_url else {}))
+    if args.resolve:
+        counts = regrade_all(
+            client,
+            [],
+            args.log,
+            scope=client.scoreboard_url,
+            resolutions=dict(value.split("=", 1) for value in args.resolve),
+        )
+        return exit_status(counts)
+    return _run(client, args)
+
+
+def _run(client: Any, args: argparse.Namespace) -> int:
+    """Preview or execute the selected batch after its deployment guard passes."""
     with httpx.Client(base_url=client.scoreboard_url, timeout=_TIMEOUT_S) as http:
         if args.when_revision:
             # WHY a guard: before the deploy the old entries are still current, so a scheduled
             # run waits here instead of logging a refusal per entry every half hour.
             board_id, _, wanted = str(args.when_revision).partition("=")
             served: str | None = board_revision(http, board_id)
+            if served not in {TRANSITIONS[board_id]["source"], wanted}:
+                raise BoardReadError(f"{board_id}: unexpected revision {served}")
             if served != wanted:
                 print(f"waiting: {board_id} serves {served}, not {wanted}")
-                return _EXIT_OK
+                counts = (
+                    regrade_all(client, [], args.log, scope=client.scoreboard_url)
+                    if args.apply and args.log.exists()
+                    else {}
+                )
+                return exit_status(counts)
         entries: list[Entry] = find_entries(http, args.benchmark)
     for entry in entries:
         print(f"{entry.benchmark_id} {entry.revision} {entry.spec_id} {entry.score_id or '-'}")
@@ -285,11 +333,14 @@ def main(argv: Sequence[str]) -> int:
         return _EXIT_OK
     if not client.authenticated:
         client.login()
-    counts: dict[str, int] = regrade_all(client, entries, args.log)
+    counts = regrade_all(client, entries, args.log, scope=client.scoreboard_url)
     print(json.dumps(counts, sort_keys=True))
-    failed: int = sum(n for name, n in counts.items() if name.startswith("refused"))
-    return _EXIT_SOME_REFUSED if failed else _EXIT_OK
+    return exit_status(counts)
 
 
 if __name__ == "__main__":
-    raise SystemExit(main(sys.argv[1:]))
+    try:
+        raise SystemExit(main(sys.argv[1:]))
+    except (BoardReadError, LogError) as exc:
+        print(str(exc), file=sys.stderr)
+        raise SystemExit(2) from exc
