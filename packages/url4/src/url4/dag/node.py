@@ -67,6 +67,16 @@ class SourceFailure:
     message: str
 
 
+class NoElement(list[str]):
+    """The value of an expand.at_most_one=true source that held zero elements (C19).
+
+    An empty element list, so every consumer that gives an empty expansion no position and
+    no broadcast part keeps doing so. The type tells a gather not to bind $name either:
+    the source is absent, not an empty array. It is not a failure and nothing records it as
+    one, so ;required and ;optional do not apply.
+    """
+
+
 Payload = str | list[str] | SourceFailure
 
 # WHY a context variable (contracts C6): an RDS scope is strict (Spec B §5.3.4.1, §6.3), and
@@ -185,6 +195,7 @@ __all__ = [
     "DagNode",
     "ExecuteNodeFn",
     "ExecutionContext",
+    "NoElement",
     "Payload",
     "RDS_STRICT",
     "ProcessFn",

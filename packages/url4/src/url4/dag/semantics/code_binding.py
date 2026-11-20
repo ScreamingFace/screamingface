@@ -35,12 +35,19 @@ SlotResult = str | list[str] | None
 
 @dataclass(frozen=True, slots=True)
 class CodeSlot:
-    """One source of a code group, as the lowering knows it."""
+    """One source of a code group, as the lowering knows it.
+
+    ``at_most_one`` marks an ``expand.at_most_one=true`` source (C19, a package extension
+    outside the Lean model). Its one element arrives as a plain text result, so
+    :func:`expand` already gives it the slot's name and undivided weight; the flag only
+    stops :func:`pointer_bindings` from naming an absent source.
+    """
 
     name: str | None
     weight: CodeWeight | None
     required: bool
     kind: SlotKind = "text"
+    at_most_one: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -141,7 +148,8 @@ def pointer_bindings(slots: Sequence[CodeSlot], results: Sequence[SlotResult]) -
     """The ``$name`` / ``$N`` texts a code pointer may reference (B §6.2: the group's own).
 
     Mirrors the LLM group's gather: positions after expansion; an expansion's name binds
-    the JSON array of its elements; a failed source binds nothing.
+    the JSON array of its elements; a failed source binds nothing, and neither does an
+    at-most-one source that held no element (C19).
     """
     bindings: dict[str, str] = {}
     position = 0
@@ -153,7 +161,8 @@ def pointer_bindings(slots: Sequence[CodeSlot], results: Sequence[SlotResult]) -
             for element in result:
                 position += 1
                 bindings[str(position)] = element
-            if slot.name is not None:
+            # An at-most-one slot reaches here only with no element: absent, no name.
+            if slot.name is not None and not slot.at_most_one:
                 bindings[slot.name] = json.dumps([_element_value(e) for e in result])
             continue
         position += 1

@@ -46,6 +46,7 @@ from url4.core._lexical import _IDENT_RE, _STRUCT_KEY_RE, chained_bang
 # intent/source formatting here would let builders and renderer drift.
 from url4.core._render_values import format_number as _format_number
 from url4.core._render_values import quote as _quote
+from url4.core.at_most_one import AT_MOST_ONE_KEY, AT_MOST_ONE_VALUE, check_at_most_one
 from url4.core.errors import ParseError
 from url4.core.grammar import intent_atom, parse, parse_value
 from url4.core.nodes import (
@@ -151,6 +152,7 @@ def src(
     accept: str | None = None,
     required: bool | None = None,
     expand: bool = False,
+    at_most_one: bool = False,
     annotations: ParamsLike = (),
 ) -> Node:
     """Build a source descriptor (§4.3) around ``value``.
@@ -162,20 +164,26 @@ def src(
     ``True`` marks ``;required``, ``False`` marks ``;optional``, and the
     default ``None`` leaves the spec's default handling.
 
+    ``at_most_one`` writes the package extension ``expand.at_most_one=true``
+    right after ``;required``/``;optional``: a named ``expand=True`` source
+    with one guard then contributes nothing for zero elements and its one
+    element under its own name. A broken form — from this keyword or from
+    ``annotations`` — raises ``ValueError``.
+
     Returns the parser-canonical node for the descriptor: a bare value node
     when no descriptor content is given, a :class:`Binding` for name-only, a
     :class:`Source` otherwise.
     """
     node = _coerce_value(value)
     _check_name(name)
-    ann = _exec_annotations(mode, t, retry, accept, required, annotations)
+    ann = _exec_annotations(mode, t, retry, accept, required, at_most_one, annotations)
     norm_weight = _norm_weight(weight)
     norm_budgets = _norm_budgets(budgets)
     if norm_weight is None and not norm_budgets and not ann and not expand:
         if name is not None:
             return Binding(name, node, "=")
         return node
-    return Source(
+    source = Source(
         value=node,
         name=name,
         weight=norm_weight,
@@ -183,6 +191,8 @@ def src(
         annotations=ann,
         expand=expand,
     )
+    _check_at_most_one(source)
+    return source
 
 
 def _check_name(name: str | None) -> None:
@@ -192,12 +202,22 @@ def _check_name(name: str | None) -> None:
         raise ValueError(f"invalid source name {name!r} ('src' is reserved, §4.3)")
 
 
+def _check_at_most_one(source: Source) -> None:
+    # INVARIANT (C19): the builder refuses exactly what the parser refuses, whatever
+    # the mark's origin (keyword or `annotations=`), as it refuses a bad name.
+    try:
+        check_at_most_one(source)
+    except ParseError as exc:
+        raise ValueError(str(exc)) from exc
+
+
 def _exec_annotations(
     mode: str | None,
     t: float | int | None,
     retry: int | None,
     accept: str | None,
     required: bool | None,
+    at_most_one: bool,
     extra: ParamsLike,
 ) -> Params:
     typed = (
@@ -209,6 +229,10 @@ def _exec_annotations(
     pairs: list[tuple[str, str | None]] = [(k, v) for k, v in typed if v is not None]
     if required is not None:
         pairs.append(("required" if required else "optional", None))
+    if at_most_one:
+        # WHY after the guard: on an expression-valued source a reader splits the `;`
+        # chain at the first source-level key (§8.1.2); old and new readers agree here.
+        pairs.append((AT_MOST_ONE_KEY, AT_MOST_ONE_VALUE))
     return tuple(pairs) + _pairs(extra)
 
 

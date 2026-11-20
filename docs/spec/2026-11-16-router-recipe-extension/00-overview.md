@@ -245,8 +245,8 @@ storage, API, IR or serving decision cannot be stated unambiguously here.
   inline error class names; the measured root GET limit and question bound; the prepared-input API,
   storage, retention, cleanup, multi-definition layout and reader codecs; the capability endpoint if
   OME-1921 has settled a different one.
-- url4 leaf: the public builder surface for `expand.at_most_one=true`; the code for a marked expansion
-  with two or more elements.
+- url4 leaf: pinned in C19, the `url4.src` keyword `at_most_one=` and the two-plus failure code
+  `x.expansion_too_many`.
 - Unit 7: placement refusal messages; the forms C18 leaves open (the member read, its route and the
   marked member slot, the Pipeline gate, a Router as a panel Gate's decision call in the IR, the
   report view of that Gate).

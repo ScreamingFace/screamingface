@@ -475,8 +475,8 @@ C18 wires each of these positions.
 ```
 
 - `GET /v1/capabilities` on the Engine App, under the same caller auth as `/v1/operators`, returning
-  the document above. If OME-1921 settles a different endpoint or E4c ID before Unit 6, the Unit 6
-  spec moves the Router IDs into it unchanged; otherwise Unit 6 ships this one. The object keys are
+  the document above. If OME-1921 settles a different endpoint or E4c ID before Unit 6, Unit 6
+  moves the Router IDs into it unchanged; otherwise Unit 6 ships this one. The object keys are
   strict; the ID list is open, and readers ignore IDs they do not know.
 - `router-v1` covers C2-C6, C10, the run definition set (C9), the inline entry and envelope (C13), the
   stored-result changes (C15) and the classifier catalog (C17);

@@ -273,6 +273,7 @@ def _render_descriptor(node: Source) -> str:
         )
     _guard_annotation_boundary(node)
     guard.check_annotations(node.annotations, node.value)
+    guard.check_at_most_one_form(node)
     chain = _descriptor_chain(node)
     chain.append(_data_binding(value, after_colon=bool(chain)))
     out = ":".join(chain) + tail + _render_annotations(node.annotations)

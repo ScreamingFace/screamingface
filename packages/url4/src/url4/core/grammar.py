@@ -76,6 +76,7 @@ from url4.core._struct_values import (
     _parse_budget_value,
     _parse_weight_value,
 )
+from url4.core.at_most_one import check_at_most_one, refuse_mark_as_param
 from url4.core.blob_ref import bare_value
 from url4.core.descriptor_head import classify_head, first_colon, is_value_shaped
 from url4.core.errors import ErrorCode, ParseError
@@ -141,13 +142,22 @@ class _Descriptor:
 
 
 def _parse_source(token: str) -> Node:
+    node = _parse_descriptor(token)
+    if isinstance(node, Source):
+        # WHY here, not in `_attach_tail`: the form needs `;expand`, which a '*' prefix
+        # only sets once the whole source is parsed (C19).
+        check_at_most_one(node)
+    return node
+
+
+def _parse_descriptor(token: str) -> Node:
     token = token.strip()
     if not token:
         raise ParseError("empty source")
     if token.startswith("*") and len(token) > 1:
         # §5.2 rule 9 — source-initial '*' is the expansion prefix; the
         # remainder undergoes full source parsing.
-        return _mark_expand(_parse_source(token[1:]))
+        return _mark_expand(_parse_descriptor(token[1:]))
     parts = split_top_level(token, ";")
     if not parts[0]:
         raise ParseError(f"source has no value before ';' in {token!r}")
@@ -232,6 +242,7 @@ def _attach_tail(d: _Descriptor, tail: Params) -> Node:
     value = d.value
     if isinstance(value, (RelExpr, RemoteExpr, Expression)):
         expr_params, source_ann = classify_boundary(tail)
+        refuse_mark_as_param(expr_params)  # C19: the mark is never an expression param
         # `expr-param = param-key "=" param-value`: the rule the envelope applies.
         validate_params(expr_params)
         value = _add_expr_params(value, expr_params)

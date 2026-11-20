@@ -168,16 +168,27 @@ New reader:
   names expansion elements. One position, `$name` bound to the raw element, `name: element` in the
   text panel, `source_name: name` (never `name[0]`) in the broadcast collection, `name` in a code
   binding, and the declared weight undivided.
-- Two or more elements fail the source with a code the url4 leaf pins here before code. A value
-  that is not a collection keeps the expansion's own failure, `expansion_not_iterable`
+- Two or more elements fail the source with `x.expansion_too_many`, a new
+  `ErrorCode.EXPANSION_TOO_MANY` raised as a `CollectionError`, as `expansion_not_iterable` is
+  (`packages/url4/src/url4/dag/nodes/iteration.py:36-55`). It is permanent, the `Url4Error`
+  default (`packages/url4/src/url4/core/errors.py:112`): the same value always holds the same
+  count. A node therefore answers it with HTTP 422 (`status_for_code`,
+  `packages/url4/src/url4/peer/_http.py:125-141`). The `x.` prefix marks a package code outside
+  the language spec, as `x.attachments_too_many` does (`packages/url4/src/url4/core/errors.py:97`).
+  A value that is not a collection keeps the expansion's own failure, `expansion_not_iterable`
   (`packages/url4/src/url4/dag/nodes/iteration.py:36-55`). The guard wraps the expansion
   (`packages/url4/src/url4/dag/_descriptor.py:53-60`), so `;required` and `;optional` apply to
   either failure as to any other.
 - Unmarked and `;expand` sources keep their behavior and rendered bytes, and every prior url4 test
   runs unchanged.
-- `url4.src` accepts the mark and the renderer writes it
-  (`packages/url4/src/url4/core/builders.py:142`), so the SDK writes it through the builders it uses
-  today (`_evaluation/candidate.py:14`, `:523-531`).
+- `url4.src` gains one keyword, `at_most_one: bool = False`
+  (`packages/url4/src/url4/core/builders.py:142-185`). `src(value, name=..., required=...,
+  expand=True, at_most_one=True)` writes `expand.at_most_one=true` right after `;required` or
+  `;optional` (`_exec_annotations`, `:195-212`), and the renderer writes it. `src` applies the form
+  rules above to its final annotations whatever their origin and refuses a broken form with
+  `ValueError`, as it refuses a bad name or weight. The same mark passed through `annotations=` is
+  checked the same way, and the keyword plus that annotation is a duplicate. The SDK writes the mark
+  through the builders it uses today (`_evaluation/candidate.py:14`, `:523-531`).
 
 Older reader. url4 Spec C §10.2.1 tells a node to ignore an unknown annotation key silently
 (`kevin-mcdonough/docs/adrs/URL4-Spec-C.md:108-125` in the design repo at `3e903bd`). The reader at

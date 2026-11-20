@@ -17,10 +17,11 @@ from collections.abc import Callable
 from url4.core._annotations import validate_exec_annotations, validate_param
 from url4.core._lexical import _IDENT_RE, _PATH_SEGMENT_RE, _VARREF_HEAD_RE
 from url4.core._scan import find_top_level
+from url4.core.at_most_one import check_at_most_one
 from url4.core.errors import ParseError, RenderError
 from url4.core.grammar import intent_atom
 from url4.core.intent import is_named_job
-from url4.core.nodes import Iteration, Node, Params
+from url4.core.nodes import Iteration, Node, Params, Source
 
 # Annotation keys a Source must not carry as plain pairs: the parser folds them
 # into node fields, so rendering them as pairs would reparse as another tree.
@@ -62,6 +63,11 @@ def check_annotations(annotations: Params, value: Node) -> None:
                 "Source.expand / Iteration.directives instead"
             )
     _as_render_error(validate_exec_annotations, annotations)
+
+
+def check_at_most_one_form(node: Source) -> None:
+    """A marked Source must pass the parser's own C19 form check (law L3s)."""
+    _as_render_error(check_at_most_one, node)
 
 
 def check_param(key: str, value: str | None) -> None:
