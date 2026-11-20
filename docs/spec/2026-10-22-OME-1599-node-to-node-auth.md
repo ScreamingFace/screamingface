@@ -33,6 +33,13 @@ examples use the quoted intent (`!%27Describe%27`) that `RemoteFetchNode` actual
 provider keys have a byte-level construction from a stable compiled effect identity; reconciliation
 and release are full fenced phases; duplicate `Signature-Input` parameters are refused.
 
+Fifth round (2026-11-20, owner decision): **manual release is removed.** Every remaining hole was in
+"release, safe to re-run" (delayed in-flight sends, the tombstone lifecycle, cross-generation
+journals), so the design no longer re-runs a key at all. `outcome_unknown` ends only by
+reconciliation or an operator's saved result; a new attempt needs a new `Idempotency-Key`. Effect
+identity gains a dynamic invocation coordinate (`MapNode` rows), and `op_id` gains a persisted
+record incarnation, so a key reused after retention never reuses provider keys.
+
 The direction (RFC 9421 plus signed grants) is unchanged, and #1450's fail-closed refusals still stand.
 
 ## Decisions requested from Kevin
@@ -485,18 +492,20 @@ have reached a provider.
     `created`, and the grant's `iat`, `exp` and `jti`.
 - **Claim (§5.5 step 8).** Before the child run is created and before any spend, one atomic
   insert-if-absent, shared by every replica serving the authority, creates
-  `{phase: "claimed", fingerprint, op_id, gen: 0, epoch: 1, owner, lease_until}`. `op_id` is the
-  stable operation identity (construction below). Then:
+  `{phase: "claimed", fingerprint, incarnation, op_id, epoch: 1, owner, lease_until}`.
+  `incarnation` is 128 fresh random bits (22 base64url characters) drawn at insert and persisted;
+  `op_id` is the stable operation identity built from it (below). Then:
   - inserted → proceed;
   - exists, different fingerprint → `x.peer_idempotency_conflict`;
   - exists, same fingerprint, `completed` → **replay the saved response** (same status, body and
     `x.` code), with no new execution and no new spend;
   - exists, same fingerprint, `outcome_unknown` → `x.peer_outcome_unknown`;
   - exists, same fingerprint, `claimed`, `dispatched` or `reconciling` with a live lease →
-    `x.peer_request_in_progress`;
-  - exists, same fingerprint, `released` → re-claim by fenced compare-and-set
-    `(released, none, e) → (claimed, new owner, e + 1)` with `gen + 1`, keeping `op_id` and the old
-    journal; the run starts again under new provider keys (the `gen` is in each key).
+    `x.peer_request_in_progress`.
+
+  A key is never re-run once anything was sent under it. A caller that wants a fresh attempt after
+  `x.peer_outcome_unknown` uses a **new** `Idempotency-Key`; that is a new logical call, and the
+  caller owns the decision that a double effect is acceptable.
 - **Fenced transitions.** Every phase change is one compare-and-set on the full expected state
   `(phase, owner, epoch)`. A write whose expected state no longer matches is rejected, and its result
   is discarded. A transition that takes the record away from an owner (takeover, or a move to
@@ -504,26 +513,38 @@ have reached a provider.
   resumes fails every later write, including the one that would complete the record.
 - **Operation and effect identity (byte level).** Each value below is the lowercase hex sha256 of the
   UTF-8 bytes of the JCS serialization of a JSON object:
-  - `op_id` = H(`{"v":1,"caller":<caller canonical authority>,"idempotency_key":<key>}`), where `<key>`
-    is the `Idempotency-Key` sf-string's 22 characters, without the quotes, as received.
-  - Effect key = `"u4-"` + H(`{"v":1,"op_id":<op_id>,"gen":<gen>,"node":<node>,"call":<call>}`).
-    `node` is the effect's node path in the compiled plan, as a string of 0-based child indexes joined
-    by `.` (root `"0"`). The plan is compiled from the fingerprinted request, so the path is the same on
-    every replica and every retry. `call` is the integer ordinal of the effect within that node,
-    counted in the node's own program order, never in journal-arrival order, so concurrent branches
-    cannot swap keys. `gen` is the integer generation (0, bumped on each release).
+  - `op_id` = H(`{"v":2,"caller":<caller canonical authority>,"idempotency_key":<key>,"incarnation":<incarnation>}`),
+    where `<key>` is the `Idempotency-Key` sf-string's 22 characters, without the quotes, as received,
+    and `<incarnation>` is the record's persisted value. A key reused after the record's retention
+    gets a new record, a new incarnation and so new provider keys; it can never pick up an old
+    provider result.
+  - Effect key = `"u4-"` + H(`{"v":2,"op_id":<op_id>,"node":<node>,"inv":<inv>,"call":<call>}`):
+    - `node`: the effect's node path in the compiled plan, a string of 0-based child indexes joined by
+      `.` (root `"0"`). The plan is compiled from the fingerprinted request, so it is the same on every
+      replica.
+    - `inv`: the **invocation coordinate**, a JSON array of integers, one per enclosing dynamic spawn,
+      outermost first. For a `MapNode` it is the 0-based index of the input row in the input's own
+      order; for any other node that spawns its body more than once it is the spawn ordinal, assigned
+      in program order **before** the spawns are scheduled. `[]` when there is no enclosing spawn. So
+      two rows of one `MapNode` never share a key, whichever finishes first.
+    - `call`: the integer ordinal of the effect within that one invocation, in the body's program
+      order, never in journal-arrival order.
   - The final provider key string is stored in the journal verbatim and re-sent from there. It is never
     recomputed on reconciliation.
 
-  Golden vector: caller `n1.example`, key `AAECAwQFBgcICQoLDA0ODw`:
-  `{"caller":"n1.example","idempotency_key":"AAECAwQFBgcICQoLDA0ODw","v":1}` →
-  `op_id` `3ffc5cae80201d3ff3354d8c08248b2bc4e179f633a360f486280a06d107fbc3`; effect `gen` 0, `node`
-  `"0"`, `call` 0 →
-  `{"call":0,"gen":0,"node":"0","op_id":"3ffc5cae80201d3ff3354d8c08248b2bc4e179f633a360f486280a06d107fbc3","v":1}`
-  → `u4-2532fe0dd36ee7bc1b6f62a6983515987561cd3e0c915bc321df20b91cb87056`.
+  Golden vectors: caller `n1.example`, key `AAECAwQFBgcICQoLDA0ODw`, incarnation
+  `EBESExQVFhcYGRobHB0eHw`:
+  `{"caller":"n1.example","idempotency_key":"AAECAwQFBgcICQoLDA0ODw","incarnation":"EBESExQVFhcYGRobHB0eHw","v":2}`
+  → `op_id` `3887a1dcfe3a0852fe5c259649ade837e37b5d419c02d95c928fb8b45c5aadd2`. Effects at `node`
+  `"0.1"`, `call` 0:
+  - `inv` `[]` →
+    `{"call":0,"inv":[],"node":"0.1","op_id":"3887a1dcfe3a0852fe5c259649ade837e37b5d419c02d95c928fb8b45c5aadd2","v":2}`
+    → `u4-c6e3e5302007499481d02d3c6ae8d1c7e2feac9957ed7301106391b849c5c5c7`;
+  - `inv` `[0]` (`MapNode` row 0) → `u4-d006d4d211198b6e429c84b20f11536fffcd4044b9f36c151e5c98b81c2cee23`;
+  - `inv` `[1]` (row 1) → `u4-61b572b8c8636c7bb4f08a103d02cc2488b610ba70abc7001f54d6ddba63f2de`.
 - **Effect journal.** Before each external effect (a paid call, an outbound fetch that costs), the
   owner appends to the record, by the fenced compare-and-set above, an effect descriptor: provider,
-  operation, the request digest, `node`, `call` and the final provider key. Only after that write
+  operation, the request digest, `node`, `inv`, `call` and the final provider key. Only after that write
   succeeds is the effect sent, with that key where the provider supports one. An effect that is not
   in the journal was never sent.
 - **Phases.**
@@ -532,20 +553,21 @@ have reached a provider.
     entry, before the first send.
   - `completed`: `dispatched → completed` (or `claimed → completed` for a run with no effects), by
     fenced compare-and-set, saving the result.
-  - `outcome_unknown`: terminal until reconciled or released.
+  - `outcome_unknown`: ends only by reconciliation or an operator's saved result.
   - `reconciling`: an automatic reconciler holds the record (below).
-  - `released`: a tombstone. It keeps the fingerprint, `op_id`, `gen` and the full journal, and it can
-    only be re-claimed by a request with the same fingerprint (a different one is a conflict).
+
+  There is no release and no re-run of a key, so a record has one generation and one journal.
 - **Failures and expired leases.**
-  - Retryable failure while `claimed` (nothing external happened): the owner deletes the record by
-    fenced compare-and-set, so a retry runs normally.
+  - Retryable failure while `claimed` (nothing external happened, and the journal is empty): the owner
+    deletes the record by fenced compare-and-set, so a retry runs normally. A `claimed` record has
+    never had a journal entry, because the first entry moves it to `dispatched`.
   - Expired lease while `claimed`: the next retry takes over by fenced compare-and-set, bumping `epoch`.
     The old owner's later writes fail, and it had sent nothing, because sending needs a journal write.
   - Any failure, or an expired lease, while `dispatched`: fenced compare-and-set
     `(dispatched, owner, epoch) → (outcome_unknown, owner: none, epoch + 1)`. The record is **never
     deleted and never taken over** for re-execution, because a provider may already have charged or
     acted. The old owner's completion now fails the fence.
-- **Reconciliation and release: the full state machine.** Each row is one fenced compare-and-set
+- **Reconciliation: the full state machine.** Each row is one fenced compare-and-set
   from `(phase, owner, epoch)` to the new tuple; nothing else changes a record.
 
   | From | To | When |
@@ -553,29 +575,15 @@ have reached a provider.
   | `(outcome_unknown, none, e)` | `(reconciling, R, e+1)`, lease set | reconciler R starts; only if every journaled effect's provider deduplicates by key and the earliest journal time is inside the shortest dedup horizon among them |
   | `(reconciling, R, e)` | `(completed, R, e)` | R re-sent exactly the journaled keys (verbatim) and saved the result |
   | `(reconciling, R, e)` | `(outcome_unknown, none, e+1)` | R fails, or R's lease expires (any replica may write this) |
-  | `(outcome_unknown, none, e)` | `(completed, operator, e+1)` | operator marks it completed with a result |
-  | `(outcome_unknown, none, e)` | `(released, none, e+1)` | operator release, only on the proof below |
-  | `(released, none, e)` | `(claimed, O, e+1)`, `gen+1` | a retry with the same fingerprint re-claims (claim branch above) |
+  | `(outcome_unknown, none, e)` | `(completed, operator, e+1)` | operator saves a result (a success, or a failure response such as "abandoned"); retries then replay it |
 
   A crashed reconciler leaves `reconciling` with a lease that expires, which returns the record to
   `outcome_unknown`; a resumed reconciler then fails the fence.
-- **Release needs proven quiescence first.** Epoch fencing stops store writes; it does not stop a
-  zombie that has already journaled an effect from sending it. So "release, safe to re-run" requires,
-  **in this order**:
-  1. **Quiescence:** every sender that could send a journaled effect is conclusively stopped, meaning
-     the old owner's process (and any reconciler) is confirmed terminated by the runtime (process
-     exit or pod deletion observed), so no in-flight or future request can still reach the provider;
-     then
-  2. **Negative outcome:** for every journaled key, the provider reports it as not executed and not
-     charged, checked after step 1.
-
-  Without both, in that order, the record stays `outcome_unknown`. Where the provider deduplicates the
-  exact journaled key within its horizon, use reconciliation instead of release; release is for the
-  case where it does not.
 - The caller surfaces `x.peer_outcome_unknown` and does not retry automatically.
-- **Retention.** At least 24 h after the record reaches `completed` or `released`, and never while it
-  is `outcome_unknown`. The guarantee holds only inside this horizon. A key reused after it is a new
-  call.
+- **Retention.** At least 24 h after the record reaches `completed`, and never while it is
+  `outcome_unknown` or `reconciling`. Within retention a reused key replays or conflicts; after it, the
+  key starts a new record with a new incarnation, so its provider keys are new too. Callers must not
+  reuse a key for a different logical call; the fingerprint conflict catches it within retention.
 - **Store unavailable** → fail closed with `x.peer_key_unavailable` (retryable) before any execution.
 - The caller treats a replayed response exactly like the original.
 
@@ -719,15 +727,18 @@ fake provider that can charge and then drop its response:
 - Lease expiry in `dispatched` (the owner is paused mid-call, then resumes): no takeover. The record
   moves to `outcome_unknown` with `epoch + 1` and no owner. The resumed owner's completion is
   rejected by the fence (phase and epoch both differ), and there is one provider call in total.
-- A manual "safe to re-run" racing a zombie: with a provider that does not deduplicate, release is
-  refused while the old owner's process is alive, even when the provider reports a negative outcome;
-  a negative check taken before quiescence does not count. After confirmed termination and a fresh
-  negative check, release succeeds and the re-run makes exactly one provider call.
 - Identity vectors: the §5.9 `op_id` and effect-key golden vectors. Two concurrent branches whose
-  effects journal in either arrival order get the same keys. Reconciliation re-sends the journaled key
-  string byte for byte. A release bumps `gen`, so the re-run's keys differ from the old ones.
+  effects journal in either arrival order get the same keys. A `MapNode` over two rows, run twice with
+  the rows completing in opposite orders, gives the same two distinct keys (`inv` `[0]` and `[1]`)
+  both times. Reconciliation re-sends the journaled key string byte for byte.
+- Key reuse after retention: the record is purged, the same key is sent again, and the new record has
+  a new incarnation, a new `op_id` and new provider keys; a provider fake that still remembers the old
+  keys returns no old result.
+- No re-run: there is no transition out of `outcome_unknown` except the two in the table; a retry with
+  the same key keeps getting `x.peer_outcome_unknown` with zero provider calls, and a new key runs as
+  a new call.
 - State machine: every row of the §5.9 table, and every illegal transition (for example
-  `released → completed`, `reconciling → released`) rejected by the fence. A reconciler killed
+  `outcome_unknown → claimed`, `reconciling → claimed`) rejected by the fence. A reconciler killed
   mid-run leaves `reconciling`; after lease expiry the record is `outcome_unknown` and the old
   reconciler's completion is rejected.
 - Journal before send: a failure injected between the journal write and the send leaves a journaled
@@ -738,7 +749,8 @@ fake provider that can charge and then drop its response:
   provider call is made in total.
 - Reconciliation: with an idempotency-key provider fake, re-issuing with the same `op_id` keys
   completes the record, and the provider sees duplicates it deduplicates (one charge). With a
-  provider that has no idempotency key, the record stays `outcome_unknown` until operator release.
+  provider that has no idempotency key, the record stays `outcome_unknown` until an operator saves a
+  result.
 - The claim exists before the child run: a failure injected between them leaves no orphan child run.
 - A missing `Idempotency-Key`, and the store being down, refuse before any execution.
 

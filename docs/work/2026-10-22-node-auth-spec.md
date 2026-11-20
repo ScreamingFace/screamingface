@@ -111,3 +111,9 @@ codes, and how C2/C6 are enabled alongside the #1521 destination guard. Design o
      (`node` path, `call` ordinal, `gen`), with golden vectors; the key is journaled verbatim.
   4. §5.9 gains `reconciling` and `released` phases and a full fenced transition table.
   5. Duplicate `Signature-Input` parameters are refused before the parameter map is built.
+- **2026-11-20 fifth round (HupBaHa, CHANGES_REQUESTED 10:22Z):** owner chose to cut manual release
+  rather than patch it. `outcome_unknown` ends only by reconciliation or an operator's saved result;
+  a new attempt needs a new `Idempotency-Key`. This removes the delayed-send, tombstone and
+  cross-generation holes. Effect keys gain an invocation coordinate `inv` (MapNode row / spawn
+  ordinal); `op_id` gains a persisted per-record `incarnation`, so key reuse after retention gets
+  fresh provider keys. New golden vectors.
