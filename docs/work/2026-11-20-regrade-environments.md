@@ -42,6 +42,13 @@ checks, build and distribution) and repository gates pass. Review confirmed that
 source/target pairs remain unchanged, endpoint pairing is checked before Client construction,
 and read-only preview/local resolution remain available with a Scoreboard-only override.
 
+Three independent reviews completed at `bfa2c9c50`: the PR diff had no actionable findings
+and independently passed all 45 batch tests; the safety review reproduced the six remaining
+issues below; the deployment review confirmed that the batch is operator-run but a Scoreboard
+upgrade's seed hook can activate the new Engine revisions. Hold revision activation until the
+batch fixes and acceptance are ready. Both public catalogues still served all 44 source
+revisions at review time. These reviews do not approve production replay.
+
 Read-only live inventory on 2026-11-20: 44 public affected boards, all still on source revisions
 in dev and prod. Production has 193 ranked source entries across 31 boards: 183 cached and 10
 uncached. Dev has zero source entries. These are snapshots; recount at rollout. The three WMDP
