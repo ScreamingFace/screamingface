@@ -218,6 +218,12 @@ class SettlementWatch(TerminalWatch):
         """The run's record, cut to fit; None for a run nobody asked one of."""
         return None if self._record is None else self._record.record()
 
+    @property
+    def refused(self) -> str | None:
+        """The code a success fails with when its record cannot vouch for it
+        (`CandidateRecordFold.refused`); None for a run nobody asked a record of."""
+        return None if self._record is None else self._record.refused
+
     async def publish(self, topic: str, event: OutboundFrame) -> None:
         await super().publish(topic, event)
         if self._record is not None:
@@ -242,12 +248,16 @@ def settlement_of(
     """The Candidate's outcome, from the same verdict as the evidence line.
 
     INVARIANT (spec R3): one classifier. A landed terminal frame decides it; without one, the
-    task decides it, as `outcome_of` does.
+    task decides it, as `outcome_of` does. The one exception is a driver-started run's success
+    that its own record refuses (OME-1988): it settles `failed` with the refusal's code.
     """
     if watch.landed is not None:
+        # WHY here (E5 P2 spec §4.3, D9): the Client settles each Candidate from the registry and
+        # its record, by the rules its own fold applied, and that fold failed this run.
+        refused = watch.refused if watch.landed == "succeeded" else None
         return CandidateOutcome(
-            _status(watch.landed),
-            storable_error_code(watch.error_code),
+            _status(watch.landed) if refused is None else "failed",
+            storable_error_code(watch.error_code if refused is None else refused),
             cost_usd,
             record=watch.record(),
         )
