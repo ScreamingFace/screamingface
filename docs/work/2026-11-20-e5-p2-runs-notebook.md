@@ -45,3 +45,18 @@ headline in the E5 P2 handover, the way OME-1910 did for P1.
   both scripts. Only `21_runs.ipynb` changed among the notebooks. CI runs the rest.
 - **Deviations:** none. The section is 7, at the end, so restarting the kernel does not cut the
   earlier sections short.
+
+## Review round 1 — HupBaHa, 2026-11-20 (changes requested)
+
+- **The check did not pin section 7.** `detach=True` was already in section 1's text, and the
+  story markers search every cell, so the check passed with section 7 removed; the paid-call guard
+  rejected only `RUN_EVALUATION = True`. `check_notebooks.py` now requires two fragments only
+  section 7's code has (`RUN_DETACHED = False`, `sf.runs.get(REATTACH_RUN_ID).wait()`), checked
+  against code cells alone, and rejects every paid flag left on (`RUN_EVALUATION`,
+  `RUN_DETACHED`). The ineffective `detach=True` marker is gone.
+- **Tests:** new `tests/test_check_notebooks.py` (the generated notebooks pass; the check fails
+  without section 7, and with `RUN_DETACHED = True`; both failure cases failed on the old check),
+  and two tests appended to `tests/test_runs_notebook.py` (section 7 starts nothing by default;
+  reattaching needs an explicit Run id).
+- **Gates:** `test_check_notebooks.py`, `test_runs_notebook.py` and `test_example_notebooks.py`
+  28 passed; `check_notebooks.py` exit 0; ruff, ruff format and pyright clean on the changed files.

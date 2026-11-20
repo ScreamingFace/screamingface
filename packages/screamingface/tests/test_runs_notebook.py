@@ -66,3 +66,36 @@ def test_cancellation_requires_an_explicit_run_id() -> None:
     )  # noqa: S102
     assert get_calls == ["run_demo"]
     assert cancel_calls == ["cancelled"]
+
+
+def test_a_detached_run_is_opt_in() -> None:
+    source = next(cell for cell in _code_cells() if "RUN_DETACHED = False" in cell)
+    calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
+    run = SimpleNamespace(id="run_demo", detached=True, deadline_at=None)
+    sf = SimpleNamespace(evaluate=lambda *args, **kwargs: calls.append((args, kwargs)) or run)
+
+    exec(source, {"sf": sf, "MODEL": "model"})  # noqa: S102 -- execute the authored gate with a local stub
+    assert calls == []
+
+    exec(  # noqa: S102
+        source.replace("RUN_DETACHED = False", "RUN_DETACHED = True", 1),
+        {"sf": sf, "MODEL": "model"},
+    )
+    assert len(calls) == 1
+    assert calls[0][1]["detach"] is True
+
+
+def test_reattaching_requires_an_explicit_run_id() -> None:
+    source = next(cell for cell in _code_cells() if "REATTACH_RUN_ID = None" in cell)
+    get_calls: list[str] = []
+    run = SimpleNamespace(wait=lambda: "report")
+    sf = SimpleNamespace(runs=SimpleNamespace(get=lambda run_id: get_calls.append(run_id) or run))
+
+    exec(source, {"sf": sf})  # noqa: S102 -- execute the authored gate with a local stub
+    assert get_calls == []
+
+    exec(  # noqa: S102
+        source.replace("REATTACH_RUN_ID = None", 'REATTACH_RUN_ID = "run_demo"', 1),
+        {"sf": sf},
+    )
+    assert get_calls == ["run_demo"]
