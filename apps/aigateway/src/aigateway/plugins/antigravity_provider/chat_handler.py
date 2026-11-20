@@ -32,6 +32,7 @@ from litellm.llms.custom_llm import CustomLLM, CustomLLMError
 from litellm.types.utils import ModelResponse
 
 from aigateway.core.google_code_assist import parse_google_retry_after
+from aigateway.core.upstream_attempts import observe
 
 from .auth import ANTIGRAVITY_PROFILE_HEADER
 from .message_adapter import (
@@ -408,10 +409,14 @@ class AntigravityCustomLLM(CustomLLM):
         timeout: Any,
         *,
         preferred_endpoint: str | None = None,
+        inference: bool = False,
     ) -> tuple[httpx.Response, str]:
         """POST to the Code Assist verb, trying daily- then the prod fallback on
         404/5xx. Returns (response, endpoint_that_served_it). A non-retriable
-        status (e.g. 401/403/429) returns immediately without trying fallback."""
+        status (e.g. 401/403/429) returns immediately without trying fallback.
+
+        INVARIANT (contract C7): with ``inference`` every host tried is a counted send; project
+        setup passes ``False`` and is not counted."""
         version = self._settings.code_assist_api_version
         endpoints = self._endpoints()
         if preferred_endpoint is not None:
@@ -420,7 +425,10 @@ class AntigravityCustomLLM(CustomLLM):
         for index, endpoint in enumerate(endpoints):
             url = f"{endpoint}/{version}:{verb}"
             try:
-                async with self._http_client_factory() as client:
+                client = self._http_client_factory()
+                if inference:
+                    observe(client)
+                async with client:
                     response = await client.post(
                         url, **_post_kwargs(body, request_headers, timeout)
                     )
@@ -558,6 +566,7 @@ class AntigravityCustomLLM(CustomLLM):
             wrapped_body,
             timeout,
             preferred_endpoint=session.endpoint,
+            inference=True,
         )
         if response.status_code == 200:
             try:
@@ -574,6 +583,7 @@ class AntigravityCustomLLM(CustomLLM):
                 wrapped_body,
                 timeout,
                 preferred_endpoint=session.endpoint,
+                inference=True,
             )
             if response.status_code != 200:
                 raise _error_from_response(response)

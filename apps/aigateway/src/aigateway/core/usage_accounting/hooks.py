@@ -39,11 +39,12 @@ from typing import Any
 import httpx
 from litellm.llms.custom_httpx.http_handler import AsyncHTTPHandler
 
+from ..upstream_attempts import attempt_event_hooks, record_send
 from .signals import AccountingSignalTarget, active_collector
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["AccountingAsyncHTTPHandler", "build_accounting_handler"]
+__all__ = ["AccountingAsyncHTTPHandler", "build_accounting_handler", "build_attempt_handler"]
 
 # Reading an SSE body in a hook would consume the stream the caller is meant to receive.
 # Streaming bypasses accounting before dispatch, so this is defence in depth against a
@@ -253,6 +254,9 @@ def _redirect_target(request: httpx.Request, response: httpx.Response) -> str | 
 
 async def _on_request(request: httpx.Request) -> None:
     """Record one local send-pipeline admission."""
+    # INVARIANT (contract C7): the attempt count comes first, before the collector early return;
+    # the attempt header is owed even when accounting is disabled or partial.
+    await record_send(request)
     collector = active_collector()
     if collector is None:
         return
@@ -346,11 +350,14 @@ class AccountingAsyncHTTPHandler(AsyncHTTPHandler):
         *,
         ssl_verify: bool | str = True,
         timeout: float | httpx.Timeout | None = None,
+        event_hooks: Mapping[str, list[Callable[..., Any]]] | None = None,
     ) -> None:
         # Set BEFORE super().__init__: the base constructor calls self.create_client(),
         # which is overridden below and reads this attribute.
         self._pinned_ssl_verify = ssl_verify
-        self._pinned_event_hooks = accounting_event_hooks()
+        self._pinned_event_hooks = (
+            accounting_event_hooks() if event_hooks is None else dict(event_hooks)
+        )
         super().__init__(
             timeout=timeout,
             event_hooks=self._pinned_event_hooks,
@@ -381,3 +388,15 @@ class AccountingAsyncHTTPHandler(AsyncHTTPHandler):
 def build_accounting_handler() -> AccountingAsyncHTTPHandler:
     """Construct the app-lifetime handler. Closed in the lifespan shutdown path."""
     return AccountingAsyncHTTPHandler(ssl_verify=True)
+
+
+def build_attempt_handler() -> AccountingAsyncHTTPHandler:
+    """The app-lifetime handler for a LiteLLM dispatch that is not accounted (contract C7).
+
+    # WHY this class with only the attempt hook: its ``create_client`` override is what puts the
+    # hooks and the pinned TLS on the replacement client of LiteLLM's hidden resend, so that
+    # resend is counted by the same code that counts it for an accounted dispatch. No retry or
+    # transport behaviour is copied; the accounting hooks are left out because no collector
+    # exists for such a dispatch.
+    """
+    return AccountingAsyncHTTPHandler(ssl_verify=True, event_hooks=attempt_event_hooks())

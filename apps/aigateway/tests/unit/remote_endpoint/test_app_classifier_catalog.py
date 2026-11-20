@@ -67,6 +67,8 @@ def test_each_account_lists_exactly_the_classifiers_granted_to_it(byom: Harness)
         "owned_by": ENDPOINT_A,
         "task": "text-classification",
         "contract": "hf-text-classification-v1",
+        "input_contracts": ["text"],
+        "limits": None,
     }
     # INVARIANT: chat models stay in `/v1/models`; none is listed here.
     assert not {f"{ENDPOINT_A}/{ALIAS}", f"{ENDPOINT_B}/{ALIAS}"} & _ids(seen_a)
@@ -103,6 +105,8 @@ def test_the_details_read_missing_until_that_account_attaches_a_key(byom: Harnes
         "owned_by": ENDPOINT_A,
         "task": "text-classification",
         "contract": "hf-text-classification-v1",
+        "input_contracts": ["text"],
+        "limits": None,
         "result_contract": "classification-scores-v1",
         "execution_access": "missing",
     }

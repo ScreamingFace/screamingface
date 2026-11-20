@@ -39,7 +39,8 @@ class FrozenCopy(Model):
     entries = fields.IntField(default=0)
     # Per-copy counter for `FrozenCopyEntry.seq`, advanced under the copy-row lock at each insert.
     entry_seq = fields.IntField(default=0)
-    # Q28: the seal's provenance, {"engine_version": "..."}. NULL when the seal sent none.
+    # Q28: the seal's provenance, {"engine_version": "..."} plus C9 "routers" when the seal sent
+    # them. NULL when the seal sent none.
     provenance: Any = fields.JSONField(null=True)
     created_at = fields.DatetimeField(auto_now_add=True)
     sealed_at = fields.DatetimeField(null=True)

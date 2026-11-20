@@ -12,6 +12,7 @@ directly — the split between files is an implementation detail.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -57,6 +58,10 @@ class ClassifierEntry:
     model_name: str
     task: str
     contract: str
+    # FEATURE (C7): which inputs it accepts (`text`, `choice`) and its `classifier-limits-v1`
+    # row, or None when the target declares no limits.
+    input_contracts: tuple[str, ...] = ("text",)
+    limits: Mapping[str, str | int] | None = field(default=None, hash=False)
 
 
 @dataclass(frozen=True)

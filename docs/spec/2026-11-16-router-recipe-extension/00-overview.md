@@ -236,8 +236,8 @@ the changed fragment: Unit 5.1 amends C7 (`contracts-replay.md`), the url4 leaf 
 decision appears before code that neither this spec nor the plan covers, or when a Unit 6, 7 or 8
 storage, API, IR or serving decision cannot be stated unambiguously here.
 
-- Unit 5.1: the SystemOne question ID, Laya and Jev field differences, native response limits, the
-  target config keys for `limits`, the bounded code for a limit refusal.
+- Unit 5.1: pinned in C7, the question ID `choice`, the common Laya and Jev request, the native
+  response checks, the target config keys for `limits` and the refusal code `classifier_limit_exceeded`.
 - Unit 5.2: the profile config keys for dynamic choice; the module layout of the pure core; the
   strict shape of the decision draft; whether `GET /v1/classifiers` caches per caller and whether the
   Engine world bounds its list.
