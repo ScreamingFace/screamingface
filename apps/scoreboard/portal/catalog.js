@@ -27,6 +27,24 @@
     nodes.more.hidden = true;
     nodes.controls.hidden = true;
 
+    // The catalogue search starts collapsed behind a quiet button; clicking it
+    // reveals the input in place and moves focus into it.
+    // WHY optional: fixtures/pages predating this control omit both nodes, and
+    // the catalogue must keep working without the disclosure rather than throw
+    // on a null lookup.
+    var searchToggle = document.getElementById("benchmark-search-toggle");
+    var searchWrap = document.getElementById("benchmark-search-wrap");
+    if (searchToggle && searchWrap) {
+      searchWrap.hidden = true;
+      searchToggle.setAttribute("aria-expanded", "false");
+      searchToggle.addEventListener("click", function () {
+        var expanding = searchWrap.hidden;
+        searchWrap.hidden = !expanding;
+        searchToggle.setAttribute("aria-expanded", String(expanding));
+        if (expanding) nodes.search.focus();
+      });
+    }
+
     function showNext() {
       var end = Math.min(shown + PAGE_SIZE, matches.length);
       for (; shown < end; shown++) {

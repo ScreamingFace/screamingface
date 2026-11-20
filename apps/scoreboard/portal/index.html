@@ -106,7 +106,10 @@
         <h2 class="section-label">Browse latest benchmarks</h2>
 
         <div id="benchmark-controls" class="catalog-controls" hidden>
-          <div class="catalog-search">
+          <!-- Collapsed by default behind a quiet button; catalog.js reveals
+               this in place and focuses the input on click. -->
+          <button type="button" id="benchmark-search-toggle" class="btn ghost" aria-expanded="false" aria-controls="benchmark-search-wrap">Search benchmarks</button>
+          <div id="benchmark-search-wrap" class="catalog-search" hidden>
             <label for="benchmark-search">Search benchmarks</label>
             <input id="benchmark-search" type="search" placeholder="Name or benchmark ID" aria-controls="benchmark-cards" autocomplete="off">
           </div>
