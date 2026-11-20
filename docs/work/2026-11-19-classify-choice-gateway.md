@@ -148,8 +148,9 @@ replacement client come from the same code; no retry logic is copied.
   detached close was cut short (`finished: False, cancelled: True` under `asyncio.run`). Owner
   decision: the close always ends. `close_through_cancellation` now waits through every
   cancellation and raises the first one only after the close ends; the detached-task set and its
-  done callback are gone. Only the end of the loop itself (a second interrupt, a killed process)
-  can stop a close. C7 and test-plan item 12 say so. The test that released the close by hand
+  done callback are gone. Only external process termination can stop an unfinished close (round
+  4 corrected the first wording, which also named a second interrupt). C7 and test-plan item 12
+  say so. The test that released the close by hand
   before the loop ended is replaced by one that cancels three times, and by one that cancels twice
   under `asyncio.run` with nothing releasing the close and finds it ended.
 - Provenance read: `ProvenanceRead` is a closed record (`extra="forbid"`); its schema publishes
@@ -166,6 +167,18 @@ replacement client come from the same code; no retry logic is copied.
 - Process: on 2026-11-20 the owner confirmed the exact mirror path
   `docs/tasks/2026-11-20-OME-1993-classify-choice-gateway.md`, approved earlier as
   `docs/tasks/2026-11-20-OME-<N>-classify-choice-gateway.md`.
+
+### Review fixes, round 4 (2026-11-20, on PR #1988)
+
+- Shutdown text: C7, the `core/shutdown.py` docstring and a test comment said a second interrupt
+  could end the loop and so stop a close. Uvicorn 0.52.1, which serves the Gateway (`uv.lock`),
+  does not allow that: a second Ctrl+C only sets `force_exit`, the server reads it only before it
+  starts the lifespan shutdown, and the lifespan shutdown waits for the app without cancelling it.
+  A close that never ends therefore holds the shutdown, a second Ctrl+C included, until the process
+  is killed from outside. The owner decision "the close always ends" stands, so no code changed.
+  The text now says that delivered shutdown cancellations are deferred until the close completes,
+  and only external process termination can stop an unfinished close. A bounded close (a timeout)
+  would be a new contract and would need a new owner decision.
 
 ## Test plan
 
@@ -228,9 +241,9 @@ replacement client come from the same code; no retry logic is copied.
   - Owner-approved prior-test transitions: `tests/unit/remote_endpoint/test_app_classifier_catalog.py`
     (`d71d7abcbe95` → `2b675d227c4d`) and `tests/fixtures/cache_hit_contract/openrouter_hit.json`
     (`f935a58399c7` → `de998a556686`).
-- **Commits:** PR #1988 on `OME-1993-classify-choice-gateway`: `d30eb6ff3` (PR-open) and the
-  round 3 review-fix commit after it. Merge sha pending green CI and review; it goes in the
-  Linear close comment.
+- **Commits:** PR #1988 on `OME-1993-classify-choice-gateway`: `d30eb6ff3` (PR-open),
+  `cf90c0339` (round 3 review fixes) and the round 4 shutdown-text commit after it. Merge sha
+  pending green CI and review; it goes in the Linear close comment.
 - **Gates:** 2026-11-20, on the final diff after the review fixes and the spec amendments:
   `run_gates.py aigateway --skip-append-only` green on Python 3.13 and 3.12 (ruff, format,
   pyright, no-enterprise, pytest with the 80 coverage floor); full suite 8270 passed, 119 skipped,
@@ -244,6 +257,11 @@ replacement client come from the same code; no retry logic is copied.
   pre-push hook also uses): `run_gates.py aigateway --base 90483dcb2` green on Python 3.13 and 3.12,
   the append-only check included; 8395 tests collected, coverage 94.30% (18190 statements, 1036
   missed). The shutdown, provenance and attempt suites under the SDK runtime set: 176 passed.
+  Round 4 (2026-11-20, text only): ruff format and lint pass on the two changed Python files, and
+  the shutdown suites pass on Python 3.13 (11 passed). A live Uvicorn 0.52.1 probe served an app
+  whose close never ends through `close_through_cancellation`: the server was still running after
+  the first and after the second SIGINT, and stopped only on SIGKILL. The full gate run is left to
+  CI.
 - **Deviations:**
   - `EndpointDefinition.classifier_targets` keeps its base meaning and type (HF targets only). The
     catalog walks `targets` and lists HF and choice targets together in declaration order, so a

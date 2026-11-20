@@ -18,10 +18,12 @@ async def close_through_cancellation(
 
     WHY: the shutdown drops a handler before it closes it, so a close cut short by a cancelled
     shutdown (a reload, a stopped server) would leave its pool open with no one left to close it.
-    INVARIANT: every cancellation of the caller waits for the close to end, then the first one is
-    raised. Only the end of the event loop itself (a second Ctrl+C, a killed process) can stop
-    the close, and no cancellation of this wait is that. A close that itself raises a
-    cancellation is raised at once (``test_app_shutdown.py``).
+    INVARIANT: delivered shutdown cancellations are deferred until the close completes, then the
+    first one is raised. Only external process termination (such as SIGKILL) can stop an
+    unfinished close. Under Uvicorn a second Ctrl+C only sets ``force_exit``, which the server no
+    longer reads once its lifespan shutdown has begun, so it does not. A close that itself raises
+    a cancellation is raised at once (``test_app_shutdown.py``).
+    WHY no timeout: the owner chose a close that always ends; a bounded close is another contract.
     WHY not hand the close to a detached task after a second cancellation: the loop cancels
     every pending task when it ends, which follows a cancelled shutdown at once.
     """

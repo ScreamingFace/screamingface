@@ -227,11 +227,14 @@ header is mandatory even when taxonomy/accounting collection is disabled or part
 A LiteLLM dispatch that is not accounted sends through a second app-lifetime handler that carries
 only the send observer. Both app-lifetime handlers close with the app, each in its own task: a
 shutdown cancelled during a close waits for that close to end through every further cancellation,
-runs every later shutdown step, then raises the cancellation, and a failed close is logged. Only
-the end of the event loop itself (a second interrupt, a killed process) can stop a close; a
-cancellation of the shutdown never does, so a close is never left to a task the loop's own teardown
-would cancel. The shutdown drops each handler before closing it, so no request reuses a closing
-pool and no pool outlives the app because its shutdown was cancelled.
+runs every later shutdown step, then raises the cancellation, and a failed close is logged.
+Delivered shutdown cancellations are deferred until the close completes. Only external process
+termination can stop an unfinished close: under Uvicorn, which serves the Gateway, a second Ctrl+C
+only sets `force_exit`, which the server no longer reads once its lifespan shutdown has begun. So a
+close is never left to a task the loop's own teardown would cancel, and a close that never ends
+holds the shutdown until the process is killed. No timeout bounds the close; a bounded close would
+be a new contract. The shutdown drops each handler before closing it, so no request reuses a
+closing pool and no pool outlives the app because its shutdown was cancelled.
 
 Unit 5.1 inventories every non-streaming inference transport at its fresh base, installs the observer
 on each one and updates this list if it differs. The current minimum is: shared and default LiteLLM

@@ -127,8 +127,8 @@ def test_one_cancellation_waits_for_a_failing_close_then_is_raised(
 def test_every_cancellation_waits_for_the_close_then_is_raised(
     caplog: pytest.LogCaptureFixture, error: Exception | None
 ) -> None:
-    # WHY: no later cancellation may cut the close short. A forced stop is not a cancellation of
-    # this wait: it is the end of the loop itself (a second Ctrl+C, a killed process).
+    # WHY: no later cancellation may cut the close short. Only external process termination can
+    # stop an unfinished close; under Uvicorn a second Ctrl+C does not (`core/shutdown.py`).
     handler = _SlowClose(error=error)
 
     async def scenario() -> None:
