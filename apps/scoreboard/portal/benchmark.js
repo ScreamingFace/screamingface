@@ -432,11 +432,12 @@
     // private, where the list is never served): the board then says which revision it shows.
     var listUnavailable = false;
     var hasRevision = false;
+    var hasSubmissions = false;
 
     // The line above the table, decided from community runs only: imported reference rows appear
     // under every revision, so they never stand in for this revision's own results.
     function showBoardStatus() {
-      if (state.entries.length > 0) {
+      if (hasSubmissions) {
         P.setStatus(statusNode, null);
         return;
       }
@@ -497,6 +498,8 @@
             if (!P.atBoardAddress()) document.title = name + " — screamingface";
           }
           state.entries = (data && data.entries) || [];
+          // A populated cohort stays populated even when imports displace every visible row.
+          hasSubmissions = state.entries.length > 0;
           // Keep the fetched community points even when imports displace table rows.
           var chartEntries = state.entries;
           state.rows = window.SFExternalResults
@@ -712,8 +715,9 @@
           replaceSearch(null);
         }
         if (resolution.selected) renderRevisionSelector(resolution.selected);
-        var selected = resolution.selected;
-        load(selected && !selected.current ? selected.revision : null);
+        // Explicit links stay pinned even when this list calls their revision current:
+        // the benchmark may move between the list read and the board/frontier reads.
+        load(resolution.notFound ? null : requested);
       },
       function () {
         listUnavailable = true;

@@ -168,3 +168,5 @@ ORDER BY benchmark_id, benchmark_revision;
 ## Review clarification — 2026-11-20
 
 When the revision list is unavailable, the scoped leaderboard response identifies the revision shown, not whether it is Latest. Use neutral “Showing revision <id>” wording with the unavailable-list note. On a versioned board, imported reference rows never suppress the selected revision's no-submissions message; unversioned boards retain their existing imported-only presentation.
+
+A valid explicit `?revision=` is pinned even if the revision list currently marks it Latest; a subsequent registration must not change that request's grading. Only an absent parameter or the user's Latest choice requests dynamic current grading. Determine submission presence from the API's community entries before imported references are merged and truncated for display.

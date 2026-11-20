@@ -327,3 +327,46 @@ test("private-board fallback clears the ignored revision and announces Latest", 
   assert.equal(page.ids["revision-notice"].hidden, false);
   assert.equal(page.ids["revision-notice"].textContent, "Earlier revisions are not shown on private boards. Showing the latest.");
 });
+
+test("an explicit revision stays pinned across a bump until the reader chooses Latest", async () => {
+  const page = openPage("?id=hle&revision=" + LATEST);
+  await page.answer(LIST, REVISIONS);
+  // The benchmark registers a new revision after the list read. The scoped endpoints still
+  // return the named grading; an unscoped request would return the newer result instead.
+  const nextRevision = "cccccccccccccccc";
+  await page.answer(LATEST_BOARD + "&revision=" + LATEST, board([entry("pinned-model", 0.4)], LATEST));
+  await page.answer(LATEST_FRONTIER + "?revision=" + LATEST, NO_FRONTIER);
+  assert.equal(new URLSearchParams(page.location.search).get("revision"), LATEST);
+  assert.equal(page.ids["revision-select"].value, LATEST);
+  assert.equal(page.ids["summary-best"].textContent, "0.4");
+
+  page.choose(LATEST);
+  await page.answer(LATEST_BOARD, board([entry("new-current-model", 0.9)], nextRevision));
+  await page.answer(LATEST_FRONTIER, OPEN_FRONTIER);
+  assert.equal(new URLSearchParams(page.location.search).has("revision"), false);
+  assert.equal(page.ids["summary-best"].textContent, "0.9");
+});
+
+for (const listFirst of [true, false]) {
+  test("50 imported rows do not make an existing cohort empty; list first=" + listFirst, async () => {
+    const page = openPage();
+    const listed = { revisions: [
+      { ...REVISIONS.revisions[0], result_count: 1 },
+      { ...REVISIONS.revisions[1], result_count: 0 },
+    ] };
+    const imported = Array.from({ length: 50 }, (_, i) => ({
+      ...BASELINE, id: "reference-" + i, model_name: "Reference " + i, score: 0.9,
+    }));
+    if (listFirst) await page.answer(LIST, listed);
+    await page.answer(LATEST_BOARD, board([entry("community-model", 0.1)], LATEST, imported));
+    if (!listFirst) await page.answer(LIST, listed);
+    assert.equal(page.ids["leaderboard-body"].children.length, 50);
+    assert.ok(page.ids["leaderboard-body"].children.every(row => row.className === "external-result"));
+    assert.equal(page.ids["leaderboard-status"].hidden, true, "there is a submission outside the displayed prefix");
+
+    page.choose(PREVIOUS);
+    await page.answer(PREVIOUS_BOARD, board([], PREVIOUS, imported));
+    assert.equal(page.ids["leaderboard-status"].hidden, false, "submission presence resets on a revision switch");
+    assert.equal(page.ids["leaderboard-status"].textContent, "No complete runs under this revision.");
+  });
+}
