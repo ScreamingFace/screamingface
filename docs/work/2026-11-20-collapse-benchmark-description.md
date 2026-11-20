@@ -23,6 +23,7 @@ behind a "Show more" button and set it at body size. Rendering only: no descript
 - `apps/scoreboard/portal/portal.css`: the three-line clamp and body-size type.
 - `apps/scoreboard/tests/portal/benchmark-description.test.js` (new) and one static test appended
   to `apps/scoreboard/tests/unit/test_portal_static.py`.
+- `.github/workflows/scoreboard-tests.yml`, `.claude/sdlc.local.md`: name the new test file.
 
 ## Test plan
 
@@ -50,5 +51,5 @@ behind a "Show more" button and set it at body size. Rendering only: no descript
   307 px open at 16 px type; a one-line text showed no button.
 - **Deviations:** the four descriptions containing `**` are left as written. They quote replies a
   grader accepts (`'**Yes**' count`), so rendering them bold would misstate the rule.
-- **Owner-verify:** the new test file must be named in `scoreboard-tests.yml` and in the
-  scoreboard card's gate list to run in CI.
+- **Process files:** the new test file is named in `scoreboard-tests.yml` and in the scoreboard
+  card's gate list, with the owner's approval, so it runs in CI and in the local gate.
