@@ -393,6 +393,50 @@
 
   // The breadcrumb names the benchmark being shown. With no benchmark (missing id, 404) the
   // crumb and its separator stay hidden rather than showing a stale or misleading label.
+  // Fold a long benchmark description to three lines behind a "Show more" button, and return the
+  // function that re-checks the fold (call it whenever the description text changes).
+  //
+  // Stage 1 — clamp first: the three-line clamp must be on before measuring, because an unclamped
+  //   paragraph is always exactly as tall as its text and so never "overflows".
+  // Stage 2 — measure: the text overflows when its full height (scrollHeight) is more than the
+  //   clamped box (clientHeight). One pixel of slack absorbs sub-pixel rounding.
+  // Stage 3 — apply: descriptionFoldState (leaderboard-logic.js) turns "overflows" and "expanded"
+  //   into the clamp class, the button's visibility, its label and aria-expanded.
+  //
+  // The clamp lives in a class this function adds, never in the markup, so a page whose scripts
+  // did not run shows the whole description rather than three lines nobody can open.
+  var DESCRIPTION_CLAMP_CLASS = "is-clamped";
+  var OVERFLOW_SLACK_PX = 1;
+  function initDescriptionFold(fold, desc, button) {
+    if (!fold || !desc || !button) return function () {};
+    var expanded = false;
+    function sync() {
+      // Stage 1
+      if (!expanded) fold.classList.add(DESCRIPTION_CLAMP_CLASS);
+      // Stage 2
+      var overflows = desc.scrollHeight > desc.clientHeight + OVERFLOW_SLACK_PX;
+      // Stage 3
+      var state = L.descriptionFoldState(overflows, expanded);
+      if (state.clamped) fold.classList.add(DESCRIPTION_CLAMP_CLASS);
+      else fold.classList.remove(DESCRIPTION_CLAMP_CLASS);
+      button.hidden = state.buttonHidden;
+      button.textContent = state.label;
+      button.setAttribute("aria-expanded", String(state.expanded));
+    }
+    button.addEventListener("click", function () {
+      expanded = !expanded;
+      sync();
+    });
+    // A narrower window wraps the text onto more lines, so a description that fitted can start to
+    // overflow (and the reverse). An open description is left alone: it has nothing to measure.
+    if (window.addEventListener) {
+      window.addEventListener("resize", function () {
+        if (!expanded) sync();
+      });
+    }
+    return sync;
+  }
+
   function setBenchmarkCrumb(crumbNode, name) {
     var nav = crumbNode.parentNode;
     crumbNode.textContent = name;
@@ -408,6 +452,11 @@
     var nameNode = document.getElementById("benchmark-name");
     var descNode = document.getElementById("benchmark-desc");
     var crumbNode = document.getElementById("crumb-benchmark");
+    var syncDescriptionFold = initDescriptionFold(
+      document.getElementById("benchmark-desc-fold"),
+      descNode,
+      document.getElementById("benchmark-desc-toggle")
+    );
 
     var id = P.boardId();
     if (!id) {
@@ -431,6 +480,7 @@
           nameNode.textContent = name;
           setBenchmarkCrumb(crumbNode, name);
           descNode.textContent = b.description || "";
+          syncDescriptionFold();
           // At /benchmarks/<id>/ the server already wrote this board's title, with the words a
           // search result shows. Only the shared benchmark.html still needs one from here.
           if (!P.atBoardAddress()) document.title = name + " — screamingface";
@@ -503,10 +553,12 @@
     );
   }
 
-  // Read by the portal's tests: the switch's shipped value and the Run cell for either setting.
+  // Read by the portal's tests: the switch's shipped value, the Run cell for either setting, and
+  // the description fold.
   window.SFBenchmarkPage = {
     SHOW_REPRODUCE_BUTTON: SHOW_REPRODUCE_BUTTON,
     renderRunCell: renderRunCell,
+    initDescriptionFold: initDescriptionFold,
   };
 
   P.ready(init);
