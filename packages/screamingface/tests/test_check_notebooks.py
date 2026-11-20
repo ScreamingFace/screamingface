@@ -48,15 +48,44 @@ def test_the_check_fails_without_the_detach_section(
         check(notebooks)
 
 
+def _switch_on(notebooks: dict[str, Any], off: str, on: str) -> None:
+    for notebook in notebooks.values():
+        for cell in notebook.cells:
+            if cell.cell_type == "code" and off in cell.source:
+                cell.source = cell.source.replace(off, on, 1)
+                return
+    raise AssertionError(f"no code cell has {off!r}")
+
+
+@pytest.mark.parametrize(
+    "on",
+    [
+        "RUN_DETACHED = True",
+        "RUN_DETACHED=True",
+        "RUN_DETACHED = True  # opt in",
+        "RUN_DETACHED: bool = True",
+    ],
+)
 def test_the_check_fails_when_the_detached_run_is_on_by_default(
-    check: Callable[[dict[str, Any]], None], notebooks: dict[str, Any]
+    check: Callable[[dict[str, Any]], None], notebooks: dict[str, Any], on: str
 ) -> None:
-    runs = notebooks["21_runs.ipynb"]
-    for cell in runs.cells:
-        if cell.cell_type == "code" and "RUN_DETACHED = False" in cell.source:
-            cell.source = cell.source.replace(
-                "RUN_DETACHED = False", "RUN_DETACHED = False\nRUN_DETACHED = True"
-            )
+    _switch_on(notebooks, "RUN_DETACHED = False", on)
+
+    with pytest.raises(SystemExit, match="paid"):
+        check(notebooks)
+
+
+@pytest.mark.parametrize(
+    ("off", "on"),
+    [
+        ("RUN_EVALUATION = False", "RUN_EVALUATION=True"),
+        ("REPLAY_RESULT = False", "REPLAY_RESULT = True"),
+    ],
+)
+def test_the_check_fails_when_any_paid_flag_is_on_by_default(
+    check: Callable[[dict[str, Any]], None], notebooks: dict[str, Any], off: str, on: str
+) -> None:
+    _switch_on(notebooks, off, on)
 
     with pytest.raises(SystemExit, match="paid"):
         check(notebooks)

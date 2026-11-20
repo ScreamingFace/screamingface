@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import runpy
+from datetime import timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -68,34 +69,73 @@ def test_cancellation_requires_an_explicit_run_id() -> None:
     assert cancel_calls == ["cancelled"]
 
 
-def test_a_detached_run_is_opt_in() -> None:
-    source = next(cell for cell in _code_cells() if "RUN_DETACHED = False" in cell)
-    calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
-    run = SimpleNamespace(id="run_demo", detached=True, deadline_at=None)
-    sf = SimpleNamespace(evaluate=lambda *args, **kwargs: calls.append((args, kwargs)) or run)
+def _detach_cell() -> str:
+    return next(cell for cell in _code_cells() if "RUN_DETACHED = False" in cell)
 
-    exec(source, {"sf": sf, "MODEL": "model"})  # noqa: S102 -- execute the authored gate with a local stub
+
+def _reattach_cell() -> str:
+    return next(cell for cell in _code_cells() if "sf.runs.get(REATTACH_RUN_ID).wait()" in cell)
+
+
+def _sf_starting(calls: list[dict[str, object]]) -> SimpleNamespace:
+    run = SimpleNamespace(id="run_demo", detached=True, deadline_at=None)
+    return SimpleNamespace(
+        Model=lambda *args, **kwargs: "model",
+        evaluate=lambda *args, **kwargs: calls.append(kwargs) or run,
+    )
+
+
+def test_a_detached_run_is_opt_in() -> None:
+    calls: list[dict[str, object]] = []
+
+    exec(_detach_cell(), {"sf": _sf_starting(calls)})  # noqa: S102 -- the authored gate, stubbed
     assert calls == []
 
     exec(  # noqa: S102
-        source.replace("RUN_DETACHED = False", "RUN_DETACHED = True", 1),
-        {"sf": sf, "MODEL": "model"},
+        _detach_cell().replace("RUN_DETACHED = False", "RUN_DETACHED = True", 1),
+        {"sf": _sf_starting(calls)},
     )
     assert len(calls) == 1
-    assert calls[0][1]["detach"] is True
+    assert calls[0]["detach"] is True
+    assert calls[0]["deadline"] == timedelta(hours=2)
 
 
-def test_reattaching_requires_an_explicit_run_id() -> None:
-    source = next(cell for cell in _code_cells() if "REATTACH_RUN_ID = None" in cell)
+def test_a_reattach_id_starts_no_new_run_even_with_the_detached_flag_on() -> None:
+    calls: list[dict[str, object]] = []
+    source = (
+        _detach_cell()
+        .replace("RUN_DETACHED = False", "RUN_DETACHED = True", 1)
+        .replace("REATTACH_RUN_ID = None", 'REATTACH_RUN_ID = "run_demo"', 1)
+    )
+
+    exec(source, {"sf": _sf_starting(calls)})  # noqa: S102 -- the authored gate, stubbed
+    assert calls == []
+
+
+def test_reattaching_needs_an_id_and_shows_the_runs_report() -> None:
     get_calls: list[str] = []
     run = SimpleNamespace(wait=lambda: "report")
-    sf = SimpleNamespace(runs=SimpleNamespace(get=lambda run_id: get_calls.append(run_id) or run))
+    sf = SimpleNamespace(
+        runs=SimpleNamespace(get=lambda run_id: get_calls.append(run_id) or run),
+        ExecutionError=RuntimeError,
+    )
 
-    exec(source, {"sf": sf})  # noqa: S102 -- execute the authored gate with a local stub
+    scope: dict[str, object] = {"sf": sf, "REATTACH_RUN_ID": None}
+    exec(_reattach_cell(), scope)  # noqa: S102 -- the authored gate, stubbed
     assert get_calls == []
 
-    exec(  # noqa: S102
-        source.replace("REATTACH_RUN_ID = None", 'REATTACH_RUN_ID = "run_demo"', 1),
-        {"sf": sf},
-    )
+    scope = {"sf": sf, "REATTACH_RUN_ID": "run_demo"}
+    exec(_reattach_cell(), scope)  # noqa: S102
     assert get_calls == ["run_demo"]
+    assert scope["reattached_report"] == "report"
+
+
+def test_an_unknown_reattach_id_reads_as_a_message() -> None:
+    def unknown(run_id: str) -> object:
+        raise KeyError(run_id)
+
+    sf = SimpleNamespace(runs=SimpleNamespace(get=unknown), ExecutionError=RuntimeError)
+    scope: dict[str, object] = {"sf": sf, "REATTACH_RUN_ID": "run_missing"}
+
+    exec(_reattach_cell(), scope)  # noqa: S102 -- the authored gate, stubbed
+    assert scope["reattached_report"] == "No Run run_missing for this owner."
