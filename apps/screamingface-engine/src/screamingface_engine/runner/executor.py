@@ -43,6 +43,7 @@ from screamingface_engine.artifacts.spool import (
 )
 from screamingface_engine.benchmarks.picture_admission import run_expression_scope
 from screamingface_engine.benchmarks.registry import served_routes
+from screamingface_engine.candidate_record import RUN_SUMMARY_INVALID, bound_refusal
 from screamingface_engine.capture_outcomes import CaptureTally, capture_outcomes
 from screamingface_engine.job_env import RunShape
 from screamingface_engine.observations import bridge_loss_attributes
@@ -922,6 +923,21 @@ def _summary_attributes(
     return None
 
 
+def _refuse_an_unvouched_summary() -> None:
+    """Fail the run when its record refused its run summary (E5 P2 spec §4.3, OME-1988).
+
+    WHY here: after the run's last log, so its record has read every summary the run published
+    (the lifecycle publishes each step before it asks for the next), and before the result is
+    built or written and before `Completed`, so url4's lifecycle publishes `Terminated(failed)`
+    with this code. The terminal frame is then what every reader settles from, R7 included, and
+    the run's summary line states `failed` too. Permanent: the summary is the run's own, and the
+    same Candidate on the same Engine computes it the same way.
+    """
+    refusal = bound_refusal()
+    if refusal is not None:
+        raise ResolutionError(refusal, code=RUN_SUMMARY_INVALID, permanent=True)
+
+
 def _failed_run_logs(capture: CaptureTally) -> list[Traced]:
     """The one log frame a failed capture or replay run emits: its frozen-copy state.
 
@@ -1163,6 +1179,7 @@ class Url4Executor(Executor):
                 raise
             for frame in _closing_logs(bridge, state.cache_counters, state.capture_tally):
                 yield frame
+            _refuse_an_unvouched_summary()
             # WHY to_thread: for a spilled result this hashes and writes up to hard_cap
             # bytes — synchronous disk work that would otherwise stall the very loop that
             # pumps heartbeats, letting a client declare a FINISHING run dead.

@@ -29,14 +29,17 @@ from screamingface_engine.candidate_outcomes import (
     OutcomeStatus,
     storable_error_code,
 )
-from screamingface_engine.candidate_record import CandidateRecordFold
+from screamingface_engine.candidate_record import RUN_SUMMARY_INVALID, CandidateRecordFold
 from url4.streaming.interfaces import EventPublisher
 from url4.streaming.protocol import OutboundFrame, TerminatedEvent
 from url4.streaming.trace import format_traceparent, parse_traceparent, valid_traceparent
 
 SCHEDULED = "run scheduled"
 TERMINATED = "run terminated"
+SUMMARY_REFUSED = "run summary refused"
 """Stable prefixes. An operator greps these; renaming one breaks a runbook, not a test."""
+
+_logger = logging.getLogger(__name__)
 
 
 def adopt_or_mint_traceparent(traceparent: str | None) -> str:
@@ -205,7 +208,8 @@ class SettlementWatch(TerminalWatch):
     `url4-events` never becomes an outcome.
 
     ``record`` (E5 P2 spec §4.3) is given for a driver-started run only. It folds the frames the
-    inner publisher accepted, so the record states what a follower could have seen.
+    inner publisher accepted, so the record states what a follower could have seen. Its producer
+    also binds it for the run's task (`binding_record`), where the executor reads its refusal.
     """
 
     def __init__(self, inner: EventPublisher, *, record: CandidateRecordFold | None = None) -> None:
@@ -220,14 +224,28 @@ class SettlementWatch(TerminalWatch):
 
     @property
     def refused(self) -> str | None:
-        """The code a success fails with when its record cannot vouch for it
-        (`CandidateRecordFold.refused`); None for a run nobody asked a record of."""
-        return None if self._record is None else self._record.refused
+        """`RUN_SUMMARY_INVALID` when the run's record refused its run summary
+        (`CandidateRecordFold.malformed`); None otherwise, and for a run with no record."""
+        if self._record is None or self._record.malformed is None:
+            return None
+        return RUN_SUMMARY_INVALID
 
     async def publish(self, topic: str, event: OutboundFrame) -> None:
         await super().publish(topic, event)
         if self._record is not None:
+            known = self._record.malformed
             self._record.observe(event)
+            malformed = self._record.malformed
+            if known is None and malformed is not None:
+                # FEATURE (OME-1988): the run fails `run_summary_invalid`; this names why. The
+                # attribute's name only: a figure's value may carry a log's content.
+                _logger.warning(
+                    "%s topic=%s attribute=%r code=%s",
+                    SUMMARY_REFUSED,
+                    topic,
+                    malformed,
+                    RUN_SUMMARY_INVALID,
+                )
         if not isinstance(event, TerminatedEvent):
             return
         # INVARIANT: the code and the evidence line's error are the last landed terminal frame's,
@@ -248,12 +266,13 @@ def settlement_of(
     """The Candidate's outcome, from the same verdict as the evidence line.
 
     INVARIANT (spec R3): one classifier. A landed terminal frame decides it; without one, the
-    task decides it, as `outcome_of` does. The one exception is a driver-started run's success
-    that its own record refuses (OME-1988): it settles `failed` with the refusal's code.
+    task decides it, as `outcome_of` does. A run whose record refused its run summary
+    (OME-1988) is failed by its executor before its terminal frame, so that frame already says
+    `failed` with `run_summary_invalid`, and an R7 settle from it agrees.
     """
     if watch.landed is not None:
-        # WHY here (E5 P2 spec §4.3, D9): the Client settles each Candidate from the registry and
-        # its record, by the rules its own fold applied, and that fold failed this run.
+        # AIDEV-NOTE: a landed success whose record refused it all the same (only an executor
+        # that does not read `bound_refusal` publishes one) settles `failed`, as its record says.
         refused = watch.refused if watch.landed == "succeeded" else None
         return CandidateOutcome(
             _status(watch.landed) if refused is None else "failed",
@@ -278,6 +297,7 @@ def _status(value: str) -> OutcomeStatus:
 __all__ = [
     "NO_TERMINAL_FRAME",
     "SCHEDULED",
+    "SUMMARY_REFUSED",
     "TERMINATED",
     "adopt_or_mint_traceparent",
     "log_scheduled",

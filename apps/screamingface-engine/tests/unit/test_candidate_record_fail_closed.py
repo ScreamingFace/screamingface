@@ -11,6 +11,10 @@ INVARIANT: each ported case is a case of the Client's `_RunState` tests
 real Engine stream (`data/cache_hit_contract/run_events.json`) and the same fail-closed outcome.
 A refused success both settles the Candidate `failed` and leaves the result out of its record: the
 Client reads a succeeded Candidate's record and ignores an `error` on it.
+
+AIDEV-NOTE: these replay a recorded success, its `succeeded` terminal frame included, so they read
+the fold's rule through `settlement_of`'s backstop. A real run is failed by its executor before its
+terminal frame: `test_run_summary_refused_before_terminal.py` (review round 1).
 """
 
 from __future__ import annotations
@@ -220,3 +224,27 @@ async def test_the_candidate_fails_even_when_its_record_is_too_large_to_report()
 
     assert (outcome.status, outcome.error_code) == ("failed", CODE)
     assert outcome.record is None
+
+
+# --- A summary amount is the run's own fixed-point string (review round 1) ------------------------
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        pytest.param("1E+999999999", id="huge-exponent"),
+        pytest.param("1E+3", id="exponent"),
+        pytest.param("1e3", id="lower-exponent"),
+        pytest.param("1_000", id="underscore"),
+        pytest.param(" 1 ", id="spaces"),
+        pytest.param("+1", id="sign"),
+        pytest.param("1.", id="bare-point"),
+        pytest.param(".5", id="no-integer-part"),
+        pytest.param("１", id="full-width-digit"),
+    ],
+)
+async def test_an_amount_the_run_never_writes_is_refused(value: str) -> None:
+    """The run writes each total with `format(total, "f")`: ASCII digits, at most one point
+    between them. `Decimal` reads far more, and an exponent it reads `_amount` writes out in
+    fixed point (`1E+999999999` is about 1 GB)."""
+    _assert_refused(await _settle(_stream({_SAVED: value})), _SAVED)

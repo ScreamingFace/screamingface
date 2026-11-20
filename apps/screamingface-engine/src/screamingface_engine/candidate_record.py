@@ -13,10 +13,13 @@ LAYERING: a shared leaf beside `run_evidence`, url4's protocol and the standard 
 
 from __future__ import annotations
 
+import contextvars
 import hashlib
 import json
-from collections.abc import Callable, Mapping
-from decimal import Decimal, InvalidOperation
+import re
+from collections.abc import Callable, Iterator, Mapping
+from contextlib import contextmanager
+from decimal import Decimal
 from typing import Any
 
 from screamingface_engine.client_provenance import VERSION_ATTRIBUTE, valid_version
@@ -36,8 +39,7 @@ MAX_RECORD_BYTES = 48 * 1024
 64 KiB, and under the child's control-pipe line."""
 
 RUN_SUMMARY_INVALID = "run_summary_invalid"
-"""The error code of a Candidate whose run succeeded with a malformed figure in its run summary
-(OME-1988)."""
+"""The error code a run fails with when its run summary has a malformed figure (OME-1988)."""
 
 # The run summary's attributes (`runner/cache_counters.py`, `capture_outcomes.py`), as the Client
 # reads them. WHY named here: those modules are the run half's, which a shared leaf cannot import.
@@ -51,6 +53,19 @@ _FROZEN_COPY_ID = "capture.frozen_copy_id"
 _CAPTURE_STATUS = "capture.status"
 _CAPTURE_REPLAY = "capture.replay"
 _PARTIAL_PREFIX = "capture.partial."
+# A summary amount as the run writes each total: `format(total, "f")` of a non-negative amount.
+_AMOUNT = re.compile(r"[0-9]+(?:\.[0-9]+)?")
+# The record's fields a run summary certifies (§4.3); a refused record carries none of them.
+_SUMMARY_FIGURES = (
+    "cache_hits",
+    "cache_unpriced_hits",
+    "cache_saved_cost_usd",
+    "cache_saved_cost_archive_usd",
+    "frozen_copy_id",
+    "capture_status",
+    "capture_replay",
+    "capture_partial_reasons",
+)
 
 type _Attributes = Mapping[str, str | int | float | bool | None]
 
@@ -118,7 +133,8 @@ class CandidateRecordFold:
         if invalid is not None:
             # INVARIANT (OME-1463, OME-1307; the Client's `_CacheSummary.parse`): fail closed. These
             # figures decide whether a cost or a frozen copy may publish as exact, so one that
-            # cannot be trusted fails the Candidate (`refused`), never reads as unknown or zero.
+            # cannot be trusted fails the run (`refusal`), never reads as unknown or zero. Sticky:
+            # a later well-formed summary does not clear it.
             self._invalid = self._invalid or invalid
             return
         hits = _count(attributes.get(_CACHE_HITS))
@@ -132,14 +148,20 @@ class CandidateRecordFold:
             self._summary = attributes
 
     @property
-    def refused(self) -> str | None:
-        """`RUN_SUMMARY_INVALID` when a run summary had a malformed figure, else None.
+    def malformed(self) -> str | None:
+        """The first malformed attribute of any run summary the root published, else None."""
+        return self._invalid
 
-        A run that succeeded then fails with it (`settlement_of`, OME-1988). WHY the outcome and
-        not only the record: the Client reads a succeeded Candidate's record and ignores an
-        `error` on it, and a record too large to report is dropped while the outcome lands.
+    @property
+    def refusal(self) -> str | None:
+        """The message a run whose summary had a malformed figure fails with, else None.
+
+        The run's executor fails the run with it before its result and terminal frames
+        (`bound_refusal`, OME-1988), so the terminal frame, the outcome and the record agree.
         """
-        return None if self._invalid is None else RUN_SUMMARY_INVALID
+        if self._invalid is None:
+            return None
+        return f"SF Engine run summary {self._invalid} is invalid"
 
     def record(self) -> dict[str, Any] | None:
         """The record, cut to `MAX_RECORD_BYTES`; None until the root has ended, or when even
@@ -165,13 +187,18 @@ class CandidateRecordFold:
             "capture_partial_reasons": _partial_reasons(summary),
             "client_version": None if self._version_conflict else self._version,
         }
+        if self._invalid is not None:
+            # INVARIANT (OME-1988): a refused record certifies no figure. A well-formed summary
+            # before or after the malformed one would otherwise still set them.
+            record.update(dict.fromkeys(_SUMMARY_FIGURES))
         status = terminated.data.status
         if status == "succeeded" and self._invalid is not None:
-            # A success the summary cannot vouch for records the failure it settles as, and no
-            # result, so no reader can take its figures as exact.
+            # AIDEV-NOTE: reached only by an executor that does not read `bound_refusal`; the
+            # `Url4Executor` fails such a run before its terminal frame, which the next branch
+            # records. Kept with `settlement_of`'s matching branch so no reader takes it as exact.
             record["error"] = {
                 "code": RUN_SUMMARY_INVALID,
-                "message": f"SF Engine run summary {self._invalid} is invalid",
+                "message": self.refusal,
                 "permanent": True,
                 "details": None,
             }
@@ -298,15 +325,16 @@ def _count(value: object) -> int | None:
 
 
 def _decimal(value: object) -> Decimal | None:
-    """A summary amount: a finite, non-negative decimal STRING, as the run writes each total
-    (`format(total, "f")`); None for anything else, a float included."""
-    if not isinstance(value, str):
+    """A summary amount: a fixed-point STRING of ASCII digits, as the run writes each total
+    (`_AMOUNT`); None for anything else, a float included.
+
+    WHY not whatever `Decimal` reads: it also reads exponents, signs, spaces, underscores and
+    non-ASCII digits, none of which the run writes, and `_amount` writes an exponent out in fixed
+    point (`1E+999999999` is about 1 GB).
+    """
+    if not isinstance(value, str) or _AMOUNT.fullmatch(value) is None:
         return None
-    try:
-        amount = Decimal(value)
-    except InvalidOperation:
-        return None
-    return amount if amount.is_finite() and amount >= 0 else None
+    return Decimal(value)
 
 
 def _text(value: object) -> str | None:
@@ -342,6 +370,36 @@ def _well_formed(key: str, value: object) -> bool:
     return parse is None or parse(value) is not None
 
 
+_bound_fold: contextvars.ContextVar[CandidateRecordFold | None] = contextvars.ContextVar(
+    "candidate_record_fold", default=None
+)
+
+
+@contextmanager
+def binding_record(fold: CandidateRecordFold | None) -> Iterator[None]:
+    """Bind ``fold`` for the run task created inside it (a task copies the context it is created
+    in), so that run's executor can read `bound_refusal`. None binds no record.
+
+    WHY a ContextVar (the engine's idiom for per-run state, as `binding_result_spool`): the
+    executor is built by a factory that knows nothing of the run's record, and the producer that
+    folds the record (`runner.main._run_and_log`, `InProcessJobRunner.schedule`) creates the run's
+    task.
+    """
+    token = _bound_fold.set(fold)
+    try:
+        yield
+    finally:
+        _bound_fold.reset(token)
+
+
+def bound_refusal() -> str | None:
+    """The message the running run must fail with because its record refused its run summary
+    (`CandidateRecordFold.refusal`); None when it did not, or when the run folds no record (it is
+    not driver-started)."""
+    fold = _bound_fold.get()
+    return None if fold is None else fold.refusal
+
+
 def _partial_reasons(summary: _Attributes) -> list[str]:
     return sorted(
         key.removeprefix(_PARTIAL_PREFIX)
@@ -350,4 +408,11 @@ def _partial_reasons(summary: _Attributes) -> list[str]:
     )
 
 
-__all__ = ["MAX_RECORD_BYTES", "RUN_SUMMARY_INVALID", "CandidateRecordFold", "fit_record"]
+__all__ = [
+    "MAX_RECORD_BYTES",
+    "RUN_SUMMARY_INVALID",
+    "CandidateRecordFold",
+    "binding_record",
+    "bound_refusal",
+    "fit_record",
+]
