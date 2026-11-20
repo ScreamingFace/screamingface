@@ -250,3 +250,111 @@ Removed from `packages/screamingface/tests/test_capture_summary.py`,
   - **Left as is:** `test_run_report_fallbacks.py` (outside the groups) passes a `run()`-only
     `_CannotFollow` through `cast(Any, …)`; it still covers `Run.wait()` and `Run.report()` with a
     transport that cannot wait or rebuild.
+- **Review round 1 on #1982 (2026-11-20):** a `/code-review` at xhigh found 10 issues (one
+  IMPORTANT). The owner approved fixing all of them on 2026-11-20, with the prior-test changes
+  they name: `test_activity_decoder_bounds.py`, `test_engine_cost_breakdown_warning.py`,
+  `test_run_cost_status.py`, `test_engine_contract.py`, the two Engine subprocess tests,
+  `test_local_capacity_contract.py`, `test_cache_hit_contract.py` and `test_run_report_fallbacks.py`;
+  and, asked for once the fixes showed them, `test_evaluation_outcome_abort.py` (finding 1) and
+  `test_candidate_root_lifecycle.py` (finding 2).
+  Each behaviour fix has a test that failed first (1, 5, 8, 10). One commit on top,
+  `fix(screamingface): address the review on the Client port`.
+  1. **IMPORTANT, an interrupt read as the shown Candidate's own error** (`following.py`,
+     `_SyncFollow.event` / `_AsyncFollow.event`): Ctrl-C or a cancelled task that landed while a
+     Candidate's progress line or async `on_event` ran set `raised_at`, so that Candidate missed
+     its "run stopped" line (sync) or read `run_failed` (async), the OME-1071 symptom. Now
+     `raised_at` is set only for an exception the caller's own `on_event` raised
+     (`raised_by_caller`) that is not a `KeyboardInterrupt` or `CancelledError`, which are the
+     owner's abort (`_callers_own`). Tests, both failing first: `tests/test_interrupt_while_shown.py`
+     (Ctrl-C while the progress writes `a`'s line, no `on_event`: `a` and `b` stopped, both lines;
+     a task cancelled while `a`'s async `on_event` awaits: `a` stopped, not `run_failed`).
+     Prior test that follows, approved by the owner separately (2026-11-20):
+     `test_evaluation_outcome_abort.py::test_swept_sibling_reads_as_stopped[interrupt]` expected
+     only `b`'s "run stopped" line; Ctrl-C now stops `a` too, so it expects `a`'s line as well
+     whenever `a` reads `stopped` (the `callback` case is unchanged).
+  2. **`_RunState`, `_engine/run_lifecycle.py` and `contract._accumulated` deleted**, with the
+     helpers only `_RunState` used (`_Accepted`, `_payload`, the advisory and unsequenced
+     handling, `_no_event`). `contract.py` keeps `display_event` and `usage_value`. Prior tests:
+     - `test_engine_contract.py` now pins `display_event`: every shown kind (start, end, log, span,
+       usage, a child's lifecycle), what is not shown (a result, a frame with no sequence, a kind
+       this Client does not know), and the refusals that still exist (envelope, payload, cache
+       status, the scalar helpers). Gone with the per-Candidate socket: replay requests, event-id
+       reuse, a changed run subject, the `stream_failed` reattach, validating unsequenced frames,
+       and the specversion, content-type and UTF-8 checks (the follow's frame checks are
+       `test_run_follow.py`'s). The root rules (no root identified, a second root start or
+       result: finding 4) are the Engine fold's, already in `test_candidate_record_rules.py`.
+     - `test_activity_decoder_bounds.py` runs on the follow's own decoding (`run_follow._Frames`):
+       a replayed sequence is dropped on a long stream, and no id, however large or reused at a
+       new sequence, keeps an event from being shown. The event-id collision window went with
+       `_RunState`.
+     - `test_engine_cost_breakdown_warning.py` decodes through `display_event`.
+     - `test_run_cost_status.py`: the `_accumulated` test goes; its rule was not pinned on the
+       Engine fold, so `test_the_spans_savings_add_up_and_none_stays_none` ports it to
+       `test_candidate_record_evidence_rules.py`.
+     - The two Engine subprocess tests (`test_model_activity_stream.py`,
+       `test_structured_log_forwarding.py`) feed the Engine's own Run-stream `candidate.event`
+       frames (`rest.runs_events._event`) to `display_event` in the Client: every frame but the
+       result is shown, the activity logs are as before, and the ROOT's `Terminated` (the source
+       of the start naming the run's url4) succeeded.
+     - Approved by the owner separately (2026-11-20): `test_candidate_root_lifecycle.py`
+       imports `_RunState`. Repointed at `display_event`, every row assertion holds; the early
+       child's "run root was never identified" raise goes (pinned on the Engine fold:
+       `test_an_end_with_no_root_naming_the_url4_has_no_record`).
+  3. `test_local_capacity_contract.py` compares the local ceiling (`local_max_concurrent_runs`,
+     `DEFAULT_MAX_CONCURRENT_RUNS`) with the per-caller cap (`run_queue_caller_inflight_cap`, and
+     the queue adapter's `DEFAULT_CALLER_INFLIGHT_CAP`), strictly above. The comments in
+     `config.py` and `adapters/inprocess.py` no longer name the deleted Client constant.
+  4. Resolved by 2.
+  5. `Client` and `AsyncClient` raise `TypeError` naming the port shape and what is missing when
+     `run_transport` has no callable `register_run`, `follow_run` or `cancel_run`, before
+     anything is opened (`client._require_run_transport`). Test, failing first:
+     `tests/test_run_transport_shape.py`. CHANGELOG: the existing `run_transport` entry says so.
+  6. `candidate_record.py`'s docstring, `tests/fixtures/candidate_runs/README.md` and
+     `test_candidate_record.py`'s docstring: the rules are pinned in `test_candidate_record_rules.py`
+     and `test_candidate_record_evidence_rules.py`, and the Client only reads the record.
+  7. `test_cache_hit_contract.py` hop 3 reads the Engine's recorded cache-hit run
+     (`candidate_runs/cache_hit.json`) through the Client's `run_record.candidate_outcome` and
+     asserts the Report and the submission carry the record's own amounts (both savings, the
+     spend apart); the injected `_SAVED` is gone. Its `_RunState` mismatch test goes (the Engine
+     fold's `test_a_mismatched_url4_gives_the_real_stream_no_record`).
+  8. `ScriptedRun.follow_run` (`_run_transport.py`): a `finally` ends the stream (`_SyncStream`:
+     a script still running reports nothing, its relay is a no-op) and joins the script threads
+     that already reported; `cancel_run` joins the ones its `on_cancel` released (5 s budget).
+     Test, failing first: `test_a_follow_that_raises_leaves_no_script_running_once_the_run_is_canceled`.
+  9. `test_run_report_fallbacks.py`: `_CannotFollow` is `_CannotWait(ScriptedRun)`, a transport
+     on the port with no `wait_run` (not `_RunReattaching`); no `cast`.
+  10. `AsyncPlaying` forwards `register_run`, `cancel_run` and `close` to the wrapped fake and
+     reads `registered` / `canceled` through to it. Test, failing first:
+     `test_async_playing_registers_cancels_and_closes_through_the_sync_fake`.
+  - **Gates (local, not `run_gates.py`):** the Client suite with the notebook extra, 7510
+    passed, 38 skipped, coverage 96.88% (floor 95); `ruff check`, `ruff format --check` and
+    `pyright` (src and tests) clean. Engine: the touched tests and their neighbours
+    (`test_candidate_record*.py`, `test_local_capacity_contract.py`,
+    `test_model_activity_stream.py`, `test_structured_log_forwarding.py`,
+    `test_inprocess_runner.py`, `test_caller_inflight_default.py`, `test_cache_hit_contract.py`)
+    118 passed; ruff and pyright clean on the touched files.
+  - **Manifest:** `OME-1990.json` regenerated (exact blobs against the merge-base with
+    `origin/main`) for every changed prior test file: 100 entries, four added
+    (`test_activity_decoder_bounds.py`, `test_engine_cost_breakdown_warning.py`,
+    `test_run_cost_status.py`, `test_local_capacity_contract.py`).
+  - **Found, not changed (outside the findings):** in local mode the in-process runner states its
+    ceiling as the caller's cap (`InProcessJobRunner.caller_inflight_cap` returns
+    `max_concurrent_runs`), so the driver's local fan-out equals the ceiling and the pinned
+    invariant holds only for the per-caller setting; "the Client sizes its fan-out from
+    `GET /v1/limits`" is stale since CP1 (`config.py`, `runner_queue.py`, `rest/limits.py`,
+    `test_caller_inflight_default.py`, the Engine CHANGELOG); and since C1 the follow drops an
+    unsequenced advisory notice silently, where `_RunState` logged it.
+- **Rebased onto #1878's new head after #1759 merged (2026-11-20):** #1878 was rebased onto main, so
+  this branch moved onto it (no conflicts). `OME-1990.json` drops #1759's Engine entries, re-pins
+  `public_surface_snapshot.json` against main, and adds `test_candidate_record.py`, which became a
+  prior test when #1759 merged; this branch changes only its module docstring (finding 6).
+  `tests/fixtures/candidate_runs/README.md` is back to main's text: once #1759 merged it is a prior
+  test artifact, and the append-only check cannot approve an edit to a `.md` under `tests/`. The
+  corrected wording stays in `candidate_record.py`'s docstring and `test_candidate_record.py`.
+- **PR review by HupBaHa on #1982 (2026-11-20, changes requested), 1 point, fixed:** five manifest
+  entries (`test_client_run.py`, `test_recovery_failure_paths.py`, `test_reproduce.py`,
+  `test_run_registration.py`, `test_run_resume_reconnect.py`) kept base blobs from before #1878
+  merged. `OME-1990.json` is regenerated against main after #1878 (43 entries): those five re-pinned,
+  #1878's own entries dropped, and `test_run_report_fallbacks.py` (finding 9, owner-approved) added
+  now that it is a prior test. Gates: the append-only check against `origin/main` passes for the
+  Engine stack; for the Client stack it lists only the three owner-approved deletions.

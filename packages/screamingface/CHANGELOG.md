@@ -56,7 +56,8 @@
   a Run (`OME-1837`): `register_run`, `follow_run`, `cancel_run` and `close`, the shape of the
   `SyncRunTransport` and `AsyncRunTransport` protocols. A custom transport that ran one Candidate
   at a time with `run()` and `cancel_active()` no longer works, since the Engine runs every
-  Candidate.
+  Candidate: `Client(run_transport=...)` and `AsyncClient(run_transport=...)` now raise
+  `TypeError` naming the methods it lacks.
 
 * **screamingface:** `evaluate` no longer captures a pinned cache by default. Capture is now
   opt-in: pass `capture=True` to `sf.evaluate`, `Client.evaluate` or `AsyncClient.evaluate` to

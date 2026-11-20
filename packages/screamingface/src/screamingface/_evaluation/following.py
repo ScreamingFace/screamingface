@@ -19,6 +19,7 @@ leaves the Run to the Engine, which is what D15 tells the user.
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 import time
 from collections.abc import AsyncIterator, Callable, Iterator, Mapping
@@ -179,8 +180,9 @@ class _SyncFollow(_Follow):
         if index in self._bound:
             try:
                 self._bound[index](event)
-            except BaseException:
-                self.raised_at = index
+            except BaseException as exc:
+                if _callers_own(exc, self._observer):
+                    self.raised_at = index
                 raise
 
     def stopped(self) -> None:
@@ -255,8 +257,9 @@ class _AsyncFollow(_Follow):
                 returned = self._bound[index](event)
                 if inspect.isawaitable(returned):
                     await returned
-            except BaseException:
-                self.raised_at = index
+            except BaseException as exc:
+                if _callers_own(exc, self._observer):
+                    self.raised_at = index
                 raise
 
     def stopped(self) -> None:
@@ -372,6 +375,20 @@ async def _cancel_async(transport: AsyncRunTransport, run_id: str, exc: BaseExce
         await transport.cancel_run(run_id)
     except Exception as cancel_error:  # noqa: BLE001 - keep the interruption the user sees
         exc.add_note(f"Canceling Run {run_id} on the SF Engine also failed: {cancel_error}")
+
+
+def _callers_own(
+    exc: BaseException, observer: _SyncEventObserver | _AsyncEventObserver | None
+) -> bool:
+    """Whether the caller's own `on_event` raised ``exc``, so its Candidate is the one the final
+    abort shows. INVARIANT (OME-1071): Ctrl-C or a cancelled task is the owner's abort even when
+    it lands while a Candidate's progress line or `on_event` runs: that Candidate reads stopped
+    like the rest."""
+    return (
+        not isinstance(exc, (KeyboardInterrupt, asyncio.CancelledError))
+        and observer is not None
+        and observer.raised_by_caller(exc)
+    )
 
 
 def _stops_the_run(

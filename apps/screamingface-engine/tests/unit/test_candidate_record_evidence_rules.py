@@ -161,6 +161,25 @@ def test_the_summary_carries_the_archive_total() -> None:
     assert record["cache_unpriced_hits"] == 0
 
 
+def test_the_spans_savings_add_up_and_none_stays_none() -> None:
+    """Ports `test_accumulating_keeps_absent_distinct_from_zero` (`test_run_cost_status.py`).
+    INVARIANT: absent stays distinct from zero. With no summary the spans' savings add up, a span
+    with none adds nothing, a zero is kept, and a run whose spans saved nothing records None."""
+    frames = _without_summary(_events())
+    first, second, *_ = (f["data"] for f in frames if f["type"] == "ai.url4.span")
+    first["cache_saved_cost_usd"] = "0.5"
+    second["cache_saved_cost_archive_usd"] = "0"
+    _hit_span(frames)["cache_saved_cost_usd"] = "0.25"
+
+    record = _succeeded(frames)
+    assert (record["cache_saved_cost_usd"], record["cache_saved_cost_archive_usd"]) == ("0.75", "0")
+
+    frames = _without_summary(_events())
+    _hit_span(frames)["cache_saved_cost_usd"] = None
+    record = _succeeded(frames)
+    assert (record["cache_saved_cost_usd"], record["cache_saved_cost_archive_usd"]) == (None, None)
+
+
 _CORRUPTIONS: dict[str, Callable[[dict[str, Any]], object]] = {
     "counts-do-not-sum": lambda a: a.__setitem__(_REPORTED_HITS, 0),
     "hits-without-amount": lambda a: a.pop(_SAVED_COST),

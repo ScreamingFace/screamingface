@@ -1,13 +1,11 @@
-"""Strict CloudEvents decoder for one SF Engine Run's events."""
+"""One SF Engine CloudEvent as its public Event (`display_event`), for `on_event` and the
+progress output, and a `cost.usage` frame's data as the Report's usage (`usage_value`)."""
 
 from __future__ import annotations
 
-import json
 import logging
 import math
-from collections import OrderedDict
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any, cast
@@ -17,209 +15,6 @@ from screamingface.errors import ExecutionError
 from screamingface.report import Usage as AccountingUsage
 
 _LOG = logging.getLogger(__name__)
-_MAX_CONSECUTIVE_REPLAY_REQUESTS = 3
-_MAX_STREAM_REATTACH_REQUESTS = 3
-# Frames the control plane emits outside the broker's sequencer, so they never carry one.
-_UNSEQUENCED_TYPES = frozenset({"ai.url4.heartbeat", "ai.url4.error"})
-# Frames that MAY arrive either way: the broker stamps a sequence on the ones it relays, but
-# url4-cloud also injects notices out of band (a re-attach cache-policy warning, a
-# cache-control override) which bypass it entirely.
-# INVARIANT: only frames that mutate no _RunState may appear in either set. Gap detection,
-# event-id de-duplication, and the replay-order guarantee all live on the sequenced path.
-# AIDEV-NOTE: keying on the ABSENCE of a field is a tolerant-reader shim — "out of band by
-# design" and "the broker dropped the sequence" are indistinguishable on the wire. The
-# durable fix is a distinct server-side CloudEvent type for advisory notices.
-_ADVISORY_TYPES = frozenset({"ai.url4.log"})
-_UNSEQUENCED_LABELS = {"ai.url4.heartbeat": "heartbeat"}
-
-
-@dataclass(frozen=True, slots=True)
-class _Accepted:
-    event: events.Event | None = None
-    replay_from: int | None = None
-
-
-class _RunState:
-    """Validate one ordered CloudEvents stream and decode its public Events. A Candidate's
-    outcome comes from the Engine's record (E5 P2 spec §4.3), never from these."""
-
-    def __init__(self, expected_url4: str) -> None:
-        # INVARIANT: sequence and Event IDs define replay order within exactly one Run.
-        self._expected_url4 = expected_url4
-        self._run_id: str | None = None
-        self._root_source: str | None = None
-        self._last_sequence = 0
-        self._event_ids: OrderedDict[str, int] = OrderedDict()
-        self._event_id_bytes = 0
-        self._consecutive_replay_requests = 0
-        self._stream_reattach_requests = 0
-
-    @property
-    def last_sequence(self) -> int:
-        """The highest broker-sequenced frame accepted so far — the resume cursor."""
-        return self._last_sequence
-
-    def accept(self, raw: str | bytes) -> _Accepted:
-        payload = _payload(raw)
-        event_type = _text(payload, "type")
-        # INVARIANT: the discriminator is the presence of "sequence" ALONE. "sequencetype"
-        # annotates "sequence"; with no sequence it annotates nothing. Keying on both fields
-        # would reclassify a sequenced frame whose sequencetype is missing as advisory and
-        # silently skip its handler, instead of rejecting a malformed envelope.
-        if event_type in _UNSEQUENCED_TYPES or (
-            event_type in _ADVISORY_TYPES and payload.get("sequence") is None
-        ):
-            return self._accept_unsequenced(payload, event_type)
-        sequence_result = self._accept_sequence(payload)
-        if sequence_result is not None:
-            return sequence_result
-        sequence = _sequence(payload)
-        envelope = _envelope(payload, sequence)
-        self._observe_run(envelope["run_id"])
-        data = _object(payload.get("data"), f"{event_type} data")
-        decoders: dict[str, _Decode] = {
-            **_DISPLAYED,
-            "ai.url4.started": self._started,
-            "ai.url4.terminated": self._terminated,
-            "ai.url4.result": _no_event,
-        }
-        try:
-            decode = decoders[event_type]
-        except KeyError:
-            raise ExecutionError(f"unsupported SF Engine CloudEvent type {event_type!r}") from None
-        return _Accepted(event=decode(envelope, data))
-
-    def _accept_unsequenced(
-        self,
-        payload: Mapping[str, object],
-        event_type: str,
-    ) -> _Accepted:
-        label = _UNSEQUENCED_LABELS.get(event_type, event_type)
-        data = _object(payload.get("data"), f"{label} data")
-        self._observe_run(_common_envelope(payload)["run_id"])
-        if event_type == "ai.url4.error":
-            code, message = _advisory_error(data)
-            if code == "stream_reclaimed":
-                # OME-1019/1020: FINAL — the Run finished and the Runner reclaimed its
-                # stream (grace elapsed) while this client was away. The result is
-                # unrecoverable; reconnecting cannot change that.
-                raise ExecutionError(
-                    message or "this run's stream was reclaimed",
-                    code="run_result_lost",
-                    permanent=True,
-                    details=data,
-                )
-            if code == "stream_failed":
-                self._stream_reattach_requests += 1
-                if self._stream_reattach_requests > _MAX_STREAM_REATTACH_REQUESTS:
-                    raise ExecutionError(
-                        message,
-                        code="event_stream_failed",
-                        permanent=False,
-                        details=data,
-                    )
-                return _Accepted(replay_from=self._last_sequence + 1)
-        elif event_type == "ai.url4.log":
-            _advisory_log(data)
-        return _Accepted()
-
-    def _accept_sequence(self, payload: Mapping[str, object]) -> _Accepted | None:
-        sequence = _sequence(payload)
-        event_id = _text(payload, "id")
-        if sequence <= self._last_sequence:
-            return _Accepted()
-        if event_id in self._event_ids:
-            raise ExecutionError("SF Engine reused a CloudEvent event id at a new sequence")
-        if sequence > self._last_sequence + 1:
-            self._consecutive_replay_requests += 1
-            if self._consecutive_replay_requests > _MAX_CONSECUTIVE_REPLAY_REQUESTS:
-                raise ExecutionError(
-                    "SF Engine repeatedly failed to replay a missing Run event",
-                    code="event_stream_replay_exhausted",
-                    permanent=False,
-                )
-            return _Accepted(replay_from=self._last_sequence + 1)
-        self._consecutive_replay_requests = 0
-        self._remember_id(event_id)
-        self._last_sequence = sequence
-        return None
-
-    def _remember_id(self, event_id: str) -> None:
-        # INVARIANT: old sequences remain rejected by the scalar cursor. ID collision
-        # detection covers only this bounded window, never lifetime uniqueness.
-        size = len(event_id.encode("utf-8"))
-        if size > 1024 * 1024:
-            return
-        self._event_ids[event_id] = size
-        self._event_id_bytes += size
-        while len(self._event_ids) > 4096 or self._event_id_bytes > 1024 * 1024:
-            _, removed = self._event_ids.popitem(last=False)
-            self._event_id_bytes -= removed
-
-    def _observe_run(self, run_id: str) -> None:
-        if self._run_id is None:
-            self._run_id = run_id
-        elif run_id != self._run_id:
-            raise ExecutionError("SF Engine changed run subject within one stream")
-
-    def _started(self, envelope: dict[str, Any], data: Mapping[str, object]) -> events.Started:
-        event = _started_event(envelope, data)
-        if self._root_source is None and event.url4 == self._expected_url4:
-            self._root_source = envelope["source"]
-        elif envelope["source"] == self._root_source:
-            raise ExecutionError("SF Engine emitted duplicate root started Events")
-        return event
-
-    def _terminated(
-        self, envelope: dict[str, Any], data: Mapping[str, object]
-    ) -> events.Terminated:
-        event = _terminated_event(envelope, data)
-        # WHY: heartbeats can keep recv alive forever after an unrecognized root terminates.
-        if self._root_source is None:
-            raise ExecutionError("SF Engine run root was never identified (URL4 mismatch)")
-        return event
-
-
-def _advisory_error(data: Mapping[str, object]) -> tuple[str, str]:
-    code = _text(data, "code")
-    message = _text(data, "message")
-    _optional_text(data.get("ref_id"), "error ref_id")
-    return code, message
-
-
-def _advisory_log(data: Mapping[str, object]) -> None:
-    """Validate an out-of-band notice and surface it without inventing a sequence.
-
-    WHY: the notice cannot become a public Event — ``events.Event.sequence`` is a mandatory
-    positive integer, and inventing one would pollute the replay order the sequence defines.
-    Dropping it silently is worse than the crash it replaces, though: the server sends these
-    precisely so a caller learns its declaration was overridden. Logging keeps that promise.
-    """
-
-    _severity(_text(data, "severity_text"))
-    _integer(data.get("severity_number"), "log severity_number")
-    _log_attributes(data.get("attributes", {}))
-    _LOG.warning("SF Engine notice: %s", _raw_text(data, "body"))
-
-
-def _payload(raw: str | bytes) -> dict[str, object]:
-    if isinstance(raw, bytes):
-        try:
-            raw = raw.decode("utf-8")
-        except UnicodeDecodeError as exc:
-            raise ExecutionError("SF Engine CloudEvent must be UTF-8 JSON") from exc
-    if not isinstance(raw, str):
-        raise ExecutionError("SF Engine WebSocket frame must contain text JSON")
-    try:
-        value = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        raise ExecutionError("SF Engine CloudEvent must be valid JSON") from exc
-    payload = _object(value, "CloudEvent")
-    if payload.get("specversion") != "1.0":
-        raise ExecutionError("SF Engine CloudEvent must use specversion '1.0'")
-    if payload.get("datacontenttype", "application/json") != "application/json":
-        raise ExecutionError("SF Engine CloudEvent data must use application/json")
-    return payload
 
 
 def _sequence(payload: Mapping[str, object]) -> int:
@@ -557,18 +352,6 @@ def _optional_timestamp(value: object) -> datetime | None:
     return None if value is None else _timestamp(value)
 
 
-def _accumulated(total: Decimal | None, amount: Decimal | None) -> Decimal | None:
-    """Add one span's contribution, keeping absent distinct from zero.
-
-    INVARIANT: a run that observed nothing priceable stays `None`. Seeding with `Decimal(0)`
-    would make every run look like it saved nothing, which reads as evidence where there is
-    none — and `partial` vs `unavailable` turns on precisely that.
-    """
-    if amount is None:
-        return total
-    return amount if total is None else total + amount
-
-
 def _decimal(value: object, label: str) -> Decimal:
     if isinstance(value, bool) or not isinstance(value, str | int | float | Decimal):
         raise ExecutionError(f"SF Engine {label} must be a decimal")
@@ -611,11 +394,6 @@ def _terminated_event(envelope: dict[str, Any], data: Mapping[str, object]) -> e
     return events.Terminated(
         **envelope, status=_termination_status(status), error=_termination_error(data.get("error"))
     )
-
-
-def _no_event(envelope: dict[str, Any], data: Mapping[str, object]) -> None:
-    """A result frame: the Candidate's result comes from the Engine's record and result route."""
-    return None
 
 
 type _Decode = Callable[[dict[str, Any], Mapping[str, object]], events.Event | None]

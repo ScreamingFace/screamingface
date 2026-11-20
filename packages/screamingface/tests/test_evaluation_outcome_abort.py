@@ -131,10 +131,12 @@ def test_swept_sibling_reads_as_stopped(
         settled_sync(_SyncScene(), candidates, observer)
     _abort_event_observer(observer, caught.value)
 
-    # INVARIANT: the swept sibling is `stopped`; only the Candidate that aborted may fail.
+    # INVARIANT: the swept sibling is `stopped`; only the Candidate that aborted may fail. Ctrl-C
+    # is the owner's abort, so `a`, shown when it landed, says so too (#1982 review).
     assert builtin.status() == {"a": a_status, "b": "stopped"}
     assert "run failed" not in builtin.stream.getvalue()
-    assert builtin.stream.getvalue() == "ScreamingFace · b · run stopped\n"
+    a_stopped = "ScreamingFace · a · run stopped\n" if a_status == "stopped" else ""
+    assert builtin.stream.getvalue() == a_stopped + "ScreamingFace · b · run stopped\n"
 
 
 def test_an_independent_failure_still_reads_as_failed_at_once() -> None:

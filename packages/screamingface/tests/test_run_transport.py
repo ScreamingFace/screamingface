@@ -193,6 +193,32 @@ def test_an_interruption_in_a_script_is_raised_on_the_follow_and_cancel_stops_th
     assert released.is_set()
 
 
+def test_a_follow_that_raises_leaves_no_script_running_once_the_run_is_canceled() -> None:
+    released = threading.Event()
+    late: list[Any] = []
+
+    class Interrupted(ScriptedRun):
+        def run(self, candidate: Candidate, on_event: Any) -> _RunOutcome:
+            if candidate.name == "interrupting":
+                raise KeyboardInterrupt
+            assert released.wait(5)
+            late.append(on_event(_log("late")))  # nobody follows the Run any more
+            threading.Event().wait(0.2)
+            return _outcome(candidate.name)
+
+        def on_cancel(self) -> None:
+            released.set()
+
+    fake = Interrupted()
+    with pytest.raises(KeyboardInterrupt):
+        fake.follow_run(RUN_ID, (_candidate("interrupting"), _candidate("released")), _Sink())
+    fake.cancel_run(RUN_ID)
+
+    names = {"engine-interrupting", "engine-released"}
+    assert [thread for thread in threading.enumerate() if thread.name in names] == []
+    assert late == [None]
+
+
 class _AsyncScene(AsyncScriptedRun):
     def __init__(self, sink: _Sink) -> None:
         super().__init__()
@@ -260,3 +286,41 @@ async def test_async_plays_a_sync_fakes_script_and_reads_what_it_recorded() -> N
     ]
     assert played.script_threads == {threading.get_ident()}
     assert played.canceled == [RUN_ID]
+
+
+@pytest.mark.asyncio
+async def test_async_playing_registers_cancels_and_closes_through_the_sync_fake() -> None:
+    class Recording(ScriptedRun):
+        def __init__(self) -> None:
+            super().__init__()
+            self.detached: list[bool] = []
+            self.closed = False
+
+        def register_run(
+            self,
+            evaluation: Any,
+            candidates: tuple[Candidate, ...],
+            *,
+            detach: bool = False,
+            deadline_s: int | None = None,
+        ) -> str:
+            self.detached.append(detach)
+            return super().register_run(evaluation, candidates, detach=detach)
+
+        def close(self) -> None:
+            self.closed = True
+
+    fake = Recording()
+    played = AsyncPlaying(fake)
+
+    assert await played.register_run(None, (_candidate("a"),), detach=True) == RUN_ID
+    await played.cancel_run(RUN_ID)
+    await played.close()
+
+    assert (fake.registered, fake.detached, fake.canceled, fake.closed) == (
+        [("a",)],
+        [True],
+        [RUN_ID],
+        True,
+    )
+    assert (played.registered, played.canceled) == (fake.registered, fake.canceled)

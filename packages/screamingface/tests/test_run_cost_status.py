@@ -15,7 +15,7 @@ import pytest
 
 import screamingface as sf
 from screamingface._core.ports import _RunOutcome
-from screamingface._engine.contract import _accumulated, _span
+from screamingface._engine.contract import _span
 from screamingface._evaluation.results import _run_cost_status
 from screamingface.errors import ExecutionError
 
@@ -91,13 +91,6 @@ def test_a_span_refuses_a_negative_saved_cost() -> None:
             end=datetime(2026, 9, 22, 12, 0, 1, tzinfo=UTC),
             cache_saved_cost_usd=Decimal("-1"),
         )
-
-
-def test_accumulating_keeps_absent_distinct_from_zero() -> None:
-    assert _accumulated(None, None) is None
-    assert _accumulated(None, Decimal("0")) == Decimal("0")
-    assert _accumulated(Decimal("0.5"), Decimal("0.25")) == Decimal("0.75")
-    assert _accumulated(Decimal("0.5"), None) == Decimal("0.5")
 
 
 def test_the_two_provenances_are_never_summed_into_a_third() -> None:

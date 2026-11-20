@@ -248,24 +248,33 @@ async def test_existing_independent_client_accepts_real_model_activity_wire():
     import sys
     from pathlib import Path
 
+    from screamingface_engine.rest.runs_events import _event
+
     frames = await publish(lambda _: httpx.Response(200, json=completion()))
+    # The Client shows each Run-stream `candidate.event` frame's CloudEvent with `display_event`.
     script = """
+import json
 import sys
-from screamingface._engine.contract import _RunState
-from screamingface.events import Log, Terminated
-state = _RunState("/model('PRIVATE PROMPT')!go")
-logs = []
+from screamingface._engine.contract import display_event
+from screamingface.events import Log, Started, Terminated
+shown = []
 for line in sys.stdin:
-    accepted = state.accept(line)
-    if isinstance(accepted.event, Log) and 'sf.activity.schema' in accepted.event.attributes:
-        logs.append(accepted.event)
+    frame = json.loads(line)
+    assert (frame["type"], frame["index"]) == ("candidate.event", 0)
+    event = display_event(frame["event"])
+    assert event is not None or frame["event"]["type"] == "ai.url4.result", frame["event"]["type"]
+    shown.append(event)
+logs = [e for e in shown if isinstance(e, Log) and 'sf.activity.schema' in e.attributes]
 assert [log.attributes['sf.activity.state'] for log in logs] == ['started', 'completed']
 assert logs[0].traceparent == logs[1].traceparent
-assert isinstance(accepted.event, Terminated) and accepted.event.status == "succeeded"
+url4 = "/model('PRIVATE PROMPT')!go"
+root = next(e.source for e in shown if isinstance(e, Started) and e.url4 == url4)
+(end,) = [e for e in shown if isinstance(e, Terminated) and e.source == root]
+assert end.status == "succeeded"
 """
     result = subprocess.run(
         [sys.executable, "-c", script],
-        input="\n".join(f.model_dump_json(by_alias=True) for f in frames),
+        input="\n".join(_event(0, f) for f in frames),
         text=True,
         capture_output=True,
         timeout=15,

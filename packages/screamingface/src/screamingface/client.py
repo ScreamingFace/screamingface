@@ -76,6 +76,7 @@ class Client:
         from screamingface._engine.transport import Url4CloudTransport
         from screamingface._scoreboard.leaderboards import Leaderboards
 
+        _require_run_transport(run_transport)
         self._engine_url = _engine_origin(engine_url)
         self._scoreboard_url = _scoreboard_origin(scoreboard_url)
         self._closed = False
@@ -802,6 +803,7 @@ class AsyncClient:
         from screamingface._engine.transport import AsyncUrl4CloudTransport
         from screamingface._scoreboard.leaderboards import AsyncLeaderboards
 
+        _require_run_transport(run_transport)
         self._engine_url = _engine_origin(engine_url)
         self._scoreboard_url = _scoreboard_origin(scoreboard_url)
         self._closed = False
@@ -1343,6 +1345,25 @@ class AsyncClient:
             json=json,
             headers=headers,
             extensions={_REPLAY_SAFE: replay_safe},
+        )
+
+
+#: What `run_transport` must have beyond `close`, which the port's earlier shape had too.
+_FOLLOW_PORT = ("register_run", "follow_run", "cancel_run")
+
+
+def _require_run_transport(transport: object) -> None:
+    """Refuse a `run_transport` without the follow-a-Run port when the Client is made. WHY at the
+    door: one of the earlier shape (`run`, `cancel_active`) otherwise fails with a bare
+    AttributeError, after the evaluation has already called the Engine."""
+    if transport is None:
+        return
+    missing = [name for name in _FOLLOW_PORT if not callable(getattr(transport, name, None))]
+    if missing:
+        raise TypeError(
+            "run_transport must follow a Run: register_run, follow_run, cancel_run and close "
+            f"(SyncRunTransport or AsyncRunTransport); {type(transport).__name__} has no "
+            f"{', '.join(missing)}"
         )
 
 

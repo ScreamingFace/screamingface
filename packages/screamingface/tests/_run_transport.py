@@ -15,6 +15,8 @@ scripts make things happen: a script that waits lets its sibling settle first.
 - `on_event` is None when the sink shows no events, as the real follow then asks the Run's
   stream to leave them out.
 - `cancel_run` records the Run and calls `on_cancel`, where a scene releases what it holds.
+- Once the follow ends, a script still running reports nothing more; the async fake cancels its
+  scripts, and the sync fake joins its script threads once the Run's cancel released them.
 - The async fake plays a synchronous script too, and its `on_event` may be awaited or not.
 
 `settled_sync` / `settled_async` drive the runner's own follow of such a Run, for the tests that
@@ -27,7 +29,8 @@ import asyncio
 import inspect
 import queue
 import threading
-from collections.abc import Awaitable, Callable, Generator
+import time
+from collections.abc import Awaitable, Callable, Generator, Sequence
 from typing import Any
 
 from screamingface._core.ports import _AsyncRunSink, _RunOutcome, _RunSink
@@ -40,6 +43,8 @@ from screamingface.events import Event
 RUN_ID = "run_scripted"
 # WHY a timeout on each wait: a follow blocked on a queue must still see Ctrl-C (SIGINT).
 _POLL_S = 0.05
+# How long the sync fake waits for the scripts the Run's cancel released to end.
+_RELEASE_S = 5.0
 
 type _Frame = tuple[str, int, Any]
 
@@ -73,6 +78,9 @@ class _AsyncRelay(_Relay):
 class ScriptedRun:
     """The synchronous fake: each script runs on a thread of its own, as on the Engine."""
 
+    # The script threads of the last follow, which `cancel_run` joins once it released them.
+    _plays: Sequence[threading.Thread] = ()
+
     def __init__(self) -> None:
         self.registered: list[tuple[str, ...]] = []
         self.canceled: list[str] = []
@@ -95,36 +103,67 @@ class ScriptedRun:
         return RUN_ID
 
     def follow_run(self, run_id: str, candidates: tuple[Candidate, ...], sink: _RunSink) -> None:
-        frames: queue.SimpleQueue[_Frame] = queue.SimpleQueue()
-        shows = getattr(sink, "shows_events", True)
-
-        def play(index: int, candidate: Candidate) -> None:
-            frames.put(("state", index, "running"))
-            try:
-                relay = _Relay(frames.put, index) if shows else None
-                outcome = self.run(candidate, relay)
-            except Exception as exc:  # noqa: BLE001 - the Candidate's own failure
-                frames.put(("settled", index, ("failed", exc)))
-            except BaseException as exc:  # noqa: BLE001 - raised on the follow below
-                frames.put(("interrupt", index, exc))
-            else:
-                frames.put(("settled", index, ("succeeded", outcome)))
-
-        for index, candidate in enumerate(candidates):
-            threading.Thread(
-                target=play, args=(index, candidate), daemon=True, name=f"engine-{candidate.name}"
-            ).start()
-        left = len(candidates)
-        while left:
-            kind, index, value = _next(frames)
-            left -= _deliver_sync(sink, kind, index, value)
+        stream = _SyncStream(self.run, getattr(sink, "shows_events", True))
+        self._plays = [
+            threading.Thread(target=stream.play, args=(i, c), daemon=True, name=f"engine-{c.name}")
+            for i, c in enumerate(candidates)
+        ]
+        for thread in self._plays:
+            thread.start()
+        try:
+            left = len(candidates)
+            while left:
+                kind, index, value = _next(stream.frames)
+                left -= _deliver_sync(sink, kind, index, value)
+        finally:
+            # WHY (the async twin cancels its scripts): nobody follows the Run after this, so a
+            # script still running reports nothing; one that already reported ends here, and one
+            # the Run's cancel releases is joined in `cancel_run`.
+            stream.ending.set()
+            _joined(self._plays, _POLL_S)
 
     def cancel_run(self, run_id: str) -> None:
         self.canceled.append(run_id)
         self.on_cancel()
+        # The scene released its scripts, so each ends before the test goes on.
+        _joined(self._plays, _RELEASE_S)
 
     def close(self) -> None:
         pass
+
+
+class _SyncStream:
+    """The sync Run's stream: each script's frames, in the order its thread makes them, and
+    nothing once the follow has ended."""
+
+    def __init__(self, script: Callable[[Candidate, Any], _RunOutcome], shows: bool) -> None:
+        self.frames: queue.SimpleQueue[_Frame] = queue.SimpleQueue()
+        self.ending = threading.Event()
+        self._script = script
+        self._shows = shows
+
+    def put(self, frame: _Frame) -> None:
+        if not self.ending.is_set():
+            self.frames.put(frame)
+
+    def play(self, index: int, candidate: Candidate) -> None:
+        self.put(("state", index, "running"))
+        try:
+            relay = _Relay(self.put, index) if self._shows else None
+            outcome = self._script(candidate, relay)
+        except Exception as exc:  # noqa: BLE001 - the Candidate's own failure
+            self.put(("settled", index, ("failed", exc)))
+        except BaseException as exc:  # noqa: BLE001 - raised on the follow
+            self.put(("interrupt", index, exc))
+        else:
+            self.put(("settled", index, ("succeeded", outcome)))
+
+
+def _joined(threads: Sequence[threading.Thread], within_s: float) -> None:
+    deadline = time.monotonic() + within_s
+    for thread in threads:
+        if thread is not threading.current_thread():
+            thread.join(max(0.0, deadline - time.monotonic()))
 
 
 def _next(frames: queue.SimpleQueue[_Frame]) -> _Frame:
@@ -252,18 +291,34 @@ async def _settled[T](value: T | Awaitable[T]) -> T:
 
 
 class AsyncPlaying(AsyncScriptedRun):
-    """Plays a synchronous fake's script on the event loop; every other attribute (what the
-    fake recorded) is read through to it."""
+    """Plays a synchronous fake's script on the event loop. The Run's registration, cancel and
+    close go to the fake, so what it records (`registered`, `canceled` and the rest) is the
+    fake's, and every other attribute is read through to it."""
 
     def __init__(self, scripted: ScriptedRun) -> None:
-        super().__init__()
+        # WHY not `super().__init__()`: `registered` and `canceled` are the fake's, read through.
         self.scripted = scripted
 
     def run(self, candidate: Candidate, on_event: Any) -> _RunOutcome:
         return self.scripted.run(candidate, on_event)
 
-    def on_cancel(self) -> None:
-        self.scripted.on_cancel()
+    async def register_run(
+        self,
+        evaluation: _Evaluation | None,
+        candidates: tuple[Candidate, ...],
+        *,
+        detach: bool = False,
+        deadline_s: int | None = None,
+    ) -> str:
+        return self.scripted.register_run(
+            evaluation, candidates, detach=detach, deadline_s=deadline_s
+        )
+
+    async def cancel_run(self, run_id: str) -> None:
+        self.scripted.cancel_run(run_id)
+
+    async def close(self) -> None:
+        self.scripted.close()
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self.scripted, name)

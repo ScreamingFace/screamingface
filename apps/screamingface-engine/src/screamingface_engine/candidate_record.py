@@ -4,9 +4,10 @@ FEATURE: a detached Run (OME-1837). The Client used to fold each Candidate's fra
 Client that reattaches from another machine has none of them. So the runner folds them once, as
 they are published, and reports the record with the Candidate's outcome.
 
-INVARIANT: the Client's rules (`screamingface/_engine/contract.py`, `_RunState`): the same root,
-the same cache evidence, the same provenance. Both folds are tested against the recorded runs in
-`tests/fixtures/candidate_runs/`.
+INVARIANT: the rules the Client's own fold held (the root, the cache evidence, the capture
+summary, the provenance), pinned in `tests/unit/test_candidate_record_rules.py` and
+`tests/unit/test_candidate_record_evidence_rules.py`. The Client folds nothing: it reads the
+record.
 
 LAYERING: a shared leaf beside `run_evidence`, url4's protocol and the standard library only.
 """

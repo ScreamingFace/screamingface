@@ -10,39 +10,32 @@ import pytest
 from test_engine_contract import frame
 from test_live_candidate_progress import candidate
 
-from screamingface._engine.contract import _RunState
+from screamingface._engine.contract import display_event
 from screamingface._ui.evaluation_state import _EvaluationProgress
-from screamingface.errors import ExecutionError
 
 
 @pytest.mark.parametrize("early_child", [False, True])
 @pytest.mark.parametrize("child_same_expression", [False, True])
 def test_decoded_child_lifecycle_does_not_finish_candidate(early_child, child_same_expression):
     item = candidate("opus")
-    decoder = _RunState(item.url4)
     progress = _EvaluationProgress(candidates=(item,), case_count=2)
     sequence = 0
 
     def accept(kind, data, source="/root", elapsed=1.0):
         nonlocal sequence
         sequence += 1
-        accepted = decoder.accept(
-            json.dumps(
-                {
-                    **json.loads(frame(kind, data, sequence=sequence, source=source)),
-                    "time": f"2026-07-25T16:00:{sequence:02d}Z",
-                }
-            )
+        event = display_event(
+            {
+                **json.loads(frame(kind, data, sequence=sequence, source=source)),
+                "time": f"2026-07-25T16:00:{sequence:02d}Z",
+            }
         )
-        if accepted.event is not None:
-            progress.observe(item, accepted.event, elapsed_seconds=elapsed)
-        return accepted
+        if event is not None:
+            progress.observe(item, event, elapsed_seconds=elapsed)
 
     if early_child:
         accept("ai.url4.started", {"url4": "()!'early child'"}, "/early")
-        # INVARIANT: an unknown root makes termination fatal rather than an endless wait.
-        with pytest.raises(ExecutionError, match="run root was never identified.*URL4 mismatch"):
-            accept("ai.url4.terminated", {"status": "succeeded", "error": None}, "/early")
+        accept("ai.url4.terminated", {"status": "succeeded", "error": None}, "/early")
         assert (progress.rows[0].status, progress.rows[0].root_identity) == ("running", None)
         return
     accept("ai.url4.started", {"url4": item.url4}, elapsed=2.0)

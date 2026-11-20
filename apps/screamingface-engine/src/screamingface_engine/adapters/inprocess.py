@@ -112,12 +112,9 @@ class _PreparedExecutor(Executor):
                 await close()
 
 
-# INVARIANT: strictly above the Client's per-Evaluation fan-out, which is 8 (
-# `_MAX_CANDIDATES_IN_FLIGHT` in `packages/screamingface/src/screamingface/_evaluation/
-# runner.py`). The Client opens one run per Candidate, so an equal value leaves zero headroom
-# and one ordinary Evaluation saturates the runner exactly. Pinned by
-# `tests/unit/test_local_capacity_contract.py`, which also explains why that check is a floor
-# rather than a direct comparison.
+# INVARIANT: strictly above the per-caller in-flight cap (`run_queue_caller_inflight_cap`), and
+# equal to the `local_max_concurrent_runs` setting. Pinned by
+# `tests/unit/test_local_capacity_contract.py`.
 DEFAULT_MAX_CONCURRENT_RUNS = 32
 DEFAULT_MAX_HISTORY = 1000
 
