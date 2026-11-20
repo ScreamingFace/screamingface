@@ -1,8 +1,9 @@
 """When `Run.wait()` and `Run.report()` cannot use the Engine's build (#1878 review round 4).
 
 FEATURE: a detached Run (OME-1837). STORY: as a researcher, my Run's Report opens whenever this
-machine holds it: with a transport that cannot follow or rebuild, when the Engine lost or no
-longer keeps the Run's context, and without disturbing a Report already saved here whole.
+machine holds it: with a custom transport that follows a Run but can neither wait for one nor
+rebuild its Report, when the Engine lost or no longer keeps the Run's context, and without
+disturbing a Report already saved here whole.
 """
 
 from __future__ import annotations
@@ -11,15 +12,18 @@ import hashlib
 import json
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 import httpx
 import pytest
+from _run_transport import ScriptedRun
 from test_client_run import _engine as _catalog_engine
 from test_runs_wire import _problem, _record
 
 import screamingface as sf
 from screamingface import runs
+from screamingface._core.ports import SyncRunTransport, _RunOutcome
+from screamingface._evaluation.model import Candidate
 
 _Handler = Callable[[httpx.Request], httpx.Response]
 SAVED = object()
@@ -55,7 +59,7 @@ def _p2(context: str, **overrides: Any) -> dict[str, Any]:
     return record
 
 
-def _client(handler: _Handler, run_transport: object = None) -> sf.Client:
+def _client(handler: _Handler, run_transport: SyncRunTransport | None = None) -> sf.Client:
     def route(request: httpx.Request) -> httpx.Response:
         if request.url.path.startswith("/runs"):
             return handler(request)
@@ -64,7 +68,7 @@ def _client(handler: _Handler, run_transport: object = None) -> sf.Client:
     return sf.Client(
         engine_url="https://engine.example",
         http_transport=httpx.MockTransport(route),
-        run_transport=cast(Any, run_transport),
+        run_transport=run_transport,
     )
 
 
@@ -73,20 +77,15 @@ def _run(client: sf.Client, state: str = "complete") -> runs.Run:
     return runs._run(record, client)
 
 
-class _CannotFollow:
-    """A custom `run_transport`: it runs Candidates, and can neither follow nor rebuild a Run."""
+class _CannotWait(ScriptedRun):
+    """A custom `run_transport` on the port: it registers and follows a Run, and can neither
+    wait for one nor rebuild its Report (it has no `wait_run`)."""
 
-    def run(self, candidate: Any, on_event: Any) -> Any:
+    def run(self, candidate: Candidate, on_event: object) -> _RunOutcome:
         raise AssertionError("not used")
 
-    def cancel_active(self) -> None:
-        pass
 
-    def close(self) -> None:
-        pass
-
-
-def test_wait_with_a_transport_that_cannot_follow_reads_the_run_until_it_ends(
+def test_wait_with_a_transport_that_cannot_wait_reads_the_run_until_it_ends(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     states = ["running", "running", "running", "complete"]
@@ -99,7 +98,7 @@ def test_wait_with_a_transport_that_cannot_follow_reads_the_run_until_it_ends(
 
     monkeypatch.setattr(runs, "_WAIT_POLL_S", 0.0)
     monkeypatch.setattr(runs.Run, "report", lambda self: SAVED)
-    with _client(handler, _CannotFollow()) as client:
+    with _client(handler, _CannotWait()) as client:
         assert _run(client, "running").wait() is SAVED
 
     assert reads.count("view=summary") >= 3
@@ -114,7 +113,7 @@ def test_report_with_a_transport_that_cannot_rebuild_reads_this_machine() -> Non
             return httpx.Response(200, content=context.encode())
         return httpx.Response(200, json=_p2(context))
 
-    with _client(handler, _CannotFollow()) as client:
+    with _client(handler, _CannotWait()) as client:
         assert _run(client).report() is SAVED
 
 

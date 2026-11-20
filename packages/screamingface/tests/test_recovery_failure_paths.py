@@ -7,6 +7,7 @@ from typing import Any, cast
 
 import httpx
 import pytest
+from _run_transport import AsyncPlaying, ScriptedRun
 from test_client_run import _engine as catalog_engine
 from test_evaluation_outcome import valid_outcome
 from test_transport_artifact_fetch import _candidate
@@ -122,8 +123,9 @@ async def test_failed_async_membership_cannot_poison_later_standalone(
         await transport.close()
 
 
-class DiskTransport:
+class DiskTransport(ScriptedRun):
     def __init__(self, directory):
+        super().__init__()
         self.directory = directory
 
     def run(self, candidate, on_event):
@@ -132,22 +134,10 @@ class DiskTransport:
         path.write_text(value.result_body)
         return replace(value, result_body=None, result_path=path)
 
-    def cancel_active(self):
-        pass
 
-    def close(self):
-        pass
-
-
-class AsyncDiskTransport(DiskTransport):
-    async def run(self, candidate, on_event):
-        return super().run(candidate, on_event)
-
-    async def cancel_active(self):
-        pass
-
-    async def close(self):
-        pass
+class AsyncDiskTransport(AsyncPlaying):
+    def __init__(self, directory):
+        super().__init__(DiskTransport(directory))
 
 
 def indexing_failure(monkeypatch):

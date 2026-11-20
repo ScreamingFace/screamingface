@@ -24,9 +24,8 @@ from typing import Any
 import pytest
 
 import screamingface as sf
-from screamingface._engine.contract import _RunState
+from screamingface._engine.contract import display_event
 
-URL4 = "(@)!'hello'"
 _LOGGER = "screamingface._engine.contract"
 
 
@@ -62,8 +61,7 @@ def _cost_frame(cost: dict[str, str], *, pricing_version: str = "openrouter-cred
 
 def _accept(frame: str, caplog: pytest.LogCaptureFixture) -> sf.events.Usage:
     with caplog.at_level(logging.WARNING, logger=_LOGGER):
-        accepted = _RunState(URL4).accept(frame)
-    event = accepted.event
+        event = display_event(json.loads(frame))
     assert isinstance(event, sf.events.Usage)
     return event
 

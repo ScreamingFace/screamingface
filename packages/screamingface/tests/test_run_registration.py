@@ -10,7 +10,6 @@ raises before anything runs (it no longer runs without one, as P1's D7 allowed).
 
 from __future__ import annotations
 
-import warnings
 from typing import Any
 
 import httpx
@@ -21,6 +20,7 @@ from test_draco_vertical_slice import _AsyncFakeTransport
 from test_draco_vertical_slice import _engine as _draco_engine
 
 import screamingface as sf
+from screamingface._core.ports import SyncRunTransport
 from screamingface.errors import ExecutionError
 
 RUN_ID = "run_" + "c" * 32
@@ -41,20 +41,17 @@ class _RegisteringTransport(_CandidateRecordingTransport):
         super().__init__()
         self.opened: list[tuple[str, int, tuple[Any, ...]]] = []
 
-    def open_run(self, benchmark: str, case_count: int, candidates: tuple[Any, ...]) -> str:
+    def register_run(self, evaluation: Any, candidates: tuple[Any, ...], **options: Any) -> str:
         assert not self.candidates, "registered before any Candidate ran"
-        self.opened.append((benchmark, case_count, candidates))
+        self.opened.append((evaluation.benchmark.id, evaluation.case_count, candidates))
         return RUN_ID
 
-    def abort_evaluation(self, candidates: tuple[Any, ...]) -> None:
-        self.cancel_active()
 
-
-def _client(transport: object) -> sf.Client:
+def _client(transport: SyncRunTransport) -> sf.Client:
     return sf.Client(
         engine_url="https://engine.example",
         http_transport=httpx.MockTransport(_draco_engine),
-        run_transport=transport,  # pyright: ignore[reportArgumentType]
+        run_transport=transport,
     )
 
 
@@ -69,33 +66,15 @@ def test_a_recipe_evaluation_registers_and_names_its_run() -> None:
     assert report.run_id == RUN_ID
 
 
-def test_an_evaluation_without_a_run_is_unchanged() -> None:
-    with _client(_RegisteringTransport()) as client:
-        registered = client.evaluate(_MODEL, benchmark="draco", limit=1)
-    with _client(_CandidateRecordingTransport()) as client, warnings.catch_warnings():
-        warnings.simplefilter("error")
-        plain = client.evaluate(_MODEL, benchmark="draco", limit=1)
-
-    assert plain.run_id is None
-    assert (plain.benchmark, plain.case_count, plain.candidates) == (
-        registered.benchmark,
-        registered.case_count,
-        registered.candidates,
-    )
-
-
 class _RegisteringReplayTransport(_ReplayTransport):
     def __init__(self) -> None:
         super().__init__()
-        self.opened: list[tuple[str, int, tuple[Any, ...]]] = []
+        self.opened: list[tuple[Any, tuple[Any, ...]]] = []
 
-    def open_run(self, benchmark: str, case_count: int, candidates: tuple[Any, ...]) -> str:
+    def register_run(self, evaluation: Any, candidates: tuple[Any, ...], **options: Any) -> str:
         assert self.candidate is None, "registered before the Candidate ran"
-        self.opened.append((benchmark, case_count, candidates))
+        self.opened.append((evaluation, candidates))
         return RUN_ID
-
-    def abort_evaluation(self, candidates: tuple[Any, ...]) -> None:
-        self.cancel_active()
 
 
 def test_a_raw_url4_evaluation_registers() -> None:
@@ -103,8 +82,9 @@ def test_a_raw_url4_evaluation_registers() -> None:
     with _client(transport) as client:
         report = client.evaluate(REPLAY_URL4)
 
-    ((benchmark, case_count, registered),) = transport.opened
-    assert (benchmark, case_count, len(registered)) == ("URL4 replay", 0, 1)
+    # A Run with no benchmark, of its one Candidate (E5 P2 spec D1).
+    ((evaluation, registered),) = transport.opened
+    assert (evaluation, len(registered)) == (None, 1)
     assert report.run_id == RUN_ID
 
 
@@ -113,12 +93,11 @@ class _AsyncRegisteringTransport(_AsyncFakeTransport):
         super().__init__()
         self.opened: list[str] = []
 
-    async def open_run(self, benchmark: str, case_count: int, candidates: tuple[Any, ...]) -> str:
-        self.opened.append(benchmark)
+    async def register_run(
+        self, evaluation: Any, candidates: tuple[Any, ...], **options: Any
+    ) -> str:
+        self.opened.append(evaluation.benchmark.id)
         return RUN_ID
-
-    async def abort_evaluation(self, candidates: tuple[Any, ...]) -> None:
-        await self.cancel_active()
 
 
 @pytest.mark.asyncio
@@ -127,7 +106,7 @@ async def test_an_async_recipe_evaluation_registers() -> None:
     client = sf.AsyncClient(
         engine_url="https://engine.example",
         http_transport=httpx.MockTransport(_draco_engine),
-        run_transport=transport,  # pyright: ignore[reportArgumentType]
+        run_transport=transport,
     )
     async with client:
         report = await client.evaluate(_MODEL, benchmark="draco", limit=1)

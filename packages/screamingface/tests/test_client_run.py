@@ -12,6 +12,7 @@ from typing import NoReturn
 import httpx
 import pytest
 from _model_parameter_fixtures import details as _model_details
+from _run_transport import AsyncPlaying, ScriptedRun
 from url4 import RelExpr, expr, render, src, text
 
 import screamingface as sf
@@ -134,24 +135,19 @@ def _engine(request: httpx.Request) -> httpx.Response:
     return response
 
 
-class _ForbiddenTransport:
+class _ForbiddenTransport(ScriptedRun):
     called = False
 
     def run(self, candidate: object, on_event: object) -> NoReturn:
         self.called = True
         raise AssertionError("unavailable Models must fail before execution")
 
-    def cancel_active(self) -> None:
-        pass
 
-    def close(self) -> None:
-        pass
-
-
-class _InterruptibleTransport:
+class _InterruptibleTransport(ScriptedRun):
     """Two paid boundary calls that only cooperative cancellation can release promptly."""
 
     def __init__(self) -> None:
+        super().__init__()
         self._lock = threading.Lock()
         self._active: set[str] = set()
         self.both_started = threading.Event()
@@ -179,7 +175,7 @@ class _InterruptibleTransport:
             with self._lock:
                 self._active.remove(candidate.name)
 
-    def cancel_active(self) -> None:
+    def on_cancel(self) -> None:
         with self._lock:
             self.stopped_candidates = tuple(sorted(self._active))
         self.release.set()
@@ -188,8 +184,9 @@ class _InterruptibleTransport:
         self.release.set()
 
 
-class _ReplayTransport:
+class _ReplayTransport(ScriptedRun):
     def __init__(self) -> None:
+        super().__init__()
         self.candidate: Candidate | None = None
 
     def run(self, candidate: Candidate, on_event: object) -> _RunOutcome:
@@ -236,22 +233,10 @@ class _ReplayTransport:
             root_usage=None,
         )
 
-    def cancel_active(self) -> None:
-        pass
 
-    def close(self) -> None:
-        pass
-
-
-class _AsyncReplayTransport(_ReplayTransport):
-    async def run(self, candidate: Candidate, on_event: object) -> _RunOutcome:
-        return super().run(candidate, on_event)
-
-    async def cancel_active(self) -> None:
-        pass
-
-    async def close(self) -> None:
-        pass
+class _AsyncReplayTransport(AsyncPlaying):
+    def __init__(self) -> None:
+        super().__init__(_ReplayTransport())
 
 
 def test_evaluate_replays_a_complete_url4_without_recompiling_it() -> None:

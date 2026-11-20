@@ -7,17 +7,19 @@ finish, and Ctrl-C stops what I started, though my notebook now starts nothing i
 
 The transport follows the Run's one stream, on the caller's thread, and reports each Candidate's
 state, events and outcome here, by index, with its result already fetched and kept. This module
-drives the progress output, the live score and `on_event` from them, as the per-Candidate path
-did. The Report is not built here: once the Run has ended, `reattach.settled_from_records`
-builds it, reusing the results kept here (D14).
+drives the progress output, the live score and `on_event` from them. The Report is not built
+here: once the Run has ended, `reattach.settled_from_records` builds it, reusing the results kept
+here (D14).
 
 INVARIANT (D14): Ctrl-C, a cancelled task, the caller's own `on_event` or a defect cancels the
-Run once. A follow that ends on its own (an expired sign-in, a connection it could not get back,
-a Run that is gone) leaves the Run to the Engine, which is what D15 tells the user.
+Run once, and each Candidate still running then reads `stopped`, not failed (OME-1071). A follow
+that ends on its own (an expired sign-in, a connection it could not get back, a Run that is gone)
+leaves the Run to the Engine, which is what D15 tells the user.
 """
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 import time
 from collections.abc import AsyncIterator, Callable, Iterator, Mapping
@@ -26,9 +28,9 @@ from typing import TYPE_CHECKING, Any
 
 from screamingface._core.ports import (
     CANDIDATE_ENDED,
-    _AsyncRunFollowing,
+    AsyncRunTransport,
+    SyncRunTransport,
     _ConnectionNotice,
-    _RunFollowing,
     _RunOutcome,
     recorded_of,
 )
@@ -67,6 +69,8 @@ class _Follow:
         self.waiting: set[int] = set()
         self.ended: set[int] = set()
         self.results: dict[int, _RunOutcome | _Failed] = {}
+        # The Candidate whose own `on_event` raised, which the final abort shows, not a stop.
+        self.raised_at: int | None = None
         self._bound = bound
         # WHY: with no progress output and no `on_event`, nothing reads a Candidate's events,
         # so the follow asks the Run's stream to leave them out (`?events=false`).
@@ -108,6 +112,14 @@ class _Follow:
             elif now - since >= self._waiting_after_s:
                 del self._pending_since[index]
                 self._wait(index)
+
+    def still_running(self) -> list[Candidate]:
+        """The Candidates a cancel stops: begun and not ended, but the one whose own `on_event`
+        raised. WHY none for one Candidate: its own error is the evaluation's, as it always was."""
+        if len(self.candidates) < 2:
+            return []
+        running = self.begun - self.ended - {self.raised_at}
+        return [self.candidates[index] for index in sorted(running)]
 
     @property
     def complete(self) -> bool:
@@ -166,7 +178,17 @@ class _SyncFollow(_Follow):
         self._due_waits()
         self._begin(index)
         if index in self._bound:
-            self._bound[index](event)
+            try:
+                self._bound[index](event)
+            except BaseException as exc:
+                if _callers_own(exc, self._observer):
+                    self.raised_at = index
+                raise
+
+    def stopped(self) -> None:
+        if self._observer is not None:
+            for candidate in self.still_running():
+                self._observer.candidate_stopped(candidate)
 
     def settled(self, index: int, state: str, outcome: _RunOutcome | Exception) -> None:
         self._begin(index)
@@ -231,9 +253,20 @@ class _AsyncFollow(_Follow):
         self._due_waits()
         await self._begin(index)
         if index in self._bound:
-            returned = self._bound[index](event)
-            if inspect.isawaitable(returned):
-                await returned
+            try:
+                returned = self._bound[index](event)
+                if inspect.isawaitable(returned):
+                    await returned
+            except BaseException as exc:
+                if _callers_own(exc, self._observer):
+                    self.raised_at = index
+                raise
+
+    def stopped(self) -> None:
+        # WHY sync: a cancelled task must not await again (`_AsyncEventObserver`).
+        if self._observer is not None:
+            for candidate in self.still_running():
+                self._observer.candidate_stopped(candidate)
 
     async def settled(self, index: int, state: str, outcome: _RunOutcome | Exception) -> None:
         await self._begin(index)
@@ -267,7 +300,7 @@ class _AsyncFollow(_Follow):
 
 
 def followed_sync(
-    transport: _RunFollowing,
+    transport: SyncRunTransport,
     run_id: str,
     candidates: tuple[Candidate, ...],
     observer: _SyncEventObserver | None,
@@ -281,12 +314,13 @@ def followed_sync(
     except BaseException as exc:
         if _stops_the_run(exc, observer) and not sink.complete:
             _cancel_sync(transport, run_id, exc)
+            sink.stopped()
         raise
     return sink.followed()
 
 
 async def followed_async(
-    transport: _AsyncRunFollowing,
+    transport: AsyncRunTransport,
     run_id: str,
     candidates: tuple[Candidate, ...],
     observer: _AsyncEventObserver | None,
@@ -299,12 +333,13 @@ async def followed_async(
     except BaseException as exc:
         if _stops_the_run(exc, observer) and not sink.complete:
             await _cancel_async(transport, run_id, exc)
+            sink.stopped()
         raise
     return sink.followed()
 
 
 @contextmanager
-def canceled_if_left_sync(transport: object, run_id: str | None) -> Iterator[None]:
+def canceled_if_left_sync(transport: SyncRunTransport, run_id: str) -> Iterator[None]:
     """Cancel the registered Run when the evaluation stops before it follows the Run.
 
     INVARIANT (D14): the Engine starts every Candidate once the Run is registered, so an error
@@ -314,34 +349,46 @@ def canceled_if_left_sync(transport: object, run_id: str | None) -> Iterator[Non
     try:
         yield
     except BaseException as exc:
-        if run_id is not None and isinstance(transport, _RunFollowing):
-            _cancel_sync(transport, run_id, exc)
+        _cancel_sync(transport, run_id, exc)
         raise
 
 
 @asynccontextmanager
-async def canceled_if_left_async(transport: object, run_id: str | None) -> AsyncIterator[None]:
+async def canceled_if_left_async(transport: AsyncRunTransport, run_id: str) -> AsyncIterator[None]:
     """The async twin of ``canceled_if_left_sync``."""
     try:
         yield
     except BaseException as exc:
-        if run_id is not None and isinstance(transport, _AsyncRunFollowing):
-            await _cancel_async(transport, run_id, exc)
+        await _cancel_async(transport, run_id, exc)
         raise
 
 
-def _cancel_sync(transport: _RunFollowing, run_id: str, exc: BaseException) -> None:
+def _cancel_sync(transport: SyncRunTransport, run_id: str, exc: BaseException) -> None:
     try:
         transport.cancel_run(run_id)
     except Exception as cancel_error:  # noqa: BLE001 - keep the interruption the user sees
         exc.add_note(f"Canceling Run {run_id} on the SF Engine also failed: {cancel_error}")
 
 
-async def _cancel_async(transport: _AsyncRunFollowing, run_id: str, exc: BaseException) -> None:
+async def _cancel_async(transport: AsyncRunTransport, run_id: str, exc: BaseException) -> None:
     try:
         await transport.cancel_run(run_id)
     except Exception as cancel_error:  # noqa: BLE001 - keep the interruption the user sees
         exc.add_note(f"Canceling Run {run_id} on the SF Engine also failed: {cancel_error}")
+
+
+def _callers_own(
+    exc: BaseException, observer: _SyncEventObserver | _AsyncEventObserver | None
+) -> bool:
+    """Whether the caller's own `on_event` raised ``exc``, so its Candidate is the one the final
+    abort shows. INVARIANT (OME-1071): Ctrl-C or a cancelled task is the owner's abort even when
+    it lands while a Candidate's progress line or `on_event` runs: that Candidate reads stopped
+    like the rest."""
+    return (
+        not isinstance(exc, (KeyboardInterrupt, asyncio.CancelledError))
+        and observer is not None
+        and observer.raised_by_caller(exc)
+    )
 
 
 def _stops_the_run(

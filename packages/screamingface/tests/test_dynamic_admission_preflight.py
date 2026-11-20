@@ -21,6 +21,7 @@ from typing import NoReturn
 import httpx
 import pytest
 from _model_parameter_fixtures import details as _model_details
+from _run_transport import AsyncScriptedRun, ScriptedRun
 from url4 import RelExpr, expr, render, src, text
 
 import screamingface as sf
@@ -120,32 +121,20 @@ class _ReachedExecution(Exception):
     """Raised by the transports below: preflight passed and execution began."""
 
 
-class _Transport:
+class _Transport(ScriptedRun):
     called = False
 
     def run(self, candidate: Candidate, on_event: object) -> NoReturn:
         self.called = True
         raise _ReachedExecution(candidate.url4)
 
-    def cancel_active(self) -> None:
-        pass
 
-    def close(self) -> None:
-        pass
-
-
-class _AsyncTransport:
+class _AsyncTransport(AsyncScriptedRun):
     called = False
 
     async def run(self, candidate: Candidate, on_event: object) -> _RunOutcome:
         self.called = True
         raise _ReachedExecution(candidate.url4)
-
-    async def cancel_active(self) -> None:
-        pass
-
-    async def close(self) -> None:
-        pass
 
 
 def _client(handler, transport) -> sf.Client:

@@ -10,6 +10,7 @@ from typing import Any, cast
 import httpx
 import pytest
 from _model_parameter_fixtures import details as _model_details
+from _run_transport import AsyncScriptedRun, ScriptedRun
 from url4 import RelExpr, Text, expr, iterate, render, src
 
 import screamingface as sf
@@ -184,8 +185,9 @@ def _unscored_invalid_evidence_case_payload() -> dict[str, object]:
     return case
 
 
-class _FakeTransport:
+class _FakeTransport(ScriptedRun):
     def __init__(self, result_payload: dict[str, object] | None = None) -> None:
+        super().__init__()
         self.closed = False
         self.calls: list[str] = []
         self.url4s: list[str] = []
@@ -221,45 +223,32 @@ class _FakeTransport:
             ),
         )
 
-    def cancel_active(self) -> None:
-        pass
-
     def close(self) -> None:
         self.closed = True
 
 
-class _AsyncFakeTransport:
+class _AsyncFakeTransport(AsyncScriptedRun):
     def __init__(self) -> None:
+        super().__init__()
         self.closed = False
 
     async def run(self, candidate: Candidate, on_event: object) -> _RunOutcome:
         return _FakeTransport().run(candidate, on_event)
-
-    async def cancel_active(self) -> None:
-        pass
 
     async def close(self) -> None:
         self.closed = True
 
 
 class _ConcurrentFakeTransport(_FakeTransport):
+    """The Engine runs every Candidate at once: none settles before all have started."""
+
     def __init__(self, expected: int) -> None:
         super().__init__()
         self._barrier = threading.Barrier(expected)
-        self._lock = threading.Lock()
-        self.active = 0
-        self.max_active = 0
 
     def run(self, candidate: Candidate, on_event: object) -> _RunOutcome:
-        with self._lock:
-            self.active += 1
-            self.max_active = max(self.max_active, self.active)
-        try:
-            self._barrier.wait(timeout=1)
-            return super().run(candidate, on_event)
-        finally:
-            with self._lock:
-                self.active -= 1
+        self._barrier.wait(timeout=1)
+        return super().run(candidate, on_event)
 
 
 class _AsyncConcurrentFakeTransport(_AsyncFakeTransport):
@@ -267,19 +256,14 @@ class _AsyncConcurrentFakeTransport(_AsyncFakeTransport):
         super().__init__()
         self._expected = expected
         self._ready = asyncio.Event()
-        self.active = 0
-        self.max_active = 0
+        self._started = 0
 
     async def run(self, candidate: Candidate, on_event: object) -> _RunOutcome:
-        self.active += 1
-        self.max_active = max(self.max_active, self.active)
-        if self.active == self._expected:
+        self._started += 1
+        if self._started == self._expected:
             self._ready.set()
-        try:
-            await asyncio.wait_for(self._ready.wait(), timeout=1)
-            return await super().run(candidate, on_event)
-        finally:
-            self.active -= 1
+        await asyncio.wait_for(self._ready.wait(), timeout=1)
+        return await super().run(candidate, on_event)
 
 
 def _engine(request: httpx.Request) -> httpx.Response:
@@ -484,7 +468,7 @@ async def test_async_client_evaluates_the_same_draco_contract() -> None:
     assert transport.closed is True
 
 
-def test_client_runs_candidates_concurrently_and_preserves_declared_order() -> None:
+def test_client_registers_every_candidate_in_one_run_and_keeps_declared_order() -> None:
     transport = _ConcurrentFakeTransport(expected=3)
     client = sf.Client(
         engine_url="https://engine.example",
@@ -498,7 +482,8 @@ def test_client_runs_candidates_concurrently_and_preserves_declared_order() -> N
     with client:
         report = client.evaluate(candidates, benchmark="draco", limit=1)
 
-    assert transport.max_active == 3
+    # INVARIANT (E5 P2 spec D1): the Client starts no Candidate; it registers them all at once.
+    assert transport.registered == [("sample-0", "sample-1", "sample-2")]
     assert tuple(result.name for result in report.candidates) == (
         "sample-0",
         "sample-1",
@@ -507,7 +492,7 @@ def test_client_runs_candidates_concurrently_and_preserves_declared_order() -> N
 
 
 @pytest.mark.asyncio
-async def test_async_client_runs_candidates_concurrently_and_preserves_order() -> None:
+async def test_async_client_registers_every_candidate_in_one_run_and_keeps_order() -> None:
     transport = _AsyncConcurrentFakeTransport(expected=3)
     client = sf.AsyncClient(
         engine_url="https://engine.example",
@@ -521,7 +506,7 @@ async def test_async_client_runs_candidates_concurrently_and_preserves_order() -
     async with client:
         report = await client.evaluate(candidates, benchmark="draco", limit=1)
 
-    assert transport.max_active == 3
+    assert transport.registered == [("sample-0", "sample-1", "sample-2")]
     assert tuple(result.name for result in report.candidates) == (
         "sample-0",
         "sample-1",

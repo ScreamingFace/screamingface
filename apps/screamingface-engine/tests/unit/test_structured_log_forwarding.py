@@ -106,26 +106,34 @@ async def test_existing_client_decodes_real_serialized_engine_lifecycle():
     import sys
     from pathlib import Path
 
+    from screamingface_engine.rest.runs_events import _event
+
     frames = await _published_activity("client")
     client_src = Path(__file__).resolve().parents[4] / "packages/screamingface/src"
+    # The Client shows each Run-stream `candidate.event` frame's CloudEvent with `display_event`.
     script = """
+import json
 import sys
-from screamingface._engine.contract import _RunState
-from screamingface.events import Log
-state = _RunState("/operation()!go")
-logs = []
+from screamingface._engine.contract import display_event
+from screamingface.events import Log, Started, Terminated
+shown = []
 for line in sys.stdin:
-    accepted = state.accept(line)
-    if isinstance(accepted.event, Log) and accepted.event.body == "operation activity":
-        logs.append(accepted.event)
+    frame = json.loads(line)
+    assert (frame["type"], frame["index"]) == ("candidate.event", 0)
+    event = display_event(frame["event"])
+    assert event is not None or frame["event"]["type"] == "ai.url4.result", frame["event"]["type"]
+    shown.append(event)
+logs = [e for e in shown if isinstance(e, Log) and e.body == "operation activity"]
 assert len(logs) == 1
 assert logs[0].attributes == {"marker": "client", "count": 2, "ok": True, "unknown": None}
 assert logs[0].traceparent
-assert accepted.outcome is not None
+root = next(e.source for e in shown if isinstance(e, Started) and e.url4 == "/operation()!go")
+(end,) = [e for e in shown if isinstance(e, Terminated) and e.source == root]
+assert end.status == "succeeded"
 """
     result = subprocess.run(
         [sys.executable, "-c", script],
-        input="\n".join(frame.model_dump_json(by_alias=True) for frame in frames),
+        input="\n".join(_event(0, frame) for frame in frames),
         text=True,
         capture_output=True,
         timeout=15,
