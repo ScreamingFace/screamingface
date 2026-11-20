@@ -1,4 +1,4 @@
-"""E5 P1 spec §6, the routes: `/runs` (§4.1, D6, D12) and binding a start to its Candidate (R2).
+"""E5 P1 spec §6, the routes: `/runs` (§4.1, D6, D12), on E5 P2's body (every Candidate's start).
 
 FEATURE: first-class Runs (OME-1785). STORY: as a researcher, I list last week's runs from
 another notebook, read one, and cancel one still running, and only I can see mine.
@@ -7,7 +7,6 @@ another notebook, read one, and cancel one still running, and only I can see min
 from __future__ import annotations
 
 import asyncio
-import logging
 from collections.abc import AsyncIterator, Mapping
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -33,9 +32,6 @@ from screamingface_engine.candidate_outcomes import CandidateOutcome
 from screamingface_engine.config import Settings
 from screamingface_engine.runs.records import RunRecord, owner_key
 from screamingface_engine.testing import InMemoryEventStream
-from screamingface_engine.tracing.accept import ACCEPT_SPAN_NAME
-from url4.streaming.interfaces import JobRunnerAtCapacity
-from url4.streaming.protocol import CachePolicy
 
 pytestmark = pytest.mark.asyncio
 
@@ -51,7 +47,7 @@ BODY: dict[str, Any] = {
     "client_key": "key-1",
     "benchmark": "gsm8k",
     "case_count": 3,
-    "candidates": ["alpha", "beta"],
+    "candidates": [{"name": "alpha", "url4": "gpt(alpha)"}, {"name": "beta", "url4": "gpt(beta)"}],
     "client_version": "1.2.3",
 }
 
@@ -87,7 +83,14 @@ class _Engine:
         )
 
     async def create(self, headers: Mapping[str, str] = ALICE, **body: Any) -> httpx.Response:
-        return await self.client.post("/runs", json={**BODY, **body}, headers=dict(headers))
+        """`POST /runs`; a Candidate named alone is sent with a start (E5 P2 spec D1)."""
+        sent = {**BODY, **body}
+        if isinstance(sent["candidates"], list):
+            sent["candidates"] = [
+                {"name": c, "url4": f"gpt({c})"} if isinstance(c, str) else c
+                for c in sent["candidates"]
+            ]
+        return await self.client.post("/runs", json=sent, headers=dict(headers))
 
     async def start(
         self, topic: str, run_id: str | None = None, candidate: str | None = "0", **headers: str
@@ -186,6 +189,10 @@ async def test_the_record_never_carries_the_owner(registry: Registry) -> None:
         "finished_at",
         "benchmark",
         "case_count",
+        "detached",
+        "deadline_at",
+        "stopped_by",
+        "context",
         "candidates",
     }
     assert [c["name"] for c in body["candidates"]] == ["alpha", "beta"]
@@ -198,7 +205,7 @@ async def test_list_and_get_agree_on_state_and_cost(registry: Registry) -> None:
     await registry.store.bind(owner_key("alice@example.org"), run_id, 0, "topic-a")
     await registry.store.settle("topic-a", CandidateOutcome("succeeded", cost_usd=Decimal("0.5")))
 
-    one = (await engine.client.get(f"/runs/{run_id}", headers=ALICE)).json()
+    one = (await engine.client.get(f"/runs/{run_id}?view=summary", headers=ALICE)).json()
     listed = (await engine.client.get("/runs", headers=ALICE)).json()
 
     assert listed == {"runs": [one], "next_cursor": None}
@@ -282,22 +289,7 @@ async def test_cancel_of_a_finished_run_changes_nothing(registry: Registry) -> N
     assert (await _record(registry, run_id)).state == "complete"
 
 
-# --- binding a start (spec R2) -----------------------------------------------------------
-
-
-async def test_a_bound_start_schedules_its_candidate(registry: Registry) -> None:
-    engine = _Engine(registry)
-    run_id = (await engine.create(candidates=["α-модель", "b"])).json()["id"]
-
-    resp = await engine.start("topic-a", run_id, candidate="0")
-
-    assert resp.status_code == 202
-    candidate = (await _record(registry, run_id)).candidates[0]
-    assert (candidate.name, candidate.state, candidate.attempt_id) == (
-        "α-модель",
-        "scheduled",
-        "topic-a",
-    )
+# --- a raw start (E5 P2 spec §4.1) ---------------------------------------------------------
 
 
 async def test_a_start_without_the_headers_is_unbound(registry: Registry) -> None:
@@ -320,170 +312,7 @@ async def test_a_start_with_runs_off_runs_unbound() -> None:
     assert [s.topic for s in engine.runner.scheduled] == ["topic-a"]
 
 
-async def test_a_start_under_a_canceled_run_is_409_before_scheduling(registry: Registry) -> None:
-    engine = _Engine(registry)
-    run_id = (await engine.create()).json()["id"]
-    await engine.client.delete(f"/runs/{run_id}", headers=ALICE)
-
-    resp = await engine.start("topic-a", run_id)
-
-    assert resp.status_code == 409
-    assert resp.json()["code"] == "run_canceled"
-    assert engine.runner.scheduled == []
-
-
-@pytest.mark.parametrize(
-    ("unknown", "headers"),
-    [(True, ALICE), (False, BOB), (False, {"X-User-Email": ""})],
-    ids=["unknown-run", "foreign-run", "no-identity"],
-)
-async def test_a_start_under_a_run_not_the_callers_is_404(
-    registry: Registry, unknown: bool, headers: dict[str, str]
-) -> None:
-    engine = _Engine(registry)
-    run_id = (await engine.create()).json()["id"]
-
-    resp = await engine.start("topic-a", UNKNOWN if unknown else run_id, **headers)
-
-    assert resp.status_code == 404
-    assert resp.json()["code"] == "run_not_found"
-    assert engine.runner.scheduled == []
-
-
-@pytest.mark.parametrize("candidate", [None, "x", "-1", "1.5", "2"])
-async def test_a_bad_candidate_index_is_400(registry: Registry, candidate: str | None) -> None:
-    engine = _Engine(registry)
-    run_id = (await engine.create()).json()["id"]
-
-    resp = await engine.start("topic-a", run_id, candidate=candidate)
-
-    assert resp.status_code == 400
-    assert resp.json()["code"] == "malformed_header"
-    assert engine.runner.scheduled == []
-
-
-async def test_a_second_topic_for_a_started_candidate_is_409(registry: Registry) -> None:
-    engine = _Engine(registry)
-    run_id = (await engine.create()).json()["id"]
-    await engine.start("topic-a", run_id)
-
-    resp = await engine.start("topic-b", run_id)
-
-    assert resp.status_code == 409
-    assert resp.json()["code"] == "candidate_already_started"
-    assert [s.topic for s in engine.runner.scheduled] == ["topic-a"]
-
-
-class _BusyOnceRunner(RecordingJobRunner):
-    def __init__(self) -> None:
-        super().__init__()
-        self.busy = True
-
-    async def schedule(self, topic: str, *args: Any, **kwargs: Any) -> str:
-        if self.busy:
-            self.busy = False
-            raise JobRunnerAtCapacity(1, 1)
-        return await super().schedule(topic, *args, **kwargs)
-
-
-async def test_a_refused_start_stays_pending_and_its_resend_schedules(registry: Registry) -> None:
-    engine = _Engine(registry, runner=_BusyOnceRunner())
-    run_id = (await engine.create()).json()["id"]
-
-    refused = await engine.start("topic-a", run_id)
-    pending = (await _record(registry, run_id)).candidates[0]
-    resent = await engine.start("topic-a", run_id)
-
-    assert (refused.status_code, resent.status_code) == (503, 202)
-    assert (pending.state, pending.attempt_id) == ("pending", "topic-a")
-    assert (await _record(registry, run_id)).candidates[0].state == "scheduled"
-
-
-class _FailingBinds:
-    """The registry with its database gone for binds."""
-
-    def __init__(self, store: Any) -> None:
-        self._store = store
-
-    def __getattr__(self, name: str) -> Any:
-        return getattr(self._store, name)
-
-    async def bind(self, *args: Any) -> None:
-        raise ConnectionError("database down")
-
-
-async def test_a_bind_that_fails_on_the_database_still_schedules(
-    registry: Registry, caplog: pytest.LogCaptureFixture
-) -> None:
-    engine = _Engine(registry)
-    run_id = (await engine.create()).json()["id"]
-    engine.app.state.run_registry = _FailingBinds(registry.store)
-
-    with caplog.at_level(logging.WARNING):
-        resp = await engine.start("topic-a", run_id)
-
-    assert resp.status_code == 202
-    assert [s.topic for s in engine.runner.scheduled] == ["topic-a"]
-    assert "run bind failed" in caplog.text
-
-
-class _CanceledWhileScheduling(RecordingJobRunner):
-    """A `DELETE /runs/{id}` lands between the start's bind and its schedule."""
-
-    def __init__(self, registry: Registry) -> None:
-        super().__init__()
-        self.registry = registry
-        self.run_id = ""
-
-    async def schedule(
-        self, topic: str, *args: Any, cache: CachePolicy | None = None, **kwargs: Any
-    ) -> str:
-        await self.registry.store.cancel(owner_key("alice@example.org"), self.run_id)
-        return await super().schedule(topic, *args, cache=cache, **kwargs)
-
-
-async def test_a_start_that_loses_to_a_cancel_stops_itself(registry: Registry) -> None:
-    runner = _CanceledWhileScheduling(registry)
-    engine = _Engine(registry, runner=runner)
-    runner.run_id = (await engine.create()).json()["id"]
-
-    resp = await engine.start("topic-a", runner.run_id)
-
-    assert resp.status_code == 409
-    assert resp.json()["code"] == "run_canceled"
-    assert runner.stopped == ["topic-a"]
-    assert (await _record(registry, runner.run_id)).state == "canceled"
-
-
-# --- the accept span and caching ----------------------------------------------------------
-
-
-class _Sink:
-    def __init__(self) -> None:
-        self.spans: list[Any] = []
-
-    def emit(self, span: Any) -> None:
-        self.spans.append(span)
-
-    def close(self) -> None:
-        pass
-
-
-async def test_the_accept_span_ends_at_enqueue_before_the_registry_write(
-    registry: Registry,
-) -> None:
-    """INVARIANT (OME-1218 D2): a cancel answered after enqueue is not an accept refusal."""
-    runner = _CanceledWhileScheduling(registry)
-    engine = _Engine(registry, runner=runner)
-    sink = _Sink()
-    engine.app.state.span_sink = sink
-    runner.run_id = (await engine.create()).json()["id"]
-
-    resp = await engine.start("topic-a", runner.run_id)
-
-    assert resp.status_code == 409
-    (accept,) = [s for s in sink.spans if s.name == ACCEPT_SPAN_NAME]
-    assert accept.attributes["url4.accept.outcome"] == "scheduled"
+# --- caching ------------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("path", ["/runs", "/runs/{id}"])
@@ -565,11 +394,9 @@ async def test_a_lookalike_email_is_another_owner(
 
     read = await engine.client.get(f"/runs/{run_id}", headers=as_other)
     cancel = await engine.client.delete(f"/runs/{run_id}", headers=as_other)
-    start = await engine.start("topic-a", run_id, **as_other)
 
-    for resp in (read, cancel, start):
+    for resp in (read, cancel):
         assert (resp.status_code, resp.json()["code"]) == (404, "run_not_found")
-    assert engine.runner.scheduled == []
     assert (await _record(registry, run_id, owner)).state == "running"
 
 

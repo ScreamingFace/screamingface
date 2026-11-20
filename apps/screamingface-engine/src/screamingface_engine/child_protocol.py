@@ -9,7 +9,10 @@ it before it runs any of the run's code.
     worker → child, stdin:         {"spec_version": "2", "env": {...}, "io_concurrency": <int>}\\n
     child → worker, control pipe:  ACK\\n
     child → worker, control pipe:  SETTLED {"status": …, "error_code": …, "cost_usd": "…",
-                                            "finished_at": "<ISO 8601>"}\\n
+                                            "finished_at": "<ISO 8601>", "record": {…}}\\n
+
+`record` (E5 P2 spec §4.3) is written only for a run started with a result prefix, so every other
+SETTLED line is byte for byte what it was.
 
 The child writes SETTLED, its Candidate outcome (OME-1785), after its run and before it exits,
 and only when its own frames reached the stream. A child that dies first sends none.
@@ -27,6 +30,7 @@ import json
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
+from typing import Any
 
 SPEC_VERSION = "2"
 """The RUN_SPEC major version (erd.md §3). A child refuses any other."""
@@ -73,16 +77,20 @@ class Settled:
     error_code: str | None
     cost_usd: Decimal | None
     finished_at: datetime = field(default_factory=lambda: datetime.now(UTC), compare=False)
+    # The Candidate's record, cut to fit (`candidate_record.fit_record`), or None.
+    record: dict[str, Any] | None = field(default=None, compare=False)
 
 
 def encode_settled(settled: Settled) -> bytes:
     cost = None if settled.cost_usd is None else str(settled.cost_usd)
-    body = {
+    body: dict[str, Any] = {
         "status": settled.status,
         "error_code": settled.error_code,
         "cost_usd": cost,
         "finished_at": settled.finished_at.isoformat(),
     }
+    if settled.record is not None:
+        body["record"] = settled.record
     return _SETTLED + json.dumps(body, separators=(",", ":")).encode() + b"\n"
 
 
@@ -105,11 +113,15 @@ def decode_settled(line: bytes) -> Settled:
         exact = None if cost is None else Decimal(cost)
     except InvalidOperation as exc:
         raise ProtocolError("a SETTLED cost travels as a decimal string") from exc
+    record = body.get("record")
+    if record is not None and not isinstance(record, dict):
+        raise ProtocolError("a SETTLED record is a JSON object")
     return Settled(
         status=status,
         error_code=code,
         cost_usd=exact,
         finished_at=_aware_time(body.get("finished_at")),
+        record=record,
     )
 
 

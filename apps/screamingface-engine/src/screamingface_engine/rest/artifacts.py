@@ -20,12 +20,14 @@ all three (review finding on OME-892). Artifacts die by TTL alone: the periodic 
 """
 
 import asyncio
+from collections.abc import Mapping
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Path, Request, Response
 from fastapi.responses import FileResponse, StreamingResponse
 
 from screamingface_engine.artifacts import LocalFile
+from screamingface_engine.artifacts.ports import ArtifactContent
 from screamingface_engine.artifacts.signing import (
     EXPIRY_PARAM,
     SIGNATURE_PARAM,
@@ -135,18 +137,24 @@ async def artifact_response(store: Any, artifact_id: str, media_type: str) -> Re
     # call makes a blocking round trip to learn the object's existence and length. Running it
     # on the loop would stall every other request and the WS heartbeats for its duration.
     content = await asyncio.to_thread(store.content, artifact_id)
-    if content is None:
-        return None
+    return None if content is None else content_response(content, media_type)
+
+
+def content_response(
+    content: ArtifactContent, media_type: str, headers: Mapping[str, str] | None = None
+) -> Response:
+    """Stored bytes as a 200 response: a `FileResponse` for a local file (bounded memory, Range),
+    a stream for an object store. Also serves a Run's context and results (`rest.runs_objects`)."""
     if isinstance(content, LocalFile):
-        return FileResponse(content.path, media_type=media_type)
+        return FileResponse(content.path, media_type=media_type, headers=headers)
     # INVARIANT: `Content-Length` is set from the ticket's own size, so a truncated upstream
     # body is a protocol error the client detects — not a short response that looks complete.
     # The SDK independently re-verifies size AND sha256 before decoding.
     return StreamingResponse(
         content.stream,
         media_type=media_type,
-        headers={"content-length": str(content.size_bytes)},
+        headers={**(headers or {}), "content-length": str(content.size_bytes)},
     )
 
 
-__all__ = ["artifact_response", "router"]
+__all__ = ["artifact_response", "content_response", "router"]

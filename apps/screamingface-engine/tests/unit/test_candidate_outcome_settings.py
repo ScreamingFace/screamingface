@@ -14,7 +14,7 @@ def test_the_defaults_are_the_streams() -> None:
     settings = Settings()
 
     assert settings.candidate_outcomes_max_age_s == DEFAULT_OUTCOMES_MAX_AGE_S
-    assert settings.candidate_outcomes_max_bytes == 64 * 1024**2
+    assert settings.candidate_outcomes_max_bytes == 512 * 1024**2
 
 
 def test_the_limits_come_from_the_environment(monkeypatch: pytest.MonkeyPatch) -> None:

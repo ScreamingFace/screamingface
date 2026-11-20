@@ -97,16 +97,19 @@ def _scheduled(caplog: pytest.LogCaptureFixture) -> str:
 async def test_scheduled_owner_matches_run_history_key(
     caplog: pytest.LogCaptureFixture, registry: Registry
 ) -> None:
+    """Since E5 P2 the Engine's driver starts a Run's Candidates, so its `run scheduled` line
+    names the owner key, the Run and the Candidate that join it to `run created`."""
+    from run_driver_support import DriverRunner, drivers
+
     engine = _Engine(registry)
     run_id = (await engine.create(ADA)).json()["id"]
     caplog.clear()
     with caplog.at_level(logging.DEBUG):
-        resp = await engine.start("topic-a", run_id, candidate="1", **ADA)
+        await drivers(registry.store, DriverRunner(), registry.clock).drive_once(run_id)
 
-    assert resp.status_code == 202
-    line = _scheduled(caplog)
-    assert f"owner={ADA_KEY}" in line
-    assert f"run={run_id} candidate=1" in line
+    lines = _lines(caplog, "run scheduled topic=")
+    assert sorted(line.rsplit(" candidate=", 1)[1] for line in lines) == ["0", "1"]
+    assert all(f"owner={ADA_KEY} run={run_id} candidate=" in line for line in lines)
     _no_email_anywhere(caplog)
 
 
