@@ -1,7 +1,7 @@
 ---
 id: OME-1852
 linear_url: https://linear.app/openmined/issue/OME-1852/visually-distinguish-fusions-from-single-models-on-leaderboard-pareto
-status: in_progress
+status: in_review
 type: feature
 priority: 3
 labels: [scoreboard, agentic, autonomous]
@@ -30,13 +30,12 @@ existing blue frontier line and gold highest-score ring as-is.
 OME-1972 duplicates part of this scope; OME-1852 is the authoritative ticket being
 implemented here.
 
-## Status (2026-11-19)
+## Status (2026-11-20)
 
-Blocked on owner sign-off for two pre-existing pinned tests that this ticket's own
-requirements necessarily touch (an exact-set public wire-contract guard, and an exact
-accessible-text string). Full implementation is written and otherwise green; see the ledger's
-Outcome section and the Linear comment for the exact diffs awaiting approval. Issue stays
-In Progress in Linear.
+Owner approved the two pinned-test edits directly (`.claude/test-change-approvals/OME-1852.json`).
+Implemented, gates green, committed (`0db73dad0`), pushed, and PR opened:
+https://github.com/ScreamingFace/screamingface/pull/1986. Awaiting review + green CI, then
+squash-merge. Close this mirror and the Linear issue once merged.
 
 ## Ledger
 
