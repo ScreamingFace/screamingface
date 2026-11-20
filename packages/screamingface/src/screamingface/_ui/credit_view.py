@@ -51,11 +51,22 @@ _REASON_NOTES: dict[str, str] = {
     "hosted_unavailable": "Not available on hosted",
 }
 
+#: The account amount comes from the MANAGEMENT key: the Gateway marks it
+#: `credential_rejected` when that key gets a 401 while the execution key still reads, so
+#: the account box must not tell the user their execution key was rejected.
+_ACCOUNT_NOTES: dict[str, str] = {**_REASON_NOTES, "credential_rejected": "Management key rejected"}
+
 #: Account notes the user can act on; the neutral box shows these before the key's reason.
 _ACTIONABLE_ACCOUNT_REASONS = frozenset({"management_key_required", "account_unverified"})
 
 
-def _amount_html(label: str, amount: CreditAmount, *, primary: bool = False) -> str:
+def _amount_html(
+    label: str,
+    amount: CreditAmount,
+    *,
+    primary: bool = False,
+    notes: dict[str, str] = _REASON_NOTES,
+) -> str:
     value = "Unavailable"
     if amount.amount_usd is not None:
         value = f"${amount.amount_usd:,.2f}"
@@ -63,7 +74,7 @@ def _amount_html(label: str, amount: CreditAmount, *, primary: bool = False) -> 
         value = "No key limit"
     note = "Refresh failed · last known value" if amount.status == "stale" else ""
     if amount.status == "unavailable":
-        note = _REASON_NOTES.get(amount.reason or "", "")
+        note = notes.get(amount.reason or "", "")
     stamp = ""
     if amount.as_of:
         stamp = "Checked " + amount.as_of.astimezone(UTC).strftime("%Y-%m-%d %H:%M UTC")
@@ -115,7 +126,11 @@ def credit_html(status: CreditStatus, *, hosted: bool | None = None) -> str:
         amounts = _amount_html("Hosted allowance", status.hosted, primary=True)
         help_text = "Remaining allowance on your platform key."
     else:
-        amounts = _amount_html("Account balance", status.account, primary=True)
+        # WHY: a rejected execution key rejects both amounts; only blame the management key
+        # when the execution key itself still read (review of PR #1942).
+        rejected = status.key.reason == "credential_rejected"
+        notes = _REASON_NOTES if rejected else _ACCOUNT_NOTES
+        amounts = _amount_html("Account balance", status.account, primary=True, notes=notes)
         amounts += _amount_html("Key allowance", status.key)
         help_text = "Key allowance is a spending cap, not additional credit."
     grid = "sf-credits__grid sf-credits__grid--hosted" if hosted else "sf-credits__grid"

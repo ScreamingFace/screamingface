@@ -136,6 +136,9 @@ async def test_list_is_complete_metadata_and_detail_is_an_exact_selection() -> N
                 # no Frontier Score is recorded. The provenance keys are present-only, so a
                 # Benchmark declaring none serves none of them.
                 "saturation": "unknown",
+                # OME-1909: the old revisions a score may be re-graded from; always served,
+                # empty for a Benchmark that declares none.
+                "regradable_from": [],
                 "href": "/v1/benchmarks/example-smoke",
             }
         ],

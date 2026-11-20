@@ -3,8 +3,9 @@
 FEATURE: a detached Run (OME-1837). STORY: as a researcher reattaching from another machine, I
 get the same Report the machine that started the Run would have built.
 
-INVARIANT: the record equals what the Client's fold gives for the same frames. Both are tested
-against `tests/fixtures/candidate_runs/`, whose `record` the Client's `_RunState` produced.
+INVARIANT: each recorded run in `tests/fixtures/candidate_runs/` folds to its `record`, the
+record the Client reads. The rules the fold holds are pinned in `test_candidate_record_rules.py`
+and `test_candidate_record_evidence_rules.py`.
 """
 
 from __future__ import annotations

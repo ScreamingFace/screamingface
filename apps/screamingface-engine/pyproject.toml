@@ -13,6 +13,11 @@ name = "screamingface-engine"
 version = "2.2.0"
 description = "screamingface-engine — the ScreamingFace Engine: the control plane (REST + WebSocket, schedules Runner Jobs) and the url4 run mode those Jobs execute."
 requires-python = ">=3.12"
+# WHY: the distribution and both Engine images ship code contributed under this repository's
+# Apache-2.0 licence (e.g. the vendored FutureX-Past study scorer), so they carry its text. The
+# copy beside this file mirrors packages/url4's; hatchling reads license-files from here.
+license = "Apache-2.0"
+license-files = ["LICENSE"]
 # Merging the former runner distribution in cost NO new dependency: its deps
 # (httpx, nats-py, url4) were already a strict subset of these. What the run mode gains is
 # serving-side packages it never imports; the layering gate is what keeps that true.
@@ -155,12 +160,16 @@ target-version = "py312"
 #     paths we call, and nobody should write tests for upstream's dead branches to lift a number.
 # Pins: ifeval → josejg/instruction_following_eval (its vendor/__init__.py); musique →
 # StonyBrookNLP/musique@922ac98f (tests/unit/inspect/test_local_task_musique_vendor.py);
-# arc_agi_2 → arcprize/arc-agi-benchmarking@9e2828fb (test_local_task_arc_agi_2_vendor.py).
+# arc_agi_2 → arcprize/arc-agi-benchmarking@9e2828fb (test_local_task_arc_agi_2_vendor.py);
+# enigmaeval → centerforaisafety/simple-evals@6614edf5 (test_local_task_enigmaeval.py);
+# futurex_past → the crowd-wisdom study's metrics.py (test_local_task_futurex_past_study.py).
 extend-exclude = [
     "src/screamingface_engine_inspect/local_tasks/ifeval/vendor",
     "src/screamingface_engine_inspect/local_tasks/musique/vendor",
     "src/screamingface_engine_inspect/local_tasks/arc_agi_2/vendor",
     "src/screamingface_engine_inspect/local_tasks/lab_bench_2/vendor",
+    "src/screamingface_engine_inspect/local_tasks/enigmaeval/vendor",
+    "src/screamingface_engine_inspect/local_tasks/futurex_past/vendor",
     "src/screamingface_engine/combine/operators/_inspect_vendor.py",
 ]
 
@@ -191,6 +200,8 @@ ignore = [
     "src/screamingface_engine_inspect/local_tasks/musique/vendor",
     "src/screamingface_engine_inspect/local_tasks/arc_agi_2/vendor",
     "src/screamingface_engine_inspect/local_tasks/lab_bench_2/vendor",
+    "src/screamingface_engine_inspect/local_tasks/enigmaeval/vendor",
+    "src/screamingface_engine_inspect/local_tasks/futurex_past/vendor",
     "src/screamingface_engine/combine/operators/_inspect_vendor.py",
 ]
 
@@ -217,6 +228,8 @@ omit = [
     "src/screamingface_engine_inspect/local_tasks/ifeval/vendor/*",
     "src/screamingface_engine_inspect/local_tasks/musique/vendor/*",
     "src/screamingface_engine_inspect/local_tasks/arc_agi_2/vendor/*",
+    "src/screamingface_engine_inspect/local_tasks/enigmaeval/vendor/*",
+    "src/screamingface_engine_inspect/local_tasks/futurex_past/vendor/*",
     "src/screamingface_engine/combine/operators/_inspect_vendor.py",
 ]
 

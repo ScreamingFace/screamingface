@@ -382,9 +382,10 @@ class ImportedBenchmark:
 def imported_benchmark_id(benchmark_key: str, origin: BenchmarkOrigin) -> str:
     """The catalogue id this plugin gives a row: ``inspect-<key>`` for an inspect_evals import,
     the bare key for a local Task (our own eval in inspect's shape, OME-1513) — "musique", not
-    "inspect-musique", because nothing about it came from inspect_evals."""
+    "inspect-musique", because nothing about it came from inspect_evals. An ``external``
+    row is a local Task an outside contributor wrote, so it takes the bare key too."""
 
-    return benchmark_key if origin == "screamingface" else f"inspect-{benchmark_key}"
+    return f"inspect-{benchmark_key}" if origin == "inspect_evals" else benchmark_key
 
 
 def single_shot_benchmark(
@@ -420,6 +421,7 @@ def single_shot_benchmark(
     scorer_draft_feedback: bool = False,
     published_revision: str | None = None,
     answer_rule: AnswerRule | None = None,
+    regradable_from: tuple[str, ...] = (),
     **provenance: Unpack[ProvenanceFields],
 ) -> ImportedBenchmark:
     """Assemble one imported single-shot benchmark from its declarations.
@@ -503,6 +505,9 @@ def single_shot_benchmark(
             catalogue row sets it (OME-1610).
         answer_rule: how the grader reads an answer, as pinned combine operator ids (OME-1289).
             Published in the catalog; NOT hashed into the revision (like ``focus``).
+        regradable_from: the old published revisions a score may be re-graded from (OME-1909),
+            already checked against the Case Digest by the caller. Published in the catalog;
+            NOT hashed into the revision.
 
     Returns:
         The assembled benchmark, its registration ready for the plugin's entry point.
@@ -652,6 +657,7 @@ def single_shot_benchmark(
         # Benchmark Provenance, baselines, notebook (OME-1455): authored on the BenchmarkSpec
         # row like `difficulty`, threaded through verbatim; shapes checked by `Benchmark`.
         answer_rule=answer_rule,
+        regradable_from=regradable_from,
         **provenance,
         declaration=BenchmarkDeclaration(
             # WHY the row's own policy, threaded through verbatim (OME-1642): the cover sheet

@@ -140,31 +140,30 @@ replay.candidates.only.reproduction  # None: no published score to compare`
     :version="version"
   >
     <p>
-      A <strong>leaderboard</strong> is one benchmark's public ranking on the ScreamingFace
-      Leaderboard. The Client reads and writes it through <code>sf.leaderboards</code>. Discovery
-      and reads are free. They hit the leaderboard, not a model, and they do not need a provider
-      connection.
+      A leaderboard is one benchmark's public ranking on the ScreamingFace Leaderboard. The Client
+      reads and writes it through <code>sf.leaderboards</code>. Discovery and reads are free: they hit
+      the leaderboard, not a model, and they do not need a provider connection.
     </p>
 
     <p>
       Each ranked row keeps the exact
       <RouterLink to="/sf-client/guides/reproduce-and-share"><code>url4</code></RouterLink>
       that produced the score, so anyone can fork or re-run the recipe. The leaderboard also stores
-      <code>verified_by_screamingface</code>, which is a property of the engine that ran the
-      submission. It is separate from who submitted the row. A run on the hosted engine is verified.
-      A submission from a run on any other engine stays unverified on the public leaderboard until
-      the hosted engine also runs it.
+      <code>verified_by_screamingface</code>, a property of the engine that ran the submission. It is
+      separate from who submitted the row. A run on the hosted engine is verified. A submission from
+      a run on any other engine stays unverified on the public leaderboard until the hosted engine
+      also runs it.
     </p>
 
     <p>
       The public portal is
       <a href="https://leaderboard.screamingface.ai" target="_blank" rel="noopener"
         >leaderboard.screamingface.ai</a
-      >. The Client's default leaderboard is that public portal,
+      >, which is also the Client's default leaderboard,
       <code>https://leaderboard.screamingface.ai</code>. <code>sf.leaderboards.submit()</code>
-      publishes there, with the author emails you pass, unless you point
-      <code>scoreboard_url</code> at your own instance first. Do that before your first submission
-      when you run the local stack.
+      publishes there, crediting the author emails you pass, unless you first point
+      <code>scoreboard_url</code> at your own instance. Do that before your first submission when you
+      run the local stack.
     </p>
 
     <h2>What you can do with it</h2>
@@ -176,7 +175,8 @@ replay.candidates.only.reproduction  # None: no published score to compare`
       <li>Add author and paper metadata when you publish, and edit it later.</li>
       <li>Look up one published score by id and reuse its <code>url4</code>.</li>
       <li>
-        Replay a published score from its pinned cache at no provider cost, and record that it held.
+        Replay a published score from its pinned cache at no provider cost, and record that it still
+        holds.
       </li>
     </ul>
 
@@ -200,9 +200,9 @@ replay.candidates.only.reproduction  # None: no published score to compare`
         <tr>
           <td><code>sf.leaderboards.get(id, *, top=50)</code></td>
           <td>
-            Fetches one <code>Leaderboard</code>: the board's identity, best-per-spec ranked
-            <code>entries</code>, and imported <code>baselines</code>. <code>top</code> caps how
-            many entries come back (the service clamps above 200).
+            Fetches one <code>Leaderboard</code>: the board's identity, its best-per-spec ranked
+            <code>entries</code>, and imported <code>baselines</code>. <code>top</code> caps how many
+            entries come back (the service clamps values above 200).
           </td>
         </tr>
         <tr>
@@ -213,10 +213,10 @@ replay.candidates.only.reproduction  # None: no published score to compare`
             >
           </td>
           <td>
-            Publishes one evaluated <code>CandidateResult</code>. The Client derives benchmark id,
-            spec id, url4, the benchmark-native score, providers, and the idempotency key from that
-            result. An optional author list supplies the exact credit line. An optional
-            <code>paper_url</code> links the paper; the metadata objects add details about the
+            Publishes one evaluated <code>CandidateResult</code>. The Client derives the benchmark
+            id, spec id, url4, the benchmark-native score, the providers, and the idempotency key from
+            that result. An optional author list supplies the exact credit line. An optional
+            <code>paper_url</code> links the paper, and the metadata objects add details about the
             authors and the paper. A result from a <code>cases=</code> run raises
             <code>ValueError</code>, because a leaderboard takes full runs only.
           </td>
@@ -233,9 +233,8 @@ replay.candidates.only.reproduction  # None: no published score to compare`
             >
           </td>
           <td>
-            Changes the authors, paper link or metadata of a score you submitted. Returns the
-            updated
-            <code>LeaderboardScore</code>. Only the submitter can do this.
+            Changes the authors, paper link, or metadata of a score you submitted, and returns the
+            updated <code>LeaderboardScore</code>. Only the submitter can do this.
           </td>
         </tr>
         <tr>
@@ -268,8 +267,8 @@ replay.candidates.only.reproduction  # None: no published score to compare`
 
     <p>
       Ranking is best-per-spec: for each <code>spec_id</code> the leaderboard keeps the highest
-      score, and breaks ties by newest <code>submitted_at</code>. The table is then ordered by score
-      descending. Baselines are imported separately and sit beside community entries; they are not
+      score and breaks ties by newest <code>submitted_at</code>. The table is then ordered by score,
+      highest first. Baselines are imported separately and sit beside community entries. They are not
       the same as a submitted score.
     </p>
 
@@ -284,8 +283,8 @@ replay.candidates.only.reproduction  # None: no published score to compare`
     <p>
       These ids are leaderboard registrations. They can overlap the engine's
       <RouterLink to="/sf-client/guides/benchmarks">benchmark</RouterLink> catalog, but they are not
-      the same list. A board has to be registered before you can publish to it. This read is against
-      the public leaderboard, so the sample configures the hosted services first. A local scoreboard
+      the same list. A board has to be registered before you can publish to it. This read goes against
+      the public leaderboard, so the sample configures the hosted services first. A local leaderboard
       lists only the boards registered on it: <code>medxpert</code>.
     </p>
 
@@ -302,15 +301,15 @@ replay.candidates.only.reproduction  # None: no published score to compare`
     <p>
       Each entry carries <code>score</code>, <code>total_questions</code>, the providers used, who
       submitted it when that is known, its separate <code>authors</code> credit line, the
-      <code>verified_by_screamingface</code> flag, and the <code>url4</code> expression. Public
-      author values normally omit email domains; full addresses distinguish authors whose local
-      parts collide. Notebook displays render the board as an interactive widget; the fields above
+      <code>verified_by_screamingface</code> flag, and the <code>url4</code> expression. Public author
+      values normally omit email domains; full addresses are kept to distinguish authors whose local
+      parts collide. Notebook displays render the board as an interactive widget, but the fields above
       are what each entry holds.
     </p>
 
     <p>
       On this board every row is verified. Treat <code>verified_by_screamingface=True</code> as the
-      trust signal, not the mere presence of a row.
+      trust signal, not the presence of a row on its own.
     </p>
 
     <h3>3 · Point the Client at a leaderboard</h3>
@@ -320,7 +319,7 @@ replay.candidates.only.reproduction  # None: no published score to compare`
       ScreamingFace Leaderboard. When <code>screamingface up</code> is running, the module-level
       functions connect to that stack. A non-default <code>engine_url</code> requires
       <code>scoreboard_url</code> in <code>sf.configure()</code>; without it the call raises
-      <code>ValueError</code>. Local development points both the engine and the leaderboard at the
+      <code>ValueError</code>. For local development, point both the engine and the leaderboard at the
       stack <code>screamingface up</code> starts:
     </p>
 
@@ -330,9 +329,9 @@ replay.candidates.only.reproduction  # None: no published score to compare`
 
     <p>
       Local writes are open. On the public leaderboard, <code>list</code> and <code>get</code> are
-      public. <code>get_score</code>, <code>submit</code>, <code>edit</code> and
-      <code>metadata_events</code> need a Cloudflare Access login, and access is granted by the
-      OpenMined team: reach out to them.
+      public, while <code>get_score</code>, <code>submit</code>, <code>edit</code> and
+      <code>metadata_events</code> need a Cloudflare Access login. The OpenMined team grants that
+      access, so reach out to them.
     </p>
 
     <h3>4 · Publish a result</h3>
@@ -340,24 +339,24 @@ replay.candidates.only.reproduction  # None: no published score to compare`
     <p>
       <code>submit</code> takes the evaluated <code>CandidateResult</code> directly, so you never
       re-enter the score. Pass <code>report.candidates.only</code> for a single candidate, or iterate
-      <code>report.candidates</code> to publish every candidate in the report.
+      over <code>report.candidates</code> to publish every candidate in the report.
     </p>
 
     <p>Two optional arguments add credit and context:</p>
 
     <ul>
       <li>
-        <strong><code>authors=[...]</code>:</strong> the exact, ordered credit line. One to ten email
-        addresses, duplicates preserved, in the order you give. It never adds the authenticated
-        submitter for you; omit it to use the leaderboard's default credit line. Authorship grants
-        credit, not ownership or access to a private submission.
+        <code>authors=[...]</code>: the exact, ordered credit line. One to ten email addresses, with
+        duplicates preserved, in the order you give. It never adds the authenticated submitter for
+        you; omit it to use the leaderboard's default credit line. Authorship grants credit, not
+        ownership or access to a private submission.
       </li>
       <li>
-        <strong><code>paper_url="https://…"</code>:</strong> the paper that reports the result. An
-        <code>http</code> or <code>https</code> link of at most 2,048 characters, with a host and no
-        whitespace, control characters or user info. The Client checks the shape before any HTTP; the
-        leaderboard does not verify that the link resolves or that the authors wrote the paper. No
-        paper yet? Leave it out and add the link later with <code>edit</code>.
+        <code>paper_url="https://…"</code>: the paper that reports the result. An <code>http</code> or
+        <code>https</code> link of at most 2,048 characters, with a host and no whitespace, control
+        characters, or user info. The Client checks the shape before any HTTP. The leaderboard does
+        not verify that the link resolves or that the authors wrote the paper. If you have no paper
+        yet, leave it out and add the link later with <code>edit</code>.
       </li>
     </ul>
 
@@ -367,27 +366,27 @@ replay.candidates.only.reproduction  # None: no published score to compare`
 
     <ul>
       <li>
-        <strong><code>authors_metadata</code>:</strong> maps each credited author's full email address
-        to a flat object. Known keys: <code>full_name</code> and <code>institution</code>.
+        <code>authors_metadata</code>: maps each credited author's full email address to a flat
+        object. Known keys: <code>full_name</code> and <code>institution</code>.
       </li>
       <li>
-        <strong><code>paper_metadata</code>:</strong> one flat object. Known keys: <code>title</code>,
+        <code>paper_metadata</code>: one flat object. Known keys: <code>title</code>,
         <code>url</code> and <code>citation</code>.
       </li>
     </ul>
 
     <p>
-      Those five key names are reserved in either object: they require text and follow the limits
+      Those five key names are reserved in either object. They require text and follow the limits
       below, even when used outside their usual author or paper context. Any other key is stored and
-      returned but not shown by the portal; its value may be text, a finite number or a boolean.
-      Nested objects, lists and null values are not accepted.
+      returned but not shown by the portal, and its value may be text, a finite number, or a boolean.
+      Nested objects, lists, and null values are not accepted.
     </p>
 
     <p>
       Each <code>authors_metadata</code> key must match a credited author, ignoring case, and removing
       an author removes their metadata. The portal reads an author's metadata by the published
-      identifier: normally the email's local part, with the full address kept when two authors share
-      a local part. Keep the original full addresses when sending edits; public keys are not edit
+      identifier: normally the email's local part, with the full address kept when two authors share a
+      local part. Keep the original full addresses when sending edits, because public keys are not edit
       keys.
     </p>
     <table>
@@ -429,9 +428,9 @@ replay.candidates.only.reproduction  # None: no published score to compare`
       </tbody>
     </table>
     <p>
-      The SDK checks object shapes; the board checks bounds, author matching and link rules. Keys and
+      The SDK checks object shapes; the board checks bounds, author matching, and link rules. Keys and
       text must be valid Unicode with no NUL character. <code>paper_metadata.url</code> and
-      <code>paper_url</code> are the same link; if you supply both, they must agree.
+      <code>paper_url</code> are the same link, so if you supply both, they must agree.
     </p>
 
     <div class="not-prose">
@@ -442,7 +441,7 @@ replay.candidates.only.reproduction  # None: no published score to compare`
       Capture is off by default. With <code>capture=True</code> the Engine stores every model and
       web-tool result of the run in a pinned cache, so others can replay it. A run without a capture
       has no <code>pinned_cache</code>. Read <code>capture_status</code> on the result before you
-      publish: a partial or missing capture cannot be reproduced.
+      publish, since a partial or missing capture cannot be reproduced.
       <RouterLink to="/learn/caching">Reproducing a submission</RouterLink> explains why.
     </p>
 
@@ -450,9 +449,9 @@ replay.candidates.only.reproduction  # None: no published score to compare`
 
     <p>
       A run on a local engine always has <code>capture_status == "partial"</code>, because its
-      pinned cache never leaves the local gateway. A local scoreboard accepts the submission and
-      marks it <code>verified_by_screamingface=True</code>, since the local engine ran it. A run
-      with <code>limit=</code> is a partial submission: <code>submit</code> emits an
+      pinned cache never leaves the local gateway. A local leaderboard accepts the submission and
+      marks it <code>verified_by_screamingface=True</code>, since the local engine ran it. A run with
+      <code>limit=</code> is a partial submission: <code>submit</code> emits an
       <code>EvaluationWarning</code>, and the board does not rank it.
     </p>
 
@@ -462,31 +461,31 @@ replay.candidates.only.reproduction  # None: no published score to compare`
 
     <p>
       The Client posts <code>score</code>, <code>total_questions</code>, the compiled
-      <code>url4_expression</code>, provider names, required <code>run_cost_usd</code>, optional
-      authors, the optional paper link, and client metadata. When the run has them, it also posts
-      the run's pinned cache id, its <code>capture_status</code> and its answer seed. They are what
-      <code>sf.evaluate(score_id=...)</code> needs later. Direct submissions require a non-null run
-      cost; a genuine fully cached run sends zero, while imported and historical rows may still
+      <code>url4_expression</code>, the provider names, the required <code>run_cost_usd</code>, the
+      optional authors, the optional paper link, and client metadata. When the run has them, it also
+      posts the run's pinned cache id, its <code>capture_status</code>, and its answer seed. Those are
+      what <code>sf.evaluate(score_id=...)</code> needs later. Direct submissions require a non-null
+      run cost: a genuine fully cached run sends zero, while imported and historical rows may still
       display an unknown cost. The <code>Idempotency-Key</code> header is the candidate's
-      <code>run_id</code>, so a retry of the same run reuses the original score instead of inserting
-      a duplicate. A resubmission by the same submitter can correct its author list or its paper
-      link. If another correction wins the same race, the Client reports a retryable conflict; retry
-      the submission.
+      <code>run_id</code>, so a retry of the same run reuses the original score instead of inserting a
+      duplicate. A resubmission by the same submitter can correct its author list or its paper link.
+      If another correction wins the same race, the Client reports a retryable conflict, so retry the
+      submission.
     </p>
 
     <p>
-      The score is benchmark-native: the Client submits <code>CandidateResult.score</code> exactly
-      as the benchmark's own grading produced it (fractional for DRACO's weighted rubrics, negative
-      for HealthBench worst-30), and never derives a replacement from case grades, normalizes, or
-      bounds it. The only universal requirements are that a score exists and is a finite number;
-      unscored or non-finite results are rejected before HTTP.
+      The score is benchmark-native: the Client submits <code>CandidateResult.score</code> exactly as
+      the benchmark's own grading produced it (fractional for DRACO's weighted rubrics, negative for
+      HealthBench worst-30). It never derives a replacement from case grades, normalizes, or bounds the
+      score. The only universal requirements are that a score exists and is a finite number. Unscored
+      or non-finite results are rejected before HTTP.
     </p>
 
     <h3>5 · Fetch a published score</h3>
 
     <p>
-      Pass the id <code>submit</code> returned (or any public score id). This sample is a real score
-      read back from a local leaderboard:
+      Pass the id that <code>submit</code> returned, or any public score id. This sample is a real
+      score read back from a local leaderboard:
     </p>
 
     <div class="not-prose">
@@ -495,17 +494,16 @@ replay.candidates.only.reproduction  # None: no published score to compare`
 
     <p>
       <code>verified_by_screamingface</code> depends on the engine that ran the submission. This
-      sample is read back from a local scoreboard, where the local engine verified it. On the public
-      leaderboard, a submission from a run on another engine stays <code>False</code> until the
-      hosted engine also runs it. Read that field before you trust a number you did not produce
-      yourself.
+      sample is read back from a local leaderboard, where the local engine verified it. On the public
+      leaderboard, a submission from a run on another engine stays <code>False</code> until the hosted
+      engine also runs it. Read that field before you trust a number you did not produce yourself.
     </p>
 
     <h3>6 · Edit what you submitted</h3>
 
     <p>
-      You can change the authors, paper link and metadata of a score after you publish it. Only the
-      verified submitter can do this. Another caller gets a
+      You can change the authors, paper link, and metadata of a score after you publish it. Only the
+      verified submitter can do this; another caller gets a
       <RouterLink to="/sf-client/api/errors"><code>LeaderboardError</code></RouterLink
       >. Each argument you leave out stays as it is, and you must pass at least one.
     </p>
@@ -515,15 +513,15 @@ replay.candidates.only.reproduction  # None: no published score to compare`
     </div>
 
     <p>
-      A local scoreboard has no identity header, so <code>edit</code> and
+      A local leaderboard has no identity header, so <code>edit</code> and
       <code>metadata_events</code> fail there with HTTP 401 (<code>Missing X-User-Email</code>).
     </p>
 
     <p>
-      A new <code>authors</code> list replaces the old one exactly. It follows the same rules as on
+      A new <code>authors</code> list replaces the old one exactly, following the same rules as on
       <code>submit</code>. You cannot clear it. To go back to the default credit line, pass the
-      submitter's own address. <code>paper_url=None</code> removes the paper link. An edit that
-      changes nothing writes no log entry.
+      submitter's own address. <code>paper_url=None</code> removes the paper link. An edit that changes
+      nothing writes no log entry.
     </p>
 
     <p>
@@ -535,10 +533,10 @@ replay.candidates.only.reproduction  # None: no published score to compare`
     </p>
 
     <p>
-      Every change goes into an edit log. A resubmission that changes these fields writes to it too.
-      The log holds the old and new values, so it can hold author emails that you removed on
-      purpose. For this reason it is not public: only the submitter and the board's operators can
-      read it. The newest entry comes first.
+      Every change goes into an edit log, and a resubmission that changes these fields writes to it
+      too. The log holds the old and new values, so it can hold author emails that you removed on
+      purpose. For that reason it is not public: only the submitter and the board's operators can read
+      it. The newest entry comes first.
     </p>
 
     <div class="not-prose">
@@ -552,33 +550,32 @@ replay.candidates.only.reproduction  # None: no published score to compare`
       same <code>url4</code> to
       <RouterLink to="/sf-client/guides/running-an-evaluation"><code>sf.evaluate</code></RouterLink>
       is a new paid run. The expression is already linked to its benchmark, so do not pass
-      <code>benchmark=</code> or <code>limit=</code> again. Model output can move; the recipe
-      identity does not.
+      <code>benchmark=</code> or <code>limit=</code> again. Model output can change between runs, but
+      the recipe identity does not.
     </p>
 
     <h3>8 · Reproduce a published run</h3>
 
     <p>
-      Replay requires an Engine and Gateway that support pinned caches and hold the original
-      capture. The example selects the hosted production services explicitly; for another
-      deployment, change both URLs to that deployment's services. A capture in one deployment is not
-      automatically available in another. Replaying a published run needs the hosted engine and a
-      Cloudflare Access account the OpenMined team grants.
+      Replay requires an Engine and Gateway that support pinned caches and hold the original capture.
+      The example selects the hosted production services explicitly; for another deployment, change
+      both URLs to that deployment's services. A capture in one deployment is not automatically
+      available in another. Replaying a published run needs the hosted engine and a Cloudflare Access
+      account that the OpenMined team grants.
     </p>
 
     <p>
-      Choose <strong>Reproduce</strong> under Copy on a captured public leaderboard row to copy a
-      snippet using <code>sf.evaluate(pinned_cache="…")</code>. Replace the placeholder below with
-      that row's pinned cache id. The Client reads the original recipe and answer seed from the
-      board, then asks the Engine to use only the captured answers. A missing answer in the pinned
-      cache fails its case.
+      Choose Reproduce under Copy on a captured public leaderboard row to copy a snippet that uses
+      <code>sf.evaluate(pinned_cache="…")</code>. Replace the placeholder below with that row's pinned
+      cache id. The Client reads the original recipe and answer seed from the board, then asks the
+      Engine to use only the captured answers. A missing answer in the pinned cache fails its case.
     </p>
 
     <p>
-      Captured answers avoid changes in provider responses, including model retirement. Replay still
-      needs the original benchmark revision and compatible execution behavior; a pinned cache does
-      not guarantee replay across Engine upgrades. The Python attribute is
-      <code>pinned_cache</code>; saved report JSON and the Scoreboard wire keep the key
+      Captured answers protect the replay from changes in provider responses, including model
+      retirement. Replay still needs the original benchmark revision and compatible execution behavior;
+      a pinned cache does not guarantee replay across Engine upgrades. The Python attribute is
+      <code>pinned_cache</code>, while saved report JSON and the leaderboard wire keep the key
       <code>frozen_copy_id</code>.
     </p>
 
@@ -603,9 +600,9 @@ replay.candidates.only.reproduction  # None: no published score to compare`
         <tr>
           <td><code>reproduction.outcome == "exact"</code></td>
           <td>
-            The score, case count and benchmark revision match; the case digest matches too when the
-            submission has one. This checks internal consistency, not independent verification of
-            the submitted answers.
+            The score, case count, and benchmark revision match; the case digest matches too when the
+            submission has one. This checks internal consistency, not independent verification of the
+            submitted answers.
           </td>
         </tr>
         <tr>
@@ -628,45 +625,46 @@ replay.candidates.only.reproduction  # None: no published score to compare`
 
     <p>
       Only exact full replays are recorded on the board. For a public score, a leaderboard login is
-      requested only after the exact verdict, if recording needs one. The Engine may require its own
-      authentication. Pass <code>record_reproduction=False</code> to skip recording. If recording
-      fails, the verdict stays <code>exact</code>, <code>recorded</code> is <code>False</code>, and
-      <code>record_error</code> explains why. The API exposes <code>reproduction_count</code> and
-      <code>last_reproduced_at</code>; the portal does not display a reproduction count.
+      requested only after the exact verdict, and only if recording needs one. The Engine may require
+      its own authentication. Pass <code>record_reproduction=False</code> to skip recording. If
+      recording fails, the verdict stays <code>exact</code>, <code>recorded</code> is
+      <code>False</code>, and <code>record_error</code> explains why. The API exposes
+      <code>reproduction_count</code> and <code>last_reproduced_at</code>, but the portal does not
+      display a reproduction count.
     </p>
 
     <h4>Recipe and seed checks</h4>
     <p>
-      You usually need only the pinned cache id. If you also pass <code>url4=</code>, it must
-      describe the same parsed recipe as the published run. If you pass <code>answer_seed=</code>,
-      it must equal the original seed. Omission, or <code>None</code>, uses the stored seed;
+      You usually need only the pinned cache id. If you also pass <code>url4=</code>, it must describe
+      the same parsed recipe as the published run. If you pass <code>answer_seed=</code>, it must equal
+      the original seed. Omitting it, or passing <code>None</code>, uses the stored seed, and
       <code>0</code> is a real seed. A run captured without a seed replays without one. Conflicting
       values raise <code>ValueError</code> before a run starts.
     </p>
     <p>
-      A replay takes no positional candidate and no <code>benchmark=</code>. It never captures: omit
-      <code>capture</code> or pass <code>False</code>. Explicit <code>capture=True</code> raises
+      A replay takes no positional candidate and no <code>benchmark=</code>. It never captures, so omit
+      <code>capture</code> or pass <code>False</code>. An explicit <code>capture=True</code> raises
       <code
         >TypeError: capture=True cannot be combined with a replay; a replay captures nothing</code
       >. A pinned cache id that no public score uses, with no <code>url4=</code>, raises
-      <code>ValueError</code>. If both <code>score_id</code> and <code>pinned_cache</code> are
-      supplied, they must identify the same capture.
+      <code>ValueError</code>. If both <code>score_id</code> and <code>pinned_cache</code> are supplied,
+      they must identify the same capture.
     </p>
 
     <h4>Private scores</h4>
     <p>
       Use <code>score_id=</code> for a private score you submitted. The Client tries the public read
       first, then the authenticated read only on a 404. The private read may require a leaderboard
-      login before replay. Passing a pinned cache id alone does not discover a private score. The
-      same call also works for a public score.
+      login before replay. Passing a pinned cache id alone does not find a private score. The same call
+      also works for a public score.
     </p>
     <div class="not-prose"><NbCell :count="11" :code="privateReplay" /></div>
 
     <h4>Inspect a subset</h4>
     <p>
-      <code>limit=n</code> replays the first <code>n</code> cases of a published run for debugging.
-      Use a positive integer strictly smaller than its published case count; omit it for the full
-      run. This is never judged or recorded. If the current Engine cannot rebuild the published
+      <code>limit=n</code> replays the first <code>n</code> cases of a published run for debugging. Use
+      a positive integer strictly smaller than its published case count, or omit it for the full run. A
+      subset replay is never judged or recorded. If the current Engine cannot rebuild the published
       recipe and a compatible subset, the Client raises <code>PlanningError</code> with code
       <code>partial_replay_unavailable</code> before execution. An unsubmitted capture cannot use
       <code>limit</code>.
@@ -676,20 +674,20 @@ replay.candidates.only.reproduction  # None: no published score to compare`
     <h4>Replay an unsubmitted capture</h4>
     <p>
       Without a public score, supply the original <code>url4</code> and the original
-      <code>answer_seed</code> if it had one. Omit the seed or pass <code>None</code> when it did
-      not. The replay has no published result to compare, so its <code>reproduction</code> is
-      <code>None</code>. If every case misses, an <code>EvaluationWarning</code> asks you to check
-      the recipe and seed. The Client never fills misses with live calls.
+      <code>answer_seed</code> if it had one. Omit the seed or pass <code>None</code> when it did not.
+      The replay has no published result to compare, so its <code>reproduction</code> is
+      <code>None</code>. If every case misses, an <code>EvaluationWarning</code> asks you to check the
+      recipe and seed. The Client never fills misses with live calls.
     </p>
     <div class="not-prose"><NbCell :count="13" :code="unsubmittedReplay" /></div>
 
     <h4>When replay cannot proceed</h4>
     <p>
       A partial or unknown published capture raises <code>sf.ReproductionError</code> with code
-      <code>not_reproducible</code> before execution. Every submission from a local engine has a
-      partial capture, so replaying it raises this error. An Engine that does not confirm replay
-      mode raises the same exception with code <code>replay_unsupported</code>. Read
-      <code>exc.reproduction</code> for the outcome and reason; there is no returned report. The
+      <code>not_reproducible</code> before execution. Every submission from a local engine has a partial
+      capture, so replaying it raises this error. An Engine that does not confirm replay mode raises the
+      same exception with code <code>replay_unsupported</code>. Read <code>exc.reproduction</code> for
+      the outcome and reason; there is no returned report. The
       <RouterLink to="/sf-client/api/errors">Errors reference</RouterLink> shows how to catch it,
       and the <RouterLink to="/sf-client/api/leaderboards">Reproduction reference</RouterLink>
       lists the verdict fields and reasons.
@@ -702,21 +700,22 @@ replay.candidates.only.reproduction  # None: no published score to compare`
     <h4>Remix the recipe</h4>
     <p>
       <code>score.url4.to_python()</code> gives you an editable recipe locally, for free.
-      <code>sf.evaluate(score.url4)</code> starts a fresh evaluation that may call providers and
-      incur costs. The url4 already names the benchmark, so do not pass <code>benchmark=</code> or
-      <code>limit=</code> again. To replay captured answers, use one of the keyword forms above.
+      <code>sf.evaluate(score.url4)</code> starts a fresh evaluation that may call providers and incur
+      costs. The url4 already names the benchmark, so do not pass <code>benchmark=</code> or
+      <code>limit=</code> again. To replay captured answers instead, use one of the keyword forms
+      above.
     </p>
     <div class="not-prose"><NbCell :count="15" :code="remix" /></div>
 
     <h2>What "verified" means here</h2>
 
     <p>
-      Anyone with write access can publish a score. The board stores the claim and the recipe.
-      <code>verified_by_screamingface</code> is a property of the engine that ran the submission: a
-      run on the hosted engine is verified, because that engine can validate it and replay it from
-      its cache. A submission from a run on any other engine stays unverified on the public
-      leaderboard until the hosted engine also runs it. Until that flag is true, treat the row as a
-      submission, not a verified ranking.
+      Anyone with write access can publish a score, and the board stores the claim and the recipe.
+      <code>verified_by_screamingface</code> is a property of the engine that ran the submission: a run
+      on the hosted engine is verified, because that engine can validate it and replay it from its
+      cache. A submission from a run on any other engine stays unverified on the public leaderboard
+      until the hosted engine also runs it. Until that flag is true, treat the row as a submission, not
+      a verified ranking.
     </p>
 
     <h2>Links</h2>

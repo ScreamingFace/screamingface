@@ -118,7 +118,7 @@ Engine paths are relative to `apps/screamingface-engine/src/screamingface_engine
 | D12 | **Every stop records its reason:** `canceled`, `orphaned` (an attached Run past its deadline) or `deadline` (a detached one). The first one wins. A Run stopped by `canceled` reads `canceled`; one stopped by `orphaned` or `deadline` reads `interrupted`. A `pending` Candidate is live until a stop settles it; P1's pending grace is removed. | A Candidate can wait hours behind a full per-caller cap. The grace was sized for the Client's 900 s loop, which is gone. |
 | D13 | **The Client follows a Run, not topics.** One owner-checked WebSocket carries every Candidate's events tagged with its index. A Candidate still running replays the events the stream holds; one that has ended sends its record. | One stream is what a live notebook and a reattaching one both need. Past progress lines are not kept. |
 | D14 | **`detach=True` returns a `Run`; the default returns a `Report`.** `Run.wait()` follows the Run and returns its `Report`. `Run.report()` works on any machine. Ctrl-C on an attached `evaluate` cancels the Run. **The Report is built in one place:** once the Run has ended, from the Engine's records, reusing each result already on this machine and fetching the rest. An attached follow fetches and saves each succeeded Candidate's result as it settles, for its live score, and the build reuses it. | The epic's API. P1's `Run.wait()` returns a `Run`; it is in no release. One build makes an attached Report and one rebuilt elsewhere equal by construction, and a follow that ended early leaves nothing to merge (owner decision, 2026-11-18). |
-| D15 | **`OME-1617` reduces to following overnight.** A started Run never needs the Client's login again. A follow that outlives the login ends with a message that the Run is still going and how to pick it up. | The job uses the email in its env. The Client has no silent login refresh. |
+| D15 | **`OME-1617` reduces to following overnight.** A started Run never needs the Client's login again. A follow that outlives the login ends with a message that the Run is still going and how to pick it up. A result fetched during a follow never starts a sign-in either: an expired sign-in ends the follow the same way. Nor does the cancel Ctrl-C sends: a challenged cancel fails, and the Engine stops the unfollowed Run. | The job uses the email in its env. The Client has no silent login refresh. |
 | D16 | **Compatibility.** A released Client keeps working on a P2 Engine: it starts through the raw start route, which is unchanged, and gets no Run record. A P2 Client on an older Engine raises with the upgrade to make. | The Client tells an older Engine by its answer: it answers the new `POST /runs` body with a 422 or a 404 that has no `code`, and every 422 and 404 a P2 Engine sends there has one. A P2 Engine with Runs off answers 404 `runs_off`, which the Client reports as that, not as an upgrade. |
 
 ## 4. Contract
@@ -171,8 +171,9 @@ JSON objects whose `type` is the frame's name, in order per Candidate:
   their sequence, and does not treat a gap as an error: the stream holds at most 20,000 frames per
   Candidate and there is no replay request.
 - With `?events=false` the route sends no `candidate.event` and no `running` state, and settles
-  each Candidate as soon as the registry has it terminal. `Run.wait()` asks for this: it needs
-  only when the Run ends, not up to 20,000 events per Candidate. Such a follower still holds an
+  each Candidate once the registry has it terminal, without waiting for its terminal frame.
+  `Run.wait()` asks for this, as does an attached follow with nothing to show (no progress and no
+  `on_event`): each needs only the Candidates' ends, not up to 20,000 events per Candidate. Such a follower still holds an
   attached Run (R10). An Engine without the option ignores it and sends every frame.
 
 ### 4.3 The Candidate record
@@ -421,6 +422,8 @@ run.cancel()
 ```
 
 - `deadline` without `detach=True` raises.
+- A `stopped_by` this Client does not know, from a newer Engine, reads as `None`; the Run and its
+  state still read.
 - The transport port is "follow a Run". `run_transport` on `Client` and `AsyncClient` takes a
   transport of that shape; the per-Candidate `run()` port is removed.
 - Removed from the Client: the in-flight pool sized from `GET /v1/limits` (`_engine/limits.py`,
@@ -429,18 +432,36 @@ run.cancel()
   the `X-SF-Run` headers and the unbound path.
 - The context is fetched from the context route and checked against the Run's checksum. A saved
   result is fetched again from the result route and checked against the record's checksum, unless
-  one with that checksum is already on this machine. The local
+  one with that checksum is already on this machine. The result request changes nothing on the
+  Engine, so it is re-sent after an Access sign-in, and tried again after an edge failure (a 5xx
+  the retry policy names; not a 500). The local
   manifest keeps the Run id and index. Manifests saved before P2 keep their artifact ticket.
 - `on_event` and the progress table are fed from the Run's event stream. A Candidate waiting for a
-  slot shows as waiting for Engine capacity while its `candidate.state` is `pending`, with no
-  attempt number, and as capacity available once it starts (the `waiting_for_capacity` and
+  slot shows as waiting for Engine capacity once its `candidate.state` has been `pending` for
+  5 s, with no attempt number (every Candidate is `pending` until the driver's first tick, which a
+  follower that joins at once sees), and as capacity available once it starts (the `waiting_for_capacity` and
   `admitted` notices, now fed from the stream).
 - One follower per Run, on the caller's thread, with no thread per Candidate and none per
   result. It shows progress and, when a Candidate succeeds, fetches and saves that result before
-  handing its outcome on, for the live score; a fetch that fails fails that Candidate. When the Run
-  ends the Report is built once (D14), from the follow's outcomes and the results it saved.
-- `Run.report()` builds the same way from `GET /runs/{id}` and the context. A Run from before P2,
-  or one the Engine no longer has, is read from the local store.
+  handing its outcome on, for the live score. A fetch that fails there costs only that score:
+  the failure keeps the Candidate's recorded outcome, and when the Run ends the Report is built
+  once (D14), from the follow's outcomes, reusing the results it saved and fetching the rest. A
+  frame that carries a result inline is not parsed: the result route gives it.
+- `Run.report()` builds the same way from `GET /runs/{id}` and the context. A Report this machine
+  already saved whole is read as it is, without a build, so reading never marks it running. A Run
+  from before P2, one the Engine no longer has (before or between its reads), one whose context
+  is lost or one this Client cannot read, and a Client whose transport cannot rebuild (a custom
+  `run_transport`), are read from the local store.
+- `Run.wait()` with a transport that cannot follow reads the Run's summary every 5 s until it
+  ends.
+- A Run is read through what returned it. One from `sf.runs` or a `Client` is read through that
+  Client, and its `_async` methods (`refresh_async`, `progress_async`, `wait_async`,
+  `report_async`, `cancel_async`) run it without blocking the event loop. One from an
+  `AsyncClient` is read through the AsyncClient's own transport and sign-in, with no synchronous
+  Client made for it: its Report is fetched on the event loop and built by the same build, and
+  its synchronous methods raise `TypeError` naming the `_async` one to await.
+- A `POST /runs` whose answer is lost raises that the Run may exist and may be running, naming its
+  client key and `sf.runs.list()`.
 
 ## 5. Landings
 
@@ -525,7 +546,13 @@ P1's one notice and runs with no Run record, as a released Client does.
   event twice; a context that does not match the Run's checksum is refused; a saved result is
   re-fetched from the result route. An attached Report and `Run.report()` come from one build; it
   reuses the results the follow saved, and fetches them on another machine; a callback's error
-  ends the follow at once.
+  ends the follow at once, with its own cause. A result the follow could not fetch is fetched
+  when the Run ends; the result route is retried after an edge failure; the cancel Ctrl-C sends
+  never signs in; a Report saved here whole is read without a build; a deleted Run, a lost or
+  unreadable context, or a transport that cannot rebuild falls back to the local Report; a
+  Candidate `pending` only until the first tick shows no capacity wait. An `AsyncClient`'s
+  detached Run waits, reports, refreshes and cancels on the event loop with no synchronous Client
+  made, its Report equals an attached run's, and its synchronous methods raise `TypeError`.
 
 ## 7. Out of scope
 
@@ -604,10 +631,6 @@ P1's one notice and runs with no Run record, as a released Client does.
   while the driver's pod can, has its attached Run stopped as `orphaned` after 120 s. The App
   runs one replica (§2), so the follower and the driver share a pod; this must be closed, with
   the queue's caller counters, before the App scales out.
-- **A follower that stops reading for long loses its socket.** The route holds the Run on its own
-  timer (R10), but a client that reads nothing past the WebSocket ping timeout (about 20 s) is
-  disconnected, and the hold stops until it reconnects. The Client reconnects once a result fetch
-  ends; one longer than the 120 s grace can let an attached Run stop as `orphaned`.
 - **A detached Run spends until its deadline** if its owner forgets it. Bounded by 16 h per
   Candidate, the per-caller cap in flight and the deadline; the money guard is P4.
 

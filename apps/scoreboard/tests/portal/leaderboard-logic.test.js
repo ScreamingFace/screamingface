@@ -418,11 +418,11 @@ test("frontierSummary: exclusions are named, so a stale registry is visible (D4)
 // green) and the word carries the meaning.
 
 test("opennessLabel: open is shown at full tone", () => {
-  assert.deepEqual(L.opennessLabel({ openness: "open" }), { text: "Open", tone: "open" });
+  assert.deepEqual(L.opennessLabel({ openness: "open" }), { text: "open", tone: "open" });
 });
 
 test("opennessLabel: closed is shown in the whisper tone", () => {
-  assert.deepEqual(L.opennessLabel({ openness: "closed" }), { text: "Closed", tone: "closed" });
+  assert.deepEqual(L.opennessLabel({ openness: "closed" }), { text: "closed", tone: "closed" });
 });
 
 test("opennessLabel: an entry with no declared models says so rather than guessing", () => {
@@ -444,4 +444,17 @@ test("opennessLabel: the unidentified tooltip claims no history about the entry"
   assert.doesNotMatch(label.title, /predate|before|older|legacy/i);
   assert.match(label.title, /unidentified/);
   assert.match(label.title, /not counted/);
+});
+
+// OME-1918: the API explicitly distinguishes confirmed mixtures without changing frontier math.
+test("opennessLabel: confirmed mixtures say hybrid with the non-open tone", () => {
+  assert.deepEqual(L.opennessLabel({ openness: "closed", is_hybrid: true }),
+    { text: "hybrid", tone: "closed" });
+  for (const is_hybrid of [false, undefined, "true", 1]) {
+    assert.deepEqual(L.opennessLabel({ openness: "closed", is_hybrid }),
+      { text: "closed", tone: "closed" });
+  }
+  assert.deepEqual(L.opennessLabel({ openness: "open", is_hybrid: true }),
+    { text: "open", tone: "open" });
+  assert.equal(L.opennessLabel({ is_hybrid: true }).tone, "unknown");
 });

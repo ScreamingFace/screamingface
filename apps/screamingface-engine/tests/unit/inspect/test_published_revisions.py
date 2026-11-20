@@ -128,6 +128,10 @@ _PUBLISHED_REVISIONS: dict[str, str] = {
     "hle": "d30effc2a0698079",
     # OME-1863: HLE-Diamond, the authors' 1,000 cleaned questions, judged as hle is.
     "hle_diamond": "9640c5c7e59fc61e",
+    # OME-1952: FutureX-Past, an outside contribution: the authors' scoring and the crowd-wisdom
+    # study's, two local Tasks over one loader; first ids, set the day they were added.
+    "futurex_past": "200cf4f72481ffb0",
+    "futurex_past_study": "3c66e638e04516ed",
     # OME-1733: LABBench2 FigQA2 and TableQA2 image, a local Task judged by Sonnet 4.5.
     "labbench2_figqa2_img": "770667413b4b1e51",
     "labbench2_tableqa2_img": "742c148e87b15f69",
@@ -137,6 +141,9 @@ _PUBLISHED_REVISIONS: dict[str, str] = {
     "zerobench": "9155d9581e103c0a",
     # OME-1854: MaCBench, chemistry and materials pictures, letters graded as a set.
     "macbench": "a8d8e6ccc379924f",
+    # OME-1874: EnigmaEval, 1,158 puzzle-hunt puzzles with their pictures, a local Task graded
+    # by the authors' exact match; sealed on linux/amd64.
+    "enigmaeval": "863b8c98762520a2",
     "frontierscience": "826050de44778515",
     "pubmedqa": "15e20f21d0a78fd9",
     "xstest_unsafe": "fad9dd3ebabd84a5",

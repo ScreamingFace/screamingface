@@ -69,6 +69,8 @@ jobs:
       # The runner's preinstalled Helm v3 still dials a cluster for that ("Kubernetes cluster
       # unreachable"); Helm v4 renders it offline. Same action as the `chart` job below.
       - uses: azure/setup-helm@v5.0.1
+        with:
+          version: v4.3.2  # OME-1983: never the action's fallback
       # WHY before `uv sync`: sync SILENTLY regenerates a stale lock, so a lockfile that no
       # longer matches pyproject.toml is invisible to every later step. That exact defect shipped
       # once already (a package rename left the lock stale) and CI could not see it.
@@ -259,6 +261,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: azure/setup-helm@v5.0.1
+        with:
+          version: v4.3.2  # OME-1983: never the action's fallback
       # `helm lint` alone reported "0 chart(s) failed" on a chart that cannot render at all —
       # every template aborts on the `natsUrl` `fail` when it is unset. Templating is the check
       # that actually exercises the templates; linting only reads them.

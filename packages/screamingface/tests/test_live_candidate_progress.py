@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
+from _run_transport import AsyncScriptedRun, ScriptedRun, settled_async, settled_sync
 
 import screamingface as sf
 from screamingface._core.ports import _RunOutcome
@@ -16,8 +17,6 @@ from screamingface._evaluation.runner import (
     _abort_event_observer,
     _AsyncEventObserver,
     _reconcile_event_observer,
-    _run_candidates_async,
-    _run_candidates_sync,
     _SyncEventObserver,
 )
 from screamingface._ui.evaluation_state import _EvaluationProgress
@@ -391,18 +390,15 @@ def test_sync_candidate_runner_uses_one_bound_observer_per_run() -> None:
         def observe(self, selected: Candidate, event: sf.Event) -> None:
             observed.append((selected.name, event.run_id))
 
-    class Transport:
+    class Transport(ScriptedRun):
         def run(self, selected: Candidate, on_event: object) -> _RunOutcome:
             assert callable(on_event)
             on_event(span(1, run_id=f"run_{selected.name}"))
             return outcome(selected.name)
 
-        def cancel_active(self) -> None:
-            pass
-
     observer = _SyncEventObserver(cast(Any, Builtin()), None)
 
-    _run_candidates_sync(cast(Any, Transport()), candidates, observer)
+    settled_sync(Transport(), candidates, observer)
 
     assert sorted(begun) == ["gpt", "opus"]
     assert sorted(observed) == [("gpt", "run_gpt"), ("opus", "run_opus")]
@@ -420,18 +416,15 @@ def test_async_candidate_runner_uses_one_bound_observer_per_run() -> None:
         def observe(self, selected: Candidate, event: sf.Event) -> None:
             observed.append((selected.name, event.run_id))
 
-    class Transport:
+    class Transport(AsyncScriptedRun):
         async def run(self, selected: Candidate, on_event: object) -> _RunOutcome:
             assert callable(on_event)
             await cast(Any, on_event)(span(1, run_id=f"run_{selected.name}"))
             return outcome(selected.name)
 
-        async def cancel_active(self) -> None:
-            pass
-
     observer = _AsyncEventObserver(cast(Any, Builtin()), None)
 
-    asyncio.run(_run_candidates_async(cast(Any, Transport()), candidates, observer))
+    asyncio.run(settled_async(Transport(), candidates, observer))
 
     assert sorted(begun) == ["gpt", "opus"]
     assert sorted(observed) == [("gpt", "run_gpt"), ("opus", "run_opus")]

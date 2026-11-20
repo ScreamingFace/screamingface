@@ -295,6 +295,17 @@ def classify_entry(
     return ("open" if all(v == "open" for _, v in verdicts) else "closed"), unknown
 
 
+def is_hybrid_entry(models: Sequence[str] | None, openness_override: Openness | None) -> bool:
+    """Presentation only: a confirmed mixture, without changing the frontier's binary verdict.
+
+    Overrides remain authoritative. Unknown routes cannot establish a hybrid claim.
+    Use the same silent registry lookup as classify_entry to avoid per-route log floods.
+    """
+    if openness_override is not None or not models:
+        return False
+    return {_owner_verdict(_split_route(route)) for route in models} == {"open", "closed"}
+
+
 def classify_baseline_name(model_name: str) -> Openness:
     """Same fail-closed pattern as `classify_providers`, via substring match
     against a baseline's free-text `model_name`.

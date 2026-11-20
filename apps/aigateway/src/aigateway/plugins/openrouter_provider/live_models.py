@@ -178,6 +178,34 @@ def parse_page_input_modalities(payload: Any) -> dict[str, tuple[InputModality, 
     return evidence
 
 
+def parse_page_created(payload: Any) -> dict[str, int]:
+    """Per-id release date (``created``) from one catalogue page (OME-1955). Never raises.
+
+    WHY lenient, as ``parse_page_input_modalities``: the date only orders the listing.
+    A row without a usable date is simply undated and is listed after the dated rows.
+    """
+    if not isinstance(payload, Mapping):
+        return {}
+    data = payload.get("data")
+    if not isinstance(data, list):
+        return {}
+    created: dict[str, int] = {}
+    for row in data:
+        if not isinstance(row, Mapping):
+            continue
+        model_id = row.get("id")
+        value = row.get("created")
+        if (
+            not isinstance(model_id, str)
+            or not isinstance(value, int)
+            or isinstance(value, bool)
+            or value <= 0
+        ):
+            continue
+        created[model_id] = value
+    return created
+
+
 def validate_next_url(next_url: str, *, expected_offset: int) -> str:
     """Resolve + strictly validate a ``links.next`` BEFORE it is ever dialed.
 
@@ -244,13 +272,16 @@ def live_listing_entries(
     upstream_ids: tuple[str, ...],
     *,
     input_modalities: Mapping[str, tuple[InputModality, ...]] | None = None,
+    created: Mapping[str, int] | None = None,
 ) -> tuple[ModelEntry, ...]:
     """The finished healthy-snapshot listing: operator entries first, then discovered.
 
     INVARIANT: the provider owns this merge — core receives finished rows and
     never learns which entries were seeds, so seed provenance cannot leak into
-    route logic. Operator entries keep configured order; discovered ids arrive
-    sorted from ``publishable_upstream_ids`` and dedupe against operator rows.
+    route logic. Operator entries keep configured order. Discovered ids are
+    sorted newest first by ``created`` (OME-1955). Ids with the same date are in
+    id order, and ids with no date come last, also in id order. Discovered ids
+    dedupe against operator rows.
     """
     evidence = input_modalities or {}
 
@@ -266,6 +297,11 @@ def live_listing_entries(
         )
         for entry in explicit_operator_entries(settings)
     )
+    dates = created or {}
+    ordered = sorted(
+        upstream_ids,
+        key=lambda upstream: (upstream not in dates, -dates.get(upstream, 0), upstream),
+    )
     seen = {entry.model_name for entry in operator}
     discovered = tuple(
         ModelEntry(
@@ -273,7 +309,7 @@ def live_listing_entries(
             litellm_params={"model": gateway_id},
             input_modalities=_modalities(gateway_id),
         )
-        for upstream in upstream_ids
+        for upstream in ordered
         if (gateway_id := f"{GATEWAY_MODEL_PREFIX}{upstream}") not in seen
     )
     return operator + discovered
@@ -281,10 +317,11 @@ def live_listing_entries(
 
 @dataclass(frozen=True)
 class LiveCatalog:
-    """One complete catalogue walk: every raw id plus per-id modality evidence."""
+    """One complete catalogue walk: every raw id plus per-id modality and release-date evidence."""
 
     ids: tuple[str, ...]
     input_modalities: Mapping[str, tuple[InputModality, ...]] = field(default_factory=dict)
+    created: Mapping[str, int] = field(default_factory=dict)
 
 
 async def fetch_live_model_ids(
@@ -308,6 +345,7 @@ async def fetch_live_model_catalog(
     bounds = limits if limits is not None else DiscoveryLimits()
     collected: list[str] = []
     evidence: dict[str, tuple[InputModality, ...]] = {}
+    created: dict[str, int] = {}
     total_count: int | None = None
     try:
         async with asyncio.timeout(_AGGREGATE_TIMEOUT_S):
@@ -333,6 +371,7 @@ async def fetch_live_model_catalog(
                     raise DiscoveryError("model_catalog_truncated")
                 collected.extend(ids)
                 evidence.update(parse_page_input_modalities(payload))
+                created.update(parse_page_created(payload))
                 if len(collected) > _MAX_CATALOG_MODELS:
                     raise DiscoveryError("model_catalog_too_large")
                 if next_url is None:
@@ -348,4 +387,4 @@ async def fetch_live_model_catalog(
     # the strict parser required it on every page, including the first.
     if total_count != len(collected):
         raise DiscoveryError("model_catalog_truncated")
-    return LiveCatalog(ids=tuple(collected), input_modalities=evidence)
+    return LiveCatalog(ids=tuple(collected), input_modalities=evidence, created=created)

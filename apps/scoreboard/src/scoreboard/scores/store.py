@@ -12,6 +12,7 @@ from uuid import UUID
 
 from pypika_tortoise.analytics import RowNumber
 from pypika_tortoise.enums import Order
+from pypika_tortoise.functions import Count as SQLCount
 from pypika_tortoise.queries import Query, QueryBuilder
 from tortoise import BaseDBAsyncClient, Tortoise
 from tortoise.exceptions import FieldError, IntegrityError
@@ -35,6 +36,7 @@ from .frontier import FrontierMember, HistoryRow
 from .models import Benchmark, IdempotencyKey, Score, ScoreMetadataEvent, ScoreReproduction
 from .pareto import ParetoEntry
 from .reproduction_cost import reproduction_cost
+from .revisions import record_revision
 from .schemas import (
     SATURATION_VERDICTS,
     BenchmarkSchema,
@@ -215,6 +217,8 @@ def _score_to_schema(model: Score) -> ScoreSchema:
         capture_status=cast("CaptureStatus | None", model.capture_status),
         answer_seed=model.answer_seed,
         case_digest=model.case_digest,
+        # FEATURE: OME-1909 — the re-grade link. `regraded_by` stays off every DTO (an email).
+        regraded_from=cast("UUID | None", getattr(model, "regraded_from_id")),
     )
 
 
@@ -906,6 +910,38 @@ class ReproductionRunIdConflict(Exception):
     """A `run_id` that another identity already recorded for the same score."""
 
 
+class SourceAlreadyRegraded(Exception):
+    """The source already has its re-grade at this revision (OME-1909); 409 `already_regraded`.
+
+    WHY its own type: the unique index on (`regraded_from_id`, `benchmark_revision`) raises
+    `IntegrityError`, which subclasses `OperationalError` and would be answered 503
+    store-unavailable.
+    ``existing_score_id`` is the re-grade that won, so a retried request can find the row it made.
+    """
+
+    def __init__(self, existing_score_id: UUID) -> None:
+        super().__init__(f"already re-graded as {existing_score_id}")
+        self.existing_score_id = existing_score_id
+
+
+class RegradeNotCurrent(Exception):
+    """The re-grade is not at the board's registered revision, or is at the source's own (OME-1909).
+
+    Either way the stored row could never replace the source on the ranked board: a revision the
+    board does not run never ranks, and the source's own revision would duplicate the source.
+    Answered 409 `not_current_revision`.
+    """
+
+
+class RegradeResultOnBoard(Exception):
+    """The re-grade's exact result is already on the board at that revision (OME-1909).
+
+    The recipe-identity index (`content_hash`, OME-391) refuses a second copy of one result, for
+    example when the submitter already re-ran the recipe at the new revision. Answered 409
+    `already_on_board`, never the 503 the raw `IntegrityError` would map to.
+    """
+
+
 class BenchmarkVisibilityChanged(Exception):
     """A benchmark's visibility changed while a submission to it was in flight.
 
@@ -1318,6 +1354,12 @@ class ScoreStore:
             # so a mis-seeded private board can be flipped back.
             defaults["visibility"] = visibility
         benchmark, _ = await Benchmark.update_or_create(defaults=defaults, id=benchmark_id)
+        if revision is not None:
+            await record_revision(
+                benchmark_id,
+                revision,
+                None if isinstance(case_count, _Unset) else case_count,
+            )
         return benchmark_to_schema(benchmark)
 
     async def has_registered_revision(self) -> bool:
@@ -1935,6 +1977,108 @@ class ScoreStore:
         )
         return ReproductionSchema.model_validate(row, from_attributes=True), created
 
+    async def _insert_regrade(self, benchmark_id: str, kwargs: dict[str, object]) -> Score:
+        """The insert of `regrade`, with the board re-checked public first, under its lock.
+
+        WHY a method of its own: the same reason `_insert_reproduction` records — the re-check must
+        dominate the insert and every exit after it, which `test_visibility_exit_guard` can see
+        only when the transaction is not wrapped in the caller's unique clash handling.
+        """
+        async with in_transaction(connection_name=DEFAULT_CONNECTION) as connection:
+            await self._revalidate_visibility(benchmark_id, False, connection=connection, lock=True)
+            row = await Score.create(using_db=connection, **kwargs)
+        return row
+
+    async def regrade(
+        self, source: Score, submission: ScoreSubmission, *, regraded_by: str
+    ) -> ScoreSchema | None:
+        """Store ``submission`` as ``source``'s one re-grade at its revision; None if it is gone.
+
+        FEATURE: OME-1909 — a re-grade is a NEW row, not an edit of the source. The result
+        (score, revision, client) is the replay's; everything that says WHO is the source's, and so
+        are the cost and the submission time.
+
+        WHY the cost is the source's: a replay serves every Candidate answer from the pinned
+        cache, so it reports an unpriced `partial` with no amount. Stored as is, every re-graded
+        entry would leave the cost ranking for good (one re-grade per source per revision), though
+        the source knows what the Candidate run spent. Example: a source at 12.34 / `complete`
+        re-graded by a replay at None / `partial` stores 12.34 / `complete`.
+
+        Stages:
+        0. Refuse a replay that is not at the board's registered revision, or that is at the
+           source's own revision (`RegradeNotCurrent`). Example: the source ranked at `rev-1`, the
+           board moved to `rev-2`; only a replay resolving to `rev-2` is accepted. The revision is
+           resolved the way a submission's is, so one named only in `metadata` counts.
+        1. Build the row from the replay with the normal submission mapping, then overwrite the
+           credit with the source's (`submitted_by`, `authors`, their metadata, the paper link),
+           `verified_by_screamingface` with the source's flag, the four cost fields and
+           `submitted_at` with the source's (owner, 2026-11-20). WHY the time: tied specs rank by
+           the earlier claim, and the frontier trend is built by date, so a row dated the re-grade
+           day would rank 130 old entries in batch order and put them all on one day. Within one
+           spec the newest submission still wins, so a fresh run at the new revision replaces it.
+        2. Clear the frozen copy, its capture status and its case digest. The copy belongs to the
+           source (one copy, one score, OME-1596), and the digest is only ever set with a status.
+        3. Insert under the board's lock, re-checked public (`_insert_regrade`).
+        4. On a unique clash, ask the database what lost: this source's re-grade at this revision
+           (`SourceAlreadyRegraded`, naming the re-grade that exists), the same result already on
+           the board (`RegradeResultOnBoard`), or a source deleted mid-request (None, a 404).
+
+        The CALLER has checked who asks, that the source is on a public board, and that the replay
+        names the source's benchmark.
+
+        INVARIANT: insert first and map the clash, never a pre-read. A pre-read loses a race to a
+        second re-grade of the same source; the unique index on (`regraded_from_id`,
+        `benchmark_revision`) cannot. A later revision may re-grade the same root again.
+        """
+        # Stage 0 — only a replay that will rank in the source's place.
+        revision: str | None = _resolve_benchmark_revision(submission)
+        registered: str | None
+        registered, _ = await self.benchmark_scope(submission.benchmark_id)
+        if registered is None or revision != registered or revision == source.benchmark_revision:
+            raise RegradeNotCurrent(str(source.pk))
+        # Stage 1 — the public-board recipe hash (OME-391); the caller refused a private source.
+        content_hash: str = _content_hash(submission)
+        kwargs: dict[str, object] = {
+            **_submission_to_kwargs(submission, content_hash),
+            "submitted_by": source.submitted_by,
+            "authors": source.authors,
+            "authors_metadata": source.authors_metadata,
+            "paper_url": source.paper_url,
+            "paper_metadata": source.paper_metadata,
+            "verified_by_screamingface": source.verified_by_screamingface,
+            "run_cost_usd": source.run_cost_usd,
+            "run_cost_status": source.run_cost_status,
+            "cache_saved_cost_usd": source.cache_saved_cost_usd,
+            "cache_saved_cost_archive_usd": source.cache_saved_cost_archive_usd,
+            "submitted_at": source.submitted_at,
+            # Stage 2 — the source's frozen copy stays the source's.
+            "frozen_copy_id": None,
+            "capture_status": None,
+            "case_digest": None,
+            "regraded_from_id": source.pk,
+            "regraded_by": regraded_by,
+        }
+        # Stage 3 and 4.
+        try:
+            row: Score = await self._insert_regrade(submission.benchmark_id, kwargs)
+        except IntegrityError:
+            # Fresh reads outside the failed transaction, which PostgreSQL has already aborted.
+            existing: Score | None = (
+                await Score.filter(regraded_from_id=source.pk, benchmark_revision=revision)
+                .only("id")
+                .first()
+            )
+            if existing is not None:
+                raise SourceAlreadyRegraded(existing.id) from None
+            if await Score.exists(content_hash=content_hash):
+                raise RegradeResultOnBoard(str(source.pk)) from None
+            if not await Score.exists(id=source.pk):
+                return None
+            raise
+        # The score ids only: the re-grader's identity is an email.
+        logger.info("score regrade source_id=%s score_id=%s", source.pk, row.pk)
+        return _score_to_schema(row)
+
     async def reproduction_aggregate(self, score_id: UUID) -> tuple[int, datetime | None]:
         """How many reproductions a score has and when the latest was recorded, in ONE query.
 
@@ -2254,6 +2398,26 @@ class ScoreStore:
             row["source_id"] = str(row.pop("id"))
             _serve_reproduction_cost(row)
         return [LeaderboardStoreEntry(**row) for row in rows]
+
+    async def leaderboard_count(
+        self,
+        benchmark_id: str,
+        *,
+        registered_revision: str | None,
+        registered_case_count: int | None,
+        connection: BaseDBAsyncClient | None = None,
+    ) -> int:
+        """Count best complete runs without materializing their display payloads."""
+        # INVARIANT: reuse the unbounded ranked projection used by the frontier, including
+        # completeness before the window. Only one aggregate row crosses the DB boundary.
+        ranked = _build_pareto_inputs_query(
+            benchmark_id, registered_revision, registered_case_count
+        ).as_("board")
+        result = await execute_pypika(
+            Query.from_(ranked).select(SQLCount("*").as_("result_count")),
+            using_db=connection or Tortoise.get_connection("default"),
+        )
+        return int(result.rows[0]["result_count"])
 
     async def benchmark_scope(
         self, benchmark_id: str, *, connection: BaseDBAsyncClient | None = None

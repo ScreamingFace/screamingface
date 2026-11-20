@@ -14,7 +14,14 @@ import pytest
 from websockets.exceptions import ConnectionClosedError
 from websockets.frames import Close
 
-from screamingface._engine.transport import _disconnected
+from screamingface._engine.run_follow import _disconnected as _follow_disconnected
+
+RUN_ID = "run_" + "7" * 32
+
+
+def _disconnected(cause: BaseException, elapsed_s: float):
+    """The follow's report of a lost connection (E5 P2: one follow per Run)."""
+    return _follow_disconnected(RUN_ID, False, cause, elapsed_s)
 
 
 @pytest.mark.parametrize(

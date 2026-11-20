@@ -20,6 +20,7 @@ from typing import Any, cast
 
 import httpx
 import pytest
+from _run_transport import AsyncScriptedRun, ScriptedRun, settled_async, settled_sync
 from test_client_run import _engine as _catalog_engine
 from test_evaluation_outcome import valid_outcome
 from test_live_candidate_progress import _fake_widgets, candidate, report_for
@@ -29,12 +30,7 @@ from screamingface._core.ports import _RunOutcome
 from screamingface._evaluation.model import Candidate
 from screamingface._evaluation.outcome import _CandidatesFailed, _Failed, failure_code
 from screamingface._evaluation.progress import _ProgressObserver
-from screamingface._evaluation.runner import (
-    _AsyncEventObserver,
-    _run_candidates_async,
-    _run_candidates_sync,
-    _SyncEventObserver,
-)
+from screamingface._evaluation.runner import _AsyncEventObserver, _SyncEventObserver
 from screamingface._ui.evaluation_state import _EvaluationProgress
 from screamingface.errors import ExecutionError
 
@@ -49,32 +45,28 @@ def _scripted(name: str) -> _RunOutcome:
     return valid_outcome(name)
 
 
-class _SyncScripted:
+class _SyncScripted(ScriptedRun):
     def __init__(self) -> None:
+        super().__init__()
         self.cancel_calls = 0
 
     def run(self, selected: Candidate, on_event: object) -> _RunOutcome:
         return _scripted(selected.name)
 
-    def cancel_active(self) -> None:
+    def on_cancel(self) -> None:
         self.cancel_calls += 1
 
-    def close(self) -> None:
-        pass
 
-
-class _AsyncScripted:
+class _AsyncScripted(AsyncScriptedRun):
     def __init__(self) -> None:
+        super().__init__()
         self.cancel_calls = 0
 
     async def run(self, selected: Candidate, on_event: object) -> _RunOutcome:
         return _scripted(selected.name)
 
-    async def cancel_active(self) -> None:
+    async def on_cancel(self) -> None:
         self.cancel_calls += 1
-
-    async def close(self) -> None:
-        pass
 
 
 _SCRIPTED = [sf.Model("provider/opus", name=name) for name in ("ok", "boom", "garbled")]
@@ -96,7 +88,7 @@ def test_failures_without_a_code_and_undecodable_results_are_named() -> None:
         sf.Client(
             engine_url="https://engine.example",
             http_transport=httpx.MockTransport(_catalog_engine),
-            run_transport=cast(Any, transport),
+            run_transport=transport,
         ) as client,
         pytest.raises(ExecutionError) as caught,
     ):
@@ -112,7 +104,7 @@ async def test_async_failures_without_a_code_and_undecodable_results_are_named()
     async with sf.AsyncClient(
         engine_url="https://engine.example",
         http_transport=httpx.MockTransport(_catalog_engine),
-        run_transport=cast(Any, transport),
+        run_transport=transport,
     ) as client:
         with pytest.raises(ExecutionError) as caught:
             await client.evaluate(_SCRIPTED, benchmark="draco", progress=False)
@@ -136,7 +128,7 @@ def test_an_ordinary_failure_waits_for_the_sibling_and_sweeps_nothing() -> None:
     failed = threading.Event()
     slow, broken = candidate("slow"), candidate("broken")
 
-    class Transport:
+    class Transport(ScriptedRun):
         cancel_calls = 0
 
         def run(self, selected: Candidate, on_event: object) -> _RunOutcome:
@@ -147,11 +139,11 @@ def test_an_ordinary_failure_waits_for_the_sibling_and_sweeps_nothing() -> None:
             assert failed.wait(5)
             return valid_outcome(selected.name)
 
-        def cancel_active(self) -> None:
+        def on_cancel(self) -> None:
             Transport.cancel_calls += 1
 
     with pytest.raises(_CandidatesFailed) as caught:
-        _run_candidates_sync(cast(Any, Transport()), (slow, broken), None)
+        settled_sync(Transport(), (slow, broken), None)
 
     (first, first_outcome), (second, second_outcome) = caught.value.settled
     assert (first, first_outcome) == (slow, valid_outcome("slow"))
@@ -165,7 +157,7 @@ async def test_async_an_ordinary_failure_waits_for_the_sibling_and_sweeps_nothin
     failed = asyncio.Event()
     slow, broken = candidate("slow"), candidate("broken")
 
-    class Transport:
+    class Transport(AsyncScriptedRun):
         cancel_calls = 0
 
         async def run(self, selected: Candidate, on_event: object) -> _RunOutcome:
@@ -175,18 +167,18 @@ async def test_async_an_ordinary_failure_waits_for_the_sibling_and_sweeps_nothin
             await asyncio.wait_for(failed.wait(), 5)
             return valid_outcome(selected.name)
 
-        async def cancel_active(self) -> None:
+        async def on_cancel(self) -> None:
             Transport.cancel_calls += 1
 
     with pytest.raises(_CandidatesFailed) as caught:
-        await _run_candidates_async(cast(Any, Transport()), (slow, broken), None)
+        await settled_async(Transport(), (slow, broken), None)
 
     assert caught.value.settled[0] == (slow, valid_outcome("slow"))
     assert isinstance(caught.value.settled[1][1], _Failed)
     assert Transport.cancel_calls == 0
 
 
-# --- C1a at the async runner: an outer cancellation sweeps once and keeps the note -------
+# --- C1a at the async runner: an outer cancellation cancels the Run once, keeps the note ---
 
 
 @pytest.mark.asyncio
@@ -196,7 +188,7 @@ async def test_async_owner_abort_sweeps_once_and_records_a_rejected_stop() -> No
     started = 0
     both = asyncio.Event()
 
-    class Transport:
+    class Transport(AsyncScriptedRun):
         cancel_calls = 0
 
         async def run(self, selected: Candidate, on_event: object) -> _RunOutcome:
@@ -207,13 +199,11 @@ async def test_async_owner_abort_sweeps_once_and_records_a_rejected_stop() -> No
             await asyncio.Event().wait()
             raise AssertionError("unreachable")
 
-        async def cancel_active(self) -> None:
+        async def on_cancel(self) -> None:
             Transport.cancel_calls += 1
             raise RuntimeError("DELETE / failed with 401")
 
-    task = asyncio.create_task(
-        _run_candidates_async(cast(Any, Transport()), (candidate("a"), candidate("b")), None)
-    )
+    task = asyncio.create_task(settled_async(Transport(), (candidate("a"), candidate("b")), None))
     await asyncio.wait_for(both.wait(), 5)
     task.cancel()
     with pytest.raises(asyncio.CancelledError) as caught:
@@ -221,7 +211,7 @@ async def test_async_owner_abort_sweeps_once_and_records_a_rejected_stop() -> No
 
     assert Transport.cancel_calls == 1
     assert any(
-        "Stopping active SF Engine runs also failed" in note
+        "on the SF Engine also failed: DELETE / failed with 401" in note
         for note in getattr(caught.value, "__notes__", ())
     )
     assert [other for other in asyncio.all_tasks() if other is not asyncio.current_task()] == []
@@ -286,7 +276,7 @@ def test_the_failed_row_is_shown_while_the_sibling_still_runs() -> None:
     builtin = _Builtin()
     slow, broken = candidate("slow"), candidate("broken")
 
-    class Transport:
+    class Transport(ScriptedRun):
         def run(self, selected: Candidate, on_event: object) -> _RunOutcome:
             if selected == broken:
                 raise ExecutionError("lost", code="websocket_disconnected")
@@ -295,9 +285,7 @@ def test_the_failed_row_is_shown_while_the_sibling_still_runs() -> None:
             return valid_outcome(selected.name)
 
     with pytest.raises(_CandidatesFailed):
-        _run_candidates_sync(
-            cast(Any, Transport()), (slow, broken), _SyncEventObserver(builtin, None)
-        )
+        settled_sync(Transport(), (slow, broken), _SyncEventObserver(builtin, None))
 
     assert builtin.failed == [("broken", "websocket_disconnected")]
 
@@ -307,7 +295,7 @@ async def test_async_the_failed_row_is_shown_while_the_sibling_still_runs() -> N
     builtin = _Builtin()
     slow, broken = candidate("slow"), candidate("broken")
 
-    class Transport:
+    class Transport(AsyncScriptedRun):
         async def run(self, selected: Candidate, on_event: object) -> _RunOutcome:
             if selected == broken:
                 raise ExecutionError("lost", code="engine_at_capacity")
@@ -317,10 +305,7 @@ async def test_async_the_failed_row_is_shown_while_the_sibling_still_runs() -> N
 
     with pytest.raises(_CandidatesFailed):
         await asyncio.wait_for(
-            _run_candidates_async(
-                cast(Any, Transport()), (slow, broken), _AsyncEventObserver(builtin, None)
-            ),
-            5,
+            settled_async(Transport(), (slow, broken), _AsyncEventObserver(builtin, None)), 5
         )
 
     assert builtin.failed == [("broken", "engine_at_capacity")]

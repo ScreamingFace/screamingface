@@ -1,14 +1,14 @@
-"""Swept siblings read as stopped, not failed (spec 2026-09-28 §5 items 1-3, review round 1).
+"""Stopped siblings read as stopped, not failed (spec 2026-09-28 §5 items 1-3, review round 1).
 
-FEATURE: OME-1071 — after an owner abort or a callback error, the SDK itself stopped the
-other Runs. Their own `transport.run()` then raises an ordinary error (the stream ended),
-which must not read as an independent Candidate failure.
+FEATURE: OME-1071 — after an owner abort or a callback error, the SDK itself stops the other
+Candidates: it cancels the Run (E5 P2 spec D14). They must not read as independent Candidate
+failures.
 STORY: as a researcher who pressed Ctrl-C (or whose `on_event` handler failed), the panel
 and the terminal say the other Candidates were stopped — not that each of them failed.
 
 The built-in progress state (`_EvaluationProgress`) and the terminal observer
-(`_ProgressObserver`) are driven by the real runner; the final `abort` is the call that
-`evaluate_*` makes.
+(`_ProgressObserver`) are driven by the runner's follow of a scripted Run
+(`_run_transport.py`); the final `abort` is the call that `evaluate_*` makes.
 """
 
 from __future__ import annotations
@@ -16,9 +16,10 @@ from __future__ import annotations
 import asyncio
 import io
 import threading
-from typing import Any, cast
+from typing import Any
 
 import pytest
+from _run_transport import AsyncScriptedRun, ScriptedRun, settled_async, settled_sync
 from test_evaluation_outcome import valid_outcome
 from test_live_candidate_progress import _START, candidate
 
@@ -30,8 +31,6 @@ from screamingface._evaluation.progress import _ProgressObserver
 from screamingface._evaluation.runner import (
     _abort_event_observer,
     _AsyncEventObserver,
-    _run_candidates_async,
-    _run_candidates_sync,
     _SyncEventObserver,
 )
 from screamingface._ui.evaluation_state import _EvaluationProgress
@@ -82,39 +81,38 @@ def _started(selected: Candidate) -> sf.events.Started:
     )
 
 
-def _caller_callback(name: str) -> Any:
+def _caller_callback(name: str, raised: type[BaseException] = _CallerBug) -> Any:
     def on_event(event: sf.Event) -> None:
         if isinstance(event, sf.events.Started) and event.run_id == f"run_{name}":
-            raise _CallerBug("handler failed")
+            raise raised("handler failed")
 
     return on_event
 
 
-class _SyncScene:
-    """`a` aborts (owner interrupt or callback error); `b` ends only after the sweep."""
+class _SyncScene(ScriptedRun):
+    """`a`'s start is shown while `b` runs, and showing it aborts (Ctrl-C lands while the
+    caller's thread shows it, or the caller's callback raises); `b` ends only after the cancel."""
 
-    def __init__(self, abort: str) -> None:
-        self.abort = abort
+    def __init__(self) -> None:
+        super().__init__()
         self.b_started = threading.Event()
         self.swept = threading.Event()
 
     def run(self, selected: Candidate, on_event: Any) -> _RunOutcome:
         if selected.name == "a":
             assert self.b_started.wait(5)
-            if self.abort == "interrupt":
-                on_event(_started(selected))
-                raise KeyboardInterrupt
-            on_event(_started(selected))  # the caller's callback raises here
+            on_event(_started(selected))  # the abort happens while this is shown
+            assert self.swept.wait(5)
             raise AssertionError("unreachable")
         on_event(_started(selected))
         self.b_started.set()
-        # WHY: the sweep ends this stream, so the transport raises an ordinary error.
+        # WHY: the cancel ends this Candidate, so it settles with an ordinary error.
         assert self.swept.wait(5)
         raise ExecutionError("stream ended", code="websocket_disconnected")
 
-    def cancel_active(self) -> None:
+    def on_cancel(self) -> None:
         self.swept.set()
-        # WHY the pause: `b` fails DURING the sweep, so the flag must already be set.
+        # WHY the pause: `b` fails DURING the cancel, so the flag must already be set.
         threading.Event().wait(0.05)
 
 
@@ -127,24 +125,25 @@ def test_swept_sibling_reads_as_stopped(
 ) -> None:
     candidates = (candidate("a"), candidate("b"))
     builtin = _Builtin(candidates)
-    callback = _caller_callback("a") if abort == "callback" else None
-    observer = _SyncEventObserver(builtin, callback)
+    observer = _SyncEventObserver(builtin, _caller_callback("a", raised))
 
     with pytest.raises(raised) as caught:
-        _run_candidates_sync(cast(Any, _SyncScene(abort)), candidates, observer)
+        settled_sync(_SyncScene(), candidates, observer)
     _abort_event_observer(observer, caught.value)
 
-    # INVARIANT: the swept sibling is `stopped`; only the Candidate that aborted may fail.
+    # INVARIANT: the swept sibling is `stopped`; only the Candidate that aborted may fail. Ctrl-C
+    # is the owner's abort, so `a`, shown when it landed, says so too (#1982 review).
     assert builtin.status() == {"a": a_status, "b": "stopped"}
     assert "run failed" not in builtin.stream.getvalue()
-    assert builtin.stream.getvalue() == "ScreamingFace · b · run stopped\n"
+    a_stopped = "ScreamingFace · a · run stopped\n" if a_status == "stopped" else ""
+    assert builtin.stream.getvalue() == a_stopped + "ScreamingFace · b · run stopped\n"
 
 
 def test_an_independent_failure_still_reads_as_failed_at_once() -> None:
     candidates = (candidate("a"), candidate("b"))
     builtin = _Builtin(candidates)
 
-    class Transport:
+    class Transport(ScriptedRun):
         def run(self, selected: Candidate, on_event: Any) -> _RunOutcome:
             on_event(_started(selected))
             if selected.name == "b":
@@ -156,20 +155,21 @@ def test_an_independent_failure_still_reads_as_failed_at_once() -> None:
                 threading.Event().wait(0.01)
             raise AssertionError("the failed row was not shown at once")
 
-        def cancel_active(self) -> None:
+        def on_cancel(self) -> None:
             raise AssertionError("an independent failure sweeps nothing")
 
     observer = _SyncEventObserver(builtin, None)
     with pytest.raises(_CandidatesFailed):
-        _run_candidates_sync(cast(Any, Transport()), candidates, observer)
+        settled_sync(Transport(), candidates, observer)
 
     assert builtin.stream.getvalue() == "ScreamingFace · b · run failed (websocket_disconnected)\n"
 
 
-class _AsyncScene:
-    """`a` aborts or waits; `b` fails while the sweep runs; `c` is cancelled."""
+class _AsyncScene(AsyncScriptedRun):
+    """`a` aborts or waits; `b` fails while the cancel runs; `c` is held."""
 
     def __init__(self, abort: str) -> None:
+        super().__init__()
         self.abort = abort
         self.started: set[str] = set()
         self.all_started = asyncio.Event()
@@ -190,9 +190,9 @@ class _AsyncScene:
         await asyncio.Event().wait()
         raise AssertionError("unreachable")
 
-    async def cancel_active(self) -> None:
+    async def on_cancel(self) -> None:
         self.swept.set()
-        # WHY the pause: `b` fails DURING the sweep, before the runner cancels it.
+        # WHY the pause: `b` fails DURING the cancel.
         await asyncio.sleep(0.05)
 
 
@@ -204,7 +204,7 @@ async def test_async_swept_siblings_read_as_stopped(abort: str) -> None:
     callback = _caller_callback("a") if abort == "callback" else None
     observer = _AsyncEventObserver(builtin, callback)
     scene = _AsyncScene(abort)
-    task = asyncio.create_task(_run_candidates_async(cast(Any, scene), candidates, observer))
+    task = asyncio.create_task(settled_async(scene, candidates, observer))
     await asyncio.wait_for(scene.all_started.wait(), 5)
     if abort == "cancel":
         task.cancel()
@@ -224,7 +224,7 @@ async def test_async_an_independent_failure_still_reads_as_failed_at_once() -> N
     candidates = (candidate("a"), candidate("b"))
     builtin = _Builtin(candidates)
 
-    class Transport:
+    class Transport(AsyncScriptedRun):
         async def run(self, selected: Candidate, on_event: Any) -> _RunOutcome:
             await on_event(_started(selected))
             if selected.name == "b":
@@ -233,14 +233,12 @@ async def test_async_an_independent_failure_still_reads_as_failed_at_once() -> N
                 await asyncio.sleep(0.01)
             return valid_outcome(selected.name)
 
-        async def cancel_active(self) -> None:
+        async def on_cancel(self) -> None:
             raise AssertionError("an independent failure sweeps nothing")
 
     observer = _AsyncEventObserver(builtin, None)
     with pytest.raises(_CandidatesFailed):
-        await asyncio.wait_for(
-            _run_candidates_async(cast(Any, Transport()), candidates, observer), 5
-        )
+        await asyncio.wait_for(settled_async(Transport(), candidates, observer), 5)
 
     assert builtin.stream.getvalue() == "ScreamingFace · b · run failed (engine_at_capacity)\n"
 

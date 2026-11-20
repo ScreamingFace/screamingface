@@ -173,9 +173,10 @@
           "credits": "method (self, provider: 'str' = 'openrouter', *, refresh: 'bool' = True) -> 'CreditStatus'",
           "disconnect": "method (self, provider: 'str') -> 'Connection'",
           "engine_url": "property",
-          "evaluate": "method (self, candidates: 'Recipe | Sequence[Recipe] | str | None' = None, *, benchmark: 'str | None' = None, limit: 'int | None' = None, cases: 'Sequence[int] | None' = None, on_event: 'Callable[[Event], None | Awaitable[None]] | None' = None, progress: 'bool | None' = None, answer_seed: 'int | None' = None, capture: 'bool | None' = None, pinned_cache: 'str | None' = None, score_id: 'UUID | str | None' = None, url4: 'str | None' = None, record_reproduction: 'bool' = True, use_cache: 'bool' = True) -> 'Report'",
+          "evaluate": "method (self, candidates: 'Recipe | Sequence[Recipe] | str | None' = None, *, benchmark: 'str | None' = None, limit: 'int | None' = None, cases: 'Sequence[int] | None' = None, on_event: 'Callable[[Event], None | Awaitable[None]] | None' = None, progress: 'bool | None' = None, answer_seed: 'int | None' = None, capture: 'bool | None' = None, pinned_cache: 'str | None' = None, score_id: 'UUID | str | None' = None, url4: 'str | None' = None, record_reproduction: 'bool' = True, use_cache: 'bool' = True, detach: 'bool' = False, deadline: 'timedelta | None' = None) -> 'Report | Run'",
           "login": "method (self, *, timeout: 'float' = 300.0) -> 'None'",
           "logout": "method (self) -> 'None'",
+          "regrade": "method (self, score_id: 'UUID | str', *, on_event: 'Callable[[Event], None | Awaitable[None]] | None' = None, progress: 'bool | None' = None) -> 'LeaderboardScore'",
           "scoreboard_url": "property",
           "set_credit_management_key": "method (self, provider: 'str', *, api_key: 'str') -> 'None'"
         }
@@ -382,10 +383,11 @@
           "credits": "method (self, provider: 'str' = 'openrouter', *, refresh: 'bool' = True) -> 'CreditStatus'",
           "disconnect": "method (self, provider: 'str') -> 'Connection'",
           "engine_url": "property",
-          "evaluate": "method (self, candidates: 'Recipe | Sequence[Recipe] | str | None' = None, *, benchmark: 'str | None' = None, limit: 'int | None' = None, cases: 'Sequence[int] | None' = None, on_event: 'Callable[[Event], None] | None' = None, progress: 'bool | None' = None, answer_seed: 'int | None' = None, capture: 'bool | None' = None, pinned_cache: 'str | None' = None, score_id: 'UUID | str | None' = None, url4: 'str | None' = None, record_reproduction: 'bool' = True, use_cache: 'bool' = True) -> 'Report'",
+          "evaluate": "method (self, candidates: 'Recipe | Sequence[Recipe] | str | None' = None, *, benchmark: 'str | None' = None, limit: 'int | None' = None, cases: 'Sequence[int] | None' = None, on_event: 'Callable[[Event], None] | None' = None, progress: 'bool | None' = None, answer_seed: 'int | None' = None, capture: 'bool | None' = None, pinned_cache: 'str | None' = None, score_id: 'UUID | str | None' = None, url4: 'str | None' = None, record_reproduction: 'bool' = True, use_cache: 'bool' = True, detach: 'bool' = False, deadline: 'timedelta | None' = None) -> 'Report | Run'",
           "fetch_media": "method (self, media: 'CaseMedia') -> 'FetchedMedia'",
           "login": "method (self, *, timeout: 'float' = 300.0) -> 'None'",
           "logout": "method (self) -> 'None'",
+          "regrade": "method (self, score_id: 'UUID | str', *, on_event: 'Callable[[Event], None] | None' = None, progress: 'bool | None' = None) -> 'LeaderboardScore'",
           "scoreboard_url": "property",
           "set_credit_management_key": "method (self, provider: 'str', *, api_key: 'str') -> 'None'"
         }
@@ -763,7 +765,7 @@
         ],
         "kind": "class",
         "members": {
-          "__init__": "method (self, message: 'str', *, scoreboard_url: 'str | None' = None, code: 'str | None' = None, status: 'int | None' = None, permanent: 'bool | None' = None, details: 'object' = None, hint: 'str | None' = None) -> 'None'",
+          "__init__": "method (self, message: 'str', *, scoreboard_url: 'str | None' = None, code: 'str | None' = None, status: 'int | None' = None, permanent: 'bool | None' = None, details: 'object' = None, hint: 'str | None' = None, existing_score_id: 'UUID | None' = None) -> 'None'",
           "retryable": "property",
           "user_message": "property"
         }
@@ -791,7 +793,7 @@
       "LeaderboardScore": {
         "kind": "class",
         "members": {
-          "__init__": "method (self, id: 'UUID', version: 'int', benchmark_id: 'str', spec_id: 'str', url4: 'Url4', submitted_by: 'str | None', submitted_at: 'datetime', score: 'float', total_questions: 'int', correct_questions: 'int | None', ran_with_providers: 'tuple[str, ...]', ran_at_local: 'datetime | None', client_name: 'str | None', client_version: 'str | None', client_platform: 'str | None', verified_by_screamingface: 'bool', metadata: 'Mapping[str, object] | None', scoreboard_url: 'str | None' = None, authors: 'tuple[str, ...] | None' = None, ranking_notice: 'LeaderboardRankingNotice | None' = None, paper_url: 'str | None' = None, metadata_updated_at: 'datetime | None' = None, authors_metadata: 'Mapping[str, Mapping[str, object]] | None' = None, paper_metadata: 'Mapping[str, object] | None' = None, pinned_cache: 'str | None' = None, capture_status: \"Literal['complete', 'partial'] | None\" = None, case_digest: 'str | None' = None, answer_seed: 'int | None' = None, reproduction_count: 'int' = 0, last_reproduced_at: 'datetime | None' = None, benchmark_revision: 'str | None' = None) -> None",
+          "__init__": "method (self, id: 'UUID', version: 'int', benchmark_id: 'str', spec_id: 'str', url4: 'Url4', submitted_by: 'str | None', submitted_at: 'datetime', score: 'float', total_questions: 'int', correct_questions: 'int | None', ran_with_providers: 'tuple[str, ...]', ran_at_local: 'datetime | None', client_name: 'str | None', client_version: 'str | None', client_platform: 'str | None', verified_by_screamingface: 'bool', metadata: 'Mapping[str, object] | None', scoreboard_url: 'str | None' = None, authors: 'tuple[str, ...] | None' = None, ranking_notice: 'LeaderboardRankingNotice | None' = None, paper_url: 'str | None' = None, metadata_updated_at: 'datetime | None' = None, authors_metadata: 'Mapping[str, Mapping[str, object]] | None' = None, paper_metadata: 'Mapping[str, object] | None' = None, pinned_cache: 'str | None' = None, capture_status: \"Literal['complete', 'partial'] | None\" = None, case_digest: 'str | None' = None, answer_seed: 'int | None' = None, reproduction_count: 'int' = 0, last_reproduced_at: 'datetime | None' = None, benchmark_revision: 'str | None' = None, regraded_from: 'UUID | None' = None) -> None",
           "answer_seed": "field",
           "authors": "field",
           "authors_metadata": "field",
@@ -813,6 +815,7 @@
           "ran_at_local": "field",
           "ran_with_providers": "field",
           "ranking_notice": "field",
+          "regraded_from": "field",
           "reproduction_count": "field",
           "score": "field",
           "scoreboard_url": "field",
@@ -1124,19 +1127,27 @@
       "Run": {
         "kind": "class",
         "members": {
-          "__init__": "method (self, id: 'str', state: 'RunState', created_at: 'datetime', finished_at: 'datetime | None', benchmark: 'str', candidates: 'tuple[CandidateRun, ...]') -> None",
+          "__init__": "method (self, id: 'str', state: 'RunState', created_at: 'datetime', finished_at: 'datetime | None', benchmark: 'str', candidates: 'tuple[CandidateRun, ...]', detached: 'bool' = False, deadline_at: 'datetime | None' = None, stopped_by: 'StopReason | None' = None) -> None",
           "benchmark": "field",
           "cancel": "method (self) -> 'None'",
+          "cancel_async": "method (self) -> 'None'",
           "candidates": "field",
           "cost_usd": "property",
           "created_at": "field",
+          "deadline_at": "field",
+          "detached": "field",
           "finished_at": "field",
           "id": "field",
           "progress": "method (self) -> 'RunProgress'",
+          "progress_async": "method (self) -> 'RunProgress'",
           "refresh": "method (self) -> 'Run'",
+          "refresh_async": "method (self) -> 'Run'",
           "report": "method (self) -> 'Report'",
+          "report_async": "method (self) -> 'Report'",
           "state": "field",
-          "wait": "method (self, *, timeout: 'float | None' = None) -> 'Run'"
+          "stopped_by": "field",
+          "wait": "method (self) -> 'Report'",
+          "wait_async": "method (self) -> 'Report'"
         }
       },
       "RunProgress": {
@@ -1314,7 +1325,7 @@
       },
       "evaluate": {
         "kind": "function",
-        "signature": "(candidates: 'Recipe | Sequence[Recipe] | str | None' = None, *, benchmark: 'str | None' = None, limit: 'int | None' = None, cases: 'Sequence[int] | None' = None, on_event: 'Callable[[Event], None] | None' = None, progress: 'bool | None' = None, answer_seed: 'int | None' = None, capture: 'bool | None' = None, pinned_cache: 'str | None' = None, score_id: 'UUID | str | None' = None, url4: 'str | None' = None, record_reproduction: 'bool' = True, use_cache: 'bool' = True) -> 'Report'"
+        "signature": "(candidates: 'Recipe | Sequence[Recipe] | str | None' = None, *, benchmark: 'str | None' = None, limit: 'int | None' = None, cases: 'Sequence[int] | None' = None, on_event: 'Callable[[Event], None] | None' = None, progress: 'bool | None' = None, answer_seed: 'int | None' = None, capture: 'bool | None' = None, pinned_cache: 'str | None' = None, score_id: 'UUID | str | None' = None, url4: 'str | None' = None, record_reproduction: 'bool' = True, use_cache: 'bool' = True, detach: 'bool' = False, deadline: 'timedelta | None' = None) -> 'Report | Run'"
       },
       "events": {
         "kind": "module",

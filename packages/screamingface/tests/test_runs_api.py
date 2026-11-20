@@ -176,43 +176,44 @@ def _sequence(*states: str) -> _Handler:
     return respond
 
 
-@pytest.fixture
-def no_sleep(monkeypatch: pytest.MonkeyPatch) -> list[float]:
-    slept: list[float] = []
-    clock = [0.0]
-
-    def sleep(seconds: float) -> None:
-        slept.append(seconds)
-        clock[0] += seconds
-
-    monkeypatch.setattr(runs_module, "_sleep", sleep)
-    monkeypatch.setattr(runs_module, "_monotonic", lambda: clock[0])
-    return slept
+# E5 P2 spec §4.6: `wait()` follows the Run and returns its Report, from any machine.
 
 
 @pytest.mark.parametrize("terminal", ["complete", "partial", "errored", "canceled", "interrupted"])
 def test_wait_returns_on_every_terminal_state(
-    engine: Callable[[_Handler], list[httpx.Request]], no_sleep: list[float], terminal: str
+    engine: Callable[[_Handler], list[httpx.Request]],
+    monkeypatch: pytest.MonkeyPatch,
+    terminal: str,
 ) -> None:
-    engine(_sequence("running", "running", terminal))
+    """A Run that has ended is reported at once; nothing is followed."""
+    engine(_sequence(terminal))
+    report = object()
+    monkeypatch.setattr(sf.runs.Run, "report", lambda self: report)
     run = sf.runs.get(RUN_ID)
+    monkeypatch.setattr(run._client._transport, "wait_run", pytest.fail)
 
-    finished = run.wait()
-
-    assert finished.state == terminal
-    assert len(no_sleep) == 2
-    assert run.state == "running", "a Run is a frozen snapshot"
+    assert run.wait() is report
+    assert run.state == terminal, "a Run is a frozen snapshot"
 
 
 def test_wait_gives_up_at_its_timeout(
-    engine: Callable[[_Handler], list[httpx.Request]], no_sleep: list[float]
+    engine: Callable[[_Handler], list[httpx.Request]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    engine(_sequence("running"))
+    """A running Run is followed to its end, then reported (it has no timeout: the follow ends
+    with the Run, or with how to pick it up again, spec D15)."""
+    engine(_sequence("running", "running"))
+    followed: list[tuple[str, bool]] = []
+    report = object()
+    monkeypatch.setattr(sf.runs.Run, "report", lambda self: report)
+    run = sf.runs.get(RUN_ID)
+    monkeypatch.setattr(
+        run._client._transport,
+        "wait_run",
+        lambda run_id, *, detached: followed.append((run_id, detached)),
+    )
 
-    with pytest.raises(TimeoutError, match=RUN_ID):
-        sf.runs.get(RUN_ID).wait(timeout=30)
-
-    assert sum(no_sleep) <= 30
+    assert run.wait() is report
+    assert followed == [(RUN_ID, False)]
 
 
 def test_progress_counts_finished_candidates_and_spend(

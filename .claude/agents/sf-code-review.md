@@ -543,12 +543,78 @@ uncapped bill.
   you get one answer back eight times and a fake 8–0 "consensus". `samples()` must
   vary seed/temperature/prompt per copy; `[solver] * 8` is the version of this bug
   that is impossible to see in a score, which is why the helper exists.
+- **A changed request byte is a cache miss, and a miss is a paid call.** Two stores
+  answer a call from what they hold, and both key on the request itself:
+  - the gateway's response cache keys on request content plus its revision constants
+    (Lane 3's cache-key bullet);
+  - the **pinned cache** (the frozen copy a published run is replayed from) keys each entry
+    on `request_digest` in `apps/aigateway/src/aigateway/core/frozen_copy/store.py`: the
+    canonical JSON of the entry kind, the WHOLE request body and the Attempt number. The
+    Engine looks it up per Case key and call number.
+
+  So any diff that changes a field inside a request (`max_tokens`, temperature, reasoning
+  effort, a prompt word, message order, a seed, a model id) makes every stored entry for
+  that call miss. On a normal run the miss is silent: each call is bought again. On a
+  replay or a re-grade the miss refuses the run. Ask the author three things: which inputs
+  the key hashes (read the key builder, not the diff), which of them this diff changes, and
+  either that the change is meant (a revision move with its re-run or re-grade cost stated)
+  or proof that the bytes are unchanged (the old golden replayed through the real
+  transport). Worked example, #1896 (OME-1909), found in review: a partial re-judge sent
+  TODAY's judge request for the Cases it did not name, with `max_tokens` raised from 8,192
+  to 131,072, to a copy captured at 8,192, so every unnamed Case missed and the whole
+  re-grade was refused. The tests had not seen it because their fake gateway answered every
+  lookup as a hit. A test of any cache or replay path needs a fake that matches by request
+  contents (Lane 7).
 - **Unbounded growth.** `asyncio.gather` over a caller-sized collection fans out
   without limit (the OME-906 event-bridge incident); buffers bounded in *items* when
   the risk is *bytes*; dicts keyed by user-supplied IDs with no eviction; caches with
   no TTL. Also: per-run concurrency goes through `FairShareGate` /
   `FairShareIOLayer` — a new IO path that bypasses it lets one run starve everyone
   else's.
+- **A new Benchmark must fit every size limit on the run path, and the PR must show it
+  measured.** A Benchmark that seals cleanly can still be unrunnable: its Cases are read,
+  parsed and sent through limits the importer never checks. Two reviews of #1833
+  (EnigmaEval, OME-1874) found the same gaps, and OME-1875 (GDP.pdf) met them at design
+  time, so on any PR that adds a Benchmark row ask for these five, each with the number:
+  - **The full-set Case load, measured under the run's memory budget.** Every run's
+    resident memory is capped by `memoryLimitMi` (Engine Helm `values.yaml`; 2,560 Mi
+    since OME-1648, where ContractEval's 192 MiB `cases.json` peaked at 1,828 MiB). A
+    small selection reads only its rows, but a full run takes `BoardStore.head`, which
+    holds the selected bytes, their decoded text and the bracketed copy at once, before
+    url4 parses any of it. EnigmaEval's `cases.json` is 400 MB and its only number was a
+    whole-file parse in a fresh process: 2,310 MiB, 250 MiB under the cap, with no Engine
+    process around it. That is reasoning, not proof. Ask for one full-set load of the
+    Cases route inside the built image under the real limit, or a declared selection
+    ceiling.
+  - **The largest Case against the Case caps.** `MAX_CASE_BYTES` (8,000,000, with
+    pictures and files inline as base64, 4/3 of the raw bytes) and `MAX_PICTURES` (20) in
+    `picture_input.py`, and url4's `MAX_ATTACHMENT_BYTES` and `MAX_ATTACHMENTS`. The PR
+    states the largest Case's bytes and the most pictures in one Case, from the
+    linux/amd64 seal.
+  - **The provider's own limits, which none of our caps check.** A Case under our caps
+    can still be refused at call time, and the limit depends on the route the call takes,
+    not only on the model. Claude's are the worked example; every provider has its own, so
+    read the current page, never this bullet. A picture may be at most 10 MB as base64 on
+    Claude's own API but 5 MB on Bedrock, and 8000 px a side; with more than 20 pictures
+    in one request a stricter 3,000 px a side applies, and on Bedrock and Vertex a PDF
+    counts toward the 20
+    ([vision limits](https://platform.claude.com/docs/en/build-with-claude/vision#request-limits)).
+    A whole request may be at most 20 MB on Bedrock against 128 MB on Claude's own API
+    ([request size limits](https://platform.claude.com/docs/en/api/overview#request-size-limits)),
+    and a PDF has a page limit
+    ([Claude PDF support](https://platform.claude.com/docs/en/build-with-claude/pdf-support)).
+    So a 7 MB picture is not unrunnable; it fails only when the call is routed to Bedrock.
+    Ask which Candidates and routes the largest Case was checked against.
+  - **Held-out Cases are a recorded decision, not a placeholder.** Cases left out for size
+    are named in one constant, counted on the card (served of total), and stated as final
+    with the decision's date and ticket. #1833 shipped the word PROVISIONAL in code beside
+    a ledger marked done: flag the pair as claims against reality. Adding the Cases back
+    later moves the Case Digest, so it is a new revision, never a quiet edit.
+  - **The card promises only what a Case row exposes.** A served Case is
+    `{id, case_id, input}`; sample metadata is sealed into the grading material and never
+    reaches a client. #1833's card told users to filter Cases by `category`, a field they
+    cannot see. Read every "filter by" and "each Case carries" on the card and in the
+    task's README against the row.
 - **Retry & race discipline.** Retryable statuses are exactly {429, 503, 529}; every
   429/503 response carries `Retry-After`. Watch Python's exception inheritance when
   mapping DB errors to HTTP: `IntegrityError` *subclasses* `OperationalError`, so a
@@ -633,6 +699,41 @@ config has burned real money here.
   nothing. Require at least one test constructing the REAL vendor type. Flag any
   reliance on a `_private` vendor method unless a drift-alarm test will scream on the
   next bump; prefer tripwires pinned to the vendor's own exported constants (#903).
+- **A diff that pins a model with params needs proof that the model accepts every one.**
+  This is outcome (1) above, made concrete. The gateway sends
+  `provider.require_parameters = true` on every OpenRouter call
+  (`apps/aigateway/docs/openrouter-routing-controls.md`), so OpenRouter refuses the call
+  when no endpoint for the model accepts every param sent. One unsupported param fails
+  every call, not some. The incident:
+  [#1897](https://github.com/ScreamingFace/screamingface/pull/1897) pinned the
+  FutureX-Past Judge as `openrouter/openai/gpt-5.4` with `("temperature", "0")`. No
+  OpenRouter endpoint for gpt-5.4 accepts `temperature`, so every Judge call failed and
+  every level-3/4 Case ended as `scorer_error`, while levels 1–2 (graded by rule, no
+  Judge) passed. Every offline test was green, because scorer tests use a stand-in
+  Judge and never send the params. Fixed in
+  [#1960](https://github.com/ScreamingFace/screamingface/pull/1960) (OME-1977). Review
+  checks, for any diff that adds or changes a model id together with its params (a
+  `JudgeSpec` row in `screamingface_engine_inspect/benchmarks.py`, a `pins.py`, a model
+  seed, a run kit's model config):
+  1. **Compare with every other row that pins the same model.**
+     `grep -n -A12 'model="<the model id>"' benchmarks.py` and read the `params=` lines.
+     A param the sibling rows leave out is a finding until proven supported: the other
+     gpt-5.4 Judge rows all sent no temperature, and the row's own comment cited
+     "HealthBench's precedent" while sending a param HealthBench does not.
+  2. **Ask for one real call as evidence**: the exact model id with the exact params,
+     through the gateway, with the reply or the Run id in the PR. A model's
+     `supported_parameters` on [OpenRouter's models API](https://openrouter.ai/docs/api-reference/models/get-models)
+     is acceptable offline evidence that a param is refused, not that it works. No
+     evidence means "not checked" in Checks and limits, and it blocks a Judge row,
+     because a Judge that cannot be called grades nothing. Never make the paid call
+     yourself.
+  3. **A param copied from the paper or the authors' harness is a claim about another
+     model.** "The authors ask at temperature 0" says nothing about the model we pin.
+     When our model refuses the param, leaving it out is a NAMED DEVIATION in the row.
+  4. **Check the offline guard grows with the diff.**
+     `tests/unit/inspect/test_judge_param_support.py` refuses a pinned temperature on
+     `openrouter/openai/gpt-5*` only. A diff that brings a new model family with a known
+     refused param extends that guard in the same PR.
 - **A version pinned in two projects drifts through the copy nobody holds.** The Engine
   and the SDK are separate uv projects with separate lockfiles, so a pin they must share
   exists twice: the SDK's `inspect` extra copies the Engine's `inspect-ai`, which every

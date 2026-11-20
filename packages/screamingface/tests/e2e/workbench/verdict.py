@@ -34,6 +34,11 @@ def _meta(path: Path) -> dict[str, Any]:
     return dict(nbformat.read(path, as_version=4).metadata.get("workbench", {}))
 
 
+def declares_target(path: Path, target_name: str) -> bool:
+    """True when the notebook's ``workbench.targets`` metadata names ``target_name``."""
+    return target_name in _meta(path).get("targets", [])
+
+
 def judge_notebook(
     path: Path,
     target: LiveTarget,
@@ -42,7 +47,7 @@ def judge_notebook(
 ) -> None:
     """Run ``path`` on ``target``, write its bundle under ``out``; fail (pytest) with reasons."""
     meta = _meta(path)
-    if target.name not in meta.get("targets", []):
+    if not declares_target(path, target.name):
         pytest.skip(f"{path.stem} does not declare target {target.name}")
     params = {"ENGINE_URL": target.engine_url, "SCOREBOARD_URL": target.scoreboard_url}
     run = run_notebook(path, params | target.params, deadline_s=notebook_deadline_s())

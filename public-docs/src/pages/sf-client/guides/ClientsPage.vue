@@ -93,25 +93,25 @@ client = sf.Client(
     :navigation="navigation"
     :version="version"
   >
-    <p>There are two ways to call the SDK, and both use the same interface.</p>
+    <p>There are two ways to call the SDK. Both use the same interface.</p>
 
     <p>
-      Most of the time you'll reach for the <strong>module-level shortcuts</strong>:
-      <code>sf.evaluate(...)</code>, <code>sf.connect(...)</code>, and the rest. They're the
-      shortest to write, which is why the
+      Most of the time you'll reach for the module-level shortcuts:
+      <code>sf.evaluate(...)</code>, <code>sf.connect(...)</code>, and the rest. They are the
+      shortest to write, so the
       <RouterLink to="/sf-client/first-fusion">Quickstart</RouterLink> and every notebook use them.
     </p>
 
     <p>
       When a script grows into something you ship, construct an explicit
-      <strong><code>Client</code></strong> instead. It takes a little more code, but it hands you
+      <code>Client</code> instead. It takes a little more code, but it hands you
       the Client's lifecycle, lets you point at a second engine, and works with your own event loop.
     </p>
 
     <p>
-      These aren't two different SDKs. Every shortcut runs against a single <code>Client</code> the
-      package creates and holds for you. The only real question this page answers is
-      <em>who owns that Client: you, or the package</em>.
+      These are not two different SDKs. Every shortcut runs against a single <code>Client</code> the
+      package creates and holds for you. The only question this page answers is who owns that Client:
+      you, or the package.
     </p>
 
     <h2>What you can do with it</h2>
@@ -125,7 +125,7 @@ client = sf.Client(
 
     <h2>The two forms, side by side</h2>
 
-    <p>The same evaluation, written both ways. The shortcut lets the package hold the Client:</p>
+    <p>Here is the same evaluation written both ways. The shortcut lets the package hold the Client:</p>
 
     <CodeBlock :code="shortcut" language="python" />
 
@@ -193,10 +193,10 @@ client = sf.Client(
 
     <p>
       <code>sf.evaluate()</code>, <code>sf.connect()</code> and <code>sf.disconnect()</code> all run
-      against one <code>Client</code> the package builds
-      <strong>the first time you call one of them</strong>, and reuses forever after. Nothing is
-      created at <code>import</code>, and constructing a Client opens no connection either. The
-      first call that needs the engine is the first one that talks to it:
+      against one <code>Client</code> the package builds the first time you call one of them, then
+      reuses for the rest of the process. Nothing is created at <code>import</code>, and constructing
+      a Client opens no connection either. The first call that needs the engine is the first one that
+      talks to it:
     </p>
 
     <div class="not-prose">
@@ -208,15 +208,16 @@ client = sf.Client(
       <code>https://fusion.screamingface.ai</code>, and the public leaderboard,
       <code>https://leaderboard.screamingface.ai</code>. When <code>screamingface up</code> is
       running and no environment variable is set, the first call connects to that local stack
-      instead and prints the URL it chose. Point it somewhere else in one of two ways. Set the
-      environment before the first call, which suits a local engine you already export elsewhere:
+      instead and prints the URL it chose. You can point it somewhere else in two ways. The first is
+      to set the environment before the first call, which suits a local engine you already export
+      elsewhere:
     </p>
 
     <div class="not-prose">
       <NbCell :count="2" :code="env" />
     </div>
 
-    <p>Or configure it in code, which also closes and replaces any default already built:</p>
+    <p>The second is to configure it in code, which also closes and replaces any default already built:</p>
 
     <div class="not-prose">
       <NbCell :count="3" :code="configure" />
@@ -225,24 +226,27 @@ client = sf.Client(
     <p>
       <code>sf.configure(...)</code> takes only <code>engine_url</code> and
       <code>scoreboard_url</code>. A non-default <code>engine_url</code> requires its own
-      <code>scoreboard_url</code>; without it the call raises <code>ValueError</code>, so a local
+      <code>scoreboard_url</code>. Without it, the call raises <code>ValueError</code>, so a local
       run never publishes to the public leaderboard. <code>SCREAMINGFACE_ENGINE_URL</code> requires
       <code>SCREAMINGFACE_SCOREBOARD_URL</code> the same way. A
       <code>sf.Client(engine_url=...)</code> without <code>scoreboard_url</code> uses the public
       leaderboard. For anything more, construct a <code>Client</code> yourself.
+    </p>
+
+    <p>
       <code>sf.close()</code> closes the default and forgets it, so the next shortcut builds a fresh
-      one; it is the tidy end to a script. The fresh default does not keep your
-      <code>sf.configure(...)</code> settings: call <code>sf.configure(...)</code> again, or set
-      <code>SCREAMINGFACE_ENGINE_URL</code> together with <code>SCREAMINGFACE_SCOREBOARD_URL</code>,
-      before the next call, or it targets the local stack when one is running and the hosted engine
-      otherwise.
+      one. It is the tidy way to end a script. The fresh default does not keep your
+      <code>sf.configure(...)</code> settings. To carry them over, call <code>sf.configure(...)</code>
+      again, or set <code>SCREAMINGFACE_ENGINE_URL</code> together with
+      <code>SCREAMINGFACE_SCOREBOARD_URL</code>, before the next call. Otherwise it targets the local
+      stack when one is running and the hosted engine when none is.
     </p>
 
     <Note>
-      Because the default is one object for the whole process, its login state is shared too: one
+      Because the default is one object for the whole process, its login state is shared too. One
       <RouterLink to="/sf-client/guides/connections">login</RouterLink> covers every later
       <code>sf.*</code> call. That is convenient in a notebook and surprising in a server handling
-      several users, which is the reason to build your own Client below.
+      several users, which is the reason to build your own Client (below).
     </Note>
 
     <h2>Build your own Client</h2>
@@ -256,8 +260,8 @@ client = sf.Client(
     <CodeBlock :code="explicit" language="python" />
 
     <p>
-      Owning the Client is what lets you hold <strong>more than one at a time</strong>: a hosted
-      engine and a local one, each with its own address, login and connections:
+      Owning the Client is what lets you hold more than one at a time: a hosted
+      engine and a local one, each with its own address, login and connections.
     </p>
 
     <CodeBlock :code="multi" language="python" />
@@ -266,8 +270,8 @@ client = sf.Client(
       The full surface (properties, <code>login()</code> / <code>logout()</code>, the catalogue
       accessors) lives on the
       <RouterLink to="/sf-client/api/clients">Clients API reference</RouterLink>. A closed Client
-      raises rather than reconnecting silently, so a <code>with</code> block is safer than a bare
-      constructor when the Client is short-lived.
+      raises an error rather than reconnecting silently, so a <code>with</code> block is safer than a
+      bare constructor when the Client is short-lived.
     </p>
 
     <h2>Async</h2>
@@ -275,7 +279,7 @@ client = sf.Client(
     <p>
       <code>AsyncClient</code> offers the same interface over <code>await</code> and returns the
       same value types. <code>evaluate()</code>, <code>connect()</code>, <code>login()</code> and
-      the rest are awaited; the properties are not, and cleanup is <code>async with</code> or
+      the rest are awaited. The properties are not. Cleanup is <code>async with</code> or
       <code>await client.aclose()</code>:
     </p>
 
@@ -284,27 +288,26 @@ client = sf.Client(
     <p>
       A script starts the event loop with <code>asyncio.run(main())</code>. A notebook already runs
       one, so there <code>asyncio.run</code> raises
-      <code>RuntimeError: asyncio.run() cannot be called from a running event loop</code>: call
+      <code>RuntimeError: asyncio.run() cannot be called from a running event loop</code>. Call
       <code>await main()</code> instead.
     </p>
 
     <Note>
-      There is deliberately <strong>no <code>await sf.evaluate(...)</code></strong
-      >. A single process-wide async Client would bind its connection pool to one event loop. That
-      is a footgun the moment a second loop, a notebook re-run, or a server worker appears. So the
-      async path has no module-level shortcut: you construct an <code>AsyncClient</code> and own its
-      lifecycle, every time.
+      There is deliberately no <code>await sf.evaluate(...)</code>. A single process-wide async
+      Client would bind its connection pool to one event loop, which breaks as soon as a second loop,
+      a notebook re-run, or a server worker appears. So the async path has no module-level shortcut.
+      You construct an <code>AsyncClient</code> and own its lifecycle every time.
     </Note>
 
     <h2>Custom transports</h2>
 
     <p>
       The constructor accepts <code>http_transport</code>, <code>scoreboard_transport</code> and
-      <code>run_transport</code>: the seam for tests and proxies. A mock transport lets a test drive
-      the Client with no network at all. These are constructor-only: there is no way to reach them
+      <code>run_transport</code>, the seam for tests and proxies. A mock transport lets a test drive
+      the Client with no network at all. These are constructor-only. There is no way to reach them
       through the <code>sf.*</code> path, which is another reason a test suite builds its own
       Client. The constructor also takes <code>save_results</code>, which controls whether completed
-      reports are saved to <code>~/.screamingface/results</code>; it is on by default. See
+      reports are saved to <code>~/.screamingface/results</code>, and is on by default. See
       <RouterLink to="/sf-client/guides/running-an-evaluation">Running an evaluation</RouterLink>.
     </p>
 
@@ -315,7 +318,7 @@ client = sf.Client(
     <p>
       The default is a single instance, built once behind a lock and reused, so
       <code>sf.*</code> calls that happen to overlap share it rather than racing to create two. That
-      sharing is exactly what makes it a poor fit for isolation: separate work that must not share a
+      sharing is what makes it a poor fit for isolation. Separate work that must not share a
       login, a connection pool, or an engine wants a separate <code>Client</code>. Give each thread,
       each event loop, or each tenant its own, and close it when that work is done.
     </p>
@@ -359,7 +362,7 @@ client = sf.Client(
       </li>
       <li>
         <RouterLink to="/sf-client/guides/connections">Connections</RouterLink>: logging in and
-        connecting a provider through whichever Client you chose
+        connecting a provider through whichever Client you choose
       </li>
       <li>
         <a

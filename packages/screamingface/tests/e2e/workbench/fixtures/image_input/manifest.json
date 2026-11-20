@@ -1,0 +1,37 @@
+[
+  {
+    "path": "packages/screamingface/tests/e2e/workbench/fixtures/image_input/token.png",
+    "media_type": "image/png",
+    "sha256": "c1354e0c2cdeebdcde5ffcd9383c8aad4ceab98c02a20c338dccd330741519ba",
+    "bytes": 6024,
+    "expected": "7392"
+  },
+  {
+    "path": "packages/screamingface/tests/e2e/workbench/fixtures/image_input/token.jpg",
+    "media_type": "image/jpeg",
+    "sha256": "7be5a5a8ac259cb5998f19c237a98d7df56b857c01780c651570cf031bbc85b9",
+    "bytes": 6889,
+    "expected": "7392"
+  },
+  {
+    "path": "packages/screamingface/tests/e2e/workbench/fixtures/image_input/token.gif",
+    "media_type": "image/gif",
+    "sha256": "ae5287c68e9b9cc74807f229fd6c8ca0c156a4f67f40011bde5e18efba8bb10e",
+    "bytes": 3494,
+    "expected": "7392"
+  },
+  {
+    "path": "packages/screamingface/tests/e2e/workbench/fixtures/image_input/token.webp",
+    "media_type": "image/webp",
+    "sha256": "b513cb0558c43b6bdfda3cacacccee9c8174476abaaed17ff23ea34f20002755",
+    "bytes": 2212,
+    "expected": "7392"
+  },
+  {
+    "path": "packages/screamingface/tests/e2e/workbench/fixtures/image_input/codeword.pdf",
+    "media_type": "application/pdf",
+    "sha256": "414c280c1d28c5345fecb66c93c1761ea63e553c5fe8ae1723d764b706c71e04",
+    "bytes": 584,
+    "expected": "HELIOTROPE"
+  }
+]

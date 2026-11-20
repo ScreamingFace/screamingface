@@ -7,15 +7,14 @@ never a cache replay's $0 shown as exact.
 
 INVARIANT (D1, owner 2026-09-30): a submission from a run with ANY cache hit is `partial` with no
 amount. The local result keeps its true spend and status: only the published claim changes.
+Counting the run's hits is the Engine's fold's rule, pinned in
+`apps/screamingface-engine/tests/unit/test_candidate_record_evidence_rules.py`.
 """
 
 from __future__ import annotations
 
-import json
 from dataclasses import replace
 from decimal import Decimal
-from pathlib import Path
-from typing import Any
 
 import httpx
 import pytest
@@ -24,89 +23,7 @@ from test_leaderboards import _candidate_result
 
 import screamingface as sf
 from screamingface._core.ports import _RunOutcome
-from screamingface._engine.contract import _RunState
 from screamingface._scoreboard.leaderboards import _submission
-
-_REPO_ROOT = Path(__file__).resolve().parents[3]
-RUN_EVENTS = (
-    _REPO_ROOT / "apps/screamingface-engine/tests/unit/data/cache_hit_contract/run_events.json"
-)
-# The expression the Engine ran to produce the stream; `_RunState` identifies the root by it.
-_URL4 = "/openrouter/anthropic/claude-fable-5(ctx)!go"
-
-
-def _events() -> list[dict[str, Any]]:
-    return json.loads(RUN_EVENTS.read_text(encoding="utf-8"))
-
-
-def _decode(events: list[dict[str, Any]]) -> _RunOutcome:
-    state = _RunState(_URL4)
-    outcome = None
-    for event in events:
-        accepted = state.accept(json.dumps(event))
-        if accepted.outcome is not None:
-            outcome = accepted.outcome
-    assert outcome is not None, "the stream never produced a root outcome"
-    return outcome
-
-
-def _is_summary(event: dict[str, Any]) -> bool:
-    return event["type"] == "ai.url4.log" and "cache.hits" in event["data"].get("attributes", {})
-
-
-def _summary(events: list[dict[str, Any]]) -> dict[str, Any]:
-    return next(e for e in events if _is_summary(e))
-
-
-def _without_summary(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """The same stream with the summary's cache counts stripped.
-
-    WHY strip rather than drop the event: the stream is sequence-numbered, and a gap stops the
-    decoder from ever reaching the terminal frame."""
-    attributes = _summary(events)["data"]["attributes"]
-    for key in [k for k in attributes if k.startswith("cache.")]:
-        del attributes[key]
-    return events
-
-
-# --- Counting the run's hits ---------------------------------------------------------------------
-
-
-def test_the_real_engine_stream_reports_its_one_hit() -> None:
-    assert _decode(_events()).cache_hits == 1
-
-
-def test_the_run_summary_wins_over_spans_that_hide_hits() -> None:
-    """WHY: a span keeps only its LAST call's cache outcome (engine `executor.py`), so a span whose
-    first call hit and whose later call missed reads `miss`. The run summary counts every round
-    trip, so it is the authority whenever it is larger."""
-    events = _events()
-    _summary(events)["data"]["attributes"]["cache.hits"] = 5
-
-    assert _decode(events).cache_hits == 5
-
-
-def test_hit_spans_count_when_the_engine_sends_no_summary() -> None:
-    """An engine that sends no cache summary still marks hit spans; they are the fallback."""
-    assert _decode(_without_summary(_events())).cache_hits == 1
-
-
-def test_a_run_that_never_touched_the_cache_counts_zero() -> None:
-    events = _without_summary(_events())
-    for event in events:
-        if event["type"] == "ai.url4.span" and event["data"].get("cache_status") == "hit":
-            event["data"]["cache_status"] = "bypass"
-
-    assert _decode(events).cache_hits == 0
-
-
-def test_a_malformed_summary_count_is_refused() -> None:
-    events = _events()
-    _summary(events)["data"]["attributes"]["cache.hits"] = -1
-
-    with pytest.raises(sf.ExecutionError):
-        _decode(events)
-
 
 # --- The result carries the count ----------------------------------------------------------------
 

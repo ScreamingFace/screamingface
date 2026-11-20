@@ -1,4 +1,5 @@
-"""Opt-in verification against the real url4-cloud execution lifecycle."""
+"""Opt-in verification against a real Engine: the evaluation is one Run the Engine drives
+(E5 P2 spec D1), registered, followed and read back."""
 
 from __future__ import annotations
 
@@ -6,6 +7,7 @@ import os
 from contextlib import closing
 
 import pytest
+from _run_engine import CollectingSink
 
 from screamingface._engine.transport import Url4CloudTransport
 from screamingface._evaluation.model import _compiled_candidate, _compiled_operation
@@ -39,8 +41,12 @@ def test_real_url4_cloud_runner_completes_the_confirmed_transport_lifecycle() ->
         ),
     )
 
+    sink = CollectingSink()
     with closing(Url4CloudTransport(_ENGINE_URL)) as transport:
-        outcome = transport.run(candidate, None)
+        run_id = transport.register_run(None, (candidate,))
+        transport.follow_run(run_id, (candidate,), sink)
+    outcome = sink.outcomes[0]
 
+    assert not isinstance(outcome, Exception), outcome
     assert outcome.result_body is not None
     assert outcome.result_body.strip()

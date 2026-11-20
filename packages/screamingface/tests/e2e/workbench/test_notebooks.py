@@ -10,12 +10,14 @@ import pytest
 
 from workbench.build_notebooks import NOTEBOOK_DIR
 from workbench.targets import LiveTarget, selected_target
-from workbench.verdict import judge_notebook
+from workbench.verdict import declares_target, judge_notebook
 
-NOTEBOOKS = sorted(NOTEBOOK_DIR.glob("*.ipynb"))
 # Resolved at collection so the id reads test_notebook[<target>-<stem>]; an unknown target
 # name fails collection loudly rather than running against a guess.
 _TARGET = selected_target()
+# Only the notebooks that declare this target are collected: a local-only notebook is not a
+# replay test at all, so it must not surface as a skip that REQUIRE_ALL turns into a failure.
+NOTEBOOKS = [p for p in sorted(NOTEBOOK_DIR.glob("*.ipynb")) if declares_target(p, _TARGET)]
 
 
 @pytest.mark.e2e

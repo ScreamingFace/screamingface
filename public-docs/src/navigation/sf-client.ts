@@ -35,6 +35,8 @@ export const sfClientNavigation: NavEntry[] = [
           { title: 'Map-reduce', path: '/sf-client/guides/map-reduce' },
           { title: 'Fanout fusion', path: '/sf-client/guides/fusions' },
           { title: 'Pipelines', path: '/sf-client/guides/pipelines' },
+          { title: 'Cascades & gates', path: '/sf-client/guides/cascades-gates' },
+          { title: 'Budget capped recipe', path: '/sf-client/guides/budget-capped-recipe' },
         ],
       },
       { title: 'Choose a benchmark', path: '/sf-client/guides/benchmarks' },
@@ -64,6 +66,10 @@ export const sfClientReferenceNavigation: NavEntry[] = [
           { title: 'Model', path: '/sf-client/api/models' },
           { title: 'Fusion', path: '/sf-client/api/fusions' },
           { title: 'Reducers', path: '/sf-client/api/reducers' },
+          { title: 'Cascades & gates', path: '/sf-client/api/cascades-gates' },
+          // Routers page exists at /sf-client/api/routers but is hidden from the menu
+          // until routing ships. Re-add this entry to publish it.
+          { title: 'Budgeted runs', path: '/sf-client/api/budgeted-runs' },
           { title: 'Pipeline', path: '/sf-client/api/pipelines' },
           { title: 'Url4', path: '/sf-client/api/url4' },
         ],

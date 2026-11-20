@@ -33,7 +33,7 @@ ModelInfo('anthropic/claude-opus-4-5', provider='anthropic', parameters=5, tools
 ModelInfo('anthropic/claude-fable-5', provider='anthropic', parameters=5, tools=1)
 ModelInfo('anthropic/claude-sonnet-5', provider='anthropic', parameters=5, tools=1)
 ModelInfo('anthropic/claude-sonnet-4-6', provider='anthropic', parameters=7, tools=1)
-…   # 110 entries across 6 providers on a local engine`
+…   # the rest of the curated list`
 
 const details = `gpt = sf.models.get("openrouter/openai/gpt-5.5")
 gpt.parameters["temperature"].enabled, sorted(gpt.tools)`
@@ -60,15 +60,14 @@ const inspectOut = `('number', 0.0, 2.0, True)`
     :version="version"
   >
     <p>
-      A <strong>Model</strong> names one model route and, optionally, the answer policy that route
-      should use. It is the smallest thing you can evaluate, and the building block every
+      A Model names one model route and, optionally, the answer policy that route should use. It is
+      the smallest thing you can evaluate, and the building block every
       <RouterLink to="/sf-client/guides/fusions">Fusion</RouterLink> is made of.
     </p>
 
     <p>
-      A Model is <strong>immutable</strong>. Constructing one makes no request and needs no
-      connection: it is a value describing what to ask for. Nothing happens until you pass it to an
-      evaluation.
+      A Model is immutable. Constructing one makes no request and needs no connection. It is just a
+      value that describes what to ask for. Nothing happens until you pass it to an evaluation.
     </p>
 
     <h2>What you can do with it</h2>
@@ -94,8 +93,8 @@ const inspectOut = `('number', 0.0, 2.0, True)`
         <tr>
           <td><code>sf.Model(model, *, name=None, prompt=None, params=None)</code></td>
           <td>
-            Selects one model route as the smallest thing you can evaluate, optionally overriding
-            its answer policy with a prompt and generation parameters.
+            Selects one model route, the smallest thing you can evaluate. Optionally overrides its
+            answer policy with a prompt and generation parameters.
           </td>
         </tr>
         <tr>
@@ -137,9 +136,9 @@ const inspectOut = `('number', 0.0, 2.0, True)`
     <h3>2 · Name an independent sample</h3>
 
     <p>
-      Two Models on the same route with the same policy are the <em>same</em> candidate:
-      <RouterLink to="/learn/engine">the engine</RouterLink> deduplicates them by content inside one
-      compiled graph. An explicit <code>name</code> is how you say you meant two independent
+      Two Models on the same route with the same policy are the <em>same</em> candidate.
+      <RouterLink to="/learn/engine">The engine</RouterLink> deduplicates them by content inside one
+      compiled graph. An explicit <code>name</code> is how you tell it you meant two independent
       samples, and it is the name the report uses.
     </p>
 
@@ -150,8 +149,8 @@ const inspectOut = `('number', 0.0, 2.0, True)`
     <h3>3 · Override the answer policy</h3>
 
     <p>
-      The SDK supplies a general answer prompt, so a bare Model works. When an experiment needs
-      something specific, <code>prompt</code> and <code>params</code> replace it.
+      The SDK supplies a general answer prompt, so a bare Model works on its own. When an experiment
+      needs something specific, pass <code>prompt</code> and <code>params</code> to replace it.
     </p>
 
     <div class="not-prose">
@@ -159,11 +158,11 @@ const inspectOut = `('number', 0.0, 2.0, True)`
     </div>
 
     <p>
-      These are <strong>candidate-owned</strong> settings: they change how your candidate answers,
-      and they can never touch benchmark-owned cases, judge models, grading or aggregation. That
-      separation is what keeps two candidates comparable on the same benchmark. Whatever you set is
-      resolved and embedded in the run's <RouterLink to="/learn/url4">url4</RouterLink>, so a report
-      records the policy that actually ran.
+      These are candidate-owned settings. They change how your candidate answers, and they can never
+      touch benchmark-owned cases, judge models, grading, or aggregation. That separation is what
+      keeps two candidates comparable on the same benchmark. Whatever you set is resolved and
+      embedded in the run's <RouterLink to="/learn/url4">url4</RouterLink>, so a report records the
+      policy that actually ran.
     </p>
 
     <h3>4 · See what the engine can reach</h3>
@@ -173,29 +172,36 @@ const inspectOut = `('number', 0.0, 2.0, True)`
     </div>
 
     <p>
-      Two things to note. The catalogue spans <strong>every provider the engine knows</strong>, not
-      only the ones you have connected: a route you have no credential for will fail at evaluation,
-      not here. The hosted engine lists more routes than a local one (112 against 110). And ID
-      shapes differ per provider: <code>anthropic/claude-opus-4-8</code> against
+      Two things to note. The catalogue spans every provider the engine knows, not only the ones you
+      have connected. A route you have no credential for will fail at evaluation, not here. ID shapes
+      also differ per provider: compare <code>anthropic/claude-opus-4-8</code> with
       <code>openrouter/anthropic/claude-opus-4.8</code>. Copy the <code>id</code> rather than
       retyping it.
     </p>
 
     <blockquote>
-      <strong>The catalogue is fixed.</strong> The engine does not discover models automatically, so
-      only the routes listed here can be used to build fusions, and a model missing from the list
-      can't be added from the Client.
+      <strong>The catalogue is curated.</strong> The ScreamingFace team adds the new models of the
+      large labs to it. An OpenRouter model that isn't listed still runs: name its route as
+      <code>openrouter/&lt;author&gt;/&lt;model&gt;</code>, as long as you have an OpenRouter
+      connection in place.
     </blockquote>
+
+    <p>
+      In a notebook with the <code>[notebook]</code> extra installed, the list renders with a filter
+      box. Each word you type must appear in a route's <code>id</code> or provider, in any order, so
+      <code>claude 5.5</code> keeps only the routes that contain both words. In a script, filter the
+      values yourself with <code>[m for m in sf.models.list() if "claude" in m.id]</code>.
+    </p>
 
     <h3>5 · Check that a route accepts your policy</h3>
 
     <p>
       <code>sf.models.get(id)</code> returns the fuller <code>sf.ModelDetails</code> for one route:
       each parameter with its schema and whether the gateway currently projects it, the tools and
-      transports it supports, and whether the details are stale. Consulting it is how you learn that
+      transports it supports, and whether the details are stale. Check it to confirm that
       <code>params={"max_tokens": 1024}</code> is available on a route before a run spends anything.
-      Which parameters a route accepts ultimately depends on the provider: a provider can reject a
-      parameter its details list, and the run then fails with <code>provider_error</code>.
+      Which parameters a route accepts ultimately depends on the provider. A provider can reject a
+      parameter that its details list, and the run then fails with <code>provider_error</code>.
     </p>
 
     <div class="not-prose">
@@ -205,9 +211,9 @@ const inspectOut = `('number', 0.0, 2.0, True)`
     <h3>6 · Discover a route's parameters</h3>
 
     <p>
-      The same <code>ModelDetails</code> is also how you find out <em>what</em> a route lets you
-      configure. <code>details.parameters</code> is a mapping keyed by parameter name, so listing
-      its keys enumerates every knob the route exposes.
+      The same <code>ModelDetails</code> also tells you <em>what</em> a route lets you configure.
+      <code>details.parameters</code> is a mapping keyed by parameter name, so listing its keys gives
+      you every setting the route exposes.
     </p>
 
     <div class="not-prose">
@@ -218,8 +224,8 @@ const inspectOut = `('number', 0.0, 2.0, True)`
       Each value is an <code>sf.ModelParameter</code>. Its <code>schema</code> gives the type and
       the bounds the gateway enforces (a numeric <code>minimum</code>/<code>maximum</code>, an
       <code>enum</code> of allowed values, a <code>max_length</code>), while
-      <code>enabled</code> says whether the gateway currently honours it. Reading the schema tells
-      you a value's legal range before you set it in <code>params</code>.
+      <code>enabled</code> says whether the gateway currently honours it. Read the schema to learn a
+      value's legal range before you set it in <code>params</code>.
     </p>
 
     <div class="not-prose">
@@ -227,7 +233,7 @@ const inspectOut = `('number', 0.0, 2.0, True)`
     </div>
 
     <p>
-      A parameter that isn't listed isn't configurable on that route: setting it in
+      A parameter that isn't listed isn't configurable on that route. Setting it in
       <code>params</code> is refused at pre-flight with <code>PlanningError</code> rather than
       silently dropped, so a typo costs you nothing. For example,
       <code>params={"reasoning": "high"}</code> on <code>openrouter/openai/gpt-5.5</code> raises

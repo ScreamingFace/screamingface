@@ -24,12 +24,12 @@ import json
 from collections.abc import Callable, Sequence
 from dataclasses import replace
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 import httpx
 import pytest
-from _isolation_engine import RunPlan, isolation_engine
+from _run_transport import AsyncPlaying, AsyncScriptedRun
 from test_client_run import (
     REPLAY_URL4,
     _engine,
@@ -168,28 +168,16 @@ class _Replayer(_ReplayTransport):
         )
 
 
-class _AsyncReplayer(_Replayer):
-    async def run(self, candidate: Any, on_event: object) -> _RunOutcome:  # type: ignore[override]
-        return super().run(candidate, on_event)
-
-    async def cancel_active(self) -> None:  # type: ignore[override]
-        pass
-
-    async def close(self) -> None:  # type: ignore[override]
-        pass
+class _AsyncReplayer(AsyncPlaying):
+    def __init__(self, **options: Any) -> None:
+        super().__init__(_Replayer(**options))
 
 
-class _AsyncForbidden:
+class _AsyncForbidden(AsyncScriptedRun):
     """An async run transport that fails the test when it is asked to run anything."""
 
     async def run(self, candidate: object, on_event: object) -> _RunOutcome:
         pytest.fail("a score that cannot be replayed started a run")
-
-    async def cancel_active(self) -> None:
-        pass
-
-    async def close(self) -> None:
-        pass
 
 
 class _Board:
@@ -563,11 +551,14 @@ def test_a_summary_that_does_not_state_the_replay_is_replay_unsupported() -> Non
 
 
 def test_a_missing_start_echo_stops_the_run_and_is_replay_unsupported() -> None:
-    # The real transport against a stub Engine that never echoes `X-Replay-Frozen-Copy`: the
-    # older Engine.
-    plans = {REPLAY_URL4: RunPlan()}
+    # The real transport against a stub Engine whose run does not state the copy it replayed
+    # (`capture.replay`): its result is not the published one, so the reproduction fails. The
+    # Run has already ended (E5 P2: the Engine drives it), so there is nothing to stop.
+    from _run_engine import ended, run_engine, settled
+
+    body = (_ReplayTransport().run(cast(Any, None), None).result_body or "").encode()
     board = _Board()
-    with isolation_engine(plans) as engine:
+    with run_engine([[settled(0, body), ended()]], {0: body}) as engine:
         client = sf.Client(
             engine_url=engine.url,
             scoreboard_url=SCOREBOARD_URL,
@@ -577,7 +568,10 @@ def test_a_missing_start_echo_stops_the_run_and_is_replay_unsupported() -> None:
             reproduction = _reproduce(client, _score())
 
         assert reproduction == Reproduction(outcome="failed", reason="replay_unsupported")
-        assert len(engine.state.deleted) == 1, "the unacknowledged run was stopped"
+        assert [
+            start["replay_frozen_copy"] for start in engine.state.registered[0]["candidates"]
+        ] == [COPY]
+        assert engine.state.deleted == []
     assert board.posts == []
 
 

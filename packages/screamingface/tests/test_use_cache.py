@@ -17,93 +17,59 @@ from typing import Any
 
 import httpx
 import pytest
+from _run_engine import ended, run_engine
 from test_answer_seed_report import _CandidateRecordingTransport
 from test_client_run import REPLAY_URL4, _AsyncReplayTransport, _engine, _ReplayTransport
 from test_draco_vertical_slice import _AsyncFakeTransport
 from test_draco_vertical_slice import _engine as _draco_engine
+from test_transport_artifact_fetch import _candidate
 
 import screamingface as sf
 from screamingface import _default_client
 from screamingface._core.ports import _RunOutcome
-from screamingface._engine import transport as transport_module
-from screamingface._engine.trace import new_trace_context
-from screamingface._engine.transport import Url4CloudTransport, _start_async, _start_sync
-from screamingface._evaluation.model import _with_capture, _without_cache
+from screamingface._engine.run_request import start_request
+from screamingface._engine.transport import Url4CloudTransport
+from screamingface._evaluation.model import _with_answer_seed, _with_capture, _without_cache
 
-TOKEN = "cap-token"
-URL4 = "(@)!'go'"
-
-
-def _http(seen: list[httpx.Request]) -> httpx.Client:
-    def handle(request: httpx.Request) -> httpx.Response:
-        seen.append(request)
-        return httpx.Response(
-            202, headers={"Preference-Applied": "respond-async", "Location": "/runs/1"}
-        )
-
-    return httpx.Client(transport=httpx.MockTransport(handle), base_url="https://engine.test")
-
-
-def _async_http(seen: list[httpx.Request]) -> httpx.AsyncClient:
-    def handle(request: httpx.Request) -> httpx.Response:
-        seen.append(request)
-        return httpx.Response(
-            202, headers={"Preference-Applied": "respond-async", "Location": "/runs/1"}
-        )
-
-    return httpx.AsyncClient(transport=httpx.MockTransport(handle), base_url="https://engine.test")
-
-
-# --- the start header -----------------------------------------------------------------------------
+# --- the start ----------------------------------------------------------------------------------
+#
+# WHY the start and not a header (E5 P2 spec D8): the Engine starts every Candidate from the start
+# the Run keeps, and sends `use_cache: false` on as `Cache-Control: no-cache`, which collapses to
+# `use-cache: false` on every model call of the run (cache_intent.py).
 
 
 def test_an_opted_out_start_sends_cache_control_no_cache() -> None:
-    # WHY the standard field: the Engine collapses `no-cache` to `use-cache: false` on every model
-    # call of the run (cache_intent.py), and the report shows them as `bypass` / `opted_out`.
-    seen: list[httpx.Request] = []
+    body = start_request(_without_cache(_with_capture(_with_answer_seed(_candidate(), 7)))).body()
 
-    _start_sync(_http(seen), TOKEN, URL4, answer_seed=7, capture=True, use_cache=False)
-
-    assert seen[0].headers["Cache-Control"] == "no-cache"
-    assert seen[0].headers["X-Capture"] == "true"
-    assert seen[0].headers["X-Answer-Seed"] == "7"
+    assert (body["use_cache"], body["capture"], body["answer_seed"]) == (False, True, 7)
 
 
 def test_a_default_start_sends_no_cache_control() -> None:
     # The Engine's default is to use the cache, so saying nothing is saying yes.
-    seen: list[httpx.Request] = []
-
-    _start_sync(_http(seen), TOKEN, URL4)
-    _start_sync(_http(seen), TOKEN, URL4, use_cache=True)
-
-    assert all("Cache-Control" not in request.headers for request in seen)
+    assert start_request(_candidate()).body()["use_cache"] is True
 
 
-@pytest.mark.asyncio
-async def test_the_async_start_sends_it_only_when_opted_out() -> None:
-    seen: list[httpx.Request] = []
+def test_the_async_start_sends_it_only_when_opted_out() -> None:
+    bodies = [start_request(c).body() for c in (_without_cache(_candidate()), _candidate())]
 
-    async with _async_http(seen) as http:
-        await _start_async(http, TOKEN, URL4, use_cache=False)
-        await _start_async(http, TOKEN, URL4)
-
-    assert seen[0].headers["Cache-Control"] == "no-cache"
-    assert "Cache-Control" not in seen[1].headers
+    assert [body["use_cache"] for body in bodies] == [False, True]
 
 
-def test_the_transport_reads_use_cache_from_the_candidate(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_transport_reads_use_cache_from_the_candidate() -> None:
     from _isolation_engine import candidate
 
-    calls: list[dict[str, object]] = []
-    monkeypatch.setattr(transport_module, "_start_sync", lambda *_a, **kw: calls.append(kw))
-    transport = Url4CloudTransport("https://engine.test")
-    try:
-        transport._start_run(TOKEN, _without_cache(candidate("plain")), new_trace_context(), None)
-        transport._start_run(TOKEN, candidate("plain"), new_trace_context(), None)
-    finally:
-        transport.close()
+    with run_engine([[ended()]], {}) as engine:
+        transport = Url4CloudTransport(engine.url)
+        try:
+            transport.register_run(None, (_without_cache(candidate("plain")),))
+            transport.register_run(None, (candidate("plain"),))
+        finally:
+            transport.close()
 
-    assert [call["use_cache"] for call in calls] == [False, True]
+    assert [body["candidates"][0]["use_cache"] for body in engine.state.registered] == [
+        False,
+        True,
+    ]
 
 
 # --- the Candidate --------------------------------------------------------------------------------

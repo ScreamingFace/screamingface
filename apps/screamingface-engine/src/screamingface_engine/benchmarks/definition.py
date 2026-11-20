@@ -67,9 +67,12 @@ type DifficultyTier = Literal["easy", "medium", "hard"]
 # Where a benchmark's definition was authored (OME-1112).
 #   "screamingface"  — written in this repo, the Engine's own catalogue.
 #   "inspect_evals"  — imported from the inspect_evals catalogue (parent epic OME-1111).
+#   "external"       — written by a contributor outside the team and merged into this repo;
+#                      the row names them in `contributors` (the "External" shelf of
+#                      inspect_evals' own catalogue is the model).
 # Declared once at registration so downstream surfaces (SDK grouping, scoreboard) read
 # provenance as a fact instead of guessing it from naming conventions.
-type BenchmarkOrigin = Literal["screamingface", "inspect_evals"]
+type BenchmarkOrigin = Literal["screamingface", "inspect_evals", "external"]
 
 _FAILURE_POLICIES: tuple[FailurePolicy, ...] = ("withhold", "coverage_declare")
 _INTERACTION_TYPES: tuple[InteractionType, ...] = ("single_shot", "multi_turn")
@@ -87,7 +90,7 @@ INVERTED_GRADE_KEY: str = "inverted_grade"
 #: `_catalogue_vocabulary.py`; pinned by test_named_scores_contract on the Engine side
 #: (the SDK decodes the key by this spelling before any Engine emits it).
 SCORES_KEY: str = "scores"
-_BENCHMARK_ORIGINS: tuple[BenchmarkOrigin, ...] = ("screamingface", "inspect_evals")
+_BENCHMARK_ORIGINS: tuple[BenchmarkOrigin, ...] = ("screamingface", "inspect_evals", "external")
 
 _BENCHMARK_ID = re.compile(r"[a-z0-9][a-z0-9._-]*")
 # INVARIANT: the same operator-id grammar as combine/spec.py `_OP_ID`.
@@ -313,6 +316,7 @@ class Benchmark:
     authors: str | None = None
     citation: str | NotPublished | None = None
     inspect_contributors: tuple[str, ...] | None = None
+    contributors: tuple[str, ...] | None = None
     homepage_url: str | None = None
     harness_url: str | None = None
     license: str | NotPublished | None = None
@@ -326,6 +330,11 @@ class Benchmark:
     # INVARIANT: like `focus`, it never enters `revision`; set only for a benchmark whose grader
     # the combine operators copy exactly.
     answer_rule: AnswerRule | None = None
+    # FEATURE: the old published revisions a score may be re-graded from (OME-1909). Served so
+    # the SDK can tell which of a researcher's old entries are eligible for a re-grade.
+    # INVARIANT: like `description`, never enters `revision` — it lists history, it changes
+    # nothing a score depends on. WHY a default: only imported rows declare it.
+    regradable_from: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         for name in ("title", "description", "revision"):
@@ -391,6 +400,9 @@ class Benchmark:
             # WHY unconditionally: the declared policy is part of the benchmark's public
             # contract — reviewers approve it by reading the manifest, never engine source.
             **self.declaration.as_block(),
+            # WHY unconditionally: like `saturation`, an empty list says "no old revision
+            # qualifies", so no reader needs an absent-key branch (OME-1909).
+            "regradable_from": list(self.regradable_from),
         }
         if self.focus is not None:
             metadata["focus"] = self.focus

@@ -167,6 +167,21 @@ def test_local_target_serves_through_an_inspect_engine_on_the_up_gateway(
     assert [e[0] for e in events[-2:]] == ["engine-stop", "down"]
 
 
+def test_local_target_injects_the_gateway_url_and_its_log(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The image input matrix reads ``/v1/models`` from the Gateway and counts upstream calls
+    in the gateway's lines of ``runtime.log``; both come from the target, never a guess."""
+    _paid_opt_in(monkeypatch)
+    monkeypatch.setenv("SCREAMINGFACE_E2E_ASSETS", str(_prepared_assets(tmp_path)))
+    _fake_stack(monkeypatch, ["ifeval"])
+    work = tmp_path / "work"
+    with start_target("local", work) as target:
+        assert target.params["GATEWAY_URL"] == "http://127.0.0.1:9105"
+        assert target.params["EVENTS_PATH"] == str(work / "data" / "runtime.log")
+        assert target.params["RECIPE"] == "authored"
+
+
 def test_runtime_cli_scrubs_the_foreign_gateway_database(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -208,7 +223,18 @@ def test_runtime_cli_child_env_is_an_allowlist_not_the_parent_shell(
     targets._runtime_cli("status")
     env = seen["env"]
     assert isinstance(env, dict)
-    allowed = {"PATH", "HOME", "TMPDIR", "LANG", "LC_ALL", "SCREAMINGFACE_RUNTIME_SOURCE"}
+    # The two target-set values (never copied from the shell): the source pin, and the HF
+    # router modalities the image input matrix reads off the gateway listing.
+    allowed = {
+        "PATH",
+        "HOME",
+        "TMPDIR",
+        "LANG",
+        "LC_ALL",
+        "SCREAMINGFACE_RUNTIME_SOURCE",
+        "AIGW_HUGGINGFACE_LIVE_MODALITIES",
+    }
+    assert env["AIGW_HUGGINGFACE_LIVE_MODALITIES"] == "true"
     assert set(env) <= allowed, sorted(set(env) - allowed)
     # Pinned, not inherited: the runtime serves THIS checkout's code or refuses to start.
     assert env["SCREAMINGFACE_RUNTIME_SOURCE"] == "checkout"
@@ -308,3 +334,13 @@ def test_local_target_downs_the_runtime_when_engine_stop_fails(
         with start_target("local", tmp_path / "work"):
             pass
     assert [e[0] for e in events] == ["up", "engine-init", "engine-start", "engine-stop", "down"]
+
+
+def test_local_runtime_lists_hugging_face_modalities_from_the_router(monkeypatch) -> None:
+    """The image input matrix reads `input_modalities` off the gateway listing; without the
+    router evidence every Hugging Face row reads text-only and a vision model is never tested.
+    Set by the target itself, never copied from the shell (the allowlist rule)."""
+    monkeypatch.delenv("AIGW_HUGGINGFACE_LIVE_MODALITIES", raising=False)
+    env = targets._runtime_child_env()
+    assert env["AIGW_HUGGINGFACE_LIVE_MODALITIES"] == "true"
+    assert not any(k.startswith("AIGW_") and k != "AIGW_HUGGINGFACE_LIVE_MODALITIES" for k in env)

@@ -22,6 +22,7 @@ Run:  python3 .github/scripts/verify_chart_wiring.py
 from __future__ import annotations
 
 import ast
+import hashlib
 import ipaddress
 import json
 import re
@@ -1061,6 +1062,21 @@ check(
     and not any(_selects(_runs_svc["spec"]["selector"], pods) for pods in _other_pods),
     "the run-results Garage Service selects ONLY the run-results Garage's pods",
 )
+# WHY: Garage reads garage.toml once, at start, through a subPath mount the kubelet never
+# refreshes. Only a changed pod template rolls the pod, so each carries its config's checksum.
+for _suffix in ("-garage", "-garage-blobs", "-garage-run-results"):
+    _garage_sts = find_named(engine_runs, "StatefulSet", f"{ENGINE_FULLNAME}{_suffix}")
+    _garage_toml = find_named(engine_runs, "ConfigMap", f"{ENGINE_FULLNAME}{_suffix}")[
+        "data"
+    ]["garage.toml"]
+    check(
+        (_garage_sts["spec"]["template"]["metadata"].get("annotations") or {}).get(
+            "checksum/garage-config"
+        )
+        == hashlib.sha256(_garage_toml.rstrip("\n").encode()).hexdigest(),
+        f"the {_suffix[1:]} pod template carries the checksum of its garage.toml, so a config "
+        "change rolls the pod",
+    )
 for _cm_name in (ENGINE_FULLNAME, f"{ENGINE_FULLNAME}-runner-env"):
     _data = find_named(engine_runs, "ConfigMap", _cm_name)["data"]
     check(
@@ -1959,6 +1975,35 @@ for label, extra in (("default", ()), ("prod", SCOREBOARD_PROD_ARGS)):
         f"scoreboard ({label} values): the ConfigMap sets the DB pool bounds explicitly as "
         f"integers with 0 <= min <= max and max >= 1 (got {pool_bounds})",
     )
+    # OME-1909: who may re-grade is a chart value, empty unless an environment names someone, so
+    # an install that never set it has no re-graders (the app's `regrade_identities` default).
+    check(
+        scoreboard_config.get("SCOREBOARD_REGRADE_IDENTITIES") == "",
+        f"scoreboard ({label} values): the ConfigMap renders SCOREBOARD_REGRADE_IDENTITIES, "
+        "empty by default, so nobody may re-grade until an environment names them",
+    )
+
+# OME-1909: the list renders as the comma-separated text the app's `regrade_identities` parser
+# splits (`config.py`), so each email a values file names reaches the app as one identity.
+regrade_config = find(
+    render(
+        SCOREBOARD_CHART,
+        SCOREBOARD_RELEASE,
+        "--set",
+        "config.regradeIdentities={ci-a@example.test,ci-b@example.test}",
+    ),
+    "ConfigMap",
+)["data"]
+regrade_identities = [
+    entry
+    for part in regrade_config.get("SCOREBOARD_REGRADE_IDENTITIES", "").split(",")
+    if (entry := part.strip())
+]
+check(
+    regrade_identities == ["ci-a@example.test", "ci-b@example.test"],
+    "scoreboard: config.regradeIdentities renders as the comma-separated list the app splits "
+    f"into one identity per email (got {regrade_identities})",
+)
 
 print(f"\n{checks - len(failures)}/{checks} checks passed")
 if failures:
