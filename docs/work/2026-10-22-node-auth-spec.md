@@ -117,3 +117,12 @@ codes, and how C2/C6 are enabled alongside the #1521 destination guard. Design o
   cross-generation holes. Effect keys gain an invocation coordinate `inv` (MapNode row / spawn
   ordinal); `op_id` gains a persisted per-record `incarnation`, so key reuse after retention gets
   fresh provider keys. New golden vectors.
+- **2026-11-20 sixth round (HupBaHa, CHANGES_REQUESTED 12:56Z):** owner chose to patch all four:
+  1. The claim stores a deterministic `child_run_id`; the child is created by id, reused on
+     takeover, and cancelled before a `claimed` record is deleted.
+  2. Effect keys use `spawns` = `[site, instance]` pairs, so sibling/nested Maps, identical
+     `LazyExpr` sites and `execute_node` calls never collide; retries reuse the journaled key.
+  3. The journal holds immutable request envelopes and response records; providers declare
+     `dedup_key`, `dedup_horizon` and `replays_response`; reconciliation resumes from the journal.
+  4. Operator `completed` needs provider evidence; otherwise `abandoned` (terminal, never purged).
+  Also: the 67-byte key is never truncated; §5.9 has one complete state table; new golden vectors.
