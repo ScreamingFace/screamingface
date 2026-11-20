@@ -11,13 +11,16 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 from uuid import UUID, uuid4
 
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 
 from aigateway.core.frozen_copy.models import FrozenCopy
+from aigateway.routes.frozen_copies import ProvenanceRead
 from tests.unit.test_frozen_copy_support import run_async
 
 _COPIES = "/v1/frozen-copies"
@@ -332,3 +335,17 @@ def test_the_read_publishes_the_c9_response_schema(client: TestClient) -> None:
     entry = _resolve(schema, read["properties"]["routers"]["items"])
     assert entry["properties"]["binding"]["pattern"] == r"^router_[0-9]+$"
     assert entry["properties"]["revision"]["pattern"] == r"^sha256:[0-9a-f]{64}$"
+
+
+def test_the_read_is_a_closed_record(client: TestClient) -> None:
+    # WHY: a C9 record is closed (contracts.md, strict records). A read model that dropped an
+    # unknown key would let a later change publish, or silently swallow, a field no reader expects.
+    schema = cast(FastAPI, client.app).openapi()
+    answer = schema["paths"][f"{_COPIES}/{{copy_id}}/provenance"]["get"]["responses"]["200"]
+
+    read = _resolve(schema, answer["content"]["application/json"]["schema"])
+
+    assert read["additionalProperties"] is False
+    assert _resolve(schema, read["properties"]["routers"]["items"])["additionalProperties"] is False
+    with pytest.raises(ValidationError, match="extra"):
+        ProvenanceRead.model_validate({"engine_version": None, "routers": [], "unexpected": 1})

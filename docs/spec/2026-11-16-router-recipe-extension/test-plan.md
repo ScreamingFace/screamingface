@@ -122,8 +122,10 @@ All against a fake HTTP upstream; it must pass before Unit 5.2 depends on the co
    Unit base, inventory and fake-test one send through every chat/classification transport family:
    shared/default LiteLLM, remote endpoint, local, OpenAI, Gemini, Codex and Antigravity. The
    production remote-endpoint transport has retries `0`. Source for both locks shows HuggingFace/
-   Ollama pass the dispatched client to their base handler; the real Gateway test must prove its hooks,
-   and inability to observe them is a C7 stop condition.
+   Ollama pass the dispatched client to their base handler; the real Gateway test must prove its hooks
+   for both, with accounting enabled and disabled (one send `1`, a hidden resend `2`; Ollama through
+   a fake model listing and the fake transport, never a live host), and inability to observe them is a
+   C7 stop condition.
 9. The pure-ASGI middleware sits immediately inside outer `CallIdMiddleware` and outside every other
    user middleware: handled auth/body-cap/validation/error responses carry the header, while an
    unhandled ServerError response does not. Test `root_path="/gw"`, `auth_mode=disabled`, accounting
@@ -144,14 +146,16 @@ All against a fake HTTP upstream; it must pass before Unit 5.2 depends on the co
     a number; a non-string, empty or over-long `engine_version`; `routers` null, an object, empty,
     over 256 entries or with one invalid entry; an extra key), reads `200` with exactly
     `{engine_version, routers}`, `null` and `[]` for the invalid parts and no extra key; the OpenAPI
-    schema of the route is that strict response.
+    schema of the route is that strict response, a closed record (`additionalProperties: false`
+    for the read and its entries), and the read model refuses an unknown key.
 11. `screamingface-e2e-replay.yml` runs the model-free runtime transport test on Python 3.12. Run the
     same frozen-lock command locally under Python 3.13 and retain its output in the Unit evidence.
 12. Shutdown, through the real app for the accounting handler and the attempt handler alike: a
     shutdown cancelled while the handler closes lets that close end, still runs the later steps, then
     raises the cancellation. On its own, the close helper logs a failed close without raising,
-    logs it too when one cancellation is waiting, and on a second cancellation stops waiting while
-    the close still ends. The prior cancelled-step shutdown test stays unchanged.
+    logs it too when one cancellation is waiting, keeps waiting through repeated cancellations and
+    raises only after the close ends, and a close cancelled twice under `asyncio.run` has ended, not
+    been cancelled, when the loop stops. The prior cancelled-step shutdown test stays unchanged.
 
 ## 5. Contract tests each Unit must include
 

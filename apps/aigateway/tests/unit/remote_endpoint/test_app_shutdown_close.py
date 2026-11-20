@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any
 
 import pytest
 
@@ -125,26 +124,53 @@ def test_one_cancellation_waits_for_a_failing_close_then_is_raised(
 
 
 @pytest.mark.parametrize("error", [None, RuntimeError("pool refused to close")])
-def test_a_second_cancellation_stops_the_wait_but_never_the_close(
+def test_every_cancellation_waits_for_the_close_then_is_raised(
     caplog: pytest.LogCaptureFixture, error: Exception | None
 ) -> None:
-    # WHY: a shutdown cancelled twice must not hang on a stuck pool; the close still ends on
-    # its own, and its failure is still logged.
+    # WHY: no later cancellation may cut the close short. A forced stop is not a cancellation of
+    # this wait: it is the end of the loop itself (a second Ctrl+C, a killed process).
     handler = _SlowClose(error=error)
 
-    async def scenario() -> Any:
+    async def scenario() -> None:
         waiter = asyncio.create_task(close_through_cancellation(handler.close, _LOG, _FAILURE))
         await handler.closing.wait()
-        waiter.cancel()
-        await _settle()
-        waiter.cancel()
-        await _settle()
-        assert waiter.cancelled()
+        for _ in range(3):
+            waiter.cancel()
+            await _settle()
+        assert not waiter.done()
         handler.release.set()
-        await _settle()
+        with pytest.raises(asyncio.CancelledError):
+            await waiter
 
     with caplog.at_level(logging.WARNING, logger=_LOG.name):
         asyncio.run(scenario())
 
     logged = [r.getMessage() for r in caplog.records if r.name == _LOG.name]
     assert (handler.closed, logged) == ((True, []) if error is None else (False, [_FAILURE]))
+
+
+def test_a_close_cancelled_twice_ends_before_the_loop_does() -> None:
+    # WHY nothing releases the close here: `asyncio.run` cancels every task still pending when
+    # its main coroutine returns, so a close the waiter stopped watching would be cut short.
+    outcome = {"finished": False, "cancelled": False}
+
+    async def close() -> None:
+        try:
+            await asyncio.sleep(0.05)
+        except asyncio.CancelledError:
+            outcome["cancelled"] = True
+            raise
+        outcome["finished"] = True
+
+    async def scenario() -> None:
+        waiter = asyncio.create_task(close_through_cancellation(close, _LOG, _FAILURE))
+        await _settle()
+        waiter.cancel()
+        await _settle()
+        waiter.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await waiter
+
+    asyncio.run(scenario())
+
+    assert outcome == {"finished": True, "cancelled": False}

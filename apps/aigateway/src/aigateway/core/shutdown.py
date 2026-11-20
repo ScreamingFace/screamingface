@@ -7,13 +7,8 @@ the usage accounting handler each own a connection pool the lifespan closes.
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import logging
 from collections.abc import Awaitable, Callable
-
-# WHY a module set: the event loop keeps only a weak reference to a task no one awaits, and a
-# close that a second cancellation left behind must still run to its end.
-_UNFINISHED: set[asyncio.Future[None]] = set()
 
 
 async def close_through_cancellation(
@@ -23,33 +18,24 @@ async def close_through_cancellation(
 
     WHY: the shutdown drops a handler before it closes it, so a close cut short by a cancelled
     shutdown (a reload, a stopped server) would leave its pool open with no one left to close it.
-    INVARIANT: a cancellation of the caller waits once more for the close, then is raised. A
-    second cancellation stops that wait, so shutdown cannot hang, but never stops the close. A
-    close that itself raises a cancellation is raised at once (``test_app_shutdown.py``).
+    INVARIANT: every cancellation of the caller waits for the close to end, then the first one is
+    raised. Only the end of the event loop itself (a second Ctrl+C, a killed process) can stop
+    the close, and no cancellation of this wait is that. A close that itself raises a
+    cancellation is raised at once (``test_app_shutdown.py``).
+    WHY not hand the close to a detached task after a second cancellation: the loop cancels
+    every pending task when it ends, which follows a cancelled shutdown at once.
     """
     closing = asyncio.ensure_future(close())
-    try:
-        await asyncio.shield(closing)
-    except asyncio.CancelledError:
-        if not closing.done():
+    cancelled: asyncio.CancelledError | None = None
+    while not closing.done():
+        try:
             # WHY ``wait``: it neither cancels the close nor raises the close's own error.
-            with contextlib.suppress(asyncio.CancelledError):
-                await asyncio.wait({closing})
-        _report_when_done(closing, logger, failure)
-        raise
+            await asyncio.wait({closing})
+        except asyncio.CancelledError as error:
+            cancelled = cancelled or error
+    try:
+        closing.result()
     except Exception:
         logger.warning(failure)
-
-
-def _report_when_done(closing: asyncio.Future[None], logger: logging.Logger, failure: str) -> None:
-    def report(done: asyncio.Future[None]) -> None:
-        _UNFINISHED.discard(done)
-        # WHY read the error here: no caller awaits it any more, and asyncio would print it.
-        if not done.cancelled() and done.exception() is not None:
-            logger.warning(failure)
-
-    if closing.done():
-        report(closing)
-    else:
-        _UNFINISHED.add(closing)
-        closing.add_done_callback(report)
+    if cancelled is not None:
+        raise cancelled

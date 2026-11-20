@@ -226,10 +226,12 @@ header is mandatory even when taxonomy/accounting collection is disabled or part
 
 A LiteLLM dispatch that is not accounted sends through a second app-lifetime handler that carries
 only the send observer. Both app-lifetime handlers close with the app, each in its own task: a
-shutdown cancelled during a close waits once more for that close to end, runs every later shutdown
-step, then raises the cancellation; a second cancellation stops the wait but never the close, and a
-failed close is logged. The shutdown drops each handler before closing it, so no request reuses a
-closing pool and no pool outlives the app because its shutdown was cancelled.
+shutdown cancelled during a close waits for that close to end through every further cancellation,
+runs every later shutdown step, then raises the cancellation, and a failed close is logged. Only
+the end of the event loop itself (a second interrupt, a killed process) can stop a close; a
+cancellation of the shutdown never does, so a close is never left to a task the loop's own teardown
+would cancel. The shutdown drops each handler before closing it, so no request reuses a closing
+pool and no pool outlives the app because its shutdown was cancelled.
 
 Unit 5.1 inventories every non-streaming inference transport at its fresh base, installs the observer
 on each one and updates this list if it differs. The current minimum is: shared and default LiteLLM
@@ -384,7 +386,8 @@ cannot share an occurrence stream when their classifier bodies are equal.
   field, so no migration (`core/frozen_copy/models.py:42-43`). A new read route
   `GET /v1/frozen-copies/{copy_id}/provenance` returns `{"engine_version": str | null, "routers": [...]}`
   (`[]` when the seal sent none), for a sealed copy only through `_sealed_copy`, with the chat replay
-  route's caller auth. The route publishes that strict response schema and reads the stored row
+  route's caller auth. The route publishes that strict response schema as a closed record
+  (`extra="forbid"`, `additionalProperties: false`, as for its entries) and reads the stored row
   field by field with the seal's own types: a stored value the seal would refuse today, from an
   older writer or a damaged row, reads `null` for `engine_version` and `[]` for `routers`, never a
   500 and never the stored JSON itself. An invalid stored manifest therefore reads as a copy sealed

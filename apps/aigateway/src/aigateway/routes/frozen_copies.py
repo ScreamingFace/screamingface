@@ -82,7 +82,13 @@ class Provenance(BaseModel):
 
 
 class ProvenanceRead(BaseModel):
-    """The C9 read of a sealed copy's provenance: the version, or null, and the manifest, or []."""
+    """The C9 read of a sealed copy's provenance: the version, or null, and the manifest, or [].
+
+    INVARIANT: a closed record, like every C9 record: its schema publishes no other key, and a
+    key this model does not list is refused, never dropped.
+    """
+
+    model_config = ConfigDict(extra="forbid")
 
     engine_version: EngineVersion | None
     routers: list[RouterRevision] = Field(max_length=256)

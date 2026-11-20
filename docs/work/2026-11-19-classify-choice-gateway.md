@@ -127,7 +127,7 @@ replacement client come from the same code; no retry logic is copied.
 - Shutdown: the usage accounting and attempt handlers close through
   `core/shutdown.close_through_cancellation`, one owned task behind `asyncio.shield`. A cancelled
   shutdown waits once more for the close and then raises; a second cancellation stops the wait but
-  not the close. The failure messages are unchanged.
+  not the close. The failure messages are unchanged. Superseded in round 3 below.
 - Provenance read: the response model and the defensive decode above.
 - Overload retry: a real-app test sends a true `529` then a `200` (HuggingFace and OpenRouter) and
   reads two sends and `2`; with `529` removed from the retryable set the same answer is one send.
@@ -140,6 +140,32 @@ replacement client come from the same code; no retry logic is copied.
   rows and the response schema, and a new item 12 the cancelled shutdown. Items are appended, not
   renumbered, because code and this ledger cite §4 items 8-10. The readiness test gained the
   answer-level `error` case so it covers what item 4 now states.
+
+### Review fixes, round 3 (2026-11-20, on PR #1988)
+
+- Shutdown: the "second cancellation stops the wait" rule could not keep its own promise. The
+  loop cancels every pending task when it ends, which follows a cancelled shutdown at once, so the
+  detached close was cut short (`finished: False, cancelled: True` under `asyncio.run`). Owner
+  decision: the close always ends. `close_through_cancellation` now waits through every
+  cancellation and raises the first one only after the close ends; the detached-task set and its
+  done callback are gone. Only the end of the loop itself (a second interrupt, a killed process)
+  can stop a close. C7 and test-plan item 12 say so. The test that released the close by hand
+  before the loop ended is replaced by one that cancels three times, and by one that cancels twice
+  under `asyncio.run` with nothing releasing the close and finds it ended.
+- Provenance read: `ProvenanceRead` is a closed record (`extra="forbid"`); its schema publishes
+  `additionalProperties: false`, and an unknown key is refused, not dropped. C9 and test-plan
+  item 10 say so; a new test checks the schema and the refusal.
+- Ollama: the real-app attempt matrix lacked Ollama, which test-plan item 8 names. A new
+  `tests/unit/upstream_attempts/test_app_ollama_wiring.py` drives a real Ollama chat through the
+  Gateway with accounting enabled and disabled: one send reads `1`, LiteLLM's hidden resend `2`.
+  A fake model listing and the fake transport replace a live host, on the loopback default host
+  (a remote host needs the allow-remote switch). Production already injected the observed client;
+  removing Ollama's `LITELLM_HTTP` declaration makes all four cases fail, so the test observes the
+  route's injection. Item 8 now names both providers and both accounting modes.
+- Ledger: the Commits line below no longer reads as if the PR had merged.
+- Process: on 2026-11-20 the owner confirmed the exact mirror path
+  `docs/tasks/2026-11-20-OME-1993-classify-choice-gateway.md`, approved earlier as
+  `docs/tasks/2026-11-20-OME-<N>-classify-choice-gateway.md`.
 
 ## Test plan
 
@@ -202,8 +228,9 @@ replacement client come from the same code; no retry logic is copied.
   - Owner-approved prior-test transitions: `tests/unit/remote_endpoint/test_app_classifier_catalog.py`
     (`d71d7abcbe95` → `2b675d227c4d`) and `tests/fixtures/cache_hit_contract/openrouter_hit.json`
     (`f935a58399c7` → `de998a556686`).
-- **Commits:** one commit on `OME-1993-classify-choice-gateway`, opened as one PR and
-  squash-merged after green CI; the merged sha goes in the Linear close comment.
+- **Commits:** PR #1988 on `OME-1993-classify-choice-gateway`: `d30eb6ff3` (PR-open) and the
+  round 3 review-fix commit after it. Merge sha pending green CI and review; it goes in the
+  Linear close comment.
 - **Gates:** 2026-11-20, on the final diff after the review fixes and the spec amendments:
   `run_gates.py aigateway --skip-append-only` green on Python 3.13 and 3.12 (ruff, format,
   pyright, no-enterprise, pytest with the 80 coverage floor); full suite 8270 passed, 119 skipped,
@@ -213,6 +240,10 @@ replacement client come from the same code; no retry logic is copied.
   and lifespan suites also pass under the SDK runtime set (LiteLLM 1.104.5, FastAPI 0.162.4,
   pydantic 2.14.3): 1050 passed. Engine `tests/unit/test_cache_hit_contract.py` passes unchanged
   on the regenerated fixture.
+  Round 3 (2026-11-20, after the review fixes on PR #1988, base `90483dcb2`, the branch point the
+  pre-push hook also uses): `run_gates.py aigateway --base 90483dcb2` green on Python 3.13 and 3.12,
+  the append-only check included; 8395 tests collected, coverage 94.30% (18190 statements, 1036
+  missed). The shutdown, provenance and attempt suites under the SDK runtime set: 176 passed.
 - **Deviations:**
   - `EndpointDefinition.classifier_targets` keeps its base meaning and type (HF targets only). The
     catalog walks `targets` and lists HF and choice targets together in declaration order, so a
