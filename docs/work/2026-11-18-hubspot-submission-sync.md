@@ -1,5 +1,5 @@
 ---
-ticket: unfiled   # leaf under OME-1504; set to OME-N when the issue is filed at PR-open
+ticket: OME-1991   # leaf under OME-1504
 stack: scoreboard
 status: in_progress
 started: 2026-11-18
