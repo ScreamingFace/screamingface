@@ -11,7 +11,7 @@ import importlib.util
 import json
 import sys
 from pathlib import Path
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 from typing import Any
 from uuid import UUID
 
@@ -112,15 +112,33 @@ class _FakeRegrader:
     def __init__(self, answers: dict[str, Exception | None]) -> None:
         self.answers: dict[str, Exception | None] = answers
         self.calls: list[str] = []
+        self.leaderboards = SimpleNamespace(_public_score=self._public_score)
 
-    def regrade(self, score_id: str) -> Any:
+    def regrade(self, score_id: str, *, expected_target_revision: str) -> Any:
         """Record the call, then raise the planned error or return a new entry."""
 
+        assert expected_target_revision == _NEW
         self.calls.append(score_id)
         error: Exception | None = self.answers[score_id]
         if error is not None:
             raise error
-        return type("NewEntry", (), {"id": f"new-{score_id}"})()
+        return SimpleNamespace(
+            id=f"new-{score_id}",
+            benchmark_id="inspect-mmlu_pro",
+            benchmark_revision=_NEW,
+            regraded_from=score_id,
+        )
+
+    def _public_score(self, existing_id: UUID) -> Any:
+        for source_id, error in self.answers.items():
+            if isinstance(error, LeaderboardError) and error.existing_score_id == existing_id:
+                return SimpleNamespace(
+                    score_id=existing_id,
+                    benchmark_id="inspect-mmlu_pro",
+                    benchmark_revision=_NEW,
+                    regraded_from=source_id,
+                )
+        raise AssertionError("unexpected existing-score read")
 
 
 def _entry(score_id: str | None, spec: str) -> Any:

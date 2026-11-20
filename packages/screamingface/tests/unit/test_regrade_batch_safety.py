@@ -130,6 +130,13 @@ def test_only_unterminated_tail_is_recovered_before_resume(tmp_path: Path, tail:
     batch.regrade_all(client, [_entry("one", "s1")], log)
     saved = log.read_bytes()
     log.write_bytes(saved + tail)
+    if tail == b'{"outcome":"regraded"}':
+        # A complete JSON value is evidence to inspect, never a partial write to discard.
+        with pytest.raises(batch.LogError):
+            batch.regrade_all(client, [_entry("one", "s1"), _entry("two", "s2")], log)
+        assert log.read_bytes() == saved + tail
+        assert client.calls == ["one"]
+        return
     batch.regrade_all(client, [_entry("one", "s1"), _entry("two", "s2")], log)
     assert client.calls == ["one", "two"]
     assert log.read_bytes().startswith(saved)
@@ -174,10 +181,14 @@ sys.modules[spec.name] = m
 spec.loader.exec_module(m)
 from pathlib import Path
 class Client:
-    def regrade(self, score_id):
+    def regrade(self, score_id, *, expected_target_revision):
+        assert expected_target_revision == "4efebd6cc74c2dca"
         print("REPLAY", flush=True)
         sys.stdin.readline()
-        return type("Result", (), {"id": "new"})()
+        return type("Result", (), {
+            "id": "new", "benchmark_id": "inspect-mmlu_pro",
+            "benchmark_revision": expected_target_revision, "regraded_from": score_id,
+        })()
 try:
     entry = m.Entry("inspect-mmlu_pro", "145edec84bfc2324", "s1", "copy", "one")
     m.regrade_all(Client(), [entry], Path(sys.argv[2]))
@@ -219,8 +230,15 @@ def test_default_scope_is_all_47_transitions_and_never_unrelated_boards() -> Non
             return httpx.Response(200, json={"benchmarks": rows})
         key = path.split("/")[3]
         assert key in batch.TRANSITIONS
-        visited.append(key)
-        return httpx.Response(200, json={"revisions": []})
+        if path.endswith("/revisions"):
+            visited.append(key)
+            return httpx.Response(
+                200,
+                json={
+                    "revisions": [{"revision": batch.TRANSITIONS[key]["source"], "result_count": 0}]
+                },
+            )
+        return httpx.Response(200, json={"entries": []})
 
     with httpx.Client(base_url="http://board", transport=httpx.MockTransport(board)) as http:
         assert batch.find_entries(http) == []
