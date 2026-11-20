@@ -1,4 +1,8 @@
-"""Child lifecycle facts must not finish a candidate or reset its timer."""
+"""Child lifecycle facts must not finish a candidate's row or reset its timer.
+
+The record's own rule (a child's end is not the Candidate's) is pinned on the Engine's fold:
+`apps/screamingface-engine/tests/unit/test_candidate_record_rules.py`.
+"""
 
 import json
 
@@ -48,9 +52,8 @@ def test_decoded_child_lifecycle_does_not_finish_candidate(early_child, child_sa
         "/child",
         elapsed=9.0,
     )
-    child = accept("ai.url4.terminated", {"status": "succeeded", "error": None}, "/child")
+    accept("ai.url4.terminated", {"status": "succeeded", "error": None}, "/child")
     row = progress.rows[0]
-    assert child.outcome is None
     assert (row.result, row.status, row.terminal_duration_seconds, row.started_elapsed_seconds) == (
         None,
         "running",
@@ -59,7 +62,6 @@ def test_decoded_child_lifecycle_does_not_finish_candidate(early_child, child_sa
     )
 
     accept("ai.url4.result", {"body": "{}", "media_type": "application/json"})
-    root = accept("ai.url4.terminated", {"status": "succeeded", "error": None})
-    assert root.outcome is not None
+    accept("ai.url4.terminated", {"status": "succeeded", "error": None})
     assert row.status == "finished"
     assert row.terminal_duration_seconds == 4.0

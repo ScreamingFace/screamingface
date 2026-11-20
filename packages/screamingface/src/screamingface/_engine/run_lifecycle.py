@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import uuid4
 
-from screamingface._core.ports import _RunOutcome
 from screamingface._engine.contract import _RunState
 from screamingface._evaluation.model import Candidate
 from screamingface.events import Event
@@ -17,7 +16,6 @@ from screamingface.events import Event
 class _LifecycleStep:
     command: str | None = None
     event: Event | None = None
-    outcome: _RunOutcome | None = None
 
 
 class _Lifecycle:
@@ -47,11 +45,7 @@ class _Lifecycle:
     def accept(self, frame: str | bytes) -> _LifecycleStep:
         accepted = self._state.accept(frame)
         command = None if accepted.replay_from is None else _attach(accepted.replay_from)
-        return _LifecycleStep(
-            command=command,
-            event=accepted.event,
-            outcome=accepted.outcome,
-        )
+        return _LifecycleStep(command=command, event=accepted.event)
 
 
 def _attach(from_sequence: int | None) -> str:

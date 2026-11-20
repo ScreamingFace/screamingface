@@ -29,6 +29,7 @@ from uuid import UUID
 
 import httpx
 import pytest
+from _run_transport import AsyncPlaying, AsyncScriptedRun
 from test_client_run import (
     REPLAY_URL4,
     _engine,
@@ -167,28 +168,16 @@ class _Replayer(_ReplayTransport):
         )
 
 
-class _AsyncReplayer(_Replayer):
-    async def run(self, candidate: Any, on_event: object) -> _RunOutcome:  # type: ignore[override]
-        return super().run(candidate, on_event)
-
-    async def cancel_active(self) -> None:  # type: ignore[override]
-        pass
-
-    async def close(self) -> None:  # type: ignore[override]
-        pass
+class _AsyncReplayer(AsyncPlaying):
+    def __init__(self, **options: Any) -> None:
+        super().__init__(_Replayer(**options))
 
 
-class _AsyncForbidden:
+class _AsyncForbidden(AsyncScriptedRun):
     """An async run transport that fails the test when it is asked to run anything."""
 
     async def run(self, candidate: object, on_event: object) -> _RunOutcome:
         pytest.fail("a score that cannot be replayed started a run")
-
-    async def cancel_active(self) -> None:
-        pass
-
-    async def close(self) -> None:
-        pass
 
 
 class _Board:

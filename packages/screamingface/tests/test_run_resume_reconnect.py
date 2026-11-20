@@ -31,6 +31,7 @@ from typing import Any, Literal
 from urllib.parse import urlsplit
 
 import pytest
+from _run_transport import ScriptedRun, settled_sync
 
 from screamingface._engine.transport import AsyncUrl4CloudTransport, Url4CloudTransport
 from screamingface._evaluation.model import (
@@ -39,7 +40,6 @@ from screamingface._evaluation.model import (
     _compiled_operation,
 )
 from screamingface._evaluation.outcome import _CandidatesFailed
-from screamingface._evaluation.runner import _run_candidates_sync
 from screamingface.errors import AuthenticationError, ExecutionError
 
 _WEBSOCKET_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
@@ -315,15 +315,16 @@ def _candidate() -> Candidate:
     )
 
 
-class _SweepCountingTransport:
+class _SweepCountingTransport(ScriptedRun):
     def __init__(self, error: BaseException) -> None:
+        super().__init__()
         self.error = error
         self.cancel_calls = 0
 
-    def run(self, candidate: Candidate, on_event: object = None) -> object:
+    def run(self, candidate: Candidate, on_event: object = None) -> Any:
         raise self.error
 
-    def cancel_active(self) -> None:
+    def on_cancel(self) -> None:
         self.cancel_calls += 1
         raise RuntimeError("DELETE / failed with 401")
 
@@ -336,21 +337,21 @@ def test_an_ordinary_candidate_failure_calls_no_sweep() -> None:
     """
     fake = _SweepCountingTransport(ExecutionError("Run stream lost", code="websocket_disconnected"))
     with pytest.raises(_CandidatesFailed):
-        _run_candidates_sync(fake, (_candidate(), _candidate()), None)  # type: ignore[arg-type]
+        settled_sync(fake, (_candidate(), _candidate()), None)
     assert fake.cancel_calls == 0
 
 
 def test_owner_abort_sweep_records_note_when_stop_rejected() -> None:
     """PIN (OME-1017, still honored for an owner abort — spec §4.1 C1a, owner Q1).
 
-    A KeyboardInterrupt stops every Run the Client owns, and a failed sweep is recorded as a
-    note on the interrupt itself.
+    A KeyboardInterrupt cancels the Run, once, and a failed cancel is recorded as a note on the
+    interrupt itself.
     """
     fake = _SweepCountingTransport(KeyboardInterrupt())
     with pytest.raises(KeyboardInterrupt) as caught:
-        _run_candidates_sync(fake, (_candidate(), _candidate()), None)  # type: ignore[arg-type]
+        settled_sync(fake, (_candidate(), _candidate()), None)
     assert any(
-        "Stopping active SF Engine runs also failed" in note
+        "on the SF Engine also failed: DELETE / failed with 401" in note
         for note in getattr(caught.value, "__notes__", ())
     )
     assert fake.cancel_calls == 1

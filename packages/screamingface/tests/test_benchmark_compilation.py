@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 import httpx
 import pytest
 from _model_parameter_fixtures import details as _model_details
+from _run_transport import ScriptedRun
 from url4 import RelExpr, build, expr, iterate, render, src, text
 
 import screamingface as sf
@@ -292,8 +293,9 @@ async def test_async_structural_candidate_bindings_are_rejected_before_model_pre
     assert requests == ["/v1/benchmarks/bench-1"]
 
 
-class _Transport:
+class _Transport(ScriptedRun):
     def __init__(self) -> None:
+        super().__init__()
         self.candidates: list[Candidate] = []
 
     def run(self, candidate: Candidate, on_event: object) -> _RunOutcome:
@@ -337,12 +339,6 @@ class _Transport:
             media_type="application/json",
             root_usage=None,
         )
-
-    def cancel_active(self) -> None:
-        pass
-
-    def close(self) -> None:
-        pass
 
 
 def test_client_fetches_once_then_locally_builds_every_candidate_url4() -> None:

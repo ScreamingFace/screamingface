@@ -13,6 +13,7 @@ import httpx
 import pytest
 from _combine_contract import requires_engine_app
 from _reducer_fixtures import fixture_operators, operators_response, reducer_fusion
+from _run_transport import AsyncPlaying, ScriptedRun
 from test_client_run import _AsyncReplayTransport, _ReplayTransport
 from test_engine_url4_contract_fixtures import corrective_vote_url4
 from url4 import expr, render, src, text
@@ -53,29 +54,17 @@ def _plain_replay() -> str:
     return _replay(compile_candidate(sf.Model("provider/opus", prompt="Answer.")).url4)
 
 
-class _ForbiddenTransport:
+class _ForbiddenTransport(ScriptedRun):
     called = False
 
     def run(self, candidate: Candidate, on_event: object) -> NoReturn:
         self.called = True
         raise AssertionError("an unknown operator must fail before execution")
 
-    def cancel_active(self) -> None:
-        pass
 
-    def close(self) -> None:
-        pass
-
-
-class _AsyncForbiddenTransport(_ForbiddenTransport):
-    async def run(self, candidate: Candidate, on_event: object) -> NoReturn:
-        return super().run(candidate, on_event)
-
-    async def cancel_active(self) -> None:
-        pass
-
-    async def close(self) -> None:
-        pass
+class _AsyncForbiddenTransport(AsyncPlaying):
+    def __init__(self) -> None:
+        super().__init__(_ForbiddenTransport())
 
 
 def _engine(

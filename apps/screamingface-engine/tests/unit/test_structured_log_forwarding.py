@@ -111,7 +111,7 @@ async def test_existing_client_decodes_real_serialized_engine_lifecycle():
     script = """
 import sys
 from screamingface._engine.contract import _RunState
-from screamingface.events import Log
+from screamingface.events import Log, Terminated
 state = _RunState("/operation()!go")
 logs = []
 for line in sys.stdin:
@@ -121,7 +121,7 @@ for line in sys.stdin:
 assert len(logs) == 1
 assert logs[0].attributes == {"marker": "client", "count": 2, "ok": True, "unknown": None}
 assert logs[0].traceparent
-assert accepted.outcome is not None
+assert isinstance(accepted.event, Terminated) and accepted.event.status == "succeeded"
 """
     result = subprocess.run(
         [sys.executable, "-c", script],

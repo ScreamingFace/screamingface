@@ -29,12 +29,7 @@ if TYPE_CHECKING:
 
     import httpx
 
-    from screamingface._core.ports import (
-        AsyncRunTransport,
-        SyncRunTransport,
-        _AsyncTransport,
-        _SyncTransport,
-    )
+    from screamingface._core.ports import AsyncRunTransport, SyncRunTransport
     from screamingface._engine.catalog import AsyncBenchmarks, AsyncModels, Benchmarks, Models
     from screamingface._engine.connections import AsyncConnections, Connections
     from screamingface._engine.runs import RunRecord
@@ -111,7 +106,7 @@ class Client:
             auth=self._scoreboard_auth,
             transport=scoreboard_transport,
         )
-        self._transport: _SyncTransport = (
+        self._transport: SyncRunTransport = (
             run_transport
             if run_transport is not None
             else Url4CloudTransport(self._engine_url, self._engine_auth, save_results=save_results)
@@ -446,7 +441,6 @@ class Client:
         7 days at most). `run.wait()` gives the Report, from this machine or any other.
         """
 
-        from screamingface._engine.limits import caller_inflight_cap_sync
         from screamingface._evaluation.runner import evaluate_sync
         from screamingface._evaluation.url4 import evaluate_url4_sync
 
@@ -508,7 +502,6 @@ class Client:
             use_cache=use_cache,
             load_operators=self._operator_catalog.load,
             cases=cases,
-            load_caller_cap=lambda: caller_inflight_cap_sync(self._http),
             detach=detach,
             deadline_s=deadline_s,
         )
@@ -839,7 +832,7 @@ class AsyncClient:
             auth=self._scoreboard_auth,
             transport=scoreboard_transport,
         )
-        self._transport: _AsyncTransport = (
+        self._transport: AsyncRunTransport = (
             run_transport
             if run_transport is not None
             else AsyncUrl4CloudTransport(
@@ -1138,7 +1131,6 @@ class AsyncClient:
         7 days at most). `run.wait()` gives the Report, from this machine or any other.
         """
 
-        from screamingface._engine.limits import caller_inflight_cap_async
         from screamingface._evaluation.runner import evaluate_async
         from screamingface._evaluation.url4 import evaluate_url4_async
 
@@ -1199,7 +1191,6 @@ class AsyncClient:
             use_cache=use_cache,
             load_operators=self._operator_catalog.load,
             cases=cases,
-            load_caller_cap=lambda: caller_inflight_cap_async(self._http),
             detach=detach,
             deadline_s=deadline_s,
         )

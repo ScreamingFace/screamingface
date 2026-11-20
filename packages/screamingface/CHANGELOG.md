@@ -52,6 +52,12 @@
   `ExecutionError("runs_off")` (an evaluation no longer runs without a Run). `Run.wait()` now
   follows the Run and returns its `Report` (it returned the `Run`, and took `timeout=`).
 
+* **screamingface:** `run_transport` on `Client` and `AsyncClient` takes a transport that follows
+  a Run (`OME-1837`): `register_run`, `follow_run`, `cancel_run` and `close`, the shape of the
+  `SyncRunTransport` and `AsyncRunTransport` protocols. A custom transport that ran one Candidate
+  at a time with `run()` and `cancel_active()` no longer works, since the Engine runs every
+  Candidate.
+
 * **screamingface:** `evaluate` no longer captures a pinned cache by default. Capture is now
   opt-in: pass `capture=True` to `sf.evaluate`, `Client.evaluate` or `AsyncClient.evaluate` to
   store the run's answers so the score can be reproduced. A run without `capture=True` has no

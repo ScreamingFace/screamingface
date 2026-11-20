@@ -25,6 +25,7 @@ from typing import Any
 import httpx
 import pytest
 from _model_parameter_fixtures import details as _subsidized_details
+from _run_transport import AsyncScriptedRun, ScriptedRun
 from test_model_parameter_preflight import _BENCHMARK, _summary
 
 import screamingface as sf
@@ -100,32 +101,20 @@ class _Dispatched(RuntimeError):
     pass
 
 
-class _Run:
+class _Run(ScriptedRun):
     calls = 0
 
     def run(self, candidate: object, on_event: object) -> Any:
         self.calls += 1
         raise _Dispatched("execution reached")
 
-    def close(self) -> None:
-        pass
 
-    def cancel_active(self) -> None:
-        pass
-
-
-class _AsyncRun:
+class _AsyncRun(AsyncScriptedRun):
     calls = 0
 
     async def run(self, candidate: object, on_event: object) -> Any:
         self.calls += 1
         raise _Dispatched("execution reached")
-
-    async def close(self) -> None:
-        pass
-
-    async def cancel_active(self) -> None:
-        pass
 
 
 class _Engine:

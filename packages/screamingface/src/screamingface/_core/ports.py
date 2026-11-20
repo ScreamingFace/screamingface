@@ -153,68 +153,11 @@ class _ConnectionNotice:
 class _ConnectionListener(Protocol):
     """An `on_event` observer that also renders connection notices.
 
-    WHY a capability check and not a second `run()` argument: the transport port stays
-    unchanged for every implementation, and only the runner's bound observer opts in.
+    WHY a capability check: only the runner's bound observer renders connection notices, so a
+    plain `on_event` callback never has to.
     """
 
     def connection(self, notice: _ConnectionNotice) -> None: ...
-
-
-class SyncRunTransport(Protocol):
-    """Execute one inspected Candidate through an SF Engine."""
-
-    def run(
-        self,
-        candidate: Candidate,
-        on_event: SyncEventObserver | None,
-    ) -> _RunOutcome: ...
-
-    def cancel_active(self) -> None: ...
-
-    def close(self) -> None: ...
-
-
-class AsyncRunTransport(Protocol):
-    """Asynchronous counterpart of :class:`SyncRunTransport`."""
-
-    async def run(
-        self,
-        candidate: Candidate,
-        on_event: AsyncEventObserver | None,
-    ) -> _RunOutcome: ...
-
-    async def cancel_active(self) -> None: ...
-
-    async def close(self) -> None: ...
-
-
-__all__: list[str] = []
-
-
-@runtime_checkable
-class _RunRegistration(Protocol):
-    """A transport that records each evaluation as a Run on the Engine (E5 P1 spec R1, D8).
-
-    A transport without it (a test fake) runs every evaluation without a Run.
-    """
-
-    def open_run(
-        self, benchmark: str, case_count: int, candidates: tuple[Candidate, ...]
-    ) -> str | None: ...
-
-    def abort_evaluation(self, candidates: tuple[Candidate, ...]) -> None: ...
-
-
-@runtime_checkable
-class _AsyncRunRegistration(Protocol):
-    """The async twin of `_RunRegistration`. AIDEV-NOTE: `isinstance` sees only the name, so
-    each caller checks the twin matching the transport it holds."""
-
-    async def open_run(
-        self, benchmark: str, case_count: int, candidates: tuple[Candidate, ...]
-    ) -> str | None: ...
-
-    async def abort_evaluation(self, candidates: tuple[Candidate, ...]) -> None: ...
 
 
 @runtime_checkable
@@ -253,14 +196,9 @@ class _AsyncRunSink(Protocol):
     def quiet(self) -> None: ...
 
 
-@runtime_checkable
-class _RunFollowing(Protocol):
-    """A transport the Engine drives (E5 P2 spec D1, D13): it registers the whole evaluation as a
-    Run, with every Candidate's start, and follows it; the runner starts no Candidate.
-
-    A transport without it (a test fake with `run()` alone) keeps the per-Candidate path until
-    the Client port PR removes it.
-    """
+class SyncRunTransport(Protocol):
+    """Run an Evaluation on an SF Engine: register it as a Run, with every Candidate's start, and
+    follow it (E5 P2 spec D1, D13). The Engine drives the Run; the Client starts no Candidate."""
 
     def register_run(
         self,
@@ -280,10 +218,8 @@ class _RunFollowing(Protocol):
     def close(self) -> None: ...
 
 
-@runtime_checkable
-class _AsyncRunFollowing(Protocol):
-    """The async twin of `_RunFollowing`. AIDEV-NOTE: `isinstance` sees only the names, so
-    each caller checks the twin matching the transport it holds."""
+class AsyncRunTransport(Protocol):
+    """Asynchronous counterpart of :class:`SyncRunTransport`."""
 
     async def register_run(
         self,
@@ -366,7 +302,4 @@ class _AsyncRunReattaching(Protocol):
     async def wait_run_async(self, run_id: str, *, detached: bool) -> None: ...
 
 
-#: What a Client holds until the Client port PR leaves one port: a transport the Engine drives,
-#: or a `run()`-only one (every test fake).
-type _SyncTransport = SyncRunTransport | _RunFollowing
-type _AsyncTransport = AsyncRunTransport | _AsyncRunFollowing
+__all__: list[str] = []

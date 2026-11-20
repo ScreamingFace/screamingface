@@ -38,8 +38,8 @@ from screamingface.report import Report
 if TYPE_CHECKING:
     from screamingface.client import AsyncClient, Client
 
-#: How often `wait()` reads a Run whose Client's transport cannot follow it (a custom
-#: `run_transport`).
+#: How often `wait()` reads a Run whose Client's transport cannot wait for a Run by its id (a
+#: custom `run_transport`).
 _WAIT_POLL_S = 5.0
 
 
@@ -213,8 +213,8 @@ class _SyncRuns:
         if isinstance(transport, _RunReattaching):
             transport.wait_run(run.id, detached=run.detached)
             return
-        # WHY: a custom `run_transport` cannot follow; the Run's summary still says when it
-        # ends.
+        # WHY: a custom `run_transport` cannot wait for a Run by its id; the Run's summary still
+        # says when it ends.
         while self.summary(run.id).state == "running":
             time.sleep(_WAIT_POLL_S)
 

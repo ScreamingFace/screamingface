@@ -252,7 +252,7 @@ async def test_existing_independent_client_accepts_real_model_activity_wire():
     script = """
 import sys
 from screamingface._engine.contract import _RunState
-from screamingface.events import Log
+from screamingface.events import Log, Terminated
 state = _RunState("/model('PRIVATE PROMPT')!go")
 logs = []
 for line in sys.stdin:
@@ -261,7 +261,7 @@ for line in sys.stdin:
         logs.append(accepted.event)
 assert [log.attributes['sf.activity.state'] for log in logs] == ['started', 'completed']
 assert logs[0].traceparent == logs[1].traceparent
-assert accepted.outcome is not None
+assert isinstance(accepted.event, Terminated) and accepted.event.status == "succeeded"
 """
     result = subprocess.run(
         [sys.executable, "-c", script],

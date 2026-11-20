@@ -21,6 +21,7 @@ from _model_parameter_fixtures import DETAILS as _DETAILS
 from _model_parameter_fixtures import SUMMARY as _SUMMARY
 from _nodes import fusion_node
 from _reducer_fixtures import FixtureVote, operators_response
+from _run_transport import ScriptedRun
 from url4 import RelExpr, expr, render, src, text
 
 import screamingface as sf
@@ -115,18 +116,12 @@ class _Engine:
         return [path for path in self.paths if path.startswith("/v1/model-parameters")]
 
 
-class _ForbiddenTransport:
+class _ForbiddenTransport(ScriptedRun):
     called = False
 
     def run(self, candidate: object, on_event: object) -> NoReturn:
         self.called = True
         raise AssertionError("the seed preflight must refuse before any spend")
-
-    def cancel_active(self) -> None:
-        pass
-
-    def close(self) -> None:
-        pass
 
 
 def _candidate() -> sf.Recipe:

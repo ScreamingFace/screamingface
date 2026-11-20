@@ -1,4 +1,4 @@
-"""Hop 3 of the cross-stack cache-hit contract: the Client CONSUMES the Engine's run stream.
+"""Hop 3 of the cross-stack cache-hit contract: the Client CONSUMES the Engine's run.
 
 FEATURE: what the cache saved, carried from the gateway to the board (spec
 ``docs/spec/2026-09-28-aigateway-cache-hit-metadata.md`` §3.2; OME-1155, OME-1326).
@@ -10,7 +10,8 @@ The input ``apps/screamingface-engine/tests/unit/data/cache_hit_contract/run_eve
 real Engine's CloudEvents stream for a run whose only model call aigateway answered with its real
 hit response. The Engine regenerates it (``test_cache_hit_contract.py`` there) from aigateway's
 own fixture, so a change anywhere upstream reaches this file. It is read by repository path: the
-Engine is not a dependency of the Client.
+Engine is not a dependency of the Client. The Engine's fold reads the saving from it into the
+Candidate's record (`test_candidate_record_evidence_rules.py` there); the Client reads the record.
 """
 
 from __future__ import annotations
@@ -27,7 +28,7 @@ from test_client_run import REPLAY_URL4, _engine, _ReplayTransport
 
 import screamingface as sf
 from screamingface._core.ports import _RunOutcome
-from screamingface._engine.contract import _RunState
+from screamingface._engine.contract import _RunState, usage_value
 from screamingface._scoreboard.leaderboards import _submission
 from screamingface.errors import ExecutionError
 
@@ -35,7 +36,6 @@ _REPO_ROOT = Path(__file__).resolve().parents[3]
 RUN_EVENTS = (
     _REPO_ROOT / "apps/screamingface-engine/tests/unit/data/cache_hit_contract/run_events.json"
 )
-GATEWAY_HIT = _REPO_ROOT / "apps/aigateway/tests/fixtures/cache_hit_contract/openrouter_hit.json"
 
 # The expression the Engine ran to produce the stream. `_RunState` identifies the root by it.
 _URL4 = "/openrouter/anthropic/claude-fable-5(ctx)!go"
@@ -46,37 +46,35 @@ def _events() -> list[dict[str, Any]]:
     return json.loads(RUN_EVENTS.read_text(encoding="utf-8"))
 
 
-def _decoded() -> _RunOutcome:
-    """Feed the stream, frame by frame as raw wire text, through the Client's own decoder."""
-    state = _RunState(_URL4)
-    outcome = None
-    for event in _events():
-        accepted = state.accept(json.dumps(event))
-        if accepted.outcome is not None:
-            outcome = accepted.outcome
-    assert outcome is not None, "the stream never produced a root outcome"
-    return outcome
+def _recorded_usage() -> sf.Usage:
+    """The run's usage as the Engine's record carries it (the root's subtree `cost.usage` data),
+    read the way the Client reads a record's usage."""
+    data = next(
+        event["data"]
+        for event in _events()
+        if event["type"] == "ai.url4.cost.usage" and event["data"]["scope"] == "subtree"
+    )
+    return usage_value(data)
 
 
 class _StreamedCacheTransport(_ReplayTransport):
-    """The replay Candidate, with three fields copied from the decoded stream onto it.
+    """The replay Candidate, with the three fields the Engine's record gives for this run.
 
-    WHAT IS TESTED WHERE: the hop under test is `_RunState` decoding the Engine's real stream
-    (`_decoded`, asserted directly above the Report test). This transport then copies
-    `root_usage`, `cache_saved_cost_usd` and `cache_saved_cost_archive_usd` from that decoded
-    outcome onto a benchmark-shaped replay outcome, because the stream is a plain model call and
-    its result body is not a Candidate Result. The Report / `_submission` assertions therefore
-    check the Client's PLUMBING from `_RunOutcome` onward, not a second decode.
+    WHAT IS TESTED WHERE: the hop that reads the Engine's real stream is the Engine's fold
+    (`test_the_real_stream_carries_the_gateways_saving` there: a saving of 0.012345, no archive
+    saving, the root's subtree usage). This transport copies those onto a benchmark-shaped replay
+    outcome, because the stream is a plain model call and its result body is not a Candidate
+    Result. The Report / `_submission` assertions therefore check the Client's PLUMBING from
+    `_RunOutcome` onward, not a second decode.
     """
 
     def run(self, candidate: object, on_event: object) -> _RunOutcome:
         outcome = super().run(candidate, on_event)  # type: ignore[arg-type]
-        streamed = _decoded()
         return replace(
             outcome,
-            root_usage=streamed.root_usage,
-            cache_saved_cost_usd=streamed.cache_saved_cost_usd,
-            cache_saved_cost_archive_usd=streamed.cache_saved_cost_archive_usd,
+            root_usage=_recorded_usage(),
+            cache_saved_cost_usd=_SAVED,
+            cache_saved_cost_archive_usd=None,
         )
 
 
@@ -101,28 +99,6 @@ def test_mismatched_root_url4_raises_instead_of_leaving_the_stream_without_an_ou
     with pytest.raises(ExecutionError, match="run root was never identified.*URL4 mismatch"):
         for event in _events():
             state.accept(json.dumps(event))
-
-
-def test_the_decoder_recovers_the_gateways_saving_from_the_stream() -> None:
-    outcome = _decoded()
-
-    assert outcome.cache_saved_cost_usd == _SAVED
-    # A hit that no provenance other than `reported` priced leaves the archive total ABSENT.
-    assert outcome.cache_saved_cost_archive_usd is None
-    assert outcome.root_usage is not None
-    # INVARIANT (PRD I1): the hit's own spend is zero; the saving never enters it.
-    assert outcome.root_usage.cost_usd == Decimal("0")
-
-
-def test_the_saving_is_the_one_the_gateway_recorded_at_fill_time() -> None:
-    # Ties the last hop to the first one: the number the Client carries is the gateway's own,
-    # converted 1:1 from `openrouter_credits`, with no hop re-deriving it.
-    reference = json.loads(GATEWAY_HIT.read_text(encoding="utf-8"))["body"]["_aigw"][
-        "usage_accounting"
-    ]["cache"]["reference"]
-
-    assert reference["direct_cost"]["unit"] == "openrouter_credits"
-    assert Decimal(reference["direct_cost"]["amount"]) == _decoded().cache_saved_cost_usd
 
 
 def test_the_report_and_the_submission_carry_the_gateways_saving() -> None:

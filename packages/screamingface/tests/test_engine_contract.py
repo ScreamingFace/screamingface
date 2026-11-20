@@ -61,10 +61,8 @@ def test_state_decodes_public_events_and_root_lifecycle() -> None:
 
     assert isinstance(started.event, sf.events.Started)
     assert result.event is None
-    assert terminated.outcome is not None
-    assert terminated.outcome.run_id == "run_1"
-    assert terminated.outcome.result_body == '{"schema":"result"}'
-    assert terminated.outcome.started_at.isoformat() == "2026-07-25T16:00:00+00:00"
+    assert isinstance(terminated.event, sf.events.Terminated)
+    assert terminated.event.status == "succeeded"
 
 
 @pytest.mark.parametrize("status", ["succeeded", "failed", "stopped", "timed_out"])
@@ -84,7 +82,7 @@ def test_out_of_order_termination_replays_the_missing_root_start_before_decoding
     state.accept(frame("ai.url4.started", {"url4": URL4}, sequence=1))
     state.accept(frame("ai.url4.result", {"body": "hello"}, sequence=2))
 
-    assert state.accept(terminal).outcome is not None
+    assert isinstance(state.accept(terminal).event, sf.events.Terminated)
 
 
 def test_unpriced_usage_does_not_fabricate_zero_accounting() -> None:
@@ -157,7 +155,6 @@ def test_heartbeat_is_internal_and_does_not_participate_in_stream_sequence() -> 
     accepted = state.accept(frame("ai.url4.heartbeat", {}, sequence=None))
 
     assert accepted.event is None
-    assert accepted.outcome is None
     assert accepted.replay_from is None
 
 
@@ -273,67 +270,6 @@ def test_state_rejects_malformed_or_inconsistent_frames() -> None:
         state.accept(json.dumps(changed))
 
 
-def test_succeeded_root_requires_exactly_one_result() -> None:
-    state = _RunState(URL4)
-    state.accept(frame("ai.url4.started", {"url4": URL4}, sequence=1))
-
-    with pytest.raises(sf.ExecutionError, match="without a root result"):
-        state.accept(
-            frame(
-                "ai.url4.terminated",
-                {"status": "succeeded", "error": None},
-                sequence=2,
-            )
-        )
-
-
-def test_failed_root_becomes_a_structured_execution_error() -> None:
-    state = _RunState(URL4)
-    state.accept(frame("ai.url4.started", {"url4": URL4}, sequence=1))
-
-    with pytest.raises(sf.ExecutionError) as caught:
-        state.accept(
-            frame(
-                "ai.url4.terminated",
-                {
-                    "status": "failed",
-                    "error": {
-                        "code": "gateway_timeout",
-                        "message": "The model timed out.",
-                        "permanent": False,
-                    },
-                },
-                sequence=2,
-            )
-        )
-
-    assert caught.value.code == "gateway_timeout"
-    assert caught.value.permanent is False
-
-
-def test_root_result_preserves_optional_media_type_without_interpreting_the_body() -> None:
-    state = _RunState(URL4)
-    state.accept(frame("ai.url4.started", {"url4": URL4}, sequence=1))
-    state.accept(
-        frame(
-            "ai.url4.result",
-            {"body": "[mock] done", "media_type": None},
-            sequence=2,
-        )
-    )
-    terminated = state.accept(
-        frame(
-            "ai.url4.terminated",
-            {"status": "succeeded", "error": None},
-            sequence=3,
-        )
-    )
-
-    assert terminated.outcome is not None
-    assert terminated.outcome.result_body == "[mock] done"
-    assert terminated.outcome.media_type is None
-
-
 def test_state_decodes_log_span_and_non_root_lifecycle() -> None:
     state = _RunState(URL4)
     state.accept(frame("ai.url4.started", {"url4": URL4}, sequence=1))
@@ -391,7 +327,7 @@ def test_state_decodes_log_span_and_non_root_lifecycle() -> None:
     assert isinstance(span.event, sf.events.Span)
     assert span.event.finish_reasons == ("tool_calls", "stop")
     assert span.event.refusal == "policy refusal"
-    assert ignored_result.outcome is None
+    assert ignored_result.event is None
     assert isinstance(child_terminal.event, sf.events.Terminated)
 
 
@@ -400,24 +336,6 @@ def test_state_rejects_duplicate_root_events_and_consumes_protocol_nacks() -> No
     state.accept(frame("ai.url4.started", {"url4": URL4}, sequence=1))
     with pytest.raises(sf.ExecutionError, match="duplicate root started"):
         state.accept(frame("ai.url4.started", {"url4": URL4}, sequence=2))
-
-    state = _RunState(URL4)
-    state.accept(frame("ai.url4.started", {"url4": URL4}, sequence=1))
-    state.accept(
-        frame(
-            "ai.url4.result",
-            {"body": "{}", "media_type": "application/json"},
-            sequence=2,
-        )
-    )
-    with pytest.raises(sf.ExecutionError, match="duplicate root result"):
-        state.accept(
-            frame(
-                "ai.url4.result",
-                {"body": "{}", "media_type": "application/json"},
-                sequence=3,
-            )
-        )
 
     state = _RunState(URL4)
     advisory = state.accept(
@@ -499,17 +417,6 @@ def test_state_accepts_utf8_bytes_and_rejects_non_utf8_or_binary_objects() -> No
 
 
 def test_state_rejects_invalid_event_payloads() -> None:
-    state = _RunState(URL4)
-    state.accept(frame("ai.url4.started", {"url4": URL4}, sequence=1))
-    with pytest.raises(sf.ExecutionError, match="media_type"):
-        state.accept(
-            frame(
-                "ai.url4.result",
-                {"body": "x", "media_type": 123},
-                sequence=2,
-            )
-        )
-
     with pytest.raises(sf.ExecutionError, match="severity_text"):
         _RunState(URL4).accept(
             frame(
@@ -629,7 +536,6 @@ def test_an_unsequenced_advisory_log_is_kept_out_of_the_ordered_stream(
         accepted = state.accept(_null_sequenced_log())
 
     assert accepted.event is None
-    assert accepted.outcome is None
     assert accepted.replay_from is None
     # The notice reaches a human: it cannot become a public Event, because Event.sequence is
     # a mandatory positive integer and inventing one would pollute replay order.
@@ -728,65 +634,6 @@ def test_unsequenced_lifecycle_frames_are_still_rejected(
     # would corrupt the billing total the user reads in their Report.
     with pytest.raises(sf.ExecutionError, match="sequence"):
         _RunState(URL4).accept(frame(event_type, data, sequence=None))
-
-
-# FEATURE: deliver large results in full instead of cutting them off at 1 MiB (OME-892).
-# A result frame may carry an artifact claim ticket instead of an inline body; the state
-# machine surfaces it on the outcome for the transport to redeem before anyone decodes it.
-
-_SHA = "9f" * 32
-
-
-def _artifact_data(**overrides: object) -> dict[str, object]:
-    value: dict[str, object] = {
-        "body": None,
-        "media_type": None,
-        "artifact": {"id": _SHA, "size_bytes": 11, "sha256": _SHA},
-    }
-    value.update(overrides)
-    return value
-
-
-def test_state_decodes_an_artifact_result() -> None:
-    state = _RunState(URL4)
-    state.accept(frame("ai.url4.started", {"url4": URL4}, sequence=1))
-    state.accept(frame("ai.url4.result", _artifact_data(), sequence=2))
-    terminated = state.accept(
-        frame("ai.url4.terminated", {"status": "succeeded", "error": None}, sequence=3)
-    )
-
-    outcome = terminated.outcome
-    assert outcome is not None
-    # INVARIANT: the raw outcome carries the UNREDEEMED ticket — result_body stays None
-    # until the transport fetches and verifies; nothing downstream may guess at content.
-    assert outcome.result_body is None
-    assert outcome.artifact is not None
-    assert outcome.artifact.id == _SHA
-    assert outcome.artifact.size_bytes == 11
-    assert outcome.artifact.sha256 == _SHA
-
-
-@pytest.mark.parametrize(
-    "artifact",
-    [
-        {"id": "../etc/passwd", "size_bytes": 11, "sha256": "9f" * 32},
-        {"id": "9f" * 32, "size_bytes": "11", "sha256": "9f" * 32},
-        {"id": "9f" * 32, "size_bytes": 11},
-        "not a mapping",
-    ],
-)
-def test_state_rejects_malformed_artifact_references(artifact: object) -> None:
-    state = _RunState(URL4)
-    state.accept(frame("ai.url4.started", {"url4": URL4}, sequence=1))
-    with pytest.raises(ExecutionError):
-        state.accept(frame("ai.url4.result", {"body": None, "artifact": artifact}, sequence=2))
-
-
-def test_state_rejects_a_result_with_neither_body_nor_artifact() -> None:
-    state = _RunState(URL4)
-    state.accept(frame("ai.url4.started", {"url4": URL4}, sequence=1))
-    with pytest.raises(ExecutionError):
-        state.accept(frame("ai.url4.result", {"body": None, "media_type": None}, sequence=2))
 
 
 def test_state_decodes_span_cache_provenance() -> None:
