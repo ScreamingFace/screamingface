@@ -219,16 +219,24 @@ def install_medxpert(node: Url4Node, assets: Path) -> None:
     install(node, assets / ASSET_BUNDLE_ID)
 
 
-#: FEATURE: answer format on the Benchmark page (OME-1906). What `grading.extract_letter` reads,
-#: in the words a submitter sees; every quoted reply is graded by `grading.grade` in
-#: tests/unit/test_medxpert_answer_format.py. WHY here and not in the inspect plugin's
-#: `answer_formats` package: medxpert is hand-built core code, and core never imports a plugin.
+#: FEATURE: answer format on the Benchmark page (OME-1906). What the SCORING parser,
+#: `answering.extract_choice_letter`, reads from the turn-2 reply, in the words a submitter
+#: sees; every quoted reply is graded through it in
+#: tests/unit/test_medxpert_answer_format_scoring_path.py. WHY here and not in the inspect
+#: plugin's `answer_formats` package: medxpert is hand-built core code, and core never imports
+#: a plugin.
+#: AIDEV-NOTE: not `grading.extract_letter` (last letter wins) — that parser is not on the
+#: scoring path, and describing it here cost a user ~11 points on a prose commit.
 ANSWER_FORMAT: str = (
-    "Answer format: after its reasoning, the model is asked to finish 'the answer is' with one "
-    "option letter. The grader reads that phrase first, so 'the answer is D. B would be "
-    "wrong.' counts as D; without it, it takes the last bracketed letter, then the last option "
-    "letter on its own, so 'D', '(D)', '**D**' and 'the answer is D' all count; a reply with no "
-    "option letter, such as 'not sure', scores 0."
+    "Answer format: after its reasoning, the model gets a second turn asking it to finish "
+    "'Therefore, among A through J, the answer is' with one option letter. The grader reads "
+    "that reply the way the official MedXpertQA harness does: it keeps the text after 'the "
+    "answer is' if the reply repeats it, then takes the first capital option letter standing "
+    "on its own. So 'D', '(D)', '**D**', 'the answer is D' and 'the answer is D. B would be "
+    "wrong.' all count as D, and a reply with no option letter, such as 'not sure', scores 0. "
+    "A reply that opens in prose commits its first stray capital: 'A humeral shaft fracture, "
+    "so D' counts as A, and a standalone 'I' counts as I. Recipe authors: make the commit "
+    "reply the letter alone."
 )
 
 MEDXPERT = Benchmark(
