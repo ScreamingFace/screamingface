@@ -11,17 +11,23 @@ from collections.abc import AsyncIterator
 from datetime import timedelta
 from decimal import Decimal
 from pathlib import Path
+from typing import Any
 
+import asyncpg
 import pytest
 import pytest_asyncio
 from run_registry_support import (
     DATABASES,
+    LOST_AFTER,
+    ORPHAN_GRACE,
     T0,
     Registry,
     open_registry,
     postgres_server,  # noqa: F401  (a fixture the Postgres parameter requests)
     spec,
+    start_spec,
 )
+from tortoise.backends.asyncpg.client import TransactionWrapper
 
 from screamingface_engine.candidate_outcomes import CandidateOutcome
 from screamingface_engine.runs.records import owner_key
@@ -134,3 +140,85 @@ async def test_a_cancel_racing_the_last_outcome_never_cancels_a_finished_run(
     # the cancel changed nothing (D12). The outcome is recorded either way.
     assert record.state in ("canceled", "complete")
     assert record.candidates[0].state == "succeeded"
+
+
+# --- a hold and reconcile (OME-1992, review round 3) ---------------------------------------
+
+_POSTGRES = [db for db in DATABASES if db.id == "postgres"]
+
+
+@pytest_asyncio.fixture(params=_POSTGRES)
+async def postgres_registry(
+    request: pytest.FixtureRequest, tmp_path: Path
+) -> AsyncIterator[Registry]:
+    """WHY Postgres only: SQLite runs every statement of the store on one connection, which a
+    transaction holds to its end, so reconcile cannot run inside a hold there at all."""
+    async for opened in open_registry(request, tmp_path):
+        yield opened
+
+
+def _pause_before_the_deadline_update(
+    monkeypatch: pytest.MonkeyPatch,
+) -> tuple[asyncio.Event, asyncio.Event]:
+    """Stop a hold just before its deadline UPDATE, after its lock and live check, until
+    released. Returns (paused, release)."""
+    paused, release = asyncio.Event(), asyncio.Event()
+    execute = TransactionWrapper.execute_query
+
+    async def pausing(
+        self: TransactionWrapper, query: str, values: list[Any] | None = None
+    ) -> tuple[int, list[dict[str, Any]]]:
+        if query.lstrip().startswith('UPDATE "runs"') and '"deadline_at"' in query:
+            paused.set()
+            await release.wait()
+        return await execute(self, query, values)
+
+    monkeypatch.setattr(TransactionWrapper, "execute_query", pausing)
+    return paused, release
+
+
+async def _done_before_waiting(task: asyncio.Task[int], url: str) -> bool:
+    """Whether ``task`` finished before any statement on the server waited for a lock."""
+    conn = await asyncpg.connect(url)
+    try:
+        async with asyncio.timeout(10):
+            while not task.done():
+                if await conn.fetchval("SELECT count(*) FROM pg_locks WHERE NOT granted"):
+                    return False
+                await asyncio.sleep(0.01)
+    finally:
+        await conn.close()
+    return True
+
+
+async def test_reconcile_never_finishes_the_last_candidate_inside_a_hold(
+    postgres_registry: Registry, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review round 3, finding 2: reconcile settles stale Candidates `lost` in one UPDATE,
+    without the Run's lock that orders `hold` and `settle`. Between hold's live check and its
+    deadline update it finished the Run's last Candidate, so the hold moved a finished Run's
+    deadline. INVARIANT (R10): a hold moves the deadline only while a Candidate is live, so
+    reconcile waits for a hold that saw one."""
+    registry = postgres_registry
+    run = await registry.store.create(ALICE, start_spec("alpha"))
+    await registry.store.bind(ALICE, run.id, 0, "t" * 64)
+    await registry.store.mark_scheduled("t" * 64)
+    # Past `lost_after`: reconcile settles the Run's only Candidate `lost`.
+    registry.clock.advance(seconds=LOST_AFTER.total_seconds() + 1)
+    paused, release = _pause_before_the_deadline_update(monkeypatch)
+    hold = asyncio.create_task(registry.store.hold(run.id))
+    await asyncio.wait_for(paused.wait(), 10)
+
+    reconcile = asyncio.create_task(registry.store.reconcile())
+    finished_inside = await _done_before_waiting(reconcile, registry.url)
+    inside = await registry.store.get(ALICE, run.id)
+    release.set()
+    await asyncio.wait_for(asyncio.gather(hold, reconcile), 10)
+    after = await registry.store.get(ALICE, run.id)
+
+    assert not finished_inside, "reconcile finished the Candidate between the check and update"
+    assert inside is not None and inside.candidates[0].state == "scheduled"
+    assert reconcile.result() == 1
+    assert after is not None and after.candidates[0].state == "lost"
+    # The hold landed while the Candidate was live; the Candidate ended after it.
+    assert after.deadline_at == registry.clock() + ORPHAN_GRACE

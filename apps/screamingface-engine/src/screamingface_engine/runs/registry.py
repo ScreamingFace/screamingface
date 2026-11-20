@@ -193,7 +193,7 @@ class RunRegistry(Protocol):
     async def hold(self, run_id: str) -> None:
         """A follower holds the Run: move an attached, unstopped Run's deadline to
         `orphan_grace` from now (the default deadline with the rule off). It never moves back,
-        and a detached Run's never moves (R10)."""
+        and a detached Run's never moves (R10), nor a finished one's (no live Candidate)."""
         ...
 
     async def settle_startless(self) -> int:

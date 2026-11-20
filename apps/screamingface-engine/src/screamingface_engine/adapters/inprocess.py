@@ -36,7 +36,7 @@ from screamingface_engine.candidate_outcomes import (
     CandidateOutcomeStream,
     publish_outcome,
 )
-from screamingface_engine.candidate_record import CandidateRecordFold
+from screamingface_engine.candidate_record import CandidateRecordFold, binding_record
 from screamingface_engine.client_provenance import ProvenanceExecutor
 from screamingface_engine.ports import IdentityAwareJobRunner, StoppedBeforeSchedule
 from screamingface_engine.run_evidence import (
@@ -432,18 +432,21 @@ class InProcessJobRunner(IdentityAwareJobRunner):
         )
         watch = SettlementWatch(self._stream, record=record)
         self._verdicts.pop(name, None)
-        task = asyncio.get_running_loop().create_task(
-            self._exported_run(
-                name,
-                watch,
-                ProvenanceExecutor(executor, client_version),
-                topic,
-                url4,
-                traceparent=run_traceparent,
-                deadline_s=deadline_s,
-            ),
-            name=f"url4-run:{name}",
-        )
+        # WHY bound around the task's creation: the run's executor reads the record's refusal of
+        # its run summary from the task's context (OME-1988).
+        with binding_record(record):
+            task = asyncio.get_running_loop().create_task(
+                self._exported_run(
+                    name,
+                    watch,
+                    ProvenanceExecutor(executor, client_version),
+                    topic,
+                    url4,
+                    traceparent=run_traceparent,
+                    deadline_s=deadline_s,
+                ),
+                name=f"url4-run:{name}",
+            )
         task.add_done_callback(
             partial(
                 self._on_done,

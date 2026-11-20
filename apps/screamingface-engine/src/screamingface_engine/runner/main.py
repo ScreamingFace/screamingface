@@ -31,7 +31,7 @@ from screamingface_engine.artifacts.wiring import result_sink_from_env, result_w
 from screamingface_engine.benchmarks import EMPTY_BENCHMARKS, BenchmarkRegistry
 from screamingface_engine.benchmarks.builtins import BUILTIN_BENCHMARKS
 from screamingface_engine.candidate_outcomes import CandidateOutcome
-from screamingface_engine.candidate_record import CandidateRecordFold
+from screamingface_engine.candidate_record import CandidateRecordFold, binding_record
 from screamingface_engine.client_provenance import (
     CLIENT_VERSION_ENV,
     ProvenanceExecutor,
@@ -663,18 +663,22 @@ async def _run_and_log(
     # FEATURE (memory diagnostics, OME-1314): the process baseline before any work, and what it
     # holds at the end — inside `run_scope`, so both lines carry the run's topic and trace id.
     log_process_memory("run_start")
-    watch = SettlementWatch(publisher, record=record_fold(params, traceparent))
-    task = asyncio.ensure_future(
-        run(
-            watch,
-            ProvenanceExecutor(executor, params.client_version),
-            params.topic,
-            params.url4,
-            node=RUN_ROOT_NODE,
-            traceparent=traceparent,
-            deadline_s=params.deadline_s,
+    record = record_fold(params, traceparent)
+    watch = SettlementWatch(publisher, record=record)
+    # WHY bound around the task's creation: the run's executor reads the record's refusal of its
+    # run summary from the task's context (OME-1988).
+    with binding_record(record):
+        task = asyncio.ensure_future(
+            run(
+                watch,
+                ProvenanceExecutor(executor, params.client_version),
+                params.topic,
+                params.url4,
+                node=RUN_ROOT_NODE,
+                traceparent=traceparent,
+                deadline_s=params.deadline_s,
+            )
         )
-    )
     try:
         await task
     finally:
