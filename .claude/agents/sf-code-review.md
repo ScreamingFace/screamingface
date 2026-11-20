@@ -677,6 +677,41 @@ config has burned real money here.
   nothing. Require at least one test constructing the REAL vendor type. Flag any
   reliance on a `_private` vendor method unless a drift-alarm test will scream on the
   next bump; prefer tripwires pinned to the vendor's own exported constants (#903).
+- **A diff that pins a model with params needs proof that the model accepts every one.**
+  This is outcome (1) above, made concrete. The gateway sends
+  `provider.require_parameters = true` on every OpenRouter call
+  (`apps/aigateway/docs/openrouter-routing-controls.md`), so OpenRouter refuses the call
+  when no endpoint for the model accepts every param sent. One unsupported param fails
+  every call, not some. The incident:
+  [#1897](https://github.com/ScreamingFace/screamingface/pull/1897) pinned the
+  FutureX-Past Judge as `openrouter/openai/gpt-5.4` with `("temperature", "0")`. No
+  OpenRouter endpoint for gpt-5.4 accepts `temperature`, so every Judge call failed and
+  every level-3/4 Case ended as `scorer_error`, while levels 1–2 (graded by rule, no
+  Judge) passed. Every offline test was green, because scorer tests use a stand-in
+  Judge and never send the params. Fixed in
+  [#1960](https://github.com/ScreamingFace/screamingface/pull/1960) (OME-1977). Review
+  checks, for any diff that adds or changes a model id together with its params (a
+  `JudgeSpec` row in `screamingface_engine_inspect/benchmarks.py`, a `pins.py`, a model
+  seed, a run kit's model config):
+  1. **Compare with every other row that pins the same model.**
+     `grep -n -A12 'model="<the model id>"' benchmarks.py` and read the `params=` lines.
+     A param the sibling rows leave out is a finding until proven supported: the other
+     gpt-5.4 Judge rows all sent no temperature, and the row's own comment cited
+     "HealthBench's precedent" while sending a param HealthBench does not.
+  2. **Ask for one real call as evidence**: the exact model id with the exact params,
+     through the gateway, with the reply or the Run id in the PR. A model's
+     `supported_parameters` on [OpenRouter's models API](https://openrouter.ai/docs/api-reference/models/get-models)
+     is acceptable offline evidence that a param is refused, not that it works. No
+     evidence means "not checked" in Checks and limits, and it blocks a Judge row,
+     because a Judge that cannot be called grades nothing. Never make the paid call
+     yourself.
+  3. **A param copied from the paper or the authors' harness is a claim about another
+     model.** "The authors ask at temperature 0" says nothing about the model we pin.
+     When our model refuses the param, leaving it out is a NAMED DEVIATION in the row.
+  4. **Check the offline guard grows with the diff.**
+     `tests/unit/inspect/test_judge_param_support.py` refuses a pinned temperature on
+     `openrouter/openai/gpt-5*` only. A diff that brings a new model family with a known
+     refused param extends that guard in the same PR.
 - **A version pinned in two projects drifts through the copy nobody holds.** The Engine
   and the SDK are separate uv projects with separate lockfiles, so a pin they must share
   exists twice: the SDK's `inspect` extra copies the Engine's `inspect-ai`, which every
