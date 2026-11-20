@@ -305,6 +305,26 @@
     };
   }
 
+  // The Pareto chart's circle/square verdict for one row: "model" draws a circle,
+  // "fusion" draws a square, and anything else — missing, or a composition kind the server
+  // does not recognise as one of those two — draws a circle labeled Unknown. Mislabeling an
+  // unrecognized composition as a fusion is the one failure mode this ticket names explicitly;
+  // collapsing it into "Single model" would be an equally unverified claim, so Unknown is its
+  // own answer, never a fallback to either shape.
+  function candidateKindLabel(entry) {
+    var kind = entry && entry.candidate_kind;
+    if (kind === "model") return "Single model";
+    if (kind === "fusion") return "Fusion";
+    return "Unknown";
+  }
+
+  // WHY a separate predicate rather than comparing the label: the chart's shape channel has
+  // exactly two states (circle, square), and only "fusion" ever draws a square — Unknown and
+  // "model" both draw a circle, which is the point of candidateKindLabel above.
+  function isFusionCandidate(entry) {
+    return !!entry && entry.candidate_kind === "fusion";
+  }
+
   // The pinned cache a row offers for replay, or null. A row offers one only when the server
   // named it (a fully captured public run) AND the page's switch is on; anything that is not a
   // non-empty string is treated as absent, never rendered.
@@ -341,5 +361,7 @@
     filterBenchmarks: filterBenchmarks,
     frontierSummary: frontierSummary,
     opennessLabel: opennessLabel,
+    candidateKindLabel: candidateKindLabel,
+    isFusionCandidate: isFusionCandidate,
   };
 });

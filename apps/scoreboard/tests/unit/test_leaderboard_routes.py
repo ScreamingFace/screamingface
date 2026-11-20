@@ -711,6 +711,11 @@ _PUBLIC_BOARD_ENTRY_FIELDS = {
     # verdict, published instead of its `models` (OME-1181 Q2 stands). Still exact, so any other
     # field appearing here fails.
     "openness",
+    # OME-1852: a deliberate addition, owner-decided (Option A, shape encoding) — the entry's
+    # single-model/fusion verdict for the public Pareto chart's circle/square marker, published
+    # instead of raw composition detail, the same `models`-stays-internal precedent as
+    # `openness` above. Still exact, so any other field appearing here fails.
+    "candidate_kind",
     "ran_with_providers",
     "rank",
     "run_cost_usd",

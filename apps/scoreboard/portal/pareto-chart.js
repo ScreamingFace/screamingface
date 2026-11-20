@@ -302,6 +302,11 @@
     });
   }
 
+  // The type is stated here too, not only drawn as a shape — a screen reader or any
+  // other non-visual consumer of this title text must learn the same fact a sighted reader gets
+  // from the marker's circle/square, including the Unknown case a shape alone cannot carry
+  // (Unknown draws the same circle as a confirmed single model; the words are what tell them
+  // apart).
   function describePoint(point, formatCost, formatScore) {
     var cost = point.cost === null
       ? "cost not reported"
@@ -311,25 +316,35 @@
     if (point.isLeader) states.push("highest score");
     if (point.cost === null) states.push("excluded from Pareto comparison");
     return point.specId + ": score " + formatScore(point.score) + ", " + cost +
+      "; type " + L.candidateKindLabel(point.entry) +
       (states.length ? "; " + states.join("; ") : "; not on the Pareto frontier");
   }
 
+  // The marker's SHAPE encodes composition only — a square is a fusion, and a circle
+  // is everything else (a confirmed single model, or Unknown). `kind` (frontier/dominated/
+  // unpriced) keeps deciding the marker's COLOR, via the same CSS classes as before, on
+  // whichever shape this point draws. The two channels are independent on purpose: frontier
+  // membership used to draw its own diamond, which sits too close to a square at marker scale
+  // to carry a second claim at the same time without the two becoming ambiguous together — the
+  // frontier LINE already states that membership, unchanged, so the per-point mark only needs
+  // to state it in color.
   function renderMarker(svg, point, x, y, kind, formatScore, formatCost) {
     var group = svgElement("g", "pareto-chart__point");
     group.appendChild(svgElement("title", null, null, describePoint(point, formatCost, formatScore)));
     if (point.isLeader) {
       group.appendChild(svgElement("circle", "pareto-chart__leader-ring", { cx: x, cy: y, r: 10 }));
     }
-    if (kind === "frontier") {
-      group.appendChild(svgElement("polygon", "pareto-chart__frontier-point", {
-        points: [x + "," + (y - 6), (x + 6) + "," + y, x + "," + (y + 6), (x - 6) + "," + y].join(" "),
+    var radius = kind === "unpriced" ? 5.5 : 5;
+    var className = "pareto-chart__" + kind + "-point";
+    if (L.isFusionCandidate(point.entry)) {
+      group.appendChild(svgElement("rect", className, {
+        x: (x - radius).toFixed(2),
+        y: (y - radius).toFixed(2),
+        width: (radius * 2).toFixed(2),
+        height: (radius * 2).toFixed(2),
       }));
     } else {
-      group.appendChild(svgElement("circle", "pareto-chart__" + kind + "-point", {
-        cx: x,
-        cy: y,
-        r: kind === "unpriced" ? 5.5 : 5,
-      }));
+      group.appendChild(svgElement("circle", className, { cx: x, cy: y, r: radius }));
     }
     svg.appendChild(group);
   }
