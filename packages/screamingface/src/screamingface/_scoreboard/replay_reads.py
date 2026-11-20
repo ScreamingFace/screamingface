@@ -263,7 +263,7 @@ def public_score_sync(
     """The public read alone, never the gated fallback: a re-grade's source (OME-1909).
 
     WHY no gated fallback: the board's re-grade route refuses every source on a private board, so
-    a private score the caller may read would replay (live judges paid) and only then be refused.
+    a private score the caller may read would replay and only then be refused.
     """
     score_id: UUID = _score_id(value)
     payload: object = _sync_json(

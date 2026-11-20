@@ -133,6 +133,50 @@ Not redacted: live logging (`log_cli`, off by default and in CI) and the pytest 
 summary are written outside the report hook. Do not turn on `log_cli` (`-o log_cli=true`) for
 this lane where the output is published, and do not put secrets in warning messages.
 
+## Image input matrix
+
+`image_input_matrix` checks that every model that takes pictures reads one, and that every
+model that does not is refused before a paid call. Design:
+[`docs/spec/2026-11-17-e2e-image-input-matrix.md`](../../../../../docs/spec/2026-11-17-e2e-image-input-matrix.md).
+It runs on `local` only and spends real tokens (`BUDGET_USD`, default `0.5`):
+
+```sh
+SCREAMINGFACE_TEST_E2E=1 SCREAMINGFACE_TEST_PAID=1 SCREAMINGFACE_WORKBENCH_TARGET=local \
+  SCREAMINGFACE_WORKBENCH_DEADLINE_S=1800 OPENROUTER_API_KEY=... \
+  uv run --extra runtime pytest tests/e2e/workbench/test_notebooks.py -k image_input_matrix -rs
+```
+
+The assets root (`SCREAMINGFACE_E2E_ASSETS`) needs `ifeval` and `inspect-lab_bench_figqa`
+prepared. One run makes 25 url4 calls and 9 Benchmark Case calls; the default 600 s deadline
+is too short.
+
+**Reading the result.** The bundle adds `matrix.json`: one row per cell, with `path`
+(`url4` | `benchmark`), `model`, `media_type`, `case`, `expected` (`answer` | `refuse` |
+`unknown`, from the gateway's `/v1/models`), `observed`, `code`, `trace_id`, `spend_usd`,
+`chat_calls` (provider dispatches seen under the trace), and `answer` (redacted, at most 200
+characters). The notebook's table uses the same rows:
+
+| Mark | Observed | Meaning |
+|---|---|---|
+| ✓ | `answered` | the model returned the known value (`7392`, `HELIOTROPE`, or the gold Case) |
+| ✗ | `wrong` / `error` | a different value, or a failure that is not a refusal |
+| ⊘ | `refused` | refused with a refusal code (`intent_error`, `unsupported_content_part`) |
+| ? | `skipped` | not run: unknown model (allowed), or budget (a failure) |
+
+Only `answered`/`wrong` cells report trace ids to the chain check, because a refusal never
+reaches the gateway. A `refused` cell whose trace shows a provider dispatch fails the verdict.
+
+**Limit.** The expected outcome comes only from `/v1/models`. The gateway lists a model it has
+no evidence for as text-only, so a vision model wrongly listed as blind reads `refused` against
+an expected `refuse` and passes. Only the other direction (listed as able, then refused) is
+caught. Check the `expected` column against the plan's model table when the listing changes.
+
+**Re-pin after merge.** `FIXTURE_REF` in the `parameters` cell is the commit that added the
+fixtures. Every fixture is fetched from `cdn.jsdelivr.net/gh` at that ref and checked
+against `manifest.json` before any model call, so a ref that disappears (a squashed branch) is
+a setup error naming the URL. After merge, set `FIXTURE_REF` to the fixtures' commit on `main`
+in `build_notebooks.py`, regenerate, and commit.
+
 ## Adding a notebook
 
 1. Add a builder function in `build_notebooks.py` and register it in `_BUILDERS`. Give it a

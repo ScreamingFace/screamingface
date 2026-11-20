@@ -25,7 +25,7 @@ from abc import abstractmethod
 from collections.abc import Iterator, Mapping
 from datetime import datetime
 
-from screamingface_engine.job_env import LiveJudge, RunShape
+from screamingface_engine.job_env import RunShape
 from url4.streaming.interfaces import JobRunner
 from url4.streaming.protocol import CachePolicy
 
@@ -67,11 +67,6 @@ class IdentityAwareJobRunner(JobRunner):
     copy, or replay the copy with that id. Both default to a normal run, are never both set, and
     are per RUN for the same reason; they ride the same path as ``answer_seed``.
 
-    ``replay_live_judge`` (OME-1909) names the Cases whose judge calls a replay sends live, and
-    is ``None`` for every other run. It is set only with ``replay_frozen_copy`` and rides beside
-    it. The route passes it ONLY when a caller named live judges, so a run that names none calls
-    this port exactly as before.
-
     ``enqueued_at`` (E5 P1 spec D12) is when the run's deadline starts; ``None`` means when it is
     queued. A bound start passes its bind moment, which precedes any cancel of it, so the cancel's
     tombstone outlives every moment the run could still start. A substrate that starts the run at
@@ -94,7 +89,6 @@ class IdentityAwareJobRunner(JobRunner):
         shape: RunShape = "expression",
         capture: bool = False,
         replay_frozen_copy: str | None = None,
-        replay_live_judge: LiveJudge | None = None,
         enqueued_at: datetime | None = None,
     ) -> str: ...
 

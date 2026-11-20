@@ -10,7 +10,7 @@ import pytest
 from _pytest.mark import ParameterSet
 
 from screamingface_engine.adapters.jetstream import JetStreamConsumer, JetStreamPublisher
-from screamingface_engine.job_env import LiveJudge, RunShape
+from screamingface_engine.job_env import RunShape
 from screamingface_engine.ports import IdentityAwareJobRunner
 from screamingface_engine.testing import InMemoryEventStream
 from url4.streaming.interfaces import (
@@ -161,7 +161,6 @@ class RecordingJobRunner(IdentityAwareJobRunner):
         shape: RunShape = "expression",
         capture: bool = False,
         replay_frozen_copy: str | None = None,
-        replay_live_judge: LiveJudge | None = None,
         enqueued_at: Any = None,
     ) -> str:
         if self._conflict:

@@ -1,0 +1,14 @@
+{
+  "issue": "OME-1968",
+  "branch": "OME-1968-credit-reasons",
+  "approver": "Filip Boltuzic (FilipBolt)",
+  "date": "2026-11-18",
+  "scope": "One parametrize case removed from test_an_unavailable_amount_says_why in packages/screamingface/tests/test_credit_repr.py: ('credential_rejected', 'Key rejected') with the reason on the ACCOUNT slot. The same reason is now pinned on the key slot by the new test_a_rejected_execution_key_says_key_rejected_on_the_key_box, and on the account slot by test_a_rejected_management_key_is_not_reported_as_the_execution_key. No other assertion, helper or case changes.",
+  "reason": "The old case encoded the wording the second independent review of PR #1883 found misleading: the Gateway marks the account credential_rejected when the management key gets a 401 while the execution key still reads, so 'Key rejected' on the account box reads as the execution key failing. The owner chose on 2026-11-18 to move the case to the key slot, where 'Key rejected' is correct.",
+  "files": {
+    "packages/screamingface/tests/test_credit_repr.py": {
+      "base_blob": "0e0762007c862adb30a1101d78856ce94749fe48",
+      "approved_blob": "fed1722d2beee10a96c33a3602e7a228ca44710c"
+    }
+  }
+}

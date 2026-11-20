@@ -15,7 +15,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable, Iterator, Mappin
 from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Annotated, Any, TypedDict
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Header, Request, Response
 
@@ -46,13 +46,12 @@ from screamingface_engine.ports import IdentityAwareJobRunner, StoppedBeforeSche
 from screamingface_engine.request_scope import (
     CAPTURE_HEADER,
     REPLAY_FROZEN_COPY_HEADER,
-    REPLAY_LIVE_JUDGE_HEADER,
     FrozenCopyHeaderError,
     frozen_copy_mode_from_headers,
-    parse_live_judge,
 )
 from screamingface_engine.rest.artifacts import artifact_response
 from screamingface_engine.rest.cache_policy import resolve
+from screamingface_engine.rest.caller_watch import WAIT_GONE, first_or_gone
 from screamingface_engine.rest.interest import SubscriberGate
 from screamingface_engine.rest.runs_boundary import PRIVATE_HEADERS_DOC, request_caller
 from screamingface_engine.rest.runs_start import (
@@ -255,30 +254,6 @@ def _parse_frozen_copy_mode(
         ) from None
 
 
-def _parse_replay_mode(
-    capture_raw: str | None, replay_raw: str | None, live_judge_raw: str | None
-) -> tuple[bool, str | None, job_env.LiveJudge | None]:
-    """Read the frozen-copy mode plus a replay's live-judge Cases, or raise 400 `malformed_header`.
-
-    FEATURE (OME-1909): the live-judge header is refused at the edge like the mode beside it. A
-    re-grade scheduled as a plain replay would hand back the old grades as if they were new.
-    """
-    capture, replay_frozen_copy = _parse_frozen_copy_mode(capture_raw, replay_raw)
-    try:
-        live_judge = parse_live_judge(live_judge_raw, replay_frozen_copy)
-    except FrozenCopyHeaderError as exc:
-        raise ProblemException(
-            status=400, title="Bad Request", detail=str(exc), code=MALFORMED_HEADER
-        ) from None
-    return capture, replay_frozen_copy, live_judge
-
-
-class _LiveJudgeArg(TypedDict, total=False):
-    """The job runner port's live-judge argument, present only when a caller named live judges."""
-
-    replay_live_judge: job_env.LiveJudge
-
-
 def _require_q(q: str | None) -> str:
     """Return the url4 expression, or raise 400 if the ``q`` query parameter is missing/empty."""
     if not q:
@@ -399,7 +374,6 @@ async def _schedule(
     deadline_s: int | None = None,
     capture: bool = False,
     replay_frozen_copy: str | None = None,
-    replay_live_judge: job_env.LiveJudge | None = None,
     enqueued_at: datetime | None = None,
     owner: str = "anonymous",
     run_id: str | None = None,
@@ -422,11 +396,6 @@ async def _schedule(
     # INVARIANT (spec 02 §5.3 1a): a frozen-copy replay never asks the gateway to admit a model.
     if replay_frozen_copy is None:
         await _admit_named_models(deps, url4, identity=identity, traceparent=traceparent)
-    # WHY only when named (OME-1909): a run that names no live judge calls the port exactly as
-    # before, so a job runner written before the argument still schedules it.
-    live_judge: _LiveJudgeArg = (
-        {} if replay_live_judge is None else {"replay_live_judge": replay_live_judge}
-    )
     try:
         await deps.job_runner.schedule(
             topic,
@@ -441,7 +410,6 @@ async def _schedule(
             capture=capture,
             replay_frozen_copy=replay_frozen_copy,
             enqueued_at=enqueued_at,
-            **live_judge,
         )
         # The expression itself is the caller's, and may carry prompts — its LENGTH is
         # enough to tell a large Evaluation from a smoke run when reading back a failure.
@@ -505,32 +473,18 @@ async def _schedule(
         ) from exc
 
 
-def _mode_echo(
-    capture: bool,
-    replay_frozen_copy: str | None,
-    replay_live_judge: job_env.LiveJudge | None = None,
-) -> dict[str, str]:
+def _mode_echo(capture: bool, replay_frozen_copy: str | None) -> dict[str, str]:
     """The header that acknowledges the frozen-copy mode this engine honoured, or nothing.
 
     FEATURE: OME-1307 — a run in capture or replay mode echoes its header on every start response.
     An engine that ignores the headers never sends one, which is how the SDK tells.
-    FEATURE (OME-1909): a re-grade also echoes its live-judge Cases, in their canonical text, so
-    an SDK can tell an engine that would have replayed every judge.
     """
     if replay_frozen_copy is not None:
-        echo: dict[str, str] = {REPLAY_FROZEN_COPY_HEADER: replay_frozen_copy}
-        if replay_live_judge is not None:
-            echo[REPLAY_LIVE_JUDGE_HEADER] = job_env.live_judge_text(replay_live_judge)
-        return echo
+        return {REPLAY_FROZEN_COPY_HEADER: replay_frozen_copy}
     return {CAPTURE_HEADER: "true"} if capture else {}
 
 
-def _accepted(
-    topic: str,
-    capture: bool = False,
-    replay_frozen_copy: str | None = None,
-    replay_live_judge: job_env.LiveJudge | None = None,
-) -> Response:
+def _accepted(topic: str, capture: bool = False, replay_frozen_copy: str | None = None) -> Response:
     """Build the 202 Accepted response, with ``Location``/``Link``/``Preference-Applied``.
 
     The frozen-copy mode, when there is one, is echoed as its acknowledgement (OME-1307).
@@ -542,7 +496,7 @@ def _accepted(
             "Location": location,
             "Preference-Applied": "respond-async",
             "Link": f'<{location}>; rel="self"',
-            **_mode_echo(capture, replay_frozen_copy, replay_live_judge),
+            **_mode_echo(capture, replay_frozen_copy),
         },
     )
 
@@ -678,20 +632,6 @@ def _converge_cache(
     return resolution.effective
 
 
-_DISCONNECT_POLL_S = 0.5
-"""How often a sync wait checks that its caller is still connected (PRD 02 §4: the hold is
-released within 1 s of a disconnect)."""
-
-
-async def _until_disconnected(is_disconnected: Callable[[], Awaitable[bool]]) -> None:
-    while not await is_disconnected():
-        await asyncio.sleep(_DISCONNECT_POLL_S)
-
-
-WAIT_GONE = object()
-"""`wait_terminal_or_gone`'s answer when the caller disconnected first."""
-
-
 async def wait_terminal_or_gone(
     stream: EventConsumer,
     topic: str,
@@ -701,20 +641,11 @@ async def wait_terminal_or_gone(
     """Race the run's terminal frame (bounded by `bound_s`) against the caller leaving.
 
     The terminal frame and its result; ``None`` when the bound passed first; ``WAIT_GONE`` when
-    the caller disconnected first. Both tasks are cancelled and reaped on every exit. Shared by
-    the sync `GET /?q=` and the mount calls, which differ only in what they do with the answer.
+    the caller disconnected first. Both tasks are cancelled and reaped on every exit
+    (`rest/caller_watch.py`). Shared by the sync `GET /?q=` and the mount calls, which differ
+    only in what they do with the answer.
     """
-    wait = asyncio.ensure_future(_await_terminal(stream, topic, bound_s))
-    gone = asyncio.ensure_future(_until_disconnected(is_disconnected))
-    try:
-        await asyncio.wait({wait, gone}, return_when=asyncio.FIRST_COMPLETED)
-    finally:
-        for task in (wait, gone):
-            task.cancel()
-        await asyncio.gather(wait, gone, return_exceptions=True)
-    if wait.cancelled():
-        return WAIT_GONE
-    return wait.result()
+    return await first_or_gone(_await_terminal(stream, topic, bound_s), is_disconnected)
 
 
 async def _run_sync(
@@ -724,7 +655,6 @@ async def _run_sync(
     is_disconnected: Callable[[], Awaitable[bool]],
     capture: bool = False,
     replay_frozen_copy: str | None = None,
-    replay_live_judge: job_env.LiveJudge | None = None,
 ) -> Response:
     """Hold the request until the run's terminal frame, or 202-fall-back once the bound elapses
     — or stop waiting when the caller disconnects.
@@ -742,10 +672,10 @@ async def _run_sync(
     if outcome is None or outcome is WAIT_GONE:
         # The bound passed (the client may attach a WebSocket) — or the caller is gone and
         # nobody reads this response.
-        return _accepted(topic, capture, replay_frozen_copy, replay_live_judge)
+        return _accepted(topic, capture, replay_frozen_copy)
     terminated, result = outcome  # type: ignore[misc]
     response = await _terminal_response(terminated, result, deps.artifact_store)
-    response.headers.update(_mode_echo(capture, replay_frozen_copy, replay_live_judge))
+    response.headers.update(_mode_echo(capture, replay_frozen_copy))
     return response
 
 
@@ -936,17 +866,6 @@ async def start_run(
             "valid together with `X-Capture`.",
         ),
     ] = None,
-    x_replay_live_judge: Annotated[
-        str | None,
-        Header(
-            alias="X-Replay-Live-Judge",
-            description="Optional, only with `X-Replay-Frozen-Copy` (a re-grade): `all`, or a "
-            "comma list of Case ids. Those Cases' judge calls go to the provider live and are "
-            "not stored; every Candidate call and every other judge call still replays from the "
-            "copy. Echoed back, in canonical form, on the start response as the "
-            "acknowledgement.",
-        ),
-    ] = None,
     # DECLARED HERE, RESOLVED IN `_converge_cache`. The run's cache intent has two carriers — this
     # header and the WS attach frame — and the header wins when both speak. Reading it into a
     # policy is therefore not this handler's business alone: `cache_intent.parse_cache_control`
@@ -988,9 +907,7 @@ async def start_run(
         # an empty mapping meaning it.
         identity = job_env.identity_from_headers(request.headers) or None
         answer_seed = _parse_answer_seed(x_answer_seed)
-        capture, replay_frozen_copy, replay_live_judge = _parse_replay_mode(
-            x_capture, x_replay_frozen_copy, x_replay_live_judge
-        )
+        capture, replay_frozen_copy = _parse_frozen_copy_mode(x_capture, x_replay_frozen_copy)
         clock = getattr(request.app.state, "clock", default_clock)
         client_version = (
             parse_user_agent(request.headers.get("User-Agent"))
@@ -1013,7 +930,6 @@ async def start_run(
                     client_version=client_version,
                     capture=capture,
                     replay_frozen_copy=replay_frozen_copy,
-                    replay_live_judge=replay_live_judge,
                     enqueued_at=binding.bound_at,
                     owner=request_caller(request) or "anonymous",
                     run_id=binding.run_id,
@@ -1027,7 +943,7 @@ async def start_run(
 
             if pref.respond_async:
                 await schedule()
-                return _accepted(topic, capture, replay_frozen_copy, replay_live_judge)
+                return _accepted(topic, capture, replay_frozen_copy)
             # A sync caller is its own audience (PRD 02): the hold makes the gate pass and keeps
             # the reaper disarmed while it waits. ONE block covers gate, schedule and wait, so
             # every exit — a 503 from admission, the bound, a disconnect, an error — releases it.
@@ -1035,13 +951,7 @@ async def start_run(
                 await _require_subscriber(deps.interest, topic)
                 await schedule()
                 return await _run_sync(
-                    deps,
-                    topic,
-                    pref.wait_s,
-                    request.is_disconnected,
-                    capture,
-                    replay_frozen_copy,
-                    replay_live_judge,
+                    deps, topic, pref.wait_s, request.is_disconnected, capture, replay_frozen_copy
                 )
 
 

@@ -144,6 +144,32 @@ def test_a_record_matching_todays_declaration_is_fresh(records: Path, engine_roo
     assert rows["ifeval"].parity == "yes"
 
 
+def test_a_record_for_an_external_benchmark_is_fresh_against_an_external_declaration(
+    records: Path, engine_root: Path
+) -> None:
+    # WHY: a Benchmark an outside contributor wrote declares origin "external" (OME-1960). If
+    # the checker did not know the word, such a record would be malformed, and with any other
+    # origin it would read stale against the declaration: no valid state at all.
+    module = _module()
+    _write_record(records, origin="external")
+
+    rows = _rows(module, records, engine_root, _declared(module, origin="external"))
+
+    assert rows["ifeval"].status == "fresh"
+    assert rows["ifeval"].moved == ()
+
+
+def test_the_checker_knows_exactly_the_origins_the_engine_declares() -> None:
+    # INVARIANT: the script keeps its own copy of the origin words so it loads without the
+    # Engine; this pins the copy, so the next origin added to the Engine fails here until the
+    # checker learns it.
+    from screamingface_engine.benchmarks.definition import (
+        _BENCHMARK_ORIGINS,  # pyright: ignore[reportPrivateUsage]
+    )
+
+    assert _module().ORIGINS == frozenset(_BENCHMARK_ORIGINS)
+
+
 def test_a_moved_fingerprint_makes_the_record_stale_and_names_both_values(
     records: Path, engine_root: Path
 ) -> None:

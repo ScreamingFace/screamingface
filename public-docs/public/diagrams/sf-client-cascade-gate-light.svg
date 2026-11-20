@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="5.0 74 1060 264" width="1060" height="264" font-family="Helvetica Neue, Arial, sans-serif">
+<title>A gate keeps the answer or falls back</title>
+<defs><marker id="a-mid" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#5a6069"/></marker><marker id="a-bad" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#d0634a"/></marker><marker id="a-ok" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#58b36e"/></marker><marker id="a-accent" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#c9821f"/></marker></defs>
+<path d="M280 195 L380 195" fill="none" stroke="#5a6069" stroke-width="1.8" marker-end="url(#a-mid)"/>
+<path d="M630 195 L695 195 L695 134 L760 134" fill="none" stroke="#58b36e" stroke-width="1.8" marker-end="url(#a-ok)"/>
+<path d="M630 195 L695 195 L695 278 L760 278" fill="none" stroke="#c9821f" stroke-width="1.8" marker-end="url(#a-accent)"/>
+<rect x="40" y="150" width="240" height="90" rx="11" fill="#f4f5f7" stroke="#cdd0d6" stroke-width="1.6"/>
+<text x="160.0" y="178.0" font-size="15" fill="#2c2f36" text-anchor="middle" font-weight="600">sf.Fanout</text>
+<text x="160.0" y="202.0" font-size="13" fill="#5a6069" text-anchor="middle">the panel answers</text>
+<text x="160.0" y="222.0" font-size="13" fill="#5a6069" text-anchor="middle">three models vote</text>
+<rect x="380" y="150" width="250" height="90" rx="11" fill="#f4f5f7" stroke="#cdd0d6" stroke-width="1.6"/>
+<text x="505.0" y="178.0" font-size="15" fill="#2c2f36" text-anchor="middle" font-weight="600">sf.Gate</text>
+<text x="505.0" y="202.0" font-size="13" fill="#5a6069" text-anchor="middle">when = agreement()</text>
+<text x="505.0" y="222.0" font-size="13" fill="#5a6069" text-anchor="middle">is it at least 0.66?</text>
+<rect x="760" y="92" width="270" height="84" rx="11" fill="#f1f9f3" stroke="#58b36e" stroke-width="1.6"/>
+<text x="895.0" y="127.0" font-size="15" fill="#2c2f36" text-anchor="middle" font-weight="600">then: keep the vote</text>
+<text x="895.0" y="151.0" font-size="13" fill="#5a6069" text-anchor="middle">the panel's answer, no extra call</text>
+<rect x="760" y="236" width="270" height="84" rx="11" fill="#fdf7ec" stroke="#c9821f" stroke-width="1.6"/>
+<text x="895.0" y="271.0" font-size="15" fill="#2c2f36" text-anchor="middle" font-weight="600">otherwise: larger model</text>
+<text x="895.0" y="295.0" font-size="13" fill="#5a6069" text-anchor="middle">answers the question again</text>
+<text x="672" y="158" font-size="13" fill="#58b36e" text-anchor="middle" font-weight="600">agree</text>
+<text x="672" y="250" font-size="13" fill="#c9821f" text-anchor="middle" font-weight="600">split</text>
+</svg>

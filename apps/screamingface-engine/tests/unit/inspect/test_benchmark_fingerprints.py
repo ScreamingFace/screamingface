@@ -78,6 +78,11 @@ _FINGERPRINTS: dict[str, str] = {
     "hle": "6bf010527abe2411",
     # hle_diamond: published id 9640c5c7e59fc61e (fingerprint was the same).
     "hle_diamond": "7261715107987e29",
+    # FutureX-Past Judge bug (2026-11-19): the Judge no longer pins temperature 0, which no
+    # OpenRouter endpoint for gpt-5.4 accepts, so every level-3/4 Judge call failed. Same Cases,
+    # a grading fix: published id HELD at 200cf4f72481ffb0 (owner decision 2026-11-19; the
+    # fingerprint was the same).
+    "futurex_past": "cbf11bdc4466620e",
     # OME-1610: every other Benchmark, at the fingerprint main computes (2026-10-22), which is
     # also the id it publishes: no change since its id was last set. EXCEPT OME-1907: the 46
     # rows graded from option marks (inspect's choice, lab_bench, cyse4, bbh) and mathvista
@@ -117,6 +122,9 @@ _FINGERPRINTS: dict[str, str] = {
     "zerobench": "9155d9581e103c0a",
     # OME-1854: MaCBench, chemistry and materials pictures, letters graded as a set.
     "macbench": "a8d8e6ccc379924f",
+    # OME-1874: EnigmaEval, a local Task; its source is hashed, so an edit to the prompt
+    # builder or the copied marking moves this.
+    "enigmaeval": "863b8c98762520a2",
     "frontierscience": "826050de44778515",
     "onet_m6": "f0abec484f0d9a59",
     "pubmedqa": "a1f2388c0f271b91",
@@ -168,6 +176,7 @@ _FINGERPRINTS: dict[str, str] = {
     "drop": "9be2d9ed4b5f1a67",
     "bbh": "c4f0aa7d023cbd2a",
     "medmcqa": "e9e7ca645e342f81",
+    "futurex_past_study": "3c66e638e04516ed",
     # The hand-built Benchmark (screamingface_engine.benchmarks.medxpert).
     "medxpert": "1e5a3b8a461a52f7",
 }

@@ -7,11 +7,14 @@
 * `Client.regrade(score_id)` and `AsyncClient.regrade` move a published score onto its
   Benchmark's current revision (`OME-1909`): the score's url4 is rebuilt against today's
   Benchmark, replayed from its pinned cache with its answer seed at no Candidate cost, and posted
-  as a new entry credited to the score's submitter. `live_judge="all"` or a list of Case ids sends
-  those judge calls live. Any cache miss submits nothing (`regrade_incomplete`). For ScreamingFace
+  as a new entry credited to the score's submitter, at no model cost: every Candidate and judge
+  reply comes from the cache, and any cache miss submits nothing (`regrade_incomplete`). For ScreamingFace
   re-graders only; `LeaderboardError.existing_score_id` names the re-grade a repeat ran into.
   `LeaderboardScore.regraded_from` names the score a re-graded entry came from, and a re-grade
   of a re-graded entry is refused (`regrade_the_source`) naming that root score to re-grade.
+
+- `Benchmark.provenance.contributors` names the GitHub handles of whoever wrote a Benchmark
+  from outside the team; such a Benchmark's `origin` is `external`.
 
 - The notebook filter of `sf.models.list()` and `sf.benchmarks.list()` matches each word of the
   query, in any order: `claude 5.5` shows the entries that contain both words.
@@ -19,8 +22,10 @@
 - `sf.credits()` now renders as a notebook card in the connection panel's style, instead of
   the plain dataclass repr. An unavailable amount says why ("Not connected", "Key
   rejected", "Lookup failed", "Not supported", "Unreadable response", "Not available on
-  hosted"), in the card and in the connection panel. When no amount is known, the card shows one "Credits unavailable"
-  box (OME-1935).
+  hosted"), in the card and in the connection panel. When no amount is known, the card
+  shows one "Credits unavailable" box (OME-1935). A hosted panel says "Lookup failed" when
+  the credit request fails, and a rejected management key reads "Management key
+  rejected" on the account box (OME-1968).
 
 - Notebook credits now show account credit separately from the key spending cap,
   with optional account settings and visible-only five-minute refresh. OpenRouter

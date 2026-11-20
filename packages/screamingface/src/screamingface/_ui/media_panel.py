@@ -38,6 +38,11 @@ MEDIA_STYLE = """<style>
  border:1px solid var(--sf-line)}
 </style>"""
 _QUESTION_CLOSE = "</div>"
+#: Scrolls the question box to the picture just opened, once it is drawn. WHY: a click redraws
+#: the whole page, and the redrawn question box starts scrolled to its top, so without this an
+#: EnigmaEval puzzle's tenth picture would jump the reader back to the tips above it. An inline
+#: handler because the kernel cannot run script in the page; the HTML widget keeps attributes.
+_SCROLL_TO_PICTURE = "this.scrollIntoView({block:'nearest'})"
 
 
 class MediaPanel:
@@ -68,11 +73,20 @@ class MediaPanel:
     ) -> None:
         self.folder: Path = folder
         self._redraw: Callable[[], None] = redraw
-        # WHY by element id: ipyevents reports only the clicked element's id.
-        self._targets: dict[str, CaseMedia] = {}
+        # WHY by element id: ipyevents reports only the clicked element's id. Each id also keeps
+        # its control's place in the page, so the redraw can find that one control again.
+        self._targets: dict[str, tuple[CaseMedia, int]] = {}
+        # How many controls this draw has placed so far, counted from 0 at the top of the page.
+        self._placed: int = 0
         # WHY by sha256: the same picture opened once shows on every Case and page that has it.
         # Ordered oldest-opened first, so the bound drops the one opened longest ago.
         self._kept: OrderedDict[str, str] = OrderedDict()
+        # The place in the page of the control this click opened, for the one redraw that
+        # follows it. WHY a place, not the picture's sha256: a kept picture is drawn in every
+        # Case that has it, so a sha256 named every copy and the last to load stole the scroll
+        # (review on PR 1833). The redraw places the same controls in the same order, so the
+        # clicked button's place is its picture's place.
+        self._just_opened: int | None = None
         self.notice = widgets.HTML()
         self.notice.add_class("sf-case-media")
 
@@ -83,6 +97,7 @@ class MediaPanel:
         """
 
         self._targets = {}
+        self._placed = 0
         return lambda pane, case: self.mark(pane, case, click_handler)
 
     def mark(self, pane: str, case: CaseResult, click_handler: str = "") -> str:
@@ -121,10 +136,19 @@ class MediaPanel:
         """
 
         target: object = event.get("target", {}).get("id", "")
-        item: CaseMedia | None = self._targets.get(target) if isinstance(target, str) else None
-        if item is not None:
+        clicked: tuple[CaseMedia, int] | None = (
+            self._targets.get(target) if isinstance(target, str) else None
+        )
+        if clicked is not None:
+            item, place = clicked
             self.open(item)
-            self._redraw()
+            # WHY only for this redraw: a later one (paging, another Case) must not pull the
+            # question box back down to a picture opened earlier.
+            self._just_opened = place
+            try:
+                self._redraw()
+            finally:
+                self._just_opened = None
 
     def open(self, item: CaseMedia) -> None:
         """Fetch ``item``: keep a picture to draw, or save a file and say where it went."""
@@ -158,11 +182,14 @@ class MediaPanel:
     def _control(self, item: CaseMedia, click_handler: str) -> str:
         """The kept picture, or the button that opens ``item``, to sit before its line."""
 
+        place: int = self._placed
+        self._placed += 1
         kept: str | None = self._kept.get(item.sha256)
         if kept is not None:
-            return f"<img class='sf-media-img' src='{kept}' alt='{escape(str(item))}'>"
+            scroll: str = f' onload="{_SCROLL_TO_PICTURE}"' if place == self._just_opened else ""
+            return f"<img class='sf-media-img' src='{kept}' alt='{escape(str(item))}'{scroll}>"
         target: str = f"sf-media-{uuid4().hex}"
-        self._targets[target] = item
+        self._targets[target] = (item, place)
         # WHY no inner element: ipyevents reports the innermost clicked element, and only the
         # button carries the id.
         label: str = "🖼 Show picture" if _draws_in_place(item) else "📄 Save file"

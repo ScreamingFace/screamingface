@@ -285,6 +285,54 @@ def test_show_picture_draws_the_picture_in_place_of_its_line(tmp_path: Path, mon
     assert "Show picture" not in browser.cases.value
 
 
+def test_the_picture_just_opened_scrolls_into_view_once(tmp_path: Path, monkeypatch) -> None:
+    # WHY: a click redraws the whole page, and the redrawn question box starts at its top, so an
+    # EnigmaEval puzzle's pictures at the bottom of its tips jumped out of view on every click.
+    # Only the redraw that follows the click scrolls; a later one (paging) must leave it alone.
+    monkeypatch.setattr(
+        "screamingface._default_client.fetch_media", _fetch_from({_PNG_SHA256: _PNG_BYTES})
+    )
+    browser = _browser(_ENGINE_ECHO, tmp_path, monkeypatch)
+    scroll: str = "onload=\"this.scrollIntoView({block:'nearest'})\""
+
+    _click(browser, "Show picture")
+    assert re.search(rf"<img class='sf-media-img' [^>]*{re.escape(scroll)}>", browser.cases.value)
+
+    browser._redraw_page()
+    assert "sf-media-img" in browser.cases.value and scroll not in browser.cases.value
+
+
+def test_only_the_clicked_occurrence_of_a_shared_picture_scrolls(
+    tmp_path: Path, monkeypatch
+) -> None:
+    # WHY: a kept picture is drawn in every Case that has it (it is kept by its sha256), so a
+    # scroll keyed on the sha256 put a scroll on each copy and the last one to load won, which
+    # could pull the view to another Case (review on PR 1833). Example: Cases 1 and 2 share one
+    # picture; the researcher clicks Show picture in Case 2, so only Case 2's copy scrolls.
+    from screamingface._ui.report_browser import ReportBrowser
+
+    monkeypatch.setattr(
+        "screamingface._default_client.fetch_media", _fetch_from({_PNG_SHA256: _PNG_BYTES})
+    )
+    monkeypatch.chdir(tmp_path)
+    source = large_report(2)
+    owner = replace(
+        source.candidates[0],
+        cases=tuple(replace(case, input=_ENGINE_ECHO) for case in source.candidates[0].cases),
+    )
+    browser = ReportBrowser(sf.Report(benchmark=source.benchmark, case_count=2, candidates=[owner]))
+    buttons: list[str] = re.findall(
+        r"id='(sf-media-[0-9a-f]+)'[^>]*>[^<]*Show picture</button>", browser.cases.value
+    )
+    assert len(buttons) == 2, "both Cases show the shared picture's button on one page"
+
+    browser._select_case({"target": {"id": buttons[1]}})
+
+    pictures: list[str] = re.findall(r"<img class='sf-media-img'[^>]*>", browser.cases.value)
+    assert len(pictures) == 2, "the kept picture is drawn in both Cases"
+    assert ["onload=" in picture for picture in pictures] == [False, True]
+
+
 def _picture_after(text: str) -> str:
     """A Case whose message is ``text`` first and the picture after it, as MMMU's often are."""
 

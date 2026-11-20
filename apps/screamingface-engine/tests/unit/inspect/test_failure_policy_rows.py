@@ -67,6 +67,8 @@ _WITHHOLD: frozenset[str] = frozenset(
         # OME-1854: MaCBench, a per-Case mean over the eval's own answer-tag scorer (letters
         # as a set, a number inside its window) — Group A.
         "macbench",
+        # OME-1874: EnigmaEval, a per-Case mean over the authors' exact-match marking — Group A.
+        "enigmaeval",
         "frontierscience",
         "onet_m6",
         "pubmedqa",
@@ -140,6 +142,8 @@ _COVERAGE_DECLARE: frozenset[str] = frozenset(
         "ifeval",
         "simpleqa",
         "simpleqa_verified",
+        "futurex_past",
+        "futurex_past_study",
         # G: open (negative grades).
         "healthbench-worst30",
     }
@@ -162,11 +166,11 @@ def test_failure_policy_is_a_required_row_field_after_difficulty() -> None:
 
 
 def test_every_row_declares_the_policy_of_the_table() -> None:
-    # INVARIANT: 90 imported rows, each with exactly the policy the table names. A new row or a
+    # INVARIANT: 99 imported rows, each with exactly the policy the table names. A new row or a
     # changed policy trips here, deliberately.
-    assert len(BENCHMARKS) == 96
-    assert len(_WITHHOLD) == 79
-    assert len(_COVERAGE_DECLARE) == 17
+    assert len(BENCHMARKS) == 99
+    assert len(_WITHHOLD) == 80
+    assert len(_COVERAGE_DECLARE) == 19
     actual = {spec.key: spec.failure_policy for spec in BENCHMARKS}
     assert actual == _EXPECTED
 

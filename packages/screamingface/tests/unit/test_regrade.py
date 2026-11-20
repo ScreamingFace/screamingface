@@ -32,7 +32,6 @@ from url4 import RelExpr, build, expr, render, src, text
 import screamingface as sf
 from screamingface import _reproduction
 from screamingface._core.ports import _RunOutcome
-from screamingface._engine.transport import _start_async, _start_sync
 from screamingface._evaluation.benchmark import _decode_benchmark_resource
 from screamingface._evaluation.linking import _prepare_benchmark
 from screamingface._evaluation.url4 import _candidate_text
@@ -240,7 +239,6 @@ def test_regrade_replays_with_the_published_seed_and_pinned_cache_and_never_capt
     assert engine.candidate.answer_seed == 0
     assert engine.candidate.replay_frozen_copy == COPY
     assert engine.candidate.capture is False
-    assert engine.candidate.replay_live_judge is None
     # Nothing is recorded as a reproduction; the only POST is the re-grade itself.
     assert [path for path, _ in board.posts] == [REGRADE_PATH]
 
@@ -295,35 +293,6 @@ class _Staged(_Replayer):
             for failure in case["failures"]:
                 failure["stage"] = self._stage
         return replace(outcome, result_body=json.dumps(body))
-
-
-@pytest.mark.parametrize("live_judge", [["2"], "all"], ids=["named", "all"])
-def test_a_failed_live_judge_refuses_the_regrade_retryably(live_judge: Any) -> None:
-    # Case 2's live judge call hits an outage (`upstream_error`, not a cache miss). Submitting would
-    # spend the source's one re-grade on a score lowered by the outage.
-    engine = _Staged("grading", cases=((1, None), (2, "upstream_error"), (3, None)))
-    board = _Board(public=_source())
-
-    with _client(engine, _Catalog(regradable_from=[OLD_REVISION]), board) as client:
-        with pytest.raises(ExecutionError) as caught:
-            client.regrade(SCORE_ID, live_judge=live_judge, progress=False)
-
-    assert caught.value.code == "regrade_incomplete"
-    assert caught.value.retryable is True
-    assert caught.value.details == {"failed_live_cases": [2]}
-    assert board.posts == []
-
-
-def test_the_same_failure_on_a_replayed_case_is_the_sources_own_and_is_submitted() -> None:
-    # Live set `1`; Case 2 replayed its judge from the copy, so its failure is the source run's
-    # own, replayed identically, and the re-grade goes ahead.
-    engine = _Staged("grading", cases=((1, None), (2, "upstream_error"), (3, None)))
-    board = _Board(public=_source())
-
-    with _client(engine, _Catalog(regradable_from=[OLD_REVISION]), board) as client:
-        client.regrade(SCORE_ID, live_judge=["1"], progress=False)
-
-    assert [path for path, _ in board.posts] == [REGRADE_PATH]
 
 
 # --- refusals before any run ------------------------------------------------------------------
@@ -422,15 +391,15 @@ def test_a_malformed_regraded_from_is_the_boards_contract_error() -> None:
 
 def test_a_private_score_the_caller_submitted_is_refused_before_any_run() -> None:
     # Only the gated read serves it: a private score this identity submitted. The board's re-grade
-    # route refuses every private-board source, so reading it would replay (paying for live judges)
-    # and only then be refused. Stand-in: `_ForbiddenTransport` raises if a run starts.
+    # route refuses every private-board source, so reading it would replay and only then be
+    # refused. Stand-in: `_ForbiddenTransport` raises if a run starts.
     engine = _ForbiddenTransport()
     catalog = _Catalog(regradable_from=[OLD_REVISION])
     board = _Board(gated=_source())
 
     with _client(engine, catalog, board) as client:
         with pytest.raises(LeaderboardError) as caught:
-            client.regrade(SCORE_ID, live_judge="all")
+            client.regrade(SCORE_ID)
 
     assert (caught.value.code, caught.value.status) == ("unknown_score", 404)
     assert engine.called is False
@@ -470,134 +439,6 @@ def test_a_private_score_the_caller_cannot_read_is_refused() -> None:
     assert (caught.value.code, caught.value.status) == ("unknown_score", 404)
     assert catalog.limits == []
     assert board.posts == []
-
-
-# --- the live-judge header --------------------------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    ("live_judge", "sent"),
-    [(None, None), ("all", "all"), (["3", "1", "1"], "1,3"), ((" 12 ",), "12")],
-    ids=["not-asked", "all", "ids-sorted-unique", "trimmed"],
-)
-def test_live_judge_sends_the_header_only_when_asked(live_judge: Any, sent: str | None) -> None:
-    engine = _new_revision_replayer()
-
-    with _client(engine, _Catalog(regradable_from=[OLD_REVISION]), _Board(public=_source())) as c:
-        c.regrade(SCORE_ID, live_judge=live_judge, progress=False)
-
-    assert engine.candidate is not None
-    # The canonical text the Engine echoes back: `all`, or the sorted unique ids.
-    assert engine.candidate.replay_live_judge == sent
-    assert engine.candidate.replay_frozen_copy == COPY
-    # WHY (OME-1909): a live judge call must reach the provider, so the run opts out of the
-    # gateway cache, which would answer an unchanged judge request with its stored reply.
-    assert engine.candidate.use_cache is (sent is None)
-
-
-@pytest.mark.parametrize(
-    ("live_judge", "error"),
-    [
-        ([], ValueError),
-        ([""], ValueError),
-        (["1", " "], ValueError),
-        (["ALL"], ValueError),
-        (["all", "3"], ValueError),
-        (["1,2"], ValueError),
-        ("3", TypeError),
-        ([3], TypeError),
-        ("ALL", TypeError),
-    ],
-)
-def test_a_malformed_live_judge_is_refused_before_any_request(
-    live_judge: Any, error: type[Exception]
-) -> None:
-    catalog = _Catalog(regradable_from=[OLD_REVISION])
-    board = _Board(public=_source())
-
-    with _client(_ForbiddenTransport(), catalog, board) as client:
-        with pytest.raises(error):
-            client.regrade(SCORE_ID, live_judge=live_judge)
-
-    assert catalog.limits == []
-
-
-TOKEN = "cap-token"
-START_URL4 = "(@)!'go'"
-
-
-def _start_http(seen: list[httpx.Request], *, live_echo: str | None) -> httpx.Client:
-    """An Engine start route that honours the copy and echoes `live_echo`, or no live set."""
-
-    def handle(request: httpx.Request) -> httpx.Response:
-        seen.append(request)
-        headers: dict[str, str] = {
-            "Preference-Applied": "respond-async",
-            "Location": "/runs/1",
-            "X-Replay-Frozen-Copy": COPY,
-        }
-        if live_echo is not None:
-            headers["X-Replay-Live-Judge"] = live_echo
-        return httpx.Response(202, headers=headers)
-
-    return httpx.Client(transport=httpx.MockTransport(handle), base_url="https://engine.test")
-
-
-def test_the_start_sends_the_live_judge_header_beside_the_copy_only_when_asked() -> None:
-    seen: list[httpx.Request] = []
-
-    _start_sync(
-        _start_http(seen, live_echo="1,3"),
-        TOKEN,
-        START_URL4,
-        replay_frozen_copy=COPY,
-        replay_live_judge="1,3",
-    )
-    _start_sync(_start_http(seen, live_echo=None), TOKEN, START_URL4, replay_frozen_copy=COPY)
-
-    assert seen[0].headers["X-Replay-Live-Judge"] == "1,3"
-    assert seen[0].headers["X-Replay-Frozen-Copy"] == COPY
-    assert "X-Replay-Live-Judge" not in seen[1].headers
-
-
-@pytest.mark.parametrize("echo", [None, "1", "all"], ids=["older-engine", "other-ids", "other"])
-def test_an_engine_that_does_not_echo_the_live_judges_is_refused(echo: str | None) -> None:
-    # WHY refused (OME-1909): an older Engine ignores the header and replays every judge, so the
-    # "re-judge" would silently hand back the old grades. The code is the replay one, so the
-    # transport stops the run it just started, as it does for an unacknowledged copy.
-    with pytest.raises(ExecutionError) as caught:
-        _start_sync(
-            _start_http([], live_echo=echo),
-            TOKEN,
-            START_URL4,
-            replay_frozen_copy=COPY,
-            replay_live_judge="1,3",
-        )
-
-    assert caught.value.code == "replay_unsupported"
-
-
-@pytest.mark.asyncio
-async def test_the_async_start_checks_the_live_judge_echo_too() -> None:
-    def handle(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(
-            202,
-            headers={
-                "Preference-Applied": "respond-async",
-                "Location": "/runs/1",
-                "X-Replay-Frozen-Copy": COPY,
-            },
-        )
-
-    async with httpx.AsyncClient(
-        transport=httpx.MockTransport(handle), base_url="https://engine.test"
-    ) as http:
-        with pytest.raises(ExecutionError) as caught:
-            await _start_async(
-                http, TOKEN, START_URL4, replay_frozen_copy=COPY, replay_live_judge="all"
-            )
-
-    assert caught.value.code == "replay_unsupported"
 
 
 # --- the board's refusals ---------------------------------------------------------------------
@@ -681,12 +522,11 @@ async def test_the_async_regrade_matches_the_sync_one() -> None:
     )
 
     async with client:
-        created = await client.regrade(SCORE_ID, live_judge=["2"], progress=False)
+        created = await client.regrade(SCORE_ID, progress=False)
 
     assert engine.candidate is not None
     assert engine.candidate.url4 == REGRADED_URL4
     assert (engine.candidate.replay_frozen_copy, engine.candidate.answer_seed) == (COPY, 7)
-    assert engine.candidate.replay_live_judge == "2"
     assert [path for path, _ in board.posts] == [REGRADE_PATH]
     assert created.id == UUID(NEW_SCORE_ID)
 

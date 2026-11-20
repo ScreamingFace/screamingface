@@ -139,4 +139,8 @@ STAND_IN_METADATA: dict[str, dict[str, object]] = {
         "tolerance": 0.0,
         "relative": None,
     },
+    # FutureX-Past: both scorers read the level and the typed key; level 1 is marked by rule,
+    # so the stand-in lane grades it with no judge.
+    "futurex_past": {"level": 1, "ground_truth": ["A"]},
+    "futurex_past_study": {"level": 1, "ground_truth": ["A"]},
 }

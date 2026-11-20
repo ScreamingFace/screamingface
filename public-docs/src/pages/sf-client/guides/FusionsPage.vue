@@ -84,9 +84,9 @@ const synthesizeSig = `sf.Synthesize(
 
     <p>
       The synthesizer is itself a recipe. Usually it is a model that reads the candidate answers and
-      writes the winner. It can also be a
-      <RouterLink to="/sf-client/guides/pipelines">Pipeline</RouterLink> or another fusion.
-      Synthesis composes the same way members do.
+      writes the final one. It can also be a
+      <RouterLink to="/sf-client/guides/pipelines">Pipeline</RouterLink> or another fusion. A
+      synthesizer composes the same way members do.
     </p>
 
     <figure class="not-prose" style="margin: var(--space-8) 0">
@@ -168,7 +168,7 @@ const synthesizeSig = `sf.Synthesize(
 
     <ul>
       <li>Combine two or more Models into one candidate.</li>
-      <li>Pick your synthesizer. Control how a model synthesizer is prompted.</li>
+      <li>Pick the synthesizer, and control how a model synthesizer is prompted.</li>
       <li>Nest a fusion or a Pipeline inside another fusion.</li>
       <li>Read back the steps, the members and the resolved name.</li>
     </ul>
@@ -196,10 +196,10 @@ const synthesizeSig = `sf.Synthesize(
           <td><code>sf.Synthesize(model, *, prompt=None)</code></td>
           <td>
             The synthesizer. It reads the members' answers and writes one final answer for the
-            benchmark to grade. A route string or <code>sf.Model</code> has a model write the
-            answer. An
+            benchmark to grade. Pass a route string or <code>sf.Model</code> to have a model write
+            the answer. Pass an
             <RouterLink to="/sf-client/guides/pipelines"><code>sf.Pipeline</code></RouterLink> or
-            another fusion gives multi-step synthesis.
+            another fusion for multi-step synthesis.
           </td>
         </tr>
         <tr>
@@ -228,9 +228,9 @@ const synthesizeSig = `sf.Synthesize(
     <h3>1 · Combine two models</h3>
 
     <p>
-      <code>sf.Fanout</code> takes the members first (positional). <code>sf.Synthesize</code> takes
-      the synthesizer. The value shows in the same <code>Fanout(...) &gt;&gt; Synthesize(...)</code>
-      form.
+      <code>sf.Fanout</code> takes the members first, as positional arguments.
+      <code>sf.Synthesize</code> takes the synthesizer. The value shows in the
+      <code>Fanout(...) &gt;&gt; Synthesize(...)</code> form.
     </p>
 
     <div class="not-prose">
@@ -284,14 +284,14 @@ const synthesizeSig = `sf.Synthesize(
     <p>
       A fusion needs at least one member. An empty member list fails when you build it. A
       <code>sf.Fanout</code> also needs a step after it. A chain that ends after
-      <code>sf.Fanout</code> fails when you compile or evaluate it, before any spend.
+      <code>sf.Fanout</code> fails when you compile or evaluate it, before any spend occurs.
     </p>
 
     <h3>2 · Read the resolved name</h3>
 
     <p>
       Without an explicit <code>name</code> on <code>sf.Fanout</code>, the fusion's name is its
-      members' names joined with <code>+</code>. Reports show that name. <code>.steps</code> holds
+      members' names joined with <code>+</code>, and reports show that name. <code>.steps</code> holds
       the two steps: the <code>Fanout</code>, then the <code>Synthesize</code>.
     </p>
 
@@ -302,12 +302,12 @@ const synthesizeSig = `sf.Synthesize(
     <h3>3 · Choose the synthesizer</h3>
 
     <p>
-      The <strong>synthesizer</strong> decides how the members' answers become one. It is itself a
-      recipe. Give <code>sf.Synthesize</code> a route string or <code>sf.Model</code> to have a
-      model read the drafts and write the final answer. Or give it an
+      The synthesizer decides how the members' answers become one. It is itself a recipe. Give
+      <code>sf.Synthesize</code> a route string or <code>sf.Model</code> to have a model read the
+      drafts and write the final answer. Give it an
       <RouterLink to="/sf-client/guides/pipelines"><code>sf.Pipeline</code></RouterLink> or another
-      fusion for multi-step synthesis. Swapping synthesizers is the main lever: same members,
-      different synthesizer, different candidate.
+      fusion for multi-step synthesis. Swapping the synthesizer is the main lever you have: the same
+      members with a different synthesizer give a different candidate.
     </p>
 
     <div class="not-prose">
@@ -360,17 +360,17 @@ const synthesizeSig = `sf.Synthesize(
     </figure>
 
     <p>
-      A model synthesizer has its own <code>prompt</code> and <code>params</code>. They control how
-      it writes the final answer, separate from how members answer. Set a different prompt on a
-      member by setting it on that Model. <code>sf.Synthesize(model, prompt=...)</code> also sets
-      the synthesizer prompt, when the model has no prompt of its own.
+      A model synthesizer has its own <code>prompt</code> and <code>params</code>. These control how
+      it writes the final answer, separate from how the members answer. To set a different prompt on
+      a member, set it on that Model. <code>sf.Synthesize(model, prompt=...)</code> sets the
+      synthesizer prompt when the model has no prompt of its own.
       <code>sf.Fanout(members, prompt=...)</code> sets the prompt of each member that has none.
     </p>
 
     <p>
-      A model synthesizer is one way to close the block. A <strong>reducer</strong> closes it with a
-      rule instead of a newly written answer: <code>sf.Vote()</code>, for instance, returns the
-      answer most members agree on, unchanged. The
+      A model synthesizer is one way to close the block. A reducer closes it with a rule instead of a
+      newly written answer. For example, <code>sf.Vote()</code> returns the answer most members agree
+      on, unchanged. The
       <RouterLink to="/sf-client/guides/map-reduce">map-reduce</RouterLink> guide covers the full set
       of reducers, judges and narrow steps, and the
       <RouterLink to="/sf-client/api/reducers">Reducers reference</RouterLink> has their signatures.
@@ -448,7 +448,7 @@ const synthesizeSig = `sf.Synthesize(
     <p>
       When you run a fusion, a member can fail. A provider times out, a key is rejected, or a route
       is unavailable. By default <code>quorum</code> is <code>"all"</code>, so every member must
-      answer: one failure fails the whole fusion, the synthesizer never runs, and the candidate
+      answer. One failure then fails the whole fusion, the synthesizer never runs, and the candidate
       scores nothing for that question. Two controls let the fusion tolerate a failure and still
       produce a graded answer.
     </p>
@@ -463,10 +463,10 @@ const synthesizeSig = `sf.Synthesize(
     <p>
       <strong>Mark members optional.</strong> A member built with <code>optional=True</code> may fail
       without stopping the fusion. Its failure is tolerated, and it drops out of the answers the
-      synthesizer reads. A member left required (the default) must succeed: if a required member
-      fails, the fusion fails even when the quorum could otherwise be met. Below, two frontier models
-      are required and a faster model is optional, so the fusion survives losing it as long as the
-      quorum of two is met.
+      synthesizer reads. A member left required (the default) must succeed. If a required member
+      fails, the fusion fails even when the quorum could otherwise be met. In the example below, two
+      frontier models are required and a faster model is optional, so the fusion survives losing the
+      optional one as long as the quorum of two is met.
     </p>
 
     <div class="not-prose">
@@ -482,13 +482,13 @@ const synthesizeSig = `sf.Synthesize(
     <h3>6 · Use the <code>sf.Fusion</code> shortcut</h3>
 
     <p>
-      <code>sf.Fusion</code> is a shortcut for the same chain. It takes the members, then the
-      synthesizer as a keyword. It returns an equal value with the same url4. The value shows in the
+      <code>sf.Fusion</code> is a shortcut for the same chain. It takes the members first, then the
+      synthesizer as a keyword. It returns an equal value with the same url4, shown in the
       <code>Fanout(...) &gt;&gt; Synthesize(...)</code> form. It also takes <code>signals</code>,
       <code>quorum</code>, <code>name</code> and <code>prompt</code> for the <code>sf.Fanout</code>,
       and <code>optional=True</code>, which wraps the chain as
-      <code>sf.Pipeline([...], optional=True)</code>. It refuses <code>optional=True</code> with a
-      narrow step (<code>sf.Rank</code>, <code>sf.Filter</code>, <code>sf.Concat</code>) as the
+      <code>sf.Pipeline([...], optional=True)</code>. It refuses <code>optional=True</code> when a
+      narrow step (<code>sf.Rank</code>, <code>sf.Filter</code>, <code>sf.Concat</code>) is the
       synthesizer, because an optional chain must be a closed block. It refuses a bare
       <code>sf.Judge</code> as the synthesizer, because a judge only scores.
     </p>

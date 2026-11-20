@@ -31,20 +31,20 @@ const modelSig = `sf.Model(
 <template>
   <DocLayout
     title="Models"
-    description="The Model recipe class you build, and the discovery types routes come back as: ModelInfo, ModelDetails, and their fields."
+    description="The Model recipe class you build, and the read-only discovery types routes come back as: ModelInfo, ModelDetails, and their fields."
     :navigation="navigation"
     :version="version"
   >
     <p>
       This page documents the <code>Model</code> recipe class you build, and the read-only
-      <strong>discovery types</strong> the engine returns when you inspect what a route supports.
+      discovery types the engine returns when you inspect what a route supports.
     </p>
 
     <h2 id="model">Model</h2>
 
     <p>
-      A <code>Model</code> is a single model route answering on its own: the simplest recipe, and
-      the building block every <RouterLink to="/sf-client/guides/fusions">Fusion</RouterLink> and
+      A <code>Model</code> is a single model route answering on its own. It is the simplest recipe,
+      and the building block every <RouterLink to="/sf-client/guides/fusions">Fusion</RouterLink> and
       <RouterLink to="/sf-client/guides/pipelines">Pipeline</RouterLink> is made of. See the
       <RouterLink to="/sf-client/guides/models">Models guide</RouterLink> for help picking a route.
     </p>
@@ -73,8 +73,8 @@ const modelSig = `sf.Model(
           <td><code>name</code></td>
           <td><code>str&nbsp;|&nbsp;None</code></td>
           <td>
-            Label that shows up in reports and on the leaderboard. Defaults to everything after the
-            last <code>/</code> in the route, so <code>openrouter/openai/gpt-5.5</code> becomes
+            Label that shows up in reports and on the leaderboard. It defaults to everything after
+            the last <code>/</code> in the route, so <code>openrouter/openai/gpt-5.5</code> becomes
             <code>gpt-5.5</code>. Setting an explicit name also marks this Model as an independent
             sample.
           </td>
@@ -83,8 +83,8 @@ const modelSig = `sf.Model(
           <td><code>prompt</code></td>
           <td><code>str&nbsp;|&nbsp;None</code></td>
           <td>
-            The instruction given to the model alongside the case. Leave it out and the SDK uses its
-            own default prompt (not the benchmark's).
+            The instruction given to the model alongside the case. If you leave it out, the SDK uses
+            its own default prompt, not the benchmark's.
           </td>
         </tr>
         <tr>
@@ -92,10 +92,10 @@ const modelSig = `sf.Model(
           <td><code>Mapping&nbsp;|&nbsp;None</code></td>
           <td>
             Generation overrides like <code>temperature</code>. Values must be <code>str</code>,
-            <code>int</code>, <code>float</code>, or <code>bool</code> (floats have to be finite).
-            Only the params you set get sent, since the SDK adds no defaults. Transport, tool, and
-            benchmark-protocol names (like <code>model</code>, <code>messages</code>,
-            <code>tools</code>, <code>web_search</code>) are reserved and will be rejected.
+            <code>int</code>, <code>float</code>, or <code>bool</code>, and floats have to be finite.
+            The SDK adds no defaults, so only the params you set get sent. Transport, tool, and
+            benchmark-protocol names (such as <code>model</code>, <code>messages</code>,
+            <code>tools</code>, and <code>web_search</code>) are reserved and will be rejected.
           </td>
         </tr>
         <tr>
@@ -113,7 +113,7 @@ const modelSig = `sf.Model(
 
     <p>
       <code>model</code>, <code>name</code>, and <code>prompt</code> give you back what you passed
-      in. <code>params</code> returns a <code>mappingproxy</code>, so you can't mutate the overrides
+      in. <code>params</code> returns a <code>mappingproxy</code>, so you cannot change the overrides
       after construction.
     </p>
 
@@ -154,27 +154,26 @@ const modelSig = `sf.Model(
 
     <p>
       These are the read-only values model discovery returns.
-      <code>client.models.list()</code> hands back a <code>ModelInfo</code> for each of the curated
-      routes of the configured engine, and <code>client.models.get(id)</code> returns the
-      fuller <code>ModelDetails</code> for one route. Consulting them before naming a route in a
-      <a href="#model">Model</a> is worthwhile: a route the engine does not carry raises a
+      <code>client.models.list()</code> hands back a <code>ModelInfo</code> for each curated route of
+      the configured engine. <code>client.models.get(id)</code> returns the fuller
+      <code>ModelDetails</code> for one route. Check them before you name a route in a
+      <a href="#model">Model</a>: a route the engine does not carry raises a
       <code>PlanningError</code> at evaluation time rather than at construction time.
     </p>
 
     <p>
-      Everything here is read-only and assigning to a field raises
+      Everything here is read-only. Assigning to a field raises
       <code>FrozenInstanceError: cannot assign to field 'provider'</code>. These values also never
-      refresh themselves and the Client needs to be called again when current data is desired.
+      refresh themselves, so call the Client again when you want current data.
     </p>
 
     <h2>ModelInfo</h2>
 
     <p>
       A <code>ModelInfo</code> is one model route the configured engine can currently reach.
-      <code>client.models.list()</code> returns the curated routes of the configured engine, and
-      consulting it before naming a route in a <a href="#model">Model</a> is worthwhile: a route the
-      engine does not carry raises a <code>PlanningError</code> at evaluation time rather than at
-      construction time.
+      <code>client.models.list()</code> returns the curated routes of the configured engine. Check
+      the list before you name a route in a <a href="#model">Model</a>: a route the engine does not
+      carry raises a <code>PlanningError</code> at evaluation time rather than at construction time.
     </p>
 
     <table>
@@ -201,7 +200,7 @@ const modelSig = `sf.Model(
           <td><code>tuple[str, ...]</code></td>
           <td>
             Which request parameters this route accepts, such as <code>temperature</code>. Passing
-            one it does not accept fails before the run.
+            one it does not accept fails before the run starts.
           </td>
         </tr>
         <tr>
@@ -219,10 +218,10 @@ const modelSig = `sf.Model(
     <h2>ModelDetails</h2>
 
     <p>
-      <code>client.models.get(id)</code> returns the fuller <code>ModelDetails</code> for one route:
-      every parameter with its schema and whether the gateway currently projects it, the tool and
-      transport capabilities, and whether the details are stale or degraded. In a notebook it
-      renders as a card.
+      <code>client.models.get(id)</code> returns the fuller <code>ModelDetails</code> for one route.
+      It covers every parameter with its schema and whether the gateway currently projects it, the
+      tool and transport capabilities, and whether the details are stale or degraded. In a notebook
+      it renders as a card.
     </p>
 
     <table>
@@ -259,8 +258,8 @@ const modelSig = `sf.Model(
           <td><code>str</code></td>
           <td>
             Which connection this was built for. <code>'account_connection'</code> means the route
-            as your account's connection sees it, built from that connection's auth mode, rather
-            than the route in general.
+            as your account's connection sees it, built from that connection's auth mode, not the
+            route in general.
           </td>
         </tr>
         <tr>
@@ -300,16 +299,16 @@ const modelSig = `sf.Model(
           <td><code>observed_at</code></td>
           <td><code>datetime&nbsp;|&nbsp;None</code></td>
           <td>
-            When the details were observed, as a timezone-aware value. <code>None</code> on degraded
-            details and when the provider reports no observation time.
+            When the details were observed, as a timezone-aware value. It is <code>None</code> on
+            degraded details and when the provider reports no observation time.
           </td>
         </tr>
         <tr>
           <td><code>expires_at</code></td>
           <td><code>datetime&nbsp;|&nbsp;None</code></td>
           <td>
-            When the observation window ends. Present together with <code>observed_at</code> and
-            <code>None</code> otherwise.
+            When the observation window ends. It is present together with <code>observed_at</code>,
+            and <code>None</code> otherwise.
           </td>
         </tr>
         <tr>
@@ -329,8 +328,8 @@ const modelSig = `sf.Model(
           <td><code>execution_access</code></td>
           <td><code>'configured'&nbsp;|&nbsp;'missing'&nbsp;|&nbsp;None</code></td>
           <td>
-            Whether your account has provider access to run this route:
-            <code>'configured'</code> when it does, <code>'missing'</code> when it does not.
+            Whether your account has provider access to run this route.
+            <code>'configured'</code> when it does, <code>'missing'</code> when it does not, and
             <code>None</code> when the gateway is too old to report it.
           </td>
         </tr>
@@ -338,7 +337,8 @@ const modelSig = `sf.Model(
     </table>
 
     <p>
-      Its repr shows counts rather than the full mappings, so the shape stays legible at a glance:
+      Its repr shows counts rather than the full mappings, so the shape stays easy to read at a
+      glance:
     </p>
 
     <div class="not-prose">
@@ -349,8 +349,8 @@ const modelSig = `sf.Model(
 
     <p>
       A <code>ModelParameter</code> describes one request parameter a route exposes: what it is
-      called, how the gateway treats it, and where the description came from. The values in
-      <code>ModelDetails.parameters</code> are these.
+      called, how the gateway treats it, and where the description came from. These are the values in
+      <code>ModelDetails.parameters</code>.
     </p>
 
     <table>
@@ -376,8 +376,8 @@ const modelSig = `sf.Model(
           <td><code>schema</code></td>
           <td><code>ModelParameterSchema&nbsp;|&nbsp;None</code></td>
           <td>
-            The value's type and bounds, when the provider published one. <code>None</code> when no
-            schema is known.
+            The value's type and bounds, when the provider published one. It is <code>None</code>
+            when no schema is known.
           </td>
         </tr>
         <tr>
@@ -404,7 +404,7 @@ const modelSig = `sf.Model(
           <td><code>gateway_status</code></td>
           <td><code>str</code></td>
           <td>
-            Whether the gateway forwards the parameter: <code>"enabled"</code> or
+            Whether the gateway forwards the parameter, either <code>"enabled"</code> or
             <code>"disabled"</code>.
           </td>
         </tr>
@@ -442,7 +442,7 @@ const modelSig = `sf.Model(
       A <code>ModelParameterSchema</code> is the bounded value schema the gateway applies to one
       request parameter: its type and whatever constraints the provider published. It is the type of
       <code>ModelParameter.schema</code>. Only the fields that constrain the declared
-      <code>type</code> are set; the rest stay <code>None</code>.
+      <code>type</code> are set, and the rest stay <code>None</code>.
     </p>
 
     <table>
@@ -503,8 +503,8 @@ const modelSig = `sf.Model(
     <h2>ModelCapability</h2>
 
     <p>
-      A <code>ModelCapability</code> describes one tool or transport capability. The values in
-      <code>ModelDetails.tools</code> and <code>ModelDetails.transport</code> are these.
+      A <code>ModelCapability</code> describes one tool or transport capability. These are the values
+      in <code>ModelDetails.tools</code> and <code>ModelDetails.transport</code>.
     </p>
 
     <table>
@@ -525,7 +525,7 @@ const modelSig = `sf.Model(
           <td><code>gateway_status</code></td>
           <td><code>str</code></td>
           <td>
-            Whether the gateway exposes the capability: <code>"enabled"</code> or
+            Whether the gateway exposes the capability, either <code>"enabled"</code> or
             <code>"disabled"</code>.
           </td>
         </tr>

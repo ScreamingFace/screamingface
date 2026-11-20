@@ -2110,7 +2110,7 @@ inspect_evals boards alongside ours, and opens JupyterLab against it.
   fusion against one of the imported boards.
 - [`examples/18_picture_benchmarks.ipynb`](examples/18_picture_benchmarks.ipynb): two Cases of
   each picture Benchmark (LAB-Bench FigQA and TableQA, MMMU, MathVista, HLE, HLE-Diamond, LABBench2
-  FigQA2 and TableQA2, MaCBench, ZeroBench) on the local stack or dev, chosen by one variable, with paid runs off by
+  FigQA2 and TableQA2, MaCBench, ZeroBench, EnigmaEval) on the local stack or dev, chosen by one variable, with paid runs off by
   default.
 - [`examples/19_map_select_reduce.ipynb`](examples/19_map_select_reduce.ipynb): the combine
   recipes in the map → score → narrow → reduce form, built and compiled offline (no model
@@ -2119,6 +2119,9 @@ inspect_evals boards alongside ours, and opens JupyterLab against it.
   and budget recipes of "Choose whether a model runs", built and compiled offline (no model call).
 - [`examples/21_runs.ipynb`](examples/21_runs.ipynb): list, reopen, inspect, wait on, and cancel
   Engine-owned Runs; paid evaluation and cancellation are disabled by default.
+- [`examples/22_futurex_past.ipynb`](examples/22_futurex_past.ipynb): FutureX-Past, resolved
+  forecasting questions scored two ways (the FutureX authors' rules with a Judge, and a study's
+  exact-match rules), with the study's 100 questions as a `cases=` rerun.
 
 All notebooks are deterministic outputs of `scripts/build_notebooks.py`.
 

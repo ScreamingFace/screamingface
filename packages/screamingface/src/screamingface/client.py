@@ -458,50 +458,43 @@ class Client:
         self,
         score_id: UUID | str,
         *,
-        live_judge: Sequence[str] | Literal["all"] | None = None,
         on_event: Callable[[Event], None] | None = None,
         progress: bool | None = None,
     ) -> LeaderboardScore:
-        """Move a published score onto its Benchmark's current revision, at no Candidate cost.
+        """Move a published score onto its Benchmark's current revision, at no model cost.
 
-        Same answers, today's grading: every Candidate answer comes from the score's pinned cache,
-        and only the Benchmark part (its grading) is the current revision's. It is for
-        ScreamingFace team members after a Benchmark's revision moved because its grading changed
-        (OME-1909); the Scoreboard accepts it only from an identity it lists as a re-grader.
+        Same answers, today's grading: every model reply, Candidate and judge, comes from the
+        score's pinned cache, and only the Benchmark part (its grading) is the current revision's.
+        It is for ScreamingFace team members after a Benchmark's revision moved because its
+        grading changed (OME-1909); the Scoreboard accepts it only from an identity it lists as a
+        re-grader. A Benchmark whose judge request changed (a new judge prompt or `max_tokens`)
+        misses the cache on every judged Case, so it cannot be re-graded this way.
 
         Stages, in the order they run:
 
-        1. `live_judge` is checked before any request. None (the default): every judge call
-           replays from the copy too. `"all"`, or a list of Case id strings like `["3", "17"]`:
-           those Cases' judge calls are sent to the judge's provider, paid, with the gateway cache
-           off for the run, so an unchanged judge request is asked again rather than answered from
-           the cache; Candidate calls always replay.
-        2. The score is read from the public read only. A private score, even one you submitted, is
+        1. The score is read from the public read only. A private score, even one you submitted, is
            the board's 404 (`LeaderboardError`, `code="unknown_score"`) before any run: the board
            never re-grades a score on a private board.
-        3. A score that is itself a re-grade is refused (`PlanningError`,
+        2. A score that is itself a re-grade is refused (`PlanningError`,
            `code="regrade_the_source"`, `details["root_score_id"]` naming the score it re-graded):
            it has no pinned cache, so re-grade that root score instead. A score with no pinned
            cache, or a `partial` capture, is refused before anything else (`ReproductionError`,
            `code="not_reproducible"`).
-        4. The current Benchmark is read from the Engine at the score's Case count.
-        5. A score already on the current revision is refused (`PlanningError`,
+        3. The current Benchmark is read from the Engine at the score's Case count.
+        4. A score already on the current revision is refused (`PlanningError`,
            `code="already_current"`), and so is one whose revision the Benchmark does not list as
            re-gradable (`code="not_regradable"`). Each listed revision carries a Case Digest the
            Engine checks against the Benchmark's current Cases when it builds the catalogue, a
            tripwire for a later Case change; an old entry whose Cases differed is refused at step
-           7, because its pinned cache misses. The url4 is
-           rebuilt: the current Benchmark part, around the score's Candidate part unchanged (a
-           published url4 with no Candidate part is `code="invalid_published_url4"`).
-        6. The run replays from the pinned cache with the score's answer seed, never capturing.
-           An Engine that does not acknowledge the copy, or the live judge Cases, has its run
-           stopped (`ExecutionError`, `code="replay_unsupported"`).
-        7. If any Case missed the copy, on a Candidate or a judge call, nothing is submitted
-           (`ExecutionError`, `code="regrade_incomplete"`, `details["missed_cases"]`). With
-           `live_judge`, any failure on a live-judged Case also submits nothing, retryably
-           (`details["failed_live_cases"]`): the board allows one re-grade per score and
-           revision.
-        8. The result is posted to the score's re-grade route. The new entry is credited to the
+           6, because its pinned cache misses. The url4 is rebuilt: the current Benchmark part,
+           around the score's Candidate part unchanged (a published url4 with no Candidate part is
+           `code="invalid_published_url4"`).
+        5. The run replays from the pinned cache with the score's answer seed, never capturing.
+           An Engine that does not acknowledge the copy has its run stopped (`ExecutionError`,
+           `code="replay_unsupported"`).
+        6. If any Case missed the copy, on a Candidate or a judge call, nothing is submitted
+           (`ExecutionError`, `code="regrade_incomplete"`, `details["missed_cases"]`).
+        7. The result is posted to the score's re-grade route. The new entry is credited to the
            score's submitter and authors and links back to the score; the score is unchanged. A
            second re-grade of one score at the same revision is
            `LeaderboardError(code="already_regraded")` with
@@ -521,9 +514,7 @@ class Client:
         from screamingface._regrade import regrade_sync
 
         self._require_open()
-        return regrade_sync(
-            self, score_id, live_judge=live_judge, on_event=on_event, progress=progress
-        )
+        return regrade_sync(self, score_id, on_event=on_event, progress=progress)
 
     @overload
     def connect(
@@ -1094,7 +1085,6 @@ class AsyncClient:
         self,
         score_id: UUID | str,
         *,
-        live_judge: Sequence[str] | Literal["all"] | None = None,
         on_event: Callable[[Event], None | Awaitable[None]] | None = None,
         progress: bool | None = None,
     ) -> LeaderboardScore:
@@ -1106,9 +1096,7 @@ class AsyncClient:
         from screamingface._regrade import regrade_async
 
         self._require_open()
-        return await regrade_async(
-            self, score_id, live_judge=live_judge, on_event=on_event, progress=progress
-        )
+        return await regrade_async(self, score_id, on_event=on_event, progress=progress)
 
     @overload
     async def connect(
