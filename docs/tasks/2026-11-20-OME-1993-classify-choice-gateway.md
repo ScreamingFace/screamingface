@@ -1,13 +1,13 @@
 ---
 id: OME-1993
 linear_url: https://linear.app/openmined/issue/OME-1993/serve-the-gateway-side-of-routers-structured-choice-classification
-status: In Progress
+status: Done
 type: task
 priority: high
 labels: [aigateway, agentic, autonomous]
 parent: OME-1306
 created: 2026-11-20
-closed:
+closed: 2026-11-20
 ---
 
 # Serve the Gateway side of Routers: structured-choice classification, upstream attempt counts and seal provenance
@@ -29,3 +29,6 @@ Spec: `docs/spec/2026-11-16-router-recipe-extension/` (C7, C9).
 Plan: `docs/plan/2026-11-16-router-recipe-extension.md` §6.
 Ledger: `docs/work/2026-11-19-classify-choice-gateway.md`.
 Branch: `OME-1993-classify-choice-gateway`.
+
+Merged [PR #1988](https://github.com/ScreamingFace/screamingface/pull/1988) as `9ef7c150c`.
+Linear is Done.

@@ -1,9 +1,9 @@
 ---
 ticket: OME-1993
 stack: aigateway
-status: in_progress   # planned | in_progress | done | blocked
+status: done
 started: 2026-11-19
-finished:
+finished: 2026-11-20
 ---
 
 # classify-choice-gateway — Gateway structured-choice classification and attempts (Unit 5.1)
@@ -241,9 +241,13 @@ replacement client come from the same code; no retry logic is copied.
   - Owner-approved prior-test transitions: `tests/unit/remote_endpoint/test_app_classifier_catalog.py`
     (`d71d7abcbe95` → `2b675d227c4d`) and `tests/fixtures/cache_hit_contract/openrouter_hit.json`
     (`f935a58399c7` → `de998a556686`).
-- **Commits:** PR #1988 on `OME-1993-classify-choice-gateway`: `d30eb6ff3` (PR-open),
-  `cf90c0339` (round 3 review fixes) and the round 4 shutdown-text commit after it. Merge sha
-  pending green CI and review; it goes in the Linear close comment.
+- **Commits:** [PR #1988](https://github.com/ScreamingFace/screamingface/pull/1988) (branch
+  `OME-1993-classify-choice-gateway`, head `38400954d` on `90483dcb2`), squash-merged 2026-11-20
+  as `9ef7c150c`. It holds `d30eb6ff3` (PR-open), `cf90c0339` (round 3 review fixes) and
+  `38400954d` (round 4 shutdown text). At that head all 24 CI checks passed; 4 path-filtered jobs
+  were skipped. The Linear close comment is posted and Linear is Done. No hosted readiness claim:
+  the hosted proof is plan Unit 9, and the `pkg/client-sf` test (test-plan §4 item 11) is a
+  separate landing.
 - **Gates:** 2026-11-20, on the final diff after the review fixes and the spec amendments:
   `run_gates.py aigateway --skip-append-only` green on Python 3.13 and 3.12 (ruff, format,
   pyright, no-enterprise, pytest with the 80 coverage floor); full suite 8270 passed, 119 skipped,
