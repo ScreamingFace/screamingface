@@ -210,9 +210,15 @@ class DriverStore(StoreCore):
         # the flag, R12); NULL (a Run without starts) stays NULL.
         # WHY under the Run's lock (store_core.lock_run), as `stop` checks for a live Candidate:
         # a settle takes the same lock, so no Candidate ends between the check and the update.
+        # WHY a live Candidate locked too, after the Run as every write orders them: reconcile
+        # settles stale ones `lost` in one UPDATE without the Run's lock (OME-1992). The locked
+        # one stays live until this commits, so the Run cannot finish in between. WHY one: it is
+        # enough, and a hold that waits on no second row never closes a lock cycle with
+        # reconcile's many-row UPDATE. SQLite serializes the whole transaction anyway.
         async with in_transaction(CONNECTION) as conn:
             await lock_run(run_id, conn)
-            if not await Candidate.filter(run_id=run_id, state__in=LIVE).using_db(conn).exists():
+            live = Candidate.filter(run_id=run_id, state__in=LIVE).using_db(conn)
+            if await live.select_for_update().only("id").first() is None:
                 return
             await (
                 Run.filter(

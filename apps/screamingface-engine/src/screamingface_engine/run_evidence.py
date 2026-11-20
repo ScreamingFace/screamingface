@@ -31,7 +31,13 @@ from screamingface_engine.candidate_outcomes import (
 )
 from screamingface_engine.candidate_record import RUN_SUMMARY_INVALID, CandidateRecordFold
 from url4.streaming.interfaces import EventPublisher
-from url4.streaming.protocol import OutboundFrame, TerminatedEvent
+from url4.streaming.protocol import (
+    ErrorInfo,
+    OutboundFrame,
+    ResultEvent,
+    TerminatedData,
+    TerminatedEvent,
+)
 from url4.streaming.trace import format_traceparent, parse_traceparent, valid_traceparent
 
 SCHEDULED = "run scheduled"
@@ -211,11 +217,12 @@ class SettlementWatch(TerminalWatch):
     inner publisher accepted, so the record states what a follower could have seen. Its producer
     also binds it for the run's task (`binding_record`), where the executor reads its refusal.
 
-    INVARIANT (OME-1988): a landed success whose record refused its run summary reads `failed`
-    with `run_summary_invalid` in ``outcome``, ``error``, ``error_code`` and ``landed`` alike, so
-    the evidence line (`outcome_of`), the runner's verdict and the outcome (`settlement_of`)
-    agree. Only an executor that does not read `bound_refusal` lands such a success; the
-    `Url4Executor` fails the run before its terminal frame.
+    INVARIANT (OME-1988): once the record has refused the run's summary, the inner publisher
+    gets no result frame, and the run's `succeeded` terminal frame as `failed` with
+    `run_summary_invalid`, the error the `Url4Executor` fails such a run with. So the durable
+    tail, a follower, an R7 settle, the evidence line (`outcome_of`), the runner's verdict and
+    the outcome (`settlement_of`) all read the one refusal. Only an executor that does not read
+    `bound_refusal` reaches this; the `Url4Executor` fails the run before its result.
     """
 
     def __init__(self, inner: EventPublisher, *, record: CandidateRecordFold | None = None) -> None:
@@ -223,12 +230,25 @@ class SettlementWatch(TerminalWatch):
         self.error_code: str | None = None
         self.landed: str | None = None
         self._record = record
+        # How many frames of the run this watch withheld from the inner publisher.
+        self._withheld = 0
 
     def record(self) -> dict[str, Any] | None:
         """The run's record, cut to fit; None for a run nobody asked one of."""
         return None if self._record is None else self._record.record()
 
     async def publish(self, topic: str, event: OutboundFrame) -> None:
+        refusal = None if self._record is None else self._record.refusal
+        if refusal is not None:
+            # AIDEV-NOTE: the backstop (class docstring). The run's last log is folded before
+            # its result frame (url4's lifecycle publishes every step before the result), so
+            # the refusal is known by then. WHY withheld and not raised: a publish that raises
+            # is a publisher failure to the run (`EventPublisher.publish`); the refusal is the
+            # run's verdict, and its terminal frame carries it.
+            if isinstance(event, ResultEvent):
+                self._withheld += 1
+                return
+            event = self._as_refused(event, refusal)
         await super().publish(topic, event)
         if self._record is not None:
             known = self._record.malformed
@@ -253,12 +273,23 @@ class SettlementWatch(TerminalWatch):
         if error is None:
             self.error = None
         self.landed = event.data.status
-        refusal = None if self._record is None else self._record.refusal
-        if self.landed == "succeeded" and refusal is not None:
-            # AIDEV-NOTE: the backstop (class docstring). Every reader reads these fields.
-            self.outcome = self.landed = "failed"
-            self.error_code = RUN_SUMMARY_INVALID
-            self.error = f"{RUN_SUMMARY_INVALID}: {refusal}"
+
+    def _as_refused(self, event: OutboundFrame, refusal: str) -> OutboundFrame:
+        """``event`` as the inner publisher gets it from a run its record refused: a success
+        becomes the refusal, and a frame after a withheld one takes the number it left free.
+
+        INVARIANT (`lifecycle._Sequencer`): a run's frames are numbered with no gap, and a
+        follower cannot cross one. WHY the frame keeps its id, time and trace context: it is
+        still the run's own frame, only its verdict and number change.
+        """
+        update: dict[str, object] = {}
+        if self._withheld and event.sequence is not None:
+            update["sequence"] = str(int(event.sequence) - self._withheld)
+        if isinstance(event, TerminatedEvent) and event.data.status == "succeeded":
+            # The `Url4Executor`'s refusal, as url4's `_error_info` writes it.
+            error = ErrorInfo(code=RUN_SUMMARY_INVALID, message=refusal, permanent=True)
+            update["data"] = TerminatedData(status="failed", error=error)
+        return event.model_copy(update=update) if update else event
 
 
 def settlement_of(
@@ -271,9 +302,9 @@ def settlement_of(
 
     INVARIANT (spec R3): one classifier. A landed terminal frame decides it; without one, the
     task decides it, as `outcome_of` does. A run whose record refused its run summary
-    (OME-1988) is failed by its executor before its terminal frame, so that frame already says
-    `failed` with `run_summary_invalid`, and an R7 settle from it agrees; a success that lands
-    all the same reads `failed` through the watch (`SettlementWatch`).
+    (OME-1988) lands a terminal frame that says `failed` with `run_summary_invalid`, whether its
+    executor failed it or `SettlementWatch` published its success so, and an R7 settle from it
+    agrees.
     """
     if watch.landed is not None:
         return CandidateOutcome(

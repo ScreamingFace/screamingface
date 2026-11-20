@@ -12,9 +12,10 @@ real Engine stream (`data/cache_hit_contract/run_events.json`) and the same fail
 A refused success both settles the Candidate `failed` and leaves the result out of its record: the
 Client reads a succeeded Candidate's record and ignores an `error` on it.
 
-AIDEV-NOTE: these replay a recorded success, its `succeeded` terminal frame included, so they read
-the fold's rule through `SettlementWatch`'s backstop. A real run is failed by its executor before
-its terminal frame: `test_run_summary_refused_before_terminal.py` (review round 1).
+AIDEV-NOTE: these replay a recorded success, its result and `succeeded` terminal frames included,
+so they read the fold's rule through `SettlementWatch`'s backstop, which publishes no result and
+the terminal frame as the refusal (review round 3). A real run is failed by its executor before its
+terminal frame: `test_run_summary_refused_before_terminal.py` (review round 1).
 """
 
 from __future__ import annotations
@@ -29,6 +30,15 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import pytest_asyncio
+from run_driver_support import SETTINGS, DriverRunner, drivers
+from run_registry_support import (
+    DATABASES,
+    Registry,
+    open_registry,
+    postgres_server,  # noqa: F401  (a fixture the Postgres parameter requests)
+    start_spec,
+)
 from test_inprocess_outcomes import _published, _subtree
 
 from screamingface_engine.adapters.inprocess import InProcessJobRunner
@@ -39,9 +49,17 @@ from screamingface_engine.adapters.memory import (
 from screamingface_engine.candidate_outcomes import CandidateOutcome
 from screamingface_engine.candidate_record import CandidateRecordFold
 from screamingface_engine.run_evidence import SettlementWatch, settlement_of
+from screamingface_engine.runs.records import owner_key
 from url4.streaming.codec import decode
 from url4.streaming.interfaces import Completed, ExecStep, Executor, TraceContext
-from url4.streaming.protocol import LogData, ResultData, TerminatedEvent
+from url4.streaming.protocol import (
+    ErrorInfo,
+    LogData,
+    OutboundFrame,
+    ResultData,
+    ResultEvent,
+    TerminatedEvent,
+)
 
 pytestmark = pytest.mark.asyncio
 
@@ -51,6 +69,8 @@ URL4 = "/openrouter/anthropic/claude-fable-5(ctx)!go"
 TOPIC = "runs.cache-hit-contract"
 # WHY the literal: the code is what the registry stores and the Client raises with.
 CODE = "run_summary_invalid"
+MESSAGE = "SF Engine run summary cache.hits is invalid"
+ALICE = owner_key("alice@example.org")
 
 _UNPRICED = "cache.saved_cost.unpriced_hits"
 _SAVED = "cache.saved_cost_usd"
@@ -97,12 +117,11 @@ def _assert_refused(outcome: CandidateOutcome, attribute: str) -> None:
     record = outcome.record
     assert record is not None
     assert "result" not in record
-    assert record["error"] == {
-        "code": CODE,
-        "message": f"SF Engine run summary {attribute} is invalid",
-        "permanent": True,
-        "details": None,
-    }
+    message = f"SF Engine run summary {attribute} is invalid"
+    error = {"code": CODE, "message": message, "permanent": True}
+    # Round 3: the record folds the frames as published, so its error is the failed terminal
+    # frame's, with that frame's data as its details, as the executor path's is.
+    assert record["error"] == {**error, "details": {"status": "failed", "error": error}}
 
 
 # --- The control ---------------------------------------------------------------------------------
@@ -314,7 +333,7 @@ async def test_one_malformed_closing_summary_refuses_the_run_for_good(
     _assert_refused(await _settle(events), "cache.hits")
 
 
-# --- Every reader agrees on the backstop path (review round 2) ------------------------------------
+# --- The backstop publishes the refusal, never the success (review rounds 2 and 3) ---------------
 
 
 class _Unbound(Executor):
@@ -328,21 +347,38 @@ class _Unbound(Executor):
         yield Completed(result=ResultData(body="ANSWER"), subtree_cost=_subtree())
 
 
-async def test_a_success_its_record_refused_reads_failed_to_every_reader(
+async def _frames(stream: InMemoryEventStream, topic: str) -> list[OutboundFrame]:
+    frames: list[OutboundFrame] = []
+    async for frame in stream.subscribe(topic):
+        frames.append(frame)
+        if isinstance(frame, TerminatedEvent):
+            break
+    return frames
+
+
+async def test_a_success_its_record_refused_is_published_failed_with_no_result(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """Finding 4: the outcome said `failed`, but `outcome_of` (the `run terminated` line) and the
-    runner's verdict (`status`) still read the `succeeded` frame."""
+    """Round 3, finding 1: the watch passed the result frame and `Terminated(succeeded)` to the
+    stream and then rewrote only its own fields, so the durable tail and every follower read a
+    success. Now the stream holds what the outcome says: no result, the refusal as its terminal
+    frame, numbered with no gap (a follower cannot cross one)."""
     caplog.set_level(logging.INFO)
+    stream = InMemoryEventStream()
     outcomes = InMemoryCandidateOutcomeStream()
-    local = InProcessJobRunner(InMemoryEventStream(), lambda env: _Unbound(), outcomes=outcomes)
+    local = InProcessJobRunner(stream, lambda env: _Unbound(), outcomes=outcomes)
 
     await local.schedule(TOPIC, "q", 60, result_prefix=f"runs/run_{'a' * 32}/0")
     outcome = (await _published(outcomes)).outcome
+    frames = await _frames(stream, TOPIC)
 
-    frame = await local.last_frame(TOPIC)
-    assert isinstance(frame, TerminatedEvent)
-    assert frame.data.status == "succeeded"
+    assert [frame.type for frame in frames if isinstance(frame, ResultEvent)] == []
+    assert [frame.sequence for frame in frames] == [str(n) for n in range(1, len(frames) + 1)]
+    terminal = await local.last_frame(TOPIC)
+    assert isinstance(terminal, TerminatedEvent)
+    assert terminal == frames[-1]
+    assert terminal.data.status == "failed"
+    assert terminal.data.error == ErrorInfo(code=CODE, message=MESSAGE, permanent=True)
     _assert_refused(outcome, "cache.hits")
     assert await local.status(TOPIC) == "failed"
     (terminated,) = [
@@ -350,5 +386,49 @@ async def test_a_success_its_record_refused_reads_failed_to_every_reader(
         for record in caplog.records
         if record.getMessage().startswith("run terminated")
     ]
-    message = "SF Engine run summary cache.hits is invalid"
-    assert f"outcome=failed error={CODE}: {message}" in terminated
+    assert f"outcome=failed error={CODE}: {MESSAGE}" in terminated
+
+
+@pytest_asyncio.fixture(params=DATABASES)
+async def registry(request: pytest.FixtureRequest, tmp_path: Path) -> AsyncIterator[Registry]:
+    async for opened in open_registry(request, tmp_path):
+        yield opened
+
+
+async def test_r7_settles_a_success_its_record_refused_failed(registry: Registry) -> None:
+    """Round 3, finding 1: R7 settles a Candidate whose outcome is late from its run's last
+    frame, first-wins. That frame was the backstop's `succeeded`; it is the refusal now."""
+    run, _ = await registry.store.register(ALICE, start_spec("a"))
+    runner = DriverRunner()
+    driver = drivers(registry.store, runner, registry.clock)
+    await driver.drive_once(run.id)
+    start = runner.starts[0]
+    outcomes = InMemoryCandidateOutcomeStream()
+    local = InProcessJobRunner(InMemoryEventStream(), lambda env: _Unbound(), outcomes=outcomes)
+    await local.schedule(
+        start["topic"],
+        start["url4"],
+        60,
+        traceparent=start["traceparent"],
+        result_prefix=start["result_prefix"],
+        exclusive=True,
+    )
+    late = (await _published(outcomes)).outcome
+    frame = await local.last_frame(start["topic"])
+    assert frame is not None
+    # The driver never sees the outcome in time; it reads the run's terminal frame instead.
+    runner.frames[start["topic"]] = frame.model_copy(update={"time": registry.clock()})
+    registry.clock.advance(seconds=SETTINGS.outcome_grace_s + 1)
+
+    await driver.drive_once(run.id)
+    settled = await registry.store.get(ALICE, run.id)
+    await registry.store.settle(start["topic"], late)
+    filled = await registry.store.get(ALICE, run.id)
+
+    assert settled is not None and filled is not None
+    (first,) = settled.candidates
+    assert (first.state, first.error_code) == ("failed", CODE)
+    (candidate,) = filled.candidates
+    assert (candidate.state, candidate.error_code) == ("failed", CODE)
+    assert candidate.record is not None
+    assert "result" not in candidate.record

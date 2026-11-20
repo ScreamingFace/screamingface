@@ -178,7 +178,9 @@ class CandidateRecordFold:
         """The message a run whose summary had a malformed figure fails with, else None.
 
         The run's executor fails the run with it before its result and terminal frames
-        (`bound_refusal`, OME-1988), so the terminal frame, the outcome and the record agree.
+        (`bound_refusal`, OME-1988); for an executor that does not, `SettlementWatch` publishes
+        the run's success as this refusal. So the terminal frame, the outcome and the record
+        agree.
         """
         if self._invalid is None:
             return None
@@ -216,18 +218,10 @@ class CandidateRecordFold:
             record.update(dict.fromkeys(_OPTIONAL_FIGURES))
             record.update(cache_hits=0, capture_partial_reasons=[])
         status = terminated.data.status
-        if status == "succeeded" and self._invalid is not None:
-            # AIDEV-NOTE: reached only by an executor that does not read `bound_refusal`; the
-            # `Url4Executor` fails such a run before its terminal frame, which the next branch
-            # records. Kept with `SettlementWatch`'s matching backstop so no reader takes it as
-            # exact.
-            record["error"] = {
-                "code": RUN_SUMMARY_INVALID,
-                "message": self.refusal,
-                "permanent": True,
-                "details": None,
-            }
-        elif status != "succeeded":
+        # AIDEV-NOTE (OME-1988): a refused run is recorded here as `failed`. Its terminal frame
+        # says so whether its executor failed it or `SettlementWatch` published its success so,
+        # and the watch folds the frames as it published them.
+        if status != "succeeded":
             # What the Client raises with, from the same terminal frame.
             error = terminated.data.error
             record["error"] = {

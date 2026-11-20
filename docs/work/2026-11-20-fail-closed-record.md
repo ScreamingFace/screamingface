@@ -262,3 +262,69 @@ settle); on the backstop the `run terminated` line, `status()` and the outcome a
     `SettlementWatch`; the record keeps its matching error.
 - **Commit.** One signed commit, `fix(engine): address the second review on the fail-closed
   record`.
+
+## Review round 3 — 2026-11-20
+
+HupBaHa's review of #1977 (changes requested 2026-11-20 14:49, on 1b918257c). The owner approved
+the direction on 2026-11-20; one new commit, kept local. Finding 2 is OME-1992's
+(`2026-11-20-finished-run-deadline.md`).
+
+1. **The backstop still put a success on the durable tail.** For an executor that does not read
+   `bound_refusal`, `SettlementWatch.publish` passed the run's result frame and its
+   `Terminated(succeeded)` to the inner publisher, then rewrote only its own fields. A follower
+   saw the result and the success, and R7, which settles from the tail, could first-win
+   `succeeded`; round 2's test pinned `last_frame()` as `succeeded`. Planned: once the record has
+   refused the run's summary, the watch publishes no result frame, and publishes the run's
+   `succeeded` terminal as `failed` with the executor path's error (`run_summary_invalid`, the
+   refusal's message, permanent). A withheld frame leaves a gap in the producer sequence, which a
+   follower cannot cross (`lifecycle._Sequencer`); the frames after it are renumbered down by the
+   frames withheld, so the stream stays gap-free. The record folds the frames as published, so
+   its own `succeeded`-but-refused branch goes.
+
+Test plan: RED first. `test_candidate_record_fail_closed.py` (this PR's): round 2's backstop test
+is rewritten to require, through the real lifecycle and `InProcessJobRunner`, no result frame on
+the stream, a `failed` terminal with `run_summary_invalid` as `last_frame()`, gap-free sequence
+numbers, and the outcome, `status()` and the `run terminated` line agreeing; a new R7 test (SQLite
+and Postgres) settles the Candidate from that tail `failed` first, and the late outcome agrees.
+The replayed cases' record error now carries the failed terminal's data as its `details`, as the
+executor path's does.
+
+### Review round 3 — outcome
+
+- **1.** `run_evidence.py::SettlementWatch.publish`: once the record has refused the run's
+  summary, a result frame is withheld (not published, not folded) and every later frame goes
+  through `_as_refused`: a `succeeded` terminal becomes `failed` with
+  `ErrorInfo(run_summary_invalid, <refusal>, permanent=True)`, the error url4's `_error_info`
+  writes for the executor's `SummaryRefusedError`, and a frame after a withheld one is numbered
+  down by the frames withheld (the result is the run's last frame before its terminal, so the
+  terminal takes the result's number). The frame keeps its id, time and trace context. The watch's
+  own fields then read the published frame, so the in-memory rewrite of round 2 is gone.
+  `candidate_record.py`: the record's branch for a refused `succeeded` terminal is gone (no fold
+  sees one now); a refused run is recorded from its `failed` terminal frame like any failure.
+- **Tests.** `test_candidate_record_fail_closed.py` (this PR's): round 2's backstop test is now
+  `test_a_success_its_record_refused_is_published_failed_with_no_result`: through the real
+  lifecycle and `InProcessJobRunner`, the stream has no result frame, its sequence numbers run
+  1..n with no gap, `last_frame()` is the `failed` terminal with the refusal's error, and the
+  outcome, `status()` and the `run terminated` line agree. New
+  `test_r7_settles_a_success_its_record_refused_failed` (SQLite and Postgres): the driver
+  settles the Candidate from that tail `failed`/`run_summary_invalid` first, and the late outcome
+  keeps it so. `_assert_refused`: the record's error now carries the failed terminal frame's data
+  as its `details`, as on the executor path, instead of `None`.
+- **Gates.** Not the full `run_gates.py` (CI runs it). RED on 1b918257c: 35 cases failed, each
+  for the finding: the backstop test because the result frame was on the stream, the R7 test
+  (SQLite and Postgres) because the Candidate first-won `succeeded`, and the 33 replayed refusal
+  cases because their record's error was the in-memory rewrite (`details: None`), not the
+  published frame's. GREEN: the 69 Engine unit files on the record, outcomes, run evidence,
+  runner, executors, in-process adapter, run registry, store, driver, sweeps and runs routes:
+  922 passed, 333 skipped with Postgres off; 1245 passed, 10 skipped with Postgres on
+  (testcontainers). ruff check, ruff format --check and pyright clean on the five touched code
+  files; `check_layering.py` OK. Branch coverage of the new lines: full.
+- **Deviations.**
+  - The replayed cases' `_assert_refused` expectation changed (`details`), a test new in this PR.
+  - In local mode the span relay sits outside the watch, so on the backstop path an exported
+    OTel trace still shows the run's own `succeeded`; the stream, the record, the outcome, the
+    logs and R7 all say `failed`. Only an executor that does not read `bound_refusal` reaches it.
+  - On that path the executor has already written the result object (R5) before its frame is
+    withheld; nothing points at it, and the results retention removes it.
+- **Commit.** One signed commit with OME-1992's round 3, `fix(engine): address HupBaHa's third
+  review on the fail-closed record`.

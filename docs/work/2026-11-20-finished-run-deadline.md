@@ -61,3 +61,48 @@ round 2, `2026-11-20-fail-closed-record.md`).
   `test_run_owner_email_sealed.py` 87 passed, 74 skipped on SQLite, and their Postgres parameters
   74 passed (testcontainers). No new test: the race needs two writers interleaved inside one
   call. ruff, ruff format and pyright clean on both files.
+
+## Review round 3 — 2026-11-20
+
+HupBaHa's review of #1977 (changes requested 2026-11-20 14:49, on 1b918257c), finding 2; the
+owner approved the direction on 2026-11-20. One commit with OME-1988's round 3
+(`2026-11-20-fail-closed-record.md`).
+
+- **Finding 2.** `hold()` serializes with `settle()` through the Run's lock, but the periodic
+  `reconcile()` bulk-updates stale Candidates to `lost` without it. On Postgres, reconcile could
+  finish the last Candidate between hold's live check and its deadline update, so a finished Run
+  got a moved deadline. Planned: after `lock_run`, `hold()` locks the Run's live Candidate rows
+  (`select_for_update()`), so reconcile's UPDATE of them waits until hold commits; the check is
+  the locked read. `reconcile()` is left as it is (one statement, no Run lock).
+- **Test plan.** RED first: a Postgres race test with a barrier. hold is paused just before its
+  deadline UPDATE (after its lock and live check); reconcile is started on another connection to
+  settle the last Candidate `lost`; the test waits until reconcile has either finished or is
+  waiting on a row lock (`pg_locks`), then asserts it is waiting, releases hold, and checks the
+  end state. On the old `hold()` reconcile finishes inside the hold. SQLite cannot express the
+  race (one connection, serialized by Tortoise), so the test is Postgres only.
+
+### Review round 3 — outcome
+
+- **Finding 2.** `runs/store_driver.py::hold`: after `lock_run`, the live check is
+  `SELECT "id" FROM run_candidates WHERE run_id=… AND state IN (live) LIMIT 1 FOR UPDATE`
+  (`select_for_update().only("id").first()`). The locked Candidate stays live until the hold
+  commits, so reconcile's UPDATE of it waits, and the Run cannot finish between the check and
+  the deadline update. Narrower than planned (one live row, not all): one is enough, and a hold
+  that waits on no second row never closes a lock cycle with reconcile's many-row UPDATE (locking
+  all of them could, when the two scan the rows in different orders, and Postgres would abort one).
+  `reconcile()` unchanged.
+- **Test.** `test_run_registry_writes_concurrency.py`, new
+  `test_reconcile_never_finishes_the_last_candidate_inside_a_hold` (Postgres only). The barrier:
+  `TransactionWrapper.execute_query` is patched to stop the hold's `UPDATE "runs" … "deadline_at"`
+  until released, so the hold is paused after its lock and live check. Reconcile is then started
+  on another pool connection to settle the Run's only Candidate `lost` (`lost_after` passed). The
+  test polls until reconcile has finished or some statement waits for a lock (`pg_locks`, from a
+  third connection), then reads the Run, releases the hold, and asserts: reconcile had not
+  finished, the Candidate was still `scheduled` inside the hold, reconcile then settled it `lost`
+  (1), and the deadline is the hold's (it landed while the Candidate was live). SQLite runs a
+  transaction's statements on its one connection, held to the end, so it cannot express the race.
+- **Gates.** RED on 1b918257c: the race test failed, reconcile finished inside the hold. GREEN:
+  it passed 7 runs in a row on the final code; the run registry, store, driver, sweeps and runs files with
+  Postgres on: 728 passed; the wider targeted set as in OME-1988's outcome. ruff, ruff format and
+  pyright clean.
+- **Deviations.** One live Candidate locked, not every one (above).
