@@ -2002,8 +2002,7 @@ class ScoreStore:
         cache, so it reports an unpriced `partial` with no amount. Stored as is, every re-graded
         entry would leave the cost ranking for good (one re-grade per source per revision), though
         the source knows what the Candidate run spent. Example: a source at 12.34 / `complete`
-        re-graded by a replay at None / `partial` stores 12.34 / `complete`. A live-judge re-grade
-        keeps the source's figure too: the judges it re-runs are a small slice of the run's spend.
+        re-graded by a replay at None / `partial` stores 12.34 / `complete`.
 
         Stages:
         0. Refuse a replay that is not at the board's registered revision, or that is at the

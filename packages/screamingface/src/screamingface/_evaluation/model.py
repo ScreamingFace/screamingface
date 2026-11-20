@@ -61,10 +61,6 @@ class Candidate:
     # a normal run, and they are never set together.
     capture: bool
     replay_frozen_copy: str | None
-    # FEATURE (OME-1909): the Cases whose judge calls a REPLAY sends live, as their canonical
-    # header text (`all`, or sorted Case ids joined by commas). Only `regrade` sets it; sent as
-    # `X-Replay-Live-Judge`, and only beside `replay_frozen_copy`. None: every judge call replays.
-    replay_live_judge: str | None
     # FEATURE (OME-1311): whether the run may use the request cache. Carried like `capture`, so the
     # run-transport protocol never widens; `False` is the caller's `use_cache=False`, sent as
     # `Cache-Control: no-cache`. True (the Engine's own default) is a normal run.
@@ -173,7 +169,6 @@ def _compiled_candidate(
     object.__setattr__(candidate, "answer_seed", None)
     object.__setattr__(candidate, "capture", False)
     object.__setattr__(candidate, "replay_frozen_copy", None)
-    object.__setattr__(candidate, "replay_live_judge", None)
     object.__setattr__(candidate, "use_cache", True)
     return candidate
 
@@ -207,10 +202,6 @@ def _stamped(candidate: Candidate, **changes: object) -> Candidate:
         object.__setattr__(stamped, field.name, value)
     if stamped.capture and stamped.replay_frozen_copy is not None:
         raise ValueError("capture and a frozen copy replay are mutually exclusive")
-    # INVARIANT (OME-1909): live judge calls exist only inside a replay; the Engine refuses the
-    # header alone, so no stamp builds a Candidate that would send it alone.
-    if stamped.replay_live_judge is not None and stamped.replay_frozen_copy is None:
-        raise ValueError("live judge calls need a frozen copy replay")
     return stamped
 
 
@@ -232,11 +223,6 @@ def _without_cache(candidate: Candidate) -> Candidate:
 def _with_replay_frozen_copy(candidate: Candidate, frozen_copy_id: str) -> Candidate:
     """Copy one compiled Candidate with the frozen copy it must replay from stamped on."""
     return _stamped(candidate, replay_frozen_copy=frozen_copy_id)
-
-
-def _with_replay_live_judge(candidate: Candidate, live_judge: str) -> Candidate:
-    """Copy one replaying Candidate with the Cases whose judge calls go live stamped on."""
-    return _stamped(candidate, replay_live_judge=live_judge)
 
 
 def _candidate_members(

@@ -3,8 +3,8 @@
   "branch": "OME-1909-regrade-from-pinned-cache",
   "approver": "owner, who on 2026-11-17 changed the revision rule so a grading change moves the published revision, and on 2026-11-18 moved the bump of OME-1907's 47 revisions to OME-1958",
   "date": "2026-11-18",
-  "scope": "Prior-test edits in ten files and nothing else, pinned against main at 9e8a56f4c (this branch's merge base with main on 2026-11-20). (1) test_benchmark_fingerprints.py: the docstring and failure message state the 2026-11-17 rule; no fingerprint literal moves. (2) test_benchmark_foundation.py: the exact catalogue entry gains \"regradable_from\": [], with a comment. (3) test_leaderboard_routes.py: regraded_from_id and regraded_by join the internal set of test_every_score_field_reaches_at_least_one_read_dto. (4) public_surface_snapshot.json: regenerated with UPDATE_SURFACE_SNAPSHOT=1; only Client.regrade, AsyncClient.regrade, LeaderboardError's existing_score_id and LeaderboardScore's regraded_from move. (5) _fakes.py, test_queue_admission.py, test_answer_seed_threading.py, test_cache_policy_threading.py, test_e2e_compose_flow.py and test_run_control_resilience.py: each job-runner fake's schedule() gains one keyword parameter, replay_live_judge: LiveJudge | None = None, after replay_frozen_copy, and its job_env import adds LiveJudge. Nothing else in those files moves.",
-  "reason": "(1) The fingerprint pins state the rule a red literal points to, and that rule changed. (2) Every catalogue entry now carries regradable_from (empty when a Benchmark declares none), so the exact-equality entry must name it. (3) The Score table gains the re-grade link, published as regraded_from, and the re-grader's email, stored for audit and deliberately on no read schema. (4) The SDK's public surface gains the re-grade call, the 409's existing re-grade id and a score's re-grade link, and the snapshot exists to record exactly such a change. (5) The job runner port's schedule() gained replay_live_judge (the re-grade's live judge Cases), and pyright refuses an override that drops a parameter of the method it overrides (reportIncompatibleMethodOverride). Each fake accepts it exactly as the port declares it, as these fakes already do for capture and replay_frozen_copy.",
+  "scope": "Prior-test edits in four files and nothing else, pinned against main at 9e8a56f4c (this branch's merge base with main on 2026-11-20). (1) test_benchmark_fingerprints.py: the docstring and failure message state the 2026-11-17 rule; no fingerprint literal moves. (2) test_benchmark_foundation.py: the exact catalogue entry gains \"regradable_from\": [], with a comment. (3) test_leaderboard_routes.py: regraded_from_id and regraded_by join the internal set of test_every_score_field_reaches_at_least_one_read_dto. (4) public_surface_snapshot.json: regenerated with UPDATE_SURFACE_SNAPSHOT=1; only Client.regrade, AsyncClient.regrade, LeaderboardError's existing_score_id and LeaderboardScore's regraded_from move.",
+  "reason": "(1) The fingerprint pins state the rule a red literal points to, and that rule changed. (2) Every catalogue entry now carries regradable_from (empty when a Benchmark declares none), so the exact-equality entry must name it. (3) The Score table gains the re-grade link, published as regraded_from, and the re-grader's email, stored for audit and deliberately on no read schema. (4) The SDK's public surface gains the re-grade call, the 409's existing re-grade id and a score's re-grade link, and the snapshot exists to record exactly such a change.",
   "files": {
     "apps/screamingface-engine/tests/unit/inspect/test_benchmark_fingerprints.py": {
       "base_blob": "9cd1987f7799e2334ed3e499cf6b54f627b8e06c",
@@ -20,31 +20,7 @@
     },
     "packages/screamingface/tests/public_surface_snapshot.json": {
       "base_blob": "c6a68a3ccc4bf2c160bd3a26744eaee8a616b650",
-      "approved_blob": "cc4d86a2b95fe88909d347c0e0be3f96295afac0"
-    },
-    "apps/screamingface-engine/tests/unit/_fakes.py": {
-      "base_blob": "168fe77c18ca114102acd14a06e99c812b89d356",
-      "approved_blob": "1ff77f4428f3e53667ce393387ecf8aef99e1e79"
-    },
-    "apps/screamingface-engine/tests/unit/test_queue_admission.py": {
-      "base_blob": "547295dbdb948bd94ab6cf5ed8350fe60b71e18c",
-      "approved_blob": "ebd1f2c616e27b6a6e87695d5121e61aaa496543"
-    },
-    "apps/screamingface-engine/tests/unit/test_answer_seed_threading.py": {
-      "base_blob": "3188cc63085eaadf84d3e1ef8686674daae9b0e4",
-      "approved_blob": "a01bb8d0050a359b9940c5c9402fd55ec74d1666"
-    },
-    "apps/screamingface-engine/tests/unit/test_cache_policy_threading.py": {
-      "base_blob": "e295b809e3024aef2e8d597878391ab65f9d85f3",
-      "approved_blob": "46ea11436db1f4352e8e1e40e5de954220494c41"
-    },
-    "apps/screamingface-engine/tests/integration/test_e2e_compose_flow.py": {
-      "base_blob": "ff997a88a5df6d6da3e9bd9d3738237d839e8549",
-      "approved_blob": "6ae7c2e40fa8e9c0fde1e1b4c66be4e110483759"
-    },
-    "apps/screamingface-engine/tests/integration/test_run_control_resilience.py": {
-      "base_blob": "a6109d549431e5790ce7a08ef15fc72c2bea1256",
-      "approved_blob": "800744a6dac3095af7a02d9416e42e6444dd46f4"
+      "approved_blob": "88adf9d373c7311b1cd43500a4efb83c76de6b35"
     }
   }
 }

@@ -176,7 +176,7 @@
           "evaluate": "method (self, candidates: 'Recipe | Sequence[Recipe] | str | None' = None, *, benchmark: 'str | None' = None, limit: 'int | None' = None, cases: 'Sequence[int] | None' = None, on_event: 'Callable[[Event], None | Awaitable[None]] | None' = None, progress: 'bool | None' = None, answer_seed: 'int | None' = None, capture: 'bool | None' = None, pinned_cache: 'str | None' = None, score_id: 'UUID | str | None' = None, url4: 'str | None' = None, record_reproduction: 'bool' = True, use_cache: 'bool' = True) -> 'Report'",
           "login": "method (self, *, timeout: 'float' = 300.0) -> 'None'",
           "logout": "method (self) -> 'None'",
-          "regrade": "method (self, score_id: 'UUID | str', *, live_judge: \"Sequence[str] | Literal['all'] | None\" = None, on_event: 'Callable[[Event], None | Awaitable[None]] | None' = None, progress: 'bool | None' = None) -> 'LeaderboardScore'",
+          "regrade": "method (self, score_id: 'UUID | str', *, on_event: 'Callable[[Event], None | Awaitable[None]] | None' = None, progress: 'bool | None' = None) -> 'LeaderboardScore'",
           "scoreboard_url": "property",
           "set_credit_management_key": "method (self, provider: 'str', *, api_key: 'str') -> 'None'"
         }
@@ -387,7 +387,7 @@
           "fetch_media": "method (self, media: 'CaseMedia') -> 'FetchedMedia'",
           "login": "method (self, *, timeout: 'float' = 300.0) -> 'None'",
           "logout": "method (self) -> 'None'",
-          "regrade": "method (self, score_id: 'UUID | str', *, live_judge: \"Sequence[str] | Literal['all'] | None\" = None, on_event: 'Callable[[Event], None] | None' = None, progress: 'bool | None' = None) -> 'LeaderboardScore'",
+          "regrade": "method (self, score_id: 'UUID | str', *, on_event: 'Callable[[Event], None] | None' = None, progress: 'bool | None' = None) -> 'LeaderboardScore'",
           "scoreboard_url": "property",
           "set_credit_management_key": "method (self, provider: 'str', *, api_key: 'str') -> 'None'"
         }

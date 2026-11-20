@@ -411,6 +411,12 @@ changed Case set moved the id). Everything else holds it:
   adopted from inspect_evals included): the id moves, and the old entries are re-graded onto the
   new one. OME-1907's 47 rows move this way (OME-1958). Before 2026-11-17 such fixes held the id: OME-1701
   held paws, boolq, chembench, infinite_bench_math_find, math and aime24/25/26.
+  One named exception since (owner, 2026-11-20): hle and hle_diamond held their id when OME-1939
+  raised the same judge's `max_tokens` from 32,768 to 131,072. Only the about 1.5% of Cases
+  whose judge ran out before writing a grade can change, and only upward, so old entries can
+  read at most about 1.5 points low; and a re-grade cannot move them, because the judge request
+  changed and every judged Case misses the pinned cache. A judge whose request changes can be
+  re-graded only once sending chosen judge calls live is built (OME-1979).
 - **Changed Cases**: the id moves. A re-grade cannot move these entries, since their old replies
   answer a different exam. OME-1701 moved worldsense, stereoset and onet_m6 when their Case sets
   changed.

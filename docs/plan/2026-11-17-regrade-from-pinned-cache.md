@@ -3,6 +3,7 @@
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 > **Amended 2026-11-18 (owner):** Task 5's bump of the 47 revisions was built here, then moved to OME-1958's PR so it deploys right before the batch re-grade. This PR keeps Tasks 0-4 and Task 5's docs.
+> **Amended 2026-11-20 (owner):** Task 2's live judge mode moved out to OME-1979 after review found unnamed Cases miss the copy when a judge's request changes.
 
 **Goal:** a ScreamingFace team member can move an old leaderboard entry onto its Benchmark's bumped revision by replaying the entry's pinned cache under the new grading, at no Candidate cost, and the PR that adds this also bumps the 47 revisions OME-1907's grader change touches.
 

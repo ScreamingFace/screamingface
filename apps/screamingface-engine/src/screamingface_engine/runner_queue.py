@@ -235,7 +235,6 @@ def _env_mapping(
     shape: job_env.RunShape = "expression",
     capture: bool = False,
     replay_frozen_copy: str | None = None,
-    replay_live_judge: job_env.LiveJudge | None = None,
     world_digest: str | None = None,
 ) -> dict[str, str]:
     """The per-run env mapping a queue message carries, keyed by env name.
@@ -258,7 +257,6 @@ def _env_mapping(
     env.update(job_env.answer_seed_to_env(answer_seed))
     env.update(job_env.capture_env(capture))
     env.update(job_env.replay_frozen_copy_env(replay_frozen_copy))
-    env.update(job_env.replay_live_judge_env(replay_live_judge))
     version = valid_version(client_version)
     if version is not None:
         env[CLIENT_VERSION_ENV] = version
@@ -295,7 +293,6 @@ def encode_message(
     shape: job_env.RunShape = "expression",
     capture: bool = False,
     replay_frozen_copy: str | None = None,
-    replay_live_judge: job_env.LiveJudge | None = None,
     world_digest: str | None = None,
 ) -> bytes:
     """Encode a run submission as the queue message body: the per-run env mapping, JSON."""
@@ -314,7 +311,6 @@ def encode_message(
             shape=shape,
             capture=capture,
             replay_frozen_copy=replay_frozen_copy,
-            replay_live_judge=replay_live_judge,
             world_digest=world_digest,
         ),
         sort_keys=True,

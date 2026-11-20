@@ -8,17 +8,20 @@ entry credited to the source's submitter.
 STORY: as a ScreamingFace team member, I move an old entry onto the bumped revision at no
 Candidate cost, and its submitter keeps the credit.
 
-INVARIANT: a re-grade makes no Candidate model call. Every refusal before the run (live judge
-Cases, the score, its capture, the revision) happens before a run is scheduled; the run always
-carries the pinned cache, so the Engine answers every Candidate call from the copy or fails the
-Case; and a run where any call missed the copy submits nothing.
+INVARIANT: a re-grade makes no model call. Every refusal before the run (the score, its
+capture, the revision) happens before a run is scheduled; the run always carries the pinned
+cache, so the Engine answers every call, Candidate and judge, from the copy or fails the Case;
+and a run where any call missed the copy submits nothing.
+LIMIT (OME-1909): a judge whose request changed (a raised `max_tokens`, a new prompt) misses the
+copy, because its key hashes the whole request, so such a Benchmark cannot be re-graded yet;
+sending chosen judge calls live is OME-1979.
 INVARIANT: a re-grade is not a reproduction. It never calls `_reproduction._classify` and never
 records a reproduction: its grades are meant to differ from the source's.
 """
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 from uuid import UUID
@@ -45,53 +48,13 @@ if TYPE_CHECKING:
     from screamingface.leaderboard import LeaderboardScore
     from screamingface.report import CandidateResult, Report
 
-# The Engine's word for "every judge call of the replay goes live" (`job_env.LIVE_JUDGE_ALL`).
-_LIVE_JUDGE_ALL = "all"
-
 
 @dataclass(frozen=True, slots=True)
 class _Regrade:
-    """What a re-grade runs, decided before any run: the rebuilt url4, the copy, the live set."""
+    """What a re-grade runs, decided before any run: the rebuilt url4 and the copy."""
 
     url4: str
     pinned_cache: str
-    live_judge: str | None
-
-
-def _live_judge_text(value: object) -> str | None:
-    """The live judge Cases in the Engine's canonical header text: `all`, or sorted unique ids.
-
-    WHY refused here and not left to the Engine: each refusal is one the Engine would answer only
-    after the score and catalogue reads, and two would be silent. `"ALL"` or `["all", "3"]` read as
-    Case ids would re-judge almost nothing for a caller who meant every Case, and a bare string
-    like `"3"` would be iterated into its characters.
-    WHY canonical: the Engine echoes the set in this exact text, and the transport refuses any
-    other echo (`_require_replay_ack`), so the two ends must spell one set one way.
-    """
-
-    if value is None:
-        return None
-    if value == _LIVE_JUDGE_ALL:
-        return _LIVE_JUDGE_ALL
-    if isinstance(value, str) or not isinstance(value, Sequence):
-        raise TypeError("live_judge must be 'all' or a sequence of Case id strings")
-    ids: set[str] = {_live_case_id(item) for item in value}
-    if not ids:
-        raise ValueError("live_judge must name at least one Case id, or be 'all'")
-    return ",".join(sorted(ids))
-
-
-def _live_case_id(item: object) -> str:
-    """One live judge Case id, trimmed as the Engine trims it, or the reason it is refused."""
-
-    if not isinstance(item, str):
-        raise TypeError("each live_judge Case id must be a string, like '7'")
-    case_id: str = item.strip()
-    if not case_id or "," in case_id:
-        raise ValueError("each live_judge Case id must be non-blank and contain no comma")
-    if case_id.lower() == _LIVE_JUDGE_ALL:
-        raise ValueError("pass live_judge='all' on its own, not inside a list")
-    return case_id
 
 
 def _not_a_regrade(source: PublishedScore) -> None:
@@ -131,7 +94,6 @@ def _planned(
     source: PublishedScore,
     pinned_cache: str,
     resource: _BenchmarkResource,
-    live_judge: str | None,
 ) -> _Regrade:
     """The re-grade's run, only if the current revision may re-grade the source's.
 
@@ -172,22 +134,14 @@ def _planned(
             code="invalid_published_url4",
             permanent=True,
         ) from exc
-    return _Regrade(_linked(resource.url4, candidate), pinned_cache, live_judge)
+    return _Regrade(_linked(resource.url4, candidate), pinned_cache)
 
 
-def _complete(report: Report, source: PublishedScore, live_judge: str | None) -> CandidateResult:
-    """The replayed result, only if every call came from the copy and every live judge answered.
+def _complete(report: Report, source: PublishedScore) -> CandidateResult:
+    """The replayed result, only if every call came from the copy.
 
     INVARIANT (OME-1909): one miss refuses the whole re-grade, on a Candidate call or a judge call.
-    In replay-only mode every call must come from the copy; with live judges the Candidate calls
-    still must. A score over the Cases that did replay would rank a run that never happened.
-    INVARIANT (OME-1909): with live judges, ANY failure on a live-judged Case (every Case for
-    `all`) refuses too, retryably: a judge outage (a 5xx, a timeout) would lower the score, and the
-    board allows one re-grade per source and revision, so a passing outage would spend it on a
-    wrong score.
-    WHY only those Cases: a replayed Case's failure is the source run's own, replayed identically.
-    Example: live set `1,3`; Case 3's judge answers `upstream_error` -> refused; the same failure
-    on Case 2 (replayed) is the source's own and is submitted as it was.
+    A score over the Cases that did replay would rank a run that never happened.
     """
 
     (result,) = report.candidates
@@ -205,59 +159,32 @@ def _complete(report: Report, source: PublishedScore, live_judge: str | None) ->
             permanent=True,
             details={"missed_cases": missed},
         )
-    failed: list[CaseId] = [
-        case.case_id
-        for case in result.cases
-        if case.failures and _judged_live(case.case_id, live_judge)
-    ]
-    if failed:
-        raise ExecutionError(
-            f"The re-grade of score {source.score_id} had {len(failed)} live-judged Cases fail, so "
-            "nothing was submitted; retry the re-grade",
-            code="regrade_incomplete",
-            permanent=False,
-            details={"failed_live_cases": failed},
-        )
     return result
-
-
-def _judged_live(case_id: CaseId, live_judge: str | None) -> bool:
-    """Whether this Case's judge calls went live: every Case for `all`, else the named ids.
-
-    A Case id is compared as text, as the Engine compares it: Case 7 is named by `"7"`.
-    """
-
-    if live_judge is None:
-        return False
-    return live_judge == _LIVE_JUDGE_ALL or str(case_id) in live_judge.split(",")
 
 
 def regrade_sync(
     client: Client,
     score_id: UUID | str,
     *,
-    live_judge: object,
     on_event: Callable[[Event], None] | None,
     progress: bool | None,
 ) -> LeaderboardScore:
     """Re-grade one score; the stages are those of `Client.regrade`'s docstring."""
 
-    # Stage 1 — the live judge Cases, refused before any request.
-    live: str | None = _live_judge_text(live_judge)
-    # Stage 2 — the source's PUBLIC read only: the board refuses to re-grade a private score, so
-    # a private one is refused here, before a run (and any paid live judge call).
+    # Stage 1 — the source's PUBLIC read only: the board refuses to re-grade a private score, so
+    # a private one is refused here, before a run.
     source: PublishedScore = client.leaderboards._public_score(score_id)
-    # Stage 3 — a re-grade of a re-grade names its root; a capture a replay cannot name starts
+    # Stage 2 — a re-grade of a re-grade names its root; a capture a replay cannot name starts
     # nothing, not even the catalogue read.
     _not_a_regrade(source)
     pinned_cache: str = _replayable(source)
-    # Stage 4 — the current Benchmark, built at the published Case count.
+    # Stage 3 — the current Benchmark, built at the published Case count.
     resource: _BenchmarkResource = client._benchmark_resources.load(
         source.benchmark_id, source.total_questions
     )
-    # Stage 5 — refuse a current or unlisted revision; rebuild the Benchmark part only.
-    plan: _Regrade = _planned(source, pinned_cache, resource, live)
-    # Stage 6 — replay from the copy with the published seed; never capture.
+    # Stage 4 — refuse a current or unlisted revision; rebuild the Benchmark part only.
+    plan: _Regrade = _planned(source, pinned_cache, resource)
+    # Stage 5 — replay from the copy with the published seed; never capture.
     report: Report = evaluate_url4_sync(
         client._transport,
         plan.url4,
@@ -267,14 +194,10 @@ def regrade_sync(
         # The Engine refuses X-Capture with X-Replay-Frozen-Copy (S6).
         capture=False,
         replay_frozen_copy=plan.pinned_cache,
-        replay_live_judge=plan.live_judge,
-        # WHY (OME-1909): a live judge call must reach the provider; the gateway cache would answer
-        # an unchanged judge request with its stored reply. Replayed calls never read the cache.
-        use_cache=plan.live_judge is None,
     )
-    # Stage 7 — one cache miss anywhere, or a failed live-judged Case, submits nothing.
-    result: CandidateResult = _complete(report, source, plan.live_judge)
-    # Stage 8 — post to the source's re-grade route; the board credits the source's submitter.
+    # Stage 6 — one cache miss anywhere submits nothing.
+    result: CandidateResult = _complete(report, source)
+    # Stage 7 — post to the source's re-grade route; the board credits the source's submitter.
     return client.leaderboards._submit_regrade(source.score_id, result)
 
 
@@ -282,27 +205,24 @@ async def regrade_async(
     client: AsyncClient,
     score_id: UUID | str,
     *,
-    live_judge: object,
     on_event: Callable[[Event], None | Awaitable[None]] | None,
     progress: bool | None,
 ) -> LeaderboardScore:
     """Async twin of `regrade_sync`: the same stages and checks, awaited."""
 
-    # Stage 1 — the live judge Cases, refused before any request.
-    live: str | None = _live_judge_text(live_judge)
-    # Stage 2 — the source's public read only.
+    # Stage 1 — the source's public read only.
     source: PublishedScore = await client.leaderboards._public_score(score_id)
-    # Stage 3 — a re-grade of a re-grade names its root; a capture a replay cannot name starts
+    # Stage 2 — a re-grade of a re-grade names its root; a capture a replay cannot name starts
     # nothing.
     _not_a_regrade(source)
     pinned_cache: str = _replayable(source)
-    # Stage 4 — the current Benchmark, built at the published Case count.
+    # Stage 3 — the current Benchmark, built at the published Case count.
     resource: _BenchmarkResource = await client._benchmark_resources.load(
         source.benchmark_id, source.total_questions
     )
-    # Stage 5 — refuse a current or unlisted revision; rebuild the Benchmark part only.
-    plan: _Regrade = _planned(source, pinned_cache, resource, live)
-    # Stage 6 — replay from the copy with the published seed; never capture.
+    # Stage 4 — refuse a current or unlisted revision; rebuild the Benchmark part only.
+    plan: _Regrade = _planned(source, pinned_cache, resource)
+    # Stage 5 — replay from the copy with the published seed; never capture.
     report: Report = await evaluate_url4_async(
         client._transport,
         plan.url4,
@@ -311,14 +231,10 @@ async def regrade_async(
         answer_seed=source.answer_seed,
         capture=False,
         replay_frozen_copy=plan.pinned_cache,
-        replay_live_judge=plan.live_judge,
-        # WHY (OME-1909): a live judge call must reach the provider; the gateway cache would answer
-        # an unchanged judge request with its stored reply. Replayed calls never read the cache.
-        use_cache=plan.live_judge is None,
     )
-    # Stage 7 — one cache miss anywhere, or a failed live-judged Case, submits nothing.
-    result: CandidateResult = _complete(report, source, plan.live_judge)
-    # Stage 8 — post to the source's re-grade route.
+    # Stage 6 — one cache miss anywhere submits nothing.
+    result: CandidateResult = _complete(report, source)
+    # Stage 7 — post to the source's re-grade route.
     return await client.leaderboards._submit_regrade(source.score_id, result)
 
 
