@@ -240,5 +240,14 @@ Review-fix outcome:
     private (the backend ignores `revision` there), the shared-link `og:url` (backend code
     outside this PR), screen-reader timing on the notice (unverified), and the label on the
     single-revision text. Round 4 found nothing else worth fixing.
+  - PR review (Khoa, Dmitry; 2026-11-20): a missing revision list now names the revision shown
+    (private boards drop the ignored `?revision=`); history links always pin their revision; the
+    history best score covers one revision; the history table is a named, focusable scroll
+    region; a fake-DOM test (`benchmark-revision-switch.test.js`) pins the stale-load drop and
+    the reset, and fails when they are removed. Not changed: a Latest board holding only
+    imported rows keeps no status line, as `external-results.test.js` on main pins it.
+    Re-graded entries keep their source's date (OME-1958): checked with a back-dated Latest
+    entry; labels, dimming and the cost/score chart are unaffected, but history sorts that run
+    below later runs under the old revision.
   - The board page at `/benchmarks/<id>/` is read once at server start, so a portal change
     shows only after a restart. A deploy restarts it anyway.

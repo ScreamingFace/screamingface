@@ -167,6 +167,42 @@
       : "No submissions yet. Be the first.";
   }
 
+  // When the revision list cannot be read, the board still loads as the URL asks, so the page says
+  // which grading it shows. `board` is the board response's benchmark: its `revision` is Latest. A
+  // private board's route ignores `revision`, so there it is always Latest and the request goes.
+  function unlistedScopeNotice(requested, board) {
+    if (!requested || !board) return null;
+    if (board.visibility === "private") {
+      return {
+        text: "Earlier revisions are not shown on private boards. Showing the latest.",
+        clearRequest: true,
+      };
+    }
+    var which = requested === board.revision
+      ? "Showing revision " + shortId(requested) + ", the latest."
+      : "Showing earlier revision " + shortId(requested) + ".";
+    return { text: which + " The list of revisions could not be loaded.", clearRequest: false };
+  }
+
+  // Scores under different revisions are not comparable, so the history page's best score covers
+  // one revision: all runs when they share one, else the latest revision's runs, else none.
+  function historyBest(submissions, rows) {
+    if (!submissions.length) return null;
+    var first = submissions[0].benchmark_revision;
+    var mixed = submissions.some(function (s) { return s.benchmark_revision !== first; });
+    var label = "Best score";
+    var scoped = submissions;
+    if (mixed) {
+      var current = null;
+      for (var i = 0; i < rows.length; i++) if (rows[i].current) current = rows[i].revision;
+      scoped = submissions.filter(function (s) { return current !== null && s.benchmark_revision === current; });
+      label = "Best score, latest revision";
+    }
+    if (!scoped.length) return null;
+    var best = Math.max.apply(null, scoped.map(function (s) { return s.score; }));
+    return { score: best, label: label };
+  }
+
   function notFoundNotice(requested) {
     return "Revision " + shortId(requested) + " is not on this leaderboard. Showing the latest.";
   }
@@ -183,6 +219,8 @@
     listedRevision: listedRevision,
     scopeNote: scopeNote,
     emptyBoardText: emptyBoardText,
+    unlistedScopeNotice: unlistedScopeNotice,
+    historyBest: historyBest,
     shortId: shortId,
   };
 });

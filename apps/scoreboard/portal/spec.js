@@ -31,10 +31,11 @@
       td.textContent = short;
       return td;
     }
-    // The board's own address in whichever form this page is served at, plus the revision as a
-    // query parameter; Latest gets none, so the link keeps meaning "whatever is current".
+    // The board's own address in whichever form this page is served at, always pinned to the row's
+    // revision: a link copied today must open the same grading after the next bump. Only choosing
+    // Latest in the board's own selector drops the parameter.
     var target = new URL(P.boardHref(benchmarkId), window.location.href);
-    if (!listed.current) target.searchParams.set("revision", revision);
+    target.searchParams.set("revision", revision);
     td.appendChild(P.link(null, target.href, short));
     if (listed.current) td.appendChild(P.el("span", "revision-tag", "latest"));
     return td;
@@ -166,8 +167,17 @@
           return;
         }
 
-        var best = Math.max.apply(null, submissions.map(function (s) { return s.score; }));
-        document.getElementById("best-score").textContent = P.formatScore(best);
+        // Scores under different revisions are not comparable: the best score covers one revision,
+        // and reads "—" while no single revision can be named. The card stays, so the strip keeps
+        // its three columns.
+        function renderBest(revisions) {
+          var label = document.getElementById("best-score-label");
+          var best = window.SFRevisionSelector
+            ? window.SFRevisionSelector.historyBest(submissions, revisions)
+            : { score: Math.max.apply(null, submissions.map(function (s) { return s.score; })), label: "Best score" };
+          if (label) label.textContent = best ? best.label : "Best score";
+          document.getElementById("best-score").textContent = best ? P.formatScore(best.score) : "—";
+        }
         // Bare number: the .stats cell label ("Runs") carries the word.
         document.getElementById("submission-count").textContent = submissions.length.toLocaleString();
 
@@ -179,7 +189,11 @@
         // The table never waits for the revision list: it draws now, unlinked, and gains the links,
         // tag and dimming when the list arrives.
         renderRows([]);
-        boardRevisions.then(renderRows);
+        renderBest([]);
+        boardRevisions.then(function (revisions) {
+          renderRows(revisions);
+          renderBest(revisions);
+        });
 
         P.setStatus(statusNode, null);
         contentNode.hidden = false;

@@ -428,6 +428,9 @@
     // The generation whose board is on screen, so the status line can be redone when the revision
     // list arrives after the board.
     var loaded = 0;
+    // Set when the URL named a revision and the revision list could not be read (or the board is
+    // private, where the list is never served): the board then says which revision it shows.
+    var listUnavailable = false;
 
     // The line above the table, decided from community runs only: imported reference rows appear
     // under every revision, so they never stand in for this revision's own results.
@@ -440,6 +443,9 @@
         showEmptyBoard(statusNode);
         return;
       }
+      // Only imported reference rows. On Latest they are the board, shown as a normal ranked table
+      // with no status line (as on a board that never had a revision); an earlier revision still
+      // says it has no runs of its own.
       if (showRevisionPointer(statusNode)) return;
       var selected = R ? currentSelection() : null;
       if (selected && !selected.current) P.showEmpty(statusNode, R.emptyBoardText(selected));
@@ -477,6 +483,15 @@
         function (data) {
           if (mine !== generation) return;
           var b = data && data.benchmark;
+          if (listUnavailable && revision && R) {
+            // No selector to show the scope, so a line does; on a private board the URL's revision
+            // was ignored, and goes.
+            var unlisted = R.unlistedScopeNotice(revision, b);
+            if (unlisted) {
+              showRevisionNotice(unlisted.text);
+              if (unlisted.clearRequest) replaceSearch(null);
+            }
+          }
           if (b) {
             var name = b.display_name || b.id;
             nameNode.textContent = name;
@@ -706,6 +721,7 @@
         load(selected && !selected.current ? selected.revision : null);
       },
       function () {
+        listUnavailable = true;
         load(R.requestedRevision(window.location.search));
       }
     );
