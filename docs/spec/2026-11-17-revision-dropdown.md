@@ -164,3 +164,7 @@ FROM counts
 WHERE preference = 1 AND maximum <> total_questions
 ORDER BY benchmark_id, benchmark_revision;
 ```
+
+## Review clarification — 2026-11-20
+
+When the revision list is unavailable, the scoped leaderboard response identifies the revision shown, not whether it is Latest. Use neutral “Showing revision <id>” wording with the unavailable-list note. On a versioned board, imported reference rows never suppress the selected revision's no-submissions message; unversioned boards retain their existing imported-only presentation.

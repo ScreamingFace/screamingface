@@ -431,6 +431,7 @@
     // Set when the URL named a revision and the revision list could not be read (or the board is
     // private, where the list is never served): the board then says which revision it shows.
     var listUnavailable = false;
+    var hasRevision = false;
 
     // The line above the table, decided from community runs only: imported reference rows appear
     // under every revision, so they never stand in for this revision's own results.
@@ -439,16 +440,9 @@
         P.setStatus(statusNode, null);
         return;
       }
-      if (state.rows.length === 0) {
-        showEmptyBoard(statusNode);
-        return;
-      }
-      // Only imported reference rows. On Latest they are the board, shown as a normal ranked table
-      // with no status line (as on a board that never had a revision); an earlier revision still
-      // says it has no runs of its own.
-      if (showRevisionPointer(statusNode)) return;
-      var selected = R ? currentSelection() : null;
-      if (selected && !selected.current) P.showEmpty(statusNode, R.emptyBoardText(selected));
+      // Versioned boards count their own submissions, independently of imported references.
+      // Unversioned boards retain their ordinary external-only table presentation.
+      if (hasRevision || state.rows.length === 0) showEmptyBoard(statusNode);
       else P.setStatus(statusNode, null);
     }
 
@@ -483,6 +477,7 @@
         function (data) {
           if (mine !== generation) return;
           var b = data && data.benchmark;
+          hasRevision = !!(b && b.revision);
           if (listUnavailable && revision && R) {
             // No selector to show the scope, so a line does; on a private board the URL's revision
             // was ignored, and goes.

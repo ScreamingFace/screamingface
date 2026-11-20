@@ -168,7 +168,7 @@
   }
 
   // When the revision list cannot be read, the board still loads as the URL asks, so the page says
-  // which grading it shows. `board` is the board response's benchmark: its `revision` is Latest. A
+  // which grading it shows. The response's `revision` is the selected scope, not proof of Latest. A
   // private board's route ignores `revision`, so there it is always Latest and the request goes.
   function unlistedScopeNotice(requested, board) {
     if (!requested || !board) return null;
@@ -178,10 +178,11 @@
         clearRequest: true,
       };
     }
-    var which = requested === board.revision
-      ? "Showing revision " + shortId(requested) + ", the latest."
-      : "Showing earlier revision " + shortId(requested) + ".";
-    return { text: which + " The list of revisions could not be loaded.", clearRequest: false };
+    return {
+      text: "Showing revision " + shortId(board.revision || requested)
+        + ". The list of revisions could not be loaded.",
+      clearRequest: false,
+    };
   }
 
   // Scores under different revisions are not comparable, so the history page's best score covers

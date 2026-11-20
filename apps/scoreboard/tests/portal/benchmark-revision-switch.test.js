@@ -88,8 +88,8 @@ function entry(spec_id, score) {
   };
 }
 
-function board(entries) {
-  return { benchmark: { id: "hle", display_name: "HLE", description: "", revision: LATEST }, entries };
+function board(entries, revision = LATEST, baselines = []) {
+  return { benchmark: { id: "hle", display_name: "HLE", description: "", revision, visibility: "public" }, entries, baselines };
 }
 
 const REVISIONS = {
@@ -201,7 +201,7 @@ function openPage(search) {
   context.window = context;
   context.self = context;
   vm.createContext(context);
-  for (const file of ["leaderboard-logic.js", "main.js", "revision-selector.js", "benchmark.js"]) {
+  for (const file of ["leaderboard-logic.js", "main.js", "revision-selector.js", "external-results.js", "benchmark.js"]) {
     vm.runInContext(fs.readFileSync(path.join(PORTAL, file), "utf8"), context, { filename: file });
   }
 
@@ -234,7 +234,7 @@ test("a late answer for Latest never paints over Previous once Previous is chose
   await page.answer(LIST, REVISIONS);
   page.choose(PREVIOUS);
 
-  await page.answer(PREVIOUS_BOARD, board([entry("old", 0.4)]));
+  await page.answer(PREVIOUS_BOARD, board([entry("old", 0.4)], PREVIOUS));
   await page.answer(LATEST_BOARD, board([entry("a", 0.9), entry("b", 0.8), entry("c", 0.7)]));
 
   assert.equal(page.ids["leaderboard-body"].children.length, 1, "Previous's one row, not Latest's three");
@@ -246,7 +246,7 @@ test("a late frontier answer for Latest never shows its card on Previous", async
   await page.answer(LIST, REVISIONS);
   page.choose(PREVIOUS);
 
-  await page.answer(PREVIOUS_BOARD, board([entry("old", 0.4)]));
+  await page.answer(PREVIOUS_BOARD, board([entry("old", 0.4)], PREVIOUS));
   await page.answer(PREVIOUS_FRONTIER, NO_FRONTIER);
   await page.answer(LATEST_FRONTIER, OPEN_FRONTIER);
 
@@ -278,12 +278,52 @@ test("switching hides the previous revision's numbers until the new board arrive
 test("without the revision list, a shared earlier-revision link still says which revision it shows", async () => {
   const page = openPage("?id=hle&revision=" + PREVIOUS);
   await page.fail(LIST, 503);
-  await page.answer(PREVIOUS_BOARD, board([entry("old", 0.4)]));
+  await page.answer(PREVIOUS_BOARD, board([entry("old", 0.4)], PREVIOUS));
 
   assert.equal(page.ids["revision-notice"].hidden, false);
   assert.equal(
     page.ids["revision-notice"].textContent,
-    "Showing earlier revision 32a91cf1. The list of revisions could not be loaded."
+    "Showing revision 32a91cf1. The list of revisions could not be loaded."
   );
   assert.equal(page.ids["leaderboard-body"].children.length, 1);
+});
+
+const BASELINE = {
+  ranking_eligible: true, id: "reference-1", model_name: "Reference model", score: 0.8,
+  source_url: "https://example.org/results", imported_at: "2026-11-19T12:00:00Z",
+  metadata: { comparison_status: "matched", comparison_note: "Same grading and cases." },
+};
+
+for (const listFirst of [true, false]) {
+  test("imported-only Latest keeps its no-submissions message; list first=" + listFirst, async () => {
+    const page = openPage();
+    const listed = { revisions: [{ ...REVISIONS.revisions[0], result_count: 0 }] };
+    if (listFirst) await page.answer(LIST, listed);
+    await page.answer(LATEST_BOARD, board([], LATEST, [BASELINE]));
+    if (!listFirst) await page.answer(LIST, listed);
+    assert.equal(page.ids["leaderboard-status"].hidden, false);
+    assert.equal(page.ids["leaderboard-status"].textContent, "No submissions yet. Be the first.");
+    assert.equal(page.ids["leaderboard-body"].children.length, 1, "the imported reference stays visible");
+    assert.equal(page.ids["leaderboard-wrap"].hidden, false);
+  });
+}
+
+test("a versioned imported-only Latest keeps its status when the list fails", async () => {
+  const page = openPage();
+  await page.fail(LIST, 503);
+  await page.answer(LATEST_BOARD, board([], LATEST, [BASELINE]));
+  assert.equal(page.ids["leaderboard-status"].hidden, false);
+  assert.equal(page.ids["leaderboard-status"].textContent, "No submissions yet. Be the first.");
+  assert.equal(page.ids["leaderboard-body"].children.length, 1);
+});
+
+test("private-board fallback clears the ignored revision and announces Latest", async () => {
+  const page = openPage("?id=hle&revision=" + PREVIOUS);
+  await page.fail(LIST, 404);
+  const response = board([entry("current", 0.8)]);
+  response.benchmark.visibility = "private";
+  await page.answer(PREVIOUS_BOARD, response);
+  assert.equal(new URLSearchParams(page.location.search).has("revision"), false);
+  assert.equal(page.ids["revision-notice"].hidden, false);
+  assert.equal(page.ids["revision-notice"].textContent, "Earlier revisions are not shown on private boards. Showing the latest.");
 });

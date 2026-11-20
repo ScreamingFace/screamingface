@@ -18,12 +18,12 @@ const EARLIER = "32a91cf1e087f719";
 test("without a revision list, the board names the revision it was asked for", () => {
   const board = { revision: CURRENT, visibility: "public" };
 
-  assert.deepEqual(R.unlistedScopeNotice(EARLIER, board), {
-    text: "Showing earlier revision 32a91cf1. The list of revisions could not be loaded.",
+  assert.deepEqual(R.unlistedScopeNotice(EARLIER, { ...board, revision: EARLIER }), {
+    text: "Showing revision 32a91cf1. The list of revisions could not be loaded.",
     clearRequest: false,
   });
   assert.deepEqual(R.unlistedScopeNotice(CURRENT, board), {
-    text: "Showing revision a41c09e2, the latest. The list of revisions could not be loaded.",
+    text: "Showing revision a41c09e2. The list of revisions could not be loaded.",
     clearRequest: false,
   });
   // No revision asked for: Latest, nothing to say.

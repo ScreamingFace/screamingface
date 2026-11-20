@@ -251,3 +251,7 @@ Review-fix outcome:
     below later runs under the old revision.
   - The board page at `/benchmarks/<id>/` is read once at server start, so a portal change
     shows only after a restart. A deploy restarts it anyway.
+
+### Latest review follow-up — 2026-11-20
+
+The historical scope notice is now neutral because the API returns the selected revision, not a current marker. Versioned boards with only imported references retain their no-submissions message. This supersedes the earlier decision to hide it on Latest. Current-main rebase, realistic regression fixtures, full gates and desktop/mobile light/dark validation are recorded in `docs/work/2026-11-20-OME-1708-review-followup.md`.
