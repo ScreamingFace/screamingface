@@ -194,3 +194,11 @@ def test_an_engine_still_on_the_old_revision_is_retried_on_the_next_run(tmp_path
 
     assert first == {"refused_retryable": 1}
     assert second == {"regraded": 1}
+
+
+def test_the_start_guard_reads_the_revision_a_board_serves_now() -> None:
+    # WHY: a scheduled run must wait until the bump is deployed, read live from the board list.
+    with httpx.Client(base_url="http://board", transport=httpx.MockTransport(_board)) as http:
+        assert batch.board_revision(http, "inspect-mmlu_pro") == _NEW
+        with pytest.raises(batch.BoardReadError):
+            batch.board_revision(http, "no-such-board")

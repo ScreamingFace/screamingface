@@ -34,7 +34,16 @@ Every call of a re-grade, Candidate and judge, replays from the pinned cache, so
 no model call. A Benchmark whose judge request changed misses on every judged Case and is
 refused (``regrade_incomplete``); re-judging is OME-1979.
 
-Exit status: 0 when every entry was re-graded or settled, 1 when any was refused or failed.
+On a schedule (cron or launchd, every 30 minutes) the run is safe to repeat: settled entries are
+skipped, and ``--when-revision inspect-mmlu_pro=4efebd6cc74c2dca`` makes a run do nothing until
+that board shows that revision, so the batch starts on its own once the bump is deployed:
+
+    */30 * * * * cd <checkout>/packages/screamingface && uv run --isolated python \
+        scripts/regrade_batch.py --apply --when-revision inspect-mmlu_pro=4efebd6cc74c2dca \
+        --log ~/regrade-log.jsonl >> ~/regrade-cron.log 2>&1
+
+Exit status: 0 when every entry was re-graded or settled (or the guard is not met yet), 1 when
+any was refused or failed.
 """
 
 from __future__ import annotations
@@ -135,6 +144,16 @@ def find_entries(http: httpx.Client, benchmark_ids: Sequence[str] = ()) -> list[
     return entries
 
 
+def board_revision(http: httpx.Client, board_id: str) -> str | None:
+    """The revision a board serves now, read from the public board list; None if it has none."""
+
+    for board in _get(http, "/v1/benchmarks")["benchmarks"]:
+        if board["id"] == board_id:
+            revision: object = board.get("revision")
+            return None if revision is None else str(revision)
+    raise BoardReadError(f"no board {board_id!r} on this Scoreboard")
+
+
 def settled_ids(log_path: Path) -> set[str]:
     """The source score ids an earlier run of this log already settled (stage 2)."""
 
@@ -230,6 +249,12 @@ def _arguments(argv: Sequence[str]) -> argparse.Namespace:
     )
     parser.add_argument("--log", type=Path, default=Path("regrade-log.jsonl"))
     parser.add_argument("--scoreboard-url", default=None, help="default: the SDK's")
+    parser.add_argument(
+        "--when-revision",
+        default=None,
+        metavar="BOARD=REVISION",
+        help="do nothing until BOARD serves REVISION (for a scheduled run)",
+    )
     return parser.parse_args(argv)
 
 
@@ -241,6 +266,14 @@ def main(argv: Sequence[str]) -> int:
     args: argparse.Namespace = _arguments(argv)
     client = sf.Client(**({"scoreboard_url": args.scoreboard_url} if args.scoreboard_url else {}))
     with httpx.Client(base_url=client.scoreboard_url, timeout=_TIMEOUT_S) as http:
+        if args.when_revision:
+            # WHY a guard: before the deploy the old entries are still current, so a scheduled
+            # run waits here instead of logging a refusal per entry every half hour.
+            board_id, _, wanted = str(args.when_revision).partition("=")
+            served: str | None = board_revision(http, board_id)
+            if served != wanted:
+                print(f"waiting: {board_id} serves {served}, not {wanted}")
+                return _EXIT_OK
         entries: list[Entry] = find_entries(http, args.benchmark)
     for entry in entries:
         print(f"{entry.benchmark_id} {entry.revision} {entry.spec_id} {entry.score_id or '-'}")
