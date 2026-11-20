@@ -28,6 +28,11 @@ is written before any send; the fingerprint has exact field encodings and a gold
 pinned to `@path=/url4/peer/v1` plus the `q=` query; C2 refusals follow the T9 rule; duplicate
 dictionary keys are refused before parsing collapses them.
 
+Fourth round (2026-11-20): release needs proven quiescence before the negative check; the C6
+examples use the quoted intent (`!%27Describe%27`) that `RemoteFetchNode` actually sends; `op_id` and
+provider keys have a byte-level construction from a stable compiled effect identity; reconciliation
+and release are full fenced phases; duplicate `Signature-Input` parameters are refused.
+
 The direction (RFC 9421 plus signed grants) is unchanged, and #1450's fail-closed refusals still stand.
 
 ## Decisions requested from Kevin
@@ -219,6 +224,10 @@ HTTP/3.
     parses the members in order and refuses with `x.peer_auth_failed` the moment a member name
     repeats (for example `url4=…, url4=…` or `sha-256=…, sha-256=…`). This is a deliberate
     deviation from RFC 8941's "last wins", for these three fields only.
+  - **Duplicate parameters are refused too.** RFC 8941 §4.2.3.2 also keeps the last value of a
+    repeated parameter. Inside the `url4` member of `Signature-Input`, a repeated `keyid`, `alg`,
+    `tag`, `nonce`, `created` or `expires` (or any other repeated parameter) is refused with
+    `x.peer_auth_failed` while the parameters are read, before the parameter map is built.
   - `Signature-Input` and `Signature` must each hold **exactly one member, labelled `url4`**. Any
     other member is refused, so a peer request carries one signature only. That member must carry
     `tag="url4-peer"` and `alg="ed25519"` and cover at least the §5.3 components that apply to the
@@ -303,7 +312,9 @@ carry a signature.
   C6 carries the expression in the query, as url4 does today: `@path` is exactly `/url4/peer/v1`, with
   no further segments, and `@query` is the raw query that `url4.wire.subrequest.encode_subrequest`
   produces, ending in `q=` and the wire-escaped expression (`q` is always last, spec §8). Example:
-  `@path` = `/url4/peer/v1`, `@query` = `?q=(ctx)!Describe`. The receiver hands that raw query, byte for
+  `@path` = `/url4/peer/v1`, `@query` = `?q=(ctx)!%27Describe%27`. The intent is quoted because the
+  governing remote call goes through `RemoteFetchNode`, which encodes with `quote=True`; the unquoted
+  `!Describe` would parse as a named job, not text. The receiver hands that raw query, byte for
   byte, to `extract_expression_params`; it never re-encodes it. Any other path under
   `/url4/peer/v1/…` is 404.
 
@@ -455,15 +466,15 @@ have reached a provider.
     strings, in the grant's order. `budget`: the grant's decimal string, unchanged (never parsed as a
     number), or `null`.
 
-  Golden vector (normative): `GET`, `@path` `/url4/peer/v1`, `@query` `?q=(ctx)!Describe`, no body,
+  Golden vector (normative): `GET`, `@path` `/url4/peer/v1`, `@query` `?q=(ctx)!%27Describe%27`, no body,
   `URL4-Auth-Token: v1.example-encrypted-credential`, grant `sub` `tenant-a`, `run` `run-42`, `trace`
   `4bf92f3577b34da6a3ce929d0e0e4736`, `scope` `["eval"]`, `budget` `"0.50"`. The JCS string is
 
   ```
-  {"auth_token_sha256":"f0959e74a1f77de3a6fefc1df4b165d6e900f48ae9430b6d97c5bf2ebbaddb07","budget":"0.50","content_digest":null,"method":"GET","path":"/url4/peer/v1","query":"?q=(ctx)!Describe","run":"run-42","scope":["eval"],"sub":"tenant-a","trace":"4bf92f3577b34da6a3ce929d0e0e4736","v":1}
+  {"auth_token_sha256":"f0959e74a1f77de3a6fefc1df4b165d6e900f48ae9430b6d97c5bf2ebbaddb07","budget":"0.50","content_digest":null,"method":"GET","path":"/url4/peer/v1","query":"?q=(ctx)!%27Describe%27","run":"run-42","scope":["eval"],"sub":"tenant-a","trace":"4bf92f3577b34da6a3ce929d0e0e4736","v":1}
   ```
 
-  and the fingerprint is `428854ee62ad9cd0361f495da98fd7601bd4d3dd65c205998c7529700674b917`.
+  and the fingerprint is `71bbdec257f2da3844aedb9747c522c3d78aa5ec28c6f29ca62511e94cbf8a7c`.
 
   - `URL4-Auth-Token` is in the fingerprint because the receiver decrypts it and uses the credential.
     A key reused with a different credential is a conflict, never a replay of the first credential's
@@ -474,31 +485,57 @@ have reached a provider.
     `created`, and the grant's `iat`, `exp` and `jti`.
 - **Claim (§5.5 step 8).** Before the child run is created and before any spend, one atomic
   insert-if-absent, shared by every replica serving the authority, creates
-  `{phase: "claimed", fingerprint, op_id, epoch: 1, owner, lease_until}`. `op_id` is
-  `sha256(caller authority ‖ Idempotency-Key)`, the stable operation identity. Then:
+  `{phase: "claimed", fingerprint, op_id, gen: 0, epoch: 1, owner, lease_until}`. `op_id` is the
+  stable operation identity (construction below). Then:
   - inserted → proceed;
   - exists, different fingerprint → `x.peer_idempotency_conflict`;
   - exists, same fingerprint, `completed` → **replay the saved response** (same status, body and
     `x.` code), with no new execution and no new spend;
   - exists, same fingerprint, `outcome_unknown` → `x.peer_outcome_unknown`;
-  - exists, same fingerprint, `claimed` or `dispatched` with a live lease → `x.peer_request_in_progress`.
+  - exists, same fingerprint, `claimed`, `dispatched` or `reconciling` with a live lease →
+    `x.peer_request_in_progress`;
+  - exists, same fingerprint, `released` → re-claim by fenced compare-and-set
+    `(released, none, e) → (claimed, new owner, e + 1)` with `gen + 1`, keeping `op_id` and the old
+    journal; the run starts again under new provider keys (the `gen` is in each key).
 - **Fenced transitions.** Every phase change is one compare-and-set on the full expected state
   `(phase, owner, epoch)`. A write whose expected state no longer matches is rejected, and its result
   is discarded. A transition that takes the record away from an owner (takeover, or a move to
   `outcome_unknown`) **bumps `epoch` and clears `owner` in the same write**. So a stalled owner that
   resumes fails every later write, including the one that would complete the record.
+- **Operation and effect identity (byte level).** Each value below is the lowercase hex sha256 of the
+  UTF-8 bytes of the JCS serialization of a JSON object:
+  - `op_id` = H(`{"v":1,"caller":<caller canonical authority>,"idempotency_key":<key>}`), where `<key>`
+    is the `Idempotency-Key` sf-string's 22 characters, without the quotes, as received.
+  - Effect key = `"u4-"` + H(`{"v":1,"op_id":<op_id>,"gen":<gen>,"node":<node>,"call":<call>}`).
+    `node` is the effect's node path in the compiled plan, as a string of 0-based child indexes joined
+    by `.` (root `"0"`). The plan is compiled from the fingerprinted request, so the path is the same on
+    every replica and every retry. `call` is the integer ordinal of the effect within that node,
+    counted in the node's own program order, never in journal-arrival order, so concurrent branches
+    cannot swap keys. `gen` is the integer generation (0, bumped on each release).
+  - The final provider key string is stored in the journal verbatim and re-sent from there. It is never
+    recomputed on reconciliation.
+
+  Golden vector: caller `n1.example`, key `AAECAwQFBgcICQoLDA0ODw`:
+  `{"caller":"n1.example","idempotency_key":"AAECAwQFBgcICQoLDA0ODw","v":1}` →
+  `op_id` `3ffc5cae80201d3ff3354d8c08248b2bc4e179f633a360f486280a06d107fbc3`; effect `gen` 0, `node`
+  `"0"`, `call` 0 →
+  `{"call":0,"gen":0,"node":"0","op_id":"3ffc5cae80201d3ff3354d8c08248b2bc4e179f633a360f486280a06d107fbc3","v":1}`
+  → `u4-2532fe0dd36ee7bc1b6f62a6983515987561cd3e0c915bc321df20b91cb87056`.
 - **Effect journal.** Before each external effect (a paid call, an outbound fetch that costs), the
   owner appends to the record, by the fenced compare-and-set above, an effect descriptor: provider,
-  operation, the request digest, and a deterministic provider idempotency key `op_id ‖ "/" ‖ n`, where
-  `n` is the effect's 0-based index in the run. Only after that write succeeds is the effect sent,
-  with that key where the provider supports one. An effect that is not in the journal was never sent.
+  operation, the request digest, `node`, `call` and the final provider key. Only after that write
+  succeeds is the effect sent, with that key where the provider supports one. An effect that is not
+  in the journal was never sent.
 - **Phases.**
   - `claimed`: nothing external has happened yet. The child run is opened under the claim.
   - `dispatched`: set by fenced compare-and-set `claimed → dispatched` together with the first journal
     entry, before the first send.
   - `completed`: `dispatched → completed` (or `claimed → completed` for a run with no effects), by
     fenced compare-and-set, saving the result.
-  - `outcome_unknown`: terminal until reconciled.
+  - `outcome_unknown`: terminal until reconciled or released.
+  - `reconciling`: an automatic reconciler holds the record (below).
+  - `released`: a tombstone. It keeps the fingerprint, `op_id`, `gen` and the full journal, and it can
+    only be re-claimed by a request with the same fingerprint (a different one is a conflict).
 - **Failures and expired leases.**
   - Retryable failure while `claimed` (nothing external happened): the owner deletes the record by
     fenced compare-and-set, so a retry runs normally.
@@ -508,20 +545,35 @@ have reached a provider.
     `(dispatched, owner, epoch) → (outcome_unknown, owner: none, epoch + 1)`. The record is **never
     deleted and never taken over** for re-execution, because a provider may already have charged or
     acted. The old owner's completion now fails the fence.
-- **Reconciliation of `outcome_unknown`.**
-  - Automatic, only when every journaled effect went to a provider that deduplicates by idempotency
-    key **and** the record is still inside that provider's documented dedup horizon (measured from the
-    effect's journal time). The reconciler takes the record by fenced compare-and-set (bumping
-    `epoch`), re-issues exactly the journaled effects with their journaled keys, saves the result and
-    moves to `completed`. Past the shortest horizon among the journaled providers, automatic
-    reconciliation is off.
-  - Otherwise an operator resolves it. "Mark completed with a result" is always allowed. "Release,
-    safe to re-run" needs both: (a) a **proven stop**, meaning the old owner's process is confirmed
-    gone or its epoch is fenced (it is, by the transition above) **and** its lease has expired; and
-    (b) a **proven negative outcome** for every journaled effect, meaning the provider reports that
-    key as not executed or not charged. Without (b) the record stays `outcome_unknown`.
-  - The caller surfaces `x.peer_outcome_unknown` and does not retry automatically.
-- **Retention.** At least 24 h after the record reaches `completed` or is released, and never while it
+- **Reconciliation and release: the full state machine.** Each row is one fenced compare-and-set
+  from `(phase, owner, epoch)` to the new tuple; nothing else changes a record.
+
+  | From | To | When |
+  |---|---|---|
+  | `(outcome_unknown, none, e)` | `(reconciling, R, e+1)`, lease set | reconciler R starts; only if every journaled effect's provider deduplicates by key and the earliest journal time is inside the shortest dedup horizon among them |
+  | `(reconciling, R, e)` | `(completed, R, e)` | R re-sent exactly the journaled keys (verbatim) and saved the result |
+  | `(reconciling, R, e)` | `(outcome_unknown, none, e+1)` | R fails, or R's lease expires (any replica may write this) |
+  | `(outcome_unknown, none, e)` | `(completed, operator, e+1)` | operator marks it completed with a result |
+  | `(outcome_unknown, none, e)` | `(released, none, e+1)` | operator release, only on the proof below |
+  | `(released, none, e)` | `(claimed, O, e+1)`, `gen+1` | a retry with the same fingerprint re-claims (claim branch above) |
+
+  A crashed reconciler leaves `reconciling` with a lease that expires, which returns the record to
+  `outcome_unknown`; a resumed reconciler then fails the fence.
+- **Release needs proven quiescence first.** Epoch fencing stops store writes; it does not stop a
+  zombie that has already journaled an effect from sending it. So "release, safe to re-run" requires,
+  **in this order**:
+  1. **Quiescence:** every sender that could send a journaled effect is conclusively stopped, meaning
+     the old owner's process (and any reconciler) is confirmed terminated by the runtime (process
+     exit or pod deletion observed), so no in-flight or future request can still reach the provider;
+     then
+  2. **Negative outcome:** for every journaled key, the provider reports it as not executed and not
+     charged, checked after step 1.
+
+  Without both, in that order, the record stays `outcome_unknown`. Where the provider deduplicates the
+  exact journaled key within its horizon, use reconciliation instead of release; release is for the
+  case where it does not.
+- The caller surfaces `x.peer_outcome_unknown` and does not retry automatically.
+- **Retention.** At least 24 h after the record reaches `completed` or `released`, and never while it
   is `outcome_unknown`. The guarantee holds only inside this horizon. A key reused after it is a new
   call.
 - **Store unavailable** → fail closed with `x.peer_key_unavailable` (retryable) before any execution.
@@ -638,6 +690,10 @@ Request context (§5.3.1), each as a fixed vector (raw request plus expected sig
   - `Content-Digest: sha-256=:<valid>:, sha-256=:<other>:`, also with the valid value last.
   A plain RFC 8941 parser would keep the last member in each; the test asserts the refusal.
 - Raw path or query bytes outside 0x21–0x7E → `x.peer_auth_failed` before routing.
+- Duplicate parameters inside the `url4` member of `Signature-Input`, refused before the parameter map
+  is built → `x.peer_auth_failed`. One vector per parameter (`keyid`, `alg`, `tag`, `nonce`,
+  `created`, `expires`), each with the valid value first and again with it last, for example
+  `url4=("@method");keyid="n1#k1";keyid="n3#k9";…`.
   A comma inside `URL4-Authz-Token`, `URL4-Auth-Token` or `Idempotency-Key` → `x.peer_auth_failed`.
 
 At-most-once execution (§5.9). Each test counts provider calls and spend at the receiver, using a
@@ -654,7 +710,7 @@ fake provider that can charge and then drop its response:
   - `trace`;
   - `URL4-Auth-Token` (and the first token's saved response is not returned).
 - Fingerprint vectors: the §5.9 golden vector gives exactly its JCS string and
-  `428854ee…674b917`. Variants: no `URL4-Auth-Token` → `null`; a body → its `content_digest` hex; an
+  `71bbdec2…cbf8a7c`. Variants: no `URL4-Auth-Token` → `null`; a body → its `content_digest` hex; an
   empty query → `"?"`; a token with surrounding whitespace hashes the same as without. Two replicas
   compute the same fingerprint for the same request.
 - Retryable failure while `claimed`: the record is deleted, and the retry makes one provider call.
@@ -663,9 +719,17 @@ fake provider that can charge and then drop its response:
 - Lease expiry in `dispatched` (the owner is paused mid-call, then resumes): no takeover. The record
   moves to `outcome_unknown` with `epoch + 1` and no owner. The resumed owner's completion is
   rejected by the fence (phase and epoch both differ), and there is one provider call in total.
-- A manual "safe to re-run" racing a zombie: the release is refused until the lease has expired and
-  every journaled key has a negative provider outcome. A zombie that passed its pre-send journal
-  write still sends with the journaled key, so the provider deduplicates it.
+- A manual "safe to re-run" racing a zombie: with a provider that does not deduplicate, release is
+  refused while the old owner's process is alive, even when the provider reports a negative outcome;
+  a negative check taken before quiescence does not count. After confirmed termination and a fresh
+  negative check, release succeeds and the re-run makes exactly one provider call.
+- Identity vectors: the §5.9 `op_id` and effect-key golden vectors. Two concurrent branches whose
+  effects journal in either arrival order get the same keys. Reconciliation re-sends the journaled key
+  string byte for byte. A release bumps `gen`, so the re-run's keys differ from the old ones.
+- State machine: every row of the §5.9 table, and every illegal transition (for example
+  `released → completed`, `reconciling → released`) rejected by the fence. A reconciler killed
+  mid-run leaves `reconciling`; after lease expiry the record is `outcome_unknown` and the old
+  reconciler's completion is rejected.
 - Journal before send: a failure injected between the journal write and the send leaves a journaled
   effect with no provider call; a send without a journal entry is impossible (asserted on the fake).
 - Automatic reconciliation past the provider's dedup horizon is not attempted; the record stays
@@ -687,8 +751,9 @@ Address mapping (§5.5), end to end over ASGI with the exact #1450 expressions:
   `x.peer_auth_required`. With a verified grant for another digest → `source_not_found`, identical to
   a covered digest that is missing.
 - C6 wire form: the signed request has `@path` exactly `/url4/peer/v1` and `@query` exactly what
-  `encode_subrequest` built (for example `?q=(ctx)!Describe`); n2's `extract_expression_params` gets
-  that raw query unchanged. `/url4/peer/v1/extra` → 404.
+  `encode_subrequest` built through `RemoteFetchNode` lowering of the exact #1450 expression
+  (`?q=(…)!%27Describe%27`, quoted text intent); n2's `extract_expression_params` gets that raw query
+  unchanged and parses the intent as text. `/url4/peer/v1/extra` → 404.
 - A signed request sent to bare `/v1` or `/blob/…` → `x.peer_auth_failed`. A request that is valid
   for `/url4/peer/v1…` and replayed with its path rewritten to `/v1…` fails.
 - A prefix is stripped exactly once: `/url4/peer/url4/peer/v1` does not reach `/v1`.

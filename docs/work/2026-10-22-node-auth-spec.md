@@ -102,3 +102,12 @@ codes, and how C2/C6 are enabled alongside the #1521 destination guard. Design o
      `x.peer_auth_required`; an uncovered or missing digest is `source_not_found` (T9).
   4. Duplicate RFC 8941 dictionary keys are refused before the parser collapses them, with fixed
      vectors.
+- **2026-11-20 fourth round (HupBaHa, CHANGES_REQUESTED 09:57Z):** five details:
+  1. Release needs confirmed termination of every sender before the provider negative check;
+     otherwise the record stays `outcome_unknown`.
+  2. C6 examples and the golden fingerprint use the quoted intent `!%27Describe%27` that
+     `RemoteFetchNode` sends (`quote=True`); hash `71bbdec2…` (matches HupBaHa's probe).
+  3. `op_id` and provider keys are JCS+sha256 constructions over a stable compiled effect identity
+     (`node` path, `call` ordinal, `gen`), with golden vectors; the key is journaled verbatim.
+  4. §5.9 gains `reconciling` and `released` phases and a full fenced transition table.
+  5. Duplicate `Signature-Input` parameters are refused before the parameter map is built.
