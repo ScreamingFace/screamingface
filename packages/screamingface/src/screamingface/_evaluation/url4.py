@@ -4,11 +4,19 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal, cast, overload
 
 from url4 import Expression, Source, Text, build
 
-from screamingface._core.ports import AsyncRunTransport, SyncRunTransport, _RunOutcome
+from screamingface._core.ports import (
+    AsyncRunTransport,
+    SyncRunTransport,
+    _AsyncRunFollowing,
+    _AsyncTransport,
+    _RunFollowing,
+    _RunOutcome,
+    _SyncTransport,
+)
 from screamingface._evaluation.combine_spec import COMBINE_MODEL
 from screamingface._evaluation.model import (
     Candidate,
@@ -34,6 +42,7 @@ from screamingface._evaluation.topology import (
     _TopologyBinding,
 )
 from screamingface._operation_bindings import FINAL_BINDING, GATE_BLOCK, gate_join
+from screamingface._results.run_context import URL4_RUN_LABEL
 from screamingface.errors import ExecutionError
 from screamingface.events import Event
 from screamingface.operation import OperationInfo
@@ -46,16 +55,19 @@ from screamingface.url4 import (
 )
 from screamingface.url4 import _calls as _url4_calls
 
-#: What a raw-URL4 or replay evaluation is called before it runs: in the progress output, and as
-#: its Run's benchmark, with 0 (unknown) Cases.
-URL4_RUN_LABEL = "URL4 replay"
-
 if TYPE_CHECKING:
-    from screamingface._evaluation.runner import _AsyncOperatorLoading, _SyncOperatorLoading
+    from screamingface._evaluation.outcome import _Settled
+    from screamingface._evaluation.runner import (
+        _AsyncEventObserver,
+        _AsyncOperatorLoading,
+        _SyncEventObserver,
+        _SyncOperatorLoading,
+    )
 
 
+@overload
 def evaluate_url4_sync(
-    transport: SyncRunTransport,
+    transport: _SyncTransport,
     url4: str,
     on_event: Callable[[Event], None] | None,
     progress: bool | None,
@@ -64,15 +76,64 @@ def evaluate_url4_sync(
     replay_frozen_copy: str | None = None,
     load_operators: _SyncOperatorLoading | None = None,
     use_cache: bool = True,
-) -> Report:
-    """Execute one already-linked evaluation expression unchanged."""
+    detach: Literal[False] = False,
+    deadline_s: int | None = None,
+) -> Report: ...
+
+
+@overload
+def evaluate_url4_sync(
+    transport: _SyncTransport,
+    url4: str,
+    on_event: Callable[[Event], None] | None,
+    progress: bool | None,
+    answer_seed: int | None = None,
+    capture: bool = False,
+    replay_frozen_copy: str | None = None,
+    load_operators: _SyncOperatorLoading | None = None,
+    use_cache: bool = True,
+    detach: Literal[True] = ...,
+    deadline_s: int | None = None,
+) -> str: ...
+
+
+@overload
+def evaluate_url4_sync(
+    transport: _SyncTransport,
+    url4: str,
+    on_event: Callable[[Event], None] | None,
+    progress: bool | None,
+    answer_seed: int | None = None,
+    capture: bool = False,
+    replay_frozen_copy: str | None = None,
+    load_operators: _SyncOperatorLoading | None = None,
+    use_cache: bool = True,
+    detach: bool = False,
+    deadline_s: int | None = None,
+) -> Report | str: ...
+
+
+def evaluate_url4_sync(
+    transport: _SyncTransport,
+    url4: str,
+    on_event: Callable[[Event], None] | None,
+    progress: bool | None,
+    answer_seed: int | None = None,
+    capture: bool = False,
+    replay_frozen_copy: str | None = None,
+    load_operators: _SyncOperatorLoading | None = None,
+    use_cache: bool = True,
+    detach: bool = False,
+    deadline_s: int | None = None,
+) -> Report | str:
+    """Execute one already-linked evaluation expression unchanged; with ``detach``, register its
+    Run and return the Run's id instead."""
 
     from screamingface._evaluation.runner import (
         _abort_event_observer,
         _conclude_evaluation,
         _evaluation_options,
         _sync_event_observer,
-        open_run_sync,
     )
 
     _evaluation_options(on_event, progress)
@@ -89,6 +150,12 @@ def evaluate_url4_sync(
     if replay_frozen_copy is not None:
         candidate = _with_replay_frozen_copy(candidate, replay_frozen_copy)
     candidate = _cache_intent(candidate, use_cache)
+    if detach:
+        from screamingface._evaluation.runner import _following
+
+        return _following(transport).register_run(
+            None, (candidate,), detach=True, deadline_s=deadline_s
+        )
     observer = _sync_event_observer(
         on_event,
         progress,
@@ -96,12 +163,8 @@ def evaluate_url4_sync(
         None,
         URL4_RUN_LABEL,
     )
-    # INVARIANT (spec D8): raw URL4 and replay register too, right before the first token, so
-    # `transport.run` always retires the binding.
-    run_id = open_run_sync(transport, URL4_RUN_LABEL, 0, (candidate,))
     try:
-        bound = None if observer is None else observer.bind(candidate)
-        outcome = transport.run(candidate, bound)
+        run_id, outcome = _ran_sync(transport, candidate, observer)
         report = with_run_id(report_from_url4_outcome(candidate, outcome), run_id)
         _require_replay_statement(replay_frozen_copy, outcome, report)
     except BaseException as exc:
@@ -111,13 +174,62 @@ def evaluate_url4_sync(
     return report
 
 
+def _ran_sync(
+    transport: _SyncTransport, candidate: Candidate, observer: _SyncEventObserver | None
+) -> tuple[str | None, _RunOutcome]:
+    """The Run's id and its one Candidate's outcome; raises the Candidate's own error.
+
+    A transport the Engine drives registers the Candidate as a Run with no benchmark and follows
+    it (E5 P2 spec D1); a `run()`-only one runs it here.
+    """
+    from screamingface._evaluation.following import followed_sync
+    from screamingface._evaluation.reattach import settled_from_records
+    from screamingface._evaluation.runner import open_run_sync
+
+    if isinstance(transport, _RunFollowing):
+        run_id = transport.register_run(None, (candidate,))
+        recorded, kept = followed_sync(transport, run_id, (candidate,), observer, None)
+        return run_id, _lone(settled_from_records(transport, (candidate,), recorded, kept))
+    pool = cast(SyncRunTransport, transport)
+    # INVARIANT (spec D8): raw URL4 and replay register too, right before the first token.
+    run_id = open_run_sync(pool, URL4_RUN_LABEL, 0, (candidate,))
+    return run_id, pool.run(candidate, None if observer is None else observer.bind(candidate))
+
+
+async def _ran_async(
+    transport: _AsyncTransport, candidate: Candidate, observer: _AsyncEventObserver | None
+) -> tuple[str | None, _RunOutcome]:
+    """The async twin of ``_ran_sync``."""
+    from screamingface._evaluation.following import followed_async
+    from screamingface._evaluation.reattach import refetched_async, settled_from_records
+    from screamingface._evaluation.runner import open_run_async
+
+    if isinstance(transport, _AsyncRunFollowing):
+        run_id = await transport.register_run(None, (candidate,))
+        recorded, kept = await followed_async(transport, run_id, (candidate,), observer, None)
+        recorded, kept = await refetched_async(transport, (candidate,), recorded, kept)
+        settled = settled_from_records(transport, (candidate,), recorded, kept)
+        return run_id, _lone(settled)
+    pool = cast(AsyncRunTransport, transport)
+    run_id = await open_run_async(pool, URL4_RUN_LABEL, 0, (candidate,))
+    return run_id, await pool.run(candidate, None if observer is None else observer.bind(candidate))
+
+
+def _lone(settled: _Settled) -> _RunOutcome:
+    # WHY safe: the build raises a lone Candidate's own error (`reattach._lone_raised`).
+    ((_, outcome),) = settled
+    assert isinstance(outcome, _RunOutcome)
+    return outcome
+
+
 def _cache_intent(candidate: Candidate, use_cache: bool) -> Candidate:
     """The Candidate opted out of the request cache, or unchanged (OME-1311)."""
     return candidate if use_cache else _without_cache(candidate)
 
 
+@overload
 async def evaluate_url4_async(
-    transport: AsyncRunTransport,
+    transport: _AsyncTransport,
     url4: str,
     on_event: Callable[[Event], None | Awaitable[None]] | None,
     progress: bool | None,
@@ -126,7 +238,56 @@ async def evaluate_url4_async(
     replay_frozen_copy: str | None = None,
     load_operators: _AsyncOperatorLoading | None = None,
     use_cache: bool = True,
-) -> Report:
+    detach: Literal[False] = False,
+    deadline_s: int | None = None,
+) -> Report: ...
+
+
+@overload
+async def evaluate_url4_async(
+    transport: _AsyncTransport,
+    url4: str,
+    on_event: Callable[[Event], None | Awaitable[None]] | None,
+    progress: bool | None,
+    answer_seed: int | None = None,
+    capture: bool = False,
+    replay_frozen_copy: str | None = None,
+    load_operators: _AsyncOperatorLoading | None = None,
+    use_cache: bool = True,
+    detach: Literal[True] = ...,
+    deadline_s: int | None = None,
+) -> str: ...
+
+
+@overload
+async def evaluate_url4_async(
+    transport: _AsyncTransport,
+    url4: str,
+    on_event: Callable[[Event], None | Awaitable[None]] | None,
+    progress: bool | None,
+    answer_seed: int | None = None,
+    capture: bool = False,
+    replay_frozen_copy: str | None = None,
+    load_operators: _AsyncOperatorLoading | None = None,
+    use_cache: bool = True,
+    detach: bool = False,
+    deadline_s: int | None = None,
+) -> Report | str: ...
+
+
+async def evaluate_url4_async(
+    transport: _AsyncTransport,
+    url4: str,
+    on_event: Callable[[Event], None | Awaitable[None]] | None,
+    progress: bool | None,
+    answer_seed: int | None = None,
+    capture: bool = False,
+    replay_frozen_copy: str | None = None,
+    load_operators: _AsyncOperatorLoading | None = None,
+    use_cache: bool = True,
+    detach: bool = False,
+    deadline_s: int | None = None,
+) -> Report | str:
     """Asynchronously execute one already-linked evaluation expression unchanged."""
 
     from screamingface._evaluation.runner import (
@@ -134,7 +295,6 @@ async def evaluate_url4_async(
         _async_event_observer,
         _conclude_evaluation,
         _evaluation_options,
-        open_run_async,
     )
 
     _evaluation_options(on_event, progress)
@@ -150,6 +310,12 @@ async def evaluate_url4_async(
     if replay_frozen_copy is not None:
         candidate = _with_replay_frozen_copy(candidate, replay_frozen_copy)
     candidate = _cache_intent(candidate, use_cache)
+    if detach:
+        from screamingface._evaluation.runner import _async_following
+
+        return await _async_following(transport).register_run(
+            None, (candidate,), detach=True, deadline_s=deadline_s
+        )
     observer = _async_event_observer(
         on_event,
         progress,
@@ -157,10 +323,8 @@ async def evaluate_url4_async(
         None,
         URL4_RUN_LABEL,
     )
-    run_id = await open_run_async(transport, URL4_RUN_LABEL, 0, (candidate,))
     try:
-        bound = None if observer is None else observer.bind(candidate)
-        outcome = await transport.run(candidate, bound)
+        run_id, outcome = await _ran_async(transport, candidate, observer)
         report = with_run_id(report_from_url4_outcome(candidate, outcome), run_id)
         _require_replay_statement(replay_frozen_copy, outcome, report)
     except BaseException as exc:

@@ -15,6 +15,11 @@ type _Invalid = Callable[[str], NoReturn]
 # WHY here: this module has no dependencies, so marking a call site never drags the Access
 # stack (and its native crypto) into an import path that must stay cheap.
 _REPLAY_SAFE = "screamingface_replay_safe"
+# httpx request-extension key marking a request that may not start an interactive Cloudflare
+# Access login (E5 P2 spec D15): a follow's result fetch. A challenge then raises
+# `LOGIN_NOT_STARTED` instead of opening a browser, and the follow ends with how to resume.
+_NO_LOGIN = "screamingface_no_login"
+LOGIN_NOT_STARTED = "access_login_not_started"
 
 
 def mapping(value: object, label: str, invalid: _Invalid) -> Mapping[str, object]:

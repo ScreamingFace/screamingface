@@ -6,7 +6,7 @@ import json
 import logging
 import math
 from collections import OrderedDict
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
@@ -629,6 +629,19 @@ def _optional_saved_cost(value: object, label: str) -> Decimal | None:
 
 
 def _usage(envelope: dict[str, Any], data: Mapping[str, object]) -> events.Usage:
+    return events.Usage(
+        **envelope,
+        scope=_usage_scope(_text(data, "scope")),
+        provider=_text(data, "gen_ai.provider.name"),
+        model=_text(data, "gen_ai.response.model"),
+        pricing_version=_text(data, "pricing_version"),
+        usage=usage_value(data),
+    )
+
+
+def usage_value(data: Mapping[str, object]) -> AccountingUsage:
+    """A `cost.usage` frame's `data` as the Report's usage; the Engine's record carries the
+    run's root subtree frame's `data` as it is (E5 P2 spec §4.3)."""
     usage = _object(data.get("usage"), "cost usage tokens")
     cost = _object(data.get("cost"), "cost usage cost")
     pricing_version = _text(data, "pricing_version")
@@ -693,14 +706,7 @@ def _usage(envelope: dict[str, Any], data: Mapping[str, object]) -> events.Usage
         ),
         cost_usd=None if unpriced else total,
     )
-    return events.Usage(
-        **envelope,
-        scope=_usage_scope(_text(data, "scope")),
-        provider=_text(data, "gen_ai.provider.name"),
-        model=_text(data, "gen_ai.response.model"),
-        pricing_version=pricing_version,
-        usage=accounting,
-    )
+    return accounting
 
 
 def _termination_error(value: object) -> events.TerminationError | None:
@@ -886,3 +892,41 @@ def _decimal(value: object, label: str) -> Decimal:
 
 
 __all__: list[str] = []
+
+
+def display_event(payload: Mapping[str, object]) -> events.Event | None:
+    """One CloudEvent of a Run's event stream as the public Event, for `on_event` and the
+    progress output only (E5 P2 spec §4.2, D13): the Candidate's outcome comes from the
+    Engine's record, never from these.
+
+    None for a frame that is not a public Event (a result frame, an unsequenced notice, a kind
+    this Client does not know). Raises ExecutionError for a frame that does not decode.
+    """
+    event_type = _text(payload, "type")
+    decode = _DISPLAYED.get(event_type)
+    if decode is None or payload.get("sequence") is None:
+        return None
+    envelope = _envelope(payload, _sequence(payload))
+    return decode(envelope, _object(payload.get("data"), f"{event_type} data"))
+
+
+def _started_event(envelope: dict[str, Any], data: Mapping[str, object]) -> events.Started:
+    return events.Started(**envelope, url4=_text(data, "url4"))
+
+
+def _terminated_event(envelope: dict[str, Any], data: Mapping[str, object]) -> events.Terminated:
+    status = _text(data, "status")
+    if status not in {"succeeded", "failed", "stopped", "timed_out"}:
+        raise ExecutionError("SF Engine termination status is invalid")
+    return events.Terminated(
+        **envelope, status=_termination_status(status), error=_termination_error(data.get("error"))
+    )
+
+
+_DISPLAYED: dict[str, Callable[[dict[str, Any], Mapping[str, object]], events.Event]] = {
+    "ai.url4.started": _started_event,
+    "ai.url4.log": _log,
+    "ai.url4.span": _span,
+    "ai.url4.cost.usage": _usage,
+    "ai.url4.terminated": _terminated_event,
+}

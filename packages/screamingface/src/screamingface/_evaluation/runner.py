@@ -8,11 +8,11 @@ import logging
 import warnings
 from collections.abc import Awaitable, Callable, Coroutine, Iterator, Sequence
 from concurrent.futures import FIRST_EXCEPTION, Future, ThreadPoolExecutor, wait
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 from threading import Event as ThreadEvent
 from threading import Lock
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Literal, Protocol, cast, overload
 
 if TYPE_CHECKING:
     from screamingface.errors import PlanningError
@@ -20,11 +20,15 @@ if TYPE_CHECKING:
 from screamingface._core.ports import (
     AsyncRunTransport,
     SyncRunTransport,
+    _AsyncRunFollowing,
     _AsyncRunRegistration,
+    _AsyncTransport,
     _ConnectionNotice,
     _ResultPersistence,
+    _RunFollowing,
     _RunOutcome,
     _RunRegistration,
+    _SyncTransport,
 )
 from screamingface._environment import SDK_PACKAGE_ROOT
 from screamingface._evaluation.benchmark import _BenchmarkResource
@@ -86,9 +90,10 @@ _NAMED_CALLS = 3
 _logger = logging.getLogger(__name__)
 
 
-def evaluate_sync(  # noqa: PLR0915 - the Evaluation's phases, in order (OME-1314 adds the cap read)
+@overload
+def evaluate_sync(
     load_benchmark: _SyncBenchmarkLoading,
-    transport: SyncRunTransport,
+    transport: _SyncTransport,
     load_models: _SyncModelLoading,
     load_model_details: _SyncModelDetailsLoading,
     candidates: Recipe | Sequence[Recipe],
@@ -102,8 +107,76 @@ def evaluate_sync(  # noqa: PLR0915 - the Evaluation's phases, in order (OME-131
     use_cache: bool = True,
     cases: object = None,
     load_caller_cap: _SyncCallerCapLoading | None = None,
-) -> Report:
-    """Run the complete synchronous Evaluation workflow behind the Client interface."""
+    detach: Literal[False] = False,
+    deadline_s: int | None = None,
+) -> Report: ...
+
+
+@overload
+def evaluate_sync(
+    load_benchmark: _SyncBenchmarkLoading,
+    transport: _SyncTransport,
+    load_models: _SyncModelLoading,
+    load_model_details: _SyncModelDetailsLoading,
+    candidates: Recipe | Sequence[Recipe],
+    benchmark: str,
+    limit: int | None,
+    on_event: Callable[[Event], None] | None,
+    progress: bool | None,
+    answer_seed: int | None = None,
+    capture: bool = False,
+    load_operators: _SyncOperatorLoading | None = None,
+    use_cache: bool = True,
+    cases: object = None,
+    load_caller_cap: _SyncCallerCapLoading | None = None,
+    detach: Literal[True] = ...,
+    deadline_s: int | None = None,
+) -> str: ...
+
+
+@overload
+def evaluate_sync(
+    load_benchmark: _SyncBenchmarkLoading,
+    transport: _SyncTransport,
+    load_models: _SyncModelLoading,
+    load_model_details: _SyncModelDetailsLoading,
+    candidates: Recipe | Sequence[Recipe],
+    benchmark: str,
+    limit: int | None,
+    on_event: Callable[[Event], None] | None,
+    progress: bool | None,
+    answer_seed: int | None = None,
+    capture: bool = False,
+    load_operators: _SyncOperatorLoading | None = None,
+    use_cache: bool = True,
+    cases: object = None,
+    load_caller_cap: _SyncCallerCapLoading | None = None,
+    detach: bool = False,
+    deadline_s: int | None = None,
+) -> Report | str: ...
+
+
+def evaluate_sync(  # noqa: PLR0915 - the Evaluation's phases, in order (OME-1314 adds the cap read)
+    load_benchmark: _SyncBenchmarkLoading,
+    transport: _SyncTransport,
+    load_models: _SyncModelLoading,
+    load_model_details: _SyncModelDetailsLoading,
+    candidates: Recipe | Sequence[Recipe],
+    benchmark: str,
+    limit: int | None,
+    on_event: Callable[[Event], None] | None,
+    progress: bool | None,
+    answer_seed: int | None = None,
+    capture: bool = False,
+    load_operators: _SyncOperatorLoading | None = None,
+    use_cache: bool = True,
+    cases: object = None,
+    load_caller_cap: _SyncCallerCapLoading | None = None,
+    detach: bool = False,
+    deadline_s: int | None = None,
+) -> Report | str:
+    """Run the complete synchronous Evaluation workflow behind the Client interface; with
+    ``detach``, register the Run and return its id instead (E5 P2 spec D11, D14)."""
 
     from screamingface._evaluation.compilation import compile_evaluation
     from screamingface._evaluation.outcome import completed_report
@@ -144,19 +217,26 @@ def evaluate_sync(  # noqa: PLR0915 - the Evaluation's phases, in order (OME-131
     preflight_sync(
         selected_candidates, load_model_details, answer_seed=answer_seed, prefetched=prefetched
     )
-    # WHY before `open_run_sync`: every Engine discovery read happens before the Run exists, so a
-    # slow `GET /v1/limits` never leaves a registered Run with no start.
-    cap = _caller_cap_sync(selected_candidates, load_caller_cap)
-    run_id = open_run_sync(transport, benchmark, evaluation.case_count, selected_candidates)
-    with _prepared_results(transport, evaluation, selected_candidates):
-        observer = _sync_event_observer(
-            on_event,
-            progress,
-            selected_candidates,
-            evaluation.case_count,
-            benchmark,
-            check_disclosure=check_disclosure,
+    if detach:
+        return _following(transport).register_run(
+            evaluation, selected_candidates, detach=True, deadline_s=deadline_s
         )
+    from screamingface._evaluation.following import canceled_if_left_sync
+
+    cap, run_id = _opened_sync(
+        transport, evaluation, selected_candidates, benchmark, load_caller_cap
+    )
+    with ExitStack() as results:
+        with canceled_if_left_sync(transport, run_id):
+            results.enter_context(_prepared_results(transport, evaluation, selected_candidates))
+            observer = _sync_event_observer(
+                on_event,
+                progress,
+                selected_candidates,
+                evaluation.case_count,
+                benchmark,
+                check_disclosure=check_disclosure,
+            )
         try:
             outcomes = _settled_sync(
                 transport,
@@ -176,9 +256,10 @@ def evaluate_sync(  # noqa: PLR0915 - the Evaluation's phases, in order (OME-131
         return report
 
 
-async def evaluate_async(  # noqa: PLR0915 - see evaluate_sync
+@overload
+async def evaluate_async(
     load_benchmark: _AsyncBenchmarkLoading,
-    transport: AsyncRunTransport,
+    transport: _AsyncTransport,
     load_models: _AsyncModelLoading,
     load_model_details: _AsyncModelDetailsLoading,
     candidates: Recipe | Sequence[Recipe],
@@ -192,8 +273,76 @@ async def evaluate_async(  # noqa: PLR0915 - see evaluate_sync
     use_cache: bool = True,
     cases: object = None,
     load_caller_cap: _AsyncCallerCapLoading | None = None,
-) -> Report:
-    """Run the complete asynchronous Evaluation workflow behind the Client interface."""
+    detach: Literal[False] = False,
+    deadline_s: int | None = None,
+) -> Report: ...
+
+
+@overload
+async def evaluate_async(
+    load_benchmark: _AsyncBenchmarkLoading,
+    transport: _AsyncTransport,
+    load_models: _AsyncModelLoading,
+    load_model_details: _AsyncModelDetailsLoading,
+    candidates: Recipe | Sequence[Recipe],
+    benchmark: str,
+    limit: int | None,
+    on_event: Callable[[Event], None | Awaitable[None]] | None,
+    progress: bool | None,
+    answer_seed: int | None = None,
+    capture: bool = False,
+    load_operators: _AsyncOperatorLoading | None = None,
+    use_cache: bool = True,
+    cases: object = None,
+    load_caller_cap: _AsyncCallerCapLoading | None = None,
+    detach: Literal[True] = ...,
+    deadline_s: int | None = None,
+) -> str: ...
+
+
+@overload
+async def evaluate_async(
+    load_benchmark: _AsyncBenchmarkLoading,
+    transport: _AsyncTransport,
+    load_models: _AsyncModelLoading,
+    load_model_details: _AsyncModelDetailsLoading,
+    candidates: Recipe | Sequence[Recipe],
+    benchmark: str,
+    limit: int | None,
+    on_event: Callable[[Event], None | Awaitable[None]] | None,
+    progress: bool | None,
+    answer_seed: int | None = None,
+    capture: bool = False,
+    load_operators: _AsyncOperatorLoading | None = None,
+    use_cache: bool = True,
+    cases: object = None,
+    load_caller_cap: _AsyncCallerCapLoading | None = None,
+    detach: bool = False,
+    deadline_s: int | None = None,
+) -> Report | str: ...
+
+
+async def evaluate_async(  # noqa: PLR0915 - see evaluate_sync
+    load_benchmark: _AsyncBenchmarkLoading,
+    transport: _AsyncTransport,
+    load_models: _AsyncModelLoading,
+    load_model_details: _AsyncModelDetailsLoading,
+    candidates: Recipe | Sequence[Recipe],
+    benchmark: str,
+    limit: int | None,
+    on_event: Callable[[Event], None | Awaitable[None]] | None,
+    progress: bool | None,
+    answer_seed: int | None = None,
+    capture: bool = False,
+    load_operators: _AsyncOperatorLoading | None = None,
+    use_cache: bool = True,
+    cases: object = None,
+    load_caller_cap: _AsyncCallerCapLoading | None = None,
+    detach: bool = False,
+    deadline_s: int | None = None,
+) -> Report | str:
+    """Run the complete asynchronous Evaluation workflow behind the Client interface; with
+    ``detach``, register the Run and return its id instead."""
 
     from screamingface._evaluation.compilation import compile_evaluation
     from screamingface._evaluation.outcome import completed_report
@@ -233,18 +382,26 @@ async def evaluate_async(  # noqa: PLR0915 - see evaluate_sync
     await preflight_async(
         selected_candidates, load_model_details, answer_seed=answer_seed, prefetched=prefetched
     )
-    # WHY before `open_run_async`: see the sync twin.
-    cap = await _caller_cap_async(selected_candidates, load_caller_cap)
-    run_id = await open_run_async(transport, benchmark, evaluation.case_count, selected_candidates)
-    with _prepared_results(transport, evaluation, selected_candidates):
-        observer = _async_event_observer(
-            on_event,
-            progress,
-            selected_candidates,
-            evaluation.case_count,
-            benchmark,
-            check_disclosure=check_disclosure,
+    if detach:
+        return await _async_following(transport).register_run(
+            evaluation, selected_candidates, detach=True, deadline_s=deadline_s
         )
+    from screamingface._evaluation.following import canceled_if_left_async
+
+    cap, run_id = await _opened_async(
+        transport, evaluation, selected_candidates, benchmark, load_caller_cap
+    )
+    with ExitStack() as results:
+        async with canceled_if_left_async(transport, run_id):
+            results.enter_context(_prepared_results(transport, evaluation, selected_candidates))
+            observer = _async_event_observer(
+                on_event,
+                progress,
+                selected_candidates,
+                evaluation.case_count,
+                benchmark,
+                check_disclosure=check_disclosure,
+            )
         try:
             outcomes = await _settled_async(
                 transport,
@@ -261,6 +418,50 @@ async def evaluate_async(  # noqa: PLR0915 - see evaluate_sync
             raise
         _conclude_evaluation(observer, report, capture)
         return report
+
+
+def _following(transport: _SyncTransport) -> _RunFollowing:
+    """The transport, when the Engine drives Runs; a detached Run needs one (E5 P2 spec D1)."""
+    if not isinstance(transport, _RunFollowing):
+        raise TypeError("detach=True needs a run transport that registers Runs on the SF Engine")
+    return transport
+
+
+def _async_following(transport: _AsyncTransport) -> _AsyncRunFollowing:
+    if not isinstance(transport, _AsyncRunFollowing):
+        raise TypeError("detach=True needs a run transport that registers Runs on the SF Engine")
+    return transport
+
+
+def _opened_sync(
+    transport: _SyncTransport,
+    evaluation: _Evaluation,
+    candidates: tuple[Candidate, ...],
+    benchmark: str,
+    load_caller_cap: _SyncCallerCapLoading | None,
+) -> tuple[int | None, str | None]:
+    """The fan-out cap and the Run's id. A transport the Engine drives registers the whole
+    evaluation, starts included, and has no fan-out of its own: no cap (E5 P2 spec D1)."""
+    if isinstance(transport, _RunFollowing):
+        return None, transport.register_run(evaluation, candidates)
+    # WHY before `open_run_sync`: every Engine discovery read happens before the Run exists, so a
+    # slow `GET /v1/limits` never leaves a registered Run with no start.
+    cap = _caller_cap_sync(candidates, load_caller_cap)
+    return cap, open_run_sync(transport, benchmark, evaluation.case_count, candidates)
+
+
+async def _opened_async(
+    transport: _AsyncTransport,
+    evaluation: _Evaluation,
+    candidates: tuple[Candidate, ...],
+    benchmark: str,
+    load_caller_cap: _AsyncCallerCapLoading | None,
+) -> tuple[int | None, str | None]:
+    """The async twin of ``_opened_sync``."""
+    if isinstance(transport, _AsyncRunFollowing):
+        return None, await transport.register_run(evaluation, candidates)
+    cap = await _caller_cap_async(candidates, load_caller_cap)
+    return cap, await open_run_async(transport, benchmark, evaluation.case_count, candidates)
 
 
 def open_run_sync(
@@ -334,17 +535,36 @@ async def _caller_cap_async(
 
 
 def _settled_sync(
-    transport: SyncRunTransport,
+    transport: _SyncTransport,
     evaluation: _Evaluation,
     candidates: tuple[Candidate, ...],
     observer: _SyncEventObserver | None,
     run_id: str | None = None,
     *,
-    cap: int,
+    cap: int | None,
 ) -> tuple[tuple[Candidate, _RunOutcome], ...]:
     try:
+        if isinstance(transport, _RunFollowing):
+            from screamingface._evaluation.following import followed_sync
+            from screamingface._evaluation.reattach import settled_from_records
+
+            recorded, kept = followed_sync(
+                transport,
+                # `_opened_*` registered the Run on this transport, so it has an id.
+                cast(str, run_id),
+                candidates,
+                observer,
+                completion_callback(evaluation, observer),
+            )
+            # E5 P2 spec D14: the one build every Report of a Run comes from.
+            return settle(settled_from_records(transport, candidates, recorded, kept))
         return _run_candidates_sync(
-            transport, candidates, observer, completion_callback(evaluation, observer), cap=cap
+            cast(SyncRunTransport, transport),
+            candidates,
+            observer,
+            completion_callback(evaluation, observer),
+            # `_opened_*` read the cap for a transport that starts each Candidate itself.
+            cap=cast(int, cap),
         )
     except _CandidatesFailed as failed:
         settled = failed.settled
@@ -354,17 +574,36 @@ def _settled_sync(
 
 
 async def _settled_async(
-    transport: AsyncRunTransport,
+    transport: _AsyncTransport,
     evaluation: _Evaluation,
     candidates: tuple[Candidate, ...],
     observer: _AsyncEventObserver | None,
     run_id: str | None = None,
     *,
-    cap: int,
+    cap: int | None,
 ) -> tuple[tuple[Candidate, _RunOutcome], ...]:
     try:
+        if isinstance(transport, _AsyncRunFollowing):
+            from screamingface._evaluation.following import followed_async
+            from screamingface._evaluation.reattach import refetched_async, settled_from_records
+
+            recorded, kept = await followed_async(
+                transport,
+                # `_opened_*` registered the Run on this transport, so it has an id.
+                cast(str, run_id),
+                candidates,
+                observer,
+                completion_callback(evaluation, observer),
+            )
+            recorded, kept = await refetched_async(transport, candidates, recorded, kept)
+            return settle(settled_from_records(transport, candidates, recorded, kept))
         return await _run_candidates_async(
-            transport, candidates, observer, completion_callback(evaluation, observer), cap=cap
+            cast(AsyncRunTransport, transport),
+            candidates,
+            observer,
+            completion_callback(evaluation, observer),
+            # `_opened_*` read the cap for a transport that starts each Candidate itself.
+            cap=cast(int, cap),
         )
     except _CandidatesFailed as failed:
         settled = failed.settled

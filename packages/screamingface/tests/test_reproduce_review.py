@@ -16,12 +16,11 @@ from __future__ import annotations
 
 import json
 from dataclasses import fields
-from http import HTTPStatus
-from typing import Any
+from typing import Any, cast
 
 import httpx
 import pytest
-from _isolation_engine import RunPlan, isolation_engine
+from _run_engine import ended, run_engine, settled
 from test_client_run import REPLAY_URL4, _ReplayTransport
 from test_leaderboards import SCORE_ID, SCOREBOARD_URL, _score_response
 from test_reproduce import (
@@ -314,25 +313,38 @@ def test_reproduction_outcome_is_exported() -> None:
 # --- finding 13: a failed stop is told to the user ----------------------------------------------
 
 
+def _replay_body() -> bytes:
+    return (_ReplayTransport().run(cast(Any, None), None).result_body or "").encode()
+
+
+def _unstated() -> tuple[list[list[str | int]], dict[int, bytes]]:
+    """A run whose record does not state the copy it replayed: an Engine that ignored it."""
+    return [[settled(0, _replay_body()), ended()]], {0: _replay_body()}
+
+
 def test_a_replay_that_could_not_be_stopped_says_the_run_may_still_be_running() -> None:
-    plans = {REPLAY_URL4: RunPlan()}
-    with isolation_engine(plans, delete_status=HTTPStatus.INTERNAL_SERVER_ERROR) as engine:
+    """Since E5 P2 the Engine drives the Run and it has ended when the statement is checked, so a
+    replay that was not stated stops nothing and warns of nothing still running."""
+    import warnings
+
+    with run_engine(*_unstated()) as engine, warnings.catch_warnings():
+        warnings.simplefilter("error")
         client = sf.Client(
             engine_url=engine.url,
             scoreboard_url=SCOREBOARD_URL,
             scoreboard_transport=httpx.MockTransport(_Board()),
         )
-        with client, pytest.warns(sf.EvaluationWarning, match="may still be running"):
+        with client:
             reproduction = _reproduce(client, _score())
 
     assert (reproduction.outcome, reproduction.reason) == ("failed", "replay_unsupported")
+    assert engine.state.deleted == []
 
 
 def test_a_stopped_replay_raises_no_warning() -> None:
     import warnings
 
-    plans = {REPLAY_URL4: RunPlan()}
-    with isolation_engine(plans) as engine, warnings.catch_warnings():
+    with run_engine(*_unstated()) as engine, warnings.catch_warnings():
         warnings.simplefilter("error")
         client = sf.Client(
             engine_url=engine.url,
@@ -347,8 +359,7 @@ def test_a_stopped_replay_raises_no_warning() -> None:
 
 @pytest.mark.asyncio
 async def test_the_async_client_stops_and_reports_a_missing_echo() -> None:
-    plans = {REPLAY_URL4: RunPlan()}
-    with isolation_engine(plans) as engine:
+    with run_engine(*_unstated()) as engine:
         client = sf.AsyncClient(
             engine_url=engine.url,
             scoreboard_url=SCOREBOARD_URL,
@@ -358,26 +369,21 @@ async def test_the_async_client_stops_and_reports_a_missing_echo() -> None:
             reproduction = await _reproduce_async(client, _score())
 
         assert (reproduction.outcome, reproduction.reason) == ("failed", "replay_unsupported")
-        assert len(engine.state.deleted) == 1, "the unacknowledged run was stopped"
+        assert engine.state.deleted == []
 
 
 @pytest.mark.asyncio
 async def test_the_async_transport_tells_when_the_stop_failed_too() -> None:
-    plans = {REPLAY_URL4: RunPlan()}
-    with isolation_engine(plans, delete_status=HTTPStatus.INTERNAL_SERVER_ERROR) as engine:
-        transport = AsyncUrl4CloudTransport(engine.url, reconnect_base_delay_s=0.01)
+    """The async transport sends the replay's copy in its start, as the sync one does."""
+    with run_engine([[ended()]], {}) as engine:
+        transport = AsyncUrl4CloudTransport(engine.url)
         try:
-            with pytest.raises(ExecutionError) as raised:
-                await transport.run(
-                    _stamped(_candidate(), replay_frozen_copy=COPY),
-                    None,
-                )
+            await transport.register_run(None, (_stamped(_candidate(), replay_frozen_copy=COPY),))
         finally:
             await transport.close()
 
-    assert raised.value.code == "replay_unsupported"
-    assert "may still be running on the Engine" in str(raised.value)
-    assert raised.value.hint is not None
+    (start,) = engine.state.registered[0]["candidates"]
+    assert (start["replay_frozen_copy"], start["capture"]) == (COPY, False)
 
 
 # --- the spine: submit, get_score, reproduce ----------------------------------------------------
@@ -449,22 +455,19 @@ class _StoringBoard:
         )
 
 
-def _honouring_plan() -> RunPlan:
-    """A stub Engine run that captures into `COPY` and, on a replay start, honours it."""
-    body = json.loads(_ReplayTransport().run(None, None).result_body or "")  # type: ignore[arg-type]
-    summary = {
-        "cache.hits": 0,
-        "cache.misses": 1,
-        "cache.bypasses": 0,
-        "capture.frozen_copy_id": COPY,
-        "capture.status": "complete",
-    }
-    return RunPlan(honour_replay=True, summary=summary, result_body=json.dumps(body))
+def _honouring_script() -> tuple[list[list[str | int]], dict[int, bytes]]:
+    """Two Runs on a stub Engine: the capture run seals `COPY`; the replay states it."""
+    body = _replay_body()
+    captured = settled(
+        0, body, attempt="url4-cloud.capture", frozen_copy_id=COPY, capture_status="complete"
+    )
+    replayed = settled(0, body, attempt="url4-cloud.replay", capture_replay=COPY)
+    return [[captured, ended()], [replayed, ended()]], {0: body}
 
 
 def _spine(board: _StoringBoard) -> tuple[Any, ...]:
     """Capture, submit, fetch and reproduce against the stub Engine; return what each step gave."""
-    with isolation_engine({REPLAY_URL4: _honouring_plan()}) as engine:
+    with run_engine(*_honouring_script()) as engine:
         client = sf.Client(
             engine_url=engine.url,
             scoreboard_url=SCOREBOARD_URL,
@@ -478,14 +481,15 @@ def _spine(board: _StoringBoard) -> tuple[Any, ...]:
             fetched = client.leaderboards.get_score(submitted.id)
             reproduction, replayed = _replayed(client, fetched)
             after = client.leaderboards.get_score(submitted.id)
+        starts = [body["candidates"][0] for body in engine.state.registered]
         return (
             result,
             fetched,
             reproduction,
             replayed,
             after,
-            dict(engine.state.replay_copies),
-            list(engine.state.capture_starts),
+            {i: s["replay_frozen_copy"] for i, s in enumerate(starts) if s["replay_frozen_copy"]},
+            [s for s in starts if s["capture"]],
         )
 
 
@@ -572,10 +576,10 @@ def test_a_complete_score_without_a_copy_id_starts_no_run() -> None:
 
 
 def test_a_replay_start_sends_the_copy_id_header_and_no_capture_header() -> None:
-    # The real transport against a stub Engine that honours replay: `X-Replay-Frozen-Copy` goes
-    # out, `X-Capture` never does (the Engine refuses both together).
-    plans = {REPLAY_URL4: _honouring_plan()}
-    with isolation_engine(plans) as engine:
+    # The real transport against a stub Engine that honours replay: the start carries the copy,
+    # and never `capture` (the Engine refuses both together).
+    script, results = _honouring_script()
+    with run_engine(script[1:], results) as engine:
         client = sf.Client(
             engine_url=engine.url,
             scoreboard_url=SCOREBOARD_URL,
@@ -584,8 +588,8 @@ def test_a_replay_start_sends_the_copy_id_header_and_no_capture_header() -> None
         with client:
             _reproduce(client, _score(), record=False)
 
-        assert list(engine.state.replay_copies.values()) == [COPY]
-        assert engine.state.capture_starts == []
+        (start,) = engine.state.registered[0]["candidates"]
+        assert (start["replay_frozen_copy"], start["capture"]) == (COPY, False)
 
 
 # --- a candidate-level failure with no case failures (design §7) --------------------------------

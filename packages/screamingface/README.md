@@ -2191,34 +2191,52 @@ materializes its rendered output. Automatic lifecycle discovery remains a separa
 
 ## Your runs
 
-Every `evaluate` is recorded on the Engine as a Run, and `report.run_id` names it. Runs are
-kept for 30 days and are listed from any notebook or machine signed in as you, so you can
-follow or stop an evaluation from somewhere else.
+Every `evaluate` is a Run on the Engine, and `report.run_id` names it. The Engine starts and
+drives every Candidate itself, so a Run can outlive your notebook: start one with `detach=True`,
+close the notebook, and pick it up later from any notebook or machine signed in as you. Runs are
+kept for 30 days.
 
 ```python
+import datetime as dt
+
 import screamingface as sf
 
-report = sf.evaluate(candidates, benchmark="gsm8k")
-run = sf.runs.get(report.run_id)
+run = sf.evaluate(candidates, benchmark="gsm8k", detach=True, deadline=dt.timedelta(hours=24))
+run.id  # keep it: this is how you pick the Run up again
+
+# Later, anywhere:
+run = sf.runs.get(run_id)
 run.state  # "running", "complete", "partial", "errored", "canceled" or "interrupted"
 run.cost_usd  # the sum of the costs known so far
 run.progress()  # RunProgress(done=..., total=..., cost_usd=...)
-run.wait(timeout=600).report()  # the saved results, on the machine that ran it
+report = run.wait()  # follow the Run until it ends, then its Report
+report = run.report()  # a finished Run's Report, built from the Engine on any machine
 run.cancel()  # stops every Candidate still running, and the ones not started yet
 
 recent = sf.runs.list(state="complete", limit=10)
-# In async code: await sf.runs.get_async(...), await sf.runs.list_async(...)
+# In async code: await sf.runs.get_async(...), await sf.runs.list_async(...),
+# await run.refresh_async(), run.progress_async(), run.wait_async(), run.report_async(),
+# run.cancel_async(). A Run an AsyncClient returns is read through that AsyncClient, so it
+# takes only the _async methods.
 ```
 
-A `Run` is a snapshot: `refresh()`, `progress()` and `wait()` read the Engine again. An unknown
-id, or another person's, raises `KeyError`. `run.report()` reads the results saved on this
-machine (`sf.reports`); on another machine it raises `ExecutionError("results_not_local")`, and
-while the Run is running, `ExecutionError("run_not_finished")`. Stopping an `evaluate` with
-Ctrl-C cancels its Run, so it reads `canceled`.
+Without `detach`, `evaluate` follows its Run and returns the Report, as before; `on_event` and
+`progress` need it, since a detached `evaluate` returns before anything runs. If nobody follows
+an attached Run for 2 minutes (the notebook closed, the network dropped), the Engine stops it, and
+it reads `interrupted`. A detached Run runs until it ends or its `deadline` (48 hours by default,
+7 days at most), whoever follows it; `run.stopped_by` says why a stopped Run ended (`"canceled"`,
+`"orphaned"` or `"deadline"`).
 
-An Engine that does not record Runs (an older one, or one with Runs off) runs every `evaluate`
-exactly as before, with one `EvaluationWarning`, and `report.run_id` is `None`; `sf.runs`
-raises `ExecutionError("runs_unavailable")` there.
+A `Run` is a snapshot: `refresh()`, `progress()` and `wait()` read the Engine again. An unknown
+id, or another person's, raises `KeyError`. `run.report()` builds the Report from the Engine,
+as the evaluation that started the Run built its own, reusing the results already saved on this
+machine (`sf.reports`) and saving the rest here; while the Run is running it raises
+`ExecutionError("run_not_finished")`. Stopping an
+`evaluate` with Ctrl-C cancels its Run, so it reads `canceled`. If your sign-in expires while
+you follow a Run, the follow ends with how to pick it up again; the Run itself goes on.
+
+`evaluate` needs an Engine that runs Runs: an older Engine raises `EngineCapabilityError` with
+the upgrade to make, and one with Runs off raises `ExecutionError("runs_off")`.
 
 Each Candidate's own attempt on the Engine is `CandidateResult.attempt_id`. Its old name,
 `CandidateResult.run_id`, still works and warns with `DeprecationWarning`; exported reports keep

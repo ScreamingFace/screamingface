@@ -1,30 +1,40 @@
-"""The Engine's `/runs` routes (E5 P1 spec §4.1), sync and async, decoded into frozen records.
+"""The Engine's `/runs` routes (E5 P1 spec §4.1, E5 P2 spec §4.1), sync and async, decoded into
+frozen records.
 
-FEATURE: first-class Runs (OME-1785). STORY: as a researcher, every evaluation I start is
-recorded on the Engine, so I can reopen, follow or cancel it from any notebook.
+FEATURE: first-class Runs (OME-1785) and a detached Run (OME-1837). STORY: as a researcher, I send
+my evaluation to the Engine once, with every Candidate's start, and reopen, follow or cancel it
+from any notebook.
 
-INVARIANT (D7): registering never fails an evaluation. Any failure of `POST /runs` (any non-2xx
-answer, a malformed one, or an unreachable Engine) is one `Unavailable`, never an exception.
+INVARIANT (P2 D2): Runs are required. `POST /runs` carries every Candidate's start, and a refusal
+raises: nothing runs without a Run.
+INVARIANT (P2 D16): only a 422 or 404 with no `code` reads as an Engine older than P2; every
+refusal a P2 Engine makes is coded, and `runs_off` says Runs are off.
 INVARIANT (§4.1): on reads and cancel, a 404 with code `run_not_found` means the id is unknown or
 foreign (`KeyError`); any other 404 means this Engine does not serve Runs (`runs_unavailable`).
 """
 
 from __future__ import annotations
 
+import asyncio
 import builtins
+import hashlib
+import logging
 import re
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
-from decimal import Decimal, InvalidOperation
-from typing import Literal, NoReturn, cast, get_args
+from decimal import Decimal
+from typing import Literal, cast, get_args
 from urllib.parse import quote, urlencode
 
 import httpx
 
-from screamingface._core.wire import _REPLAY_SAFE
+from screamingface._core.ports import StartRequest
+from screamingface._core.wire import _NO_LOGIN, _REPLAY_SAFE
+from screamingface._engine.wire_checks import WireChecks
 from screamingface.errors import (
     AuthenticationError,
+    EngineCapabilityError,
     EngineUnavailableError,
     ExecutionError,
     ScreamingFaceError,
@@ -33,6 +43,9 @@ from screamingface.errors import (
 RUNS_PATH = "/runs"
 RUN_NOT_FOUND = "run_not_found"
 RUNS_UNAVAILABLE = "runs_unavailable"
+RUNS_OFF = "runs_off"
+ENGINE_UPGRADE_REQUIRED = "engine_upgrade_required"
+CONTEXT_MISMATCH = "context_mismatch"
 #: The Engine's largest `GET /runs` page.
 MAX_PAGE_SIZE = 200
 
@@ -40,11 +53,17 @@ RunState = Literal["running", "complete", "partial", "errored", "canceled", "int
 CandidateState = Literal[
     "pending", "scheduled", "running", "succeeded", "failed", "timed_out", "stopped", "lost"
 ]
+StopReason = Literal["canceled", "orphaned", "deadline"]
 #: The Engine's Run id. INVARIANT: checked on decode, because it names a file in the local result
 #: store (spec D8), so no other text from the Engine ever becomes a path.
 _RUN_ID = re.compile(r"run_[0-9a-f]{32}")
 _RUN_STATES = frozenset(get_args(RunState))
 _CANDIDATE_STATES = frozenset(get_args(CandidateState))
+_STOP_REASONS = frozenset(get_args(StopReason))
+_logger = logging.getLogger(__name__)
+#: The stop reasons a newer Engine sent that this Client does not know, each logged once.
+_UNKNOWN_STOP_REASONS: set[str] = set()
+_SHA256 = re.compile(r"[0-9a-f]{64}")
 
 #: One Engine call: ``(method, path, json=None) -> response``, marked safe to replay. Every
 #: `/runs` call is: `POST` carries `client_key`, `DELETE` is idempotent, and reads change nothing.
@@ -53,23 +72,37 @@ AsyncRequest = Callable[..., Awaitable[httpx.Response]]
 
 
 @dataclass(frozen=True, slots=True)
+class ContextRef:
+    """The Run's context as the Engine keeps it: its checksum and size (P2 spec D9b)."""
+
+    sha256: str
+    size_bytes: int
+
+
+@dataclass(frozen=True, slots=True)
 class RunRequest:
-    """What `POST /runs` registers. Candidates are named in evaluation order; a start names one
-    by its index here (`X-SF-Run-Candidate`)."""
+    """What `POST /runs` registers: every Candidate's start, in evaluation order, and the
+    ``context`` the Client needs to rebuild the Report on another machine (P2 spec §4.1)."""
 
     client_key: str
     benchmark: str
     case_count: int
-    candidates: tuple[str, ...]
+    candidates: tuple[StartRequest, ...]
     client_version: str
+    context: str | None = None
+    detach: bool = False
+    deadline_s: int | None = None
 
     def body(self) -> dict[str, object]:
         return {
             "client_key": self.client_key,
             "benchmark": self.benchmark,
             "case_count": self.case_count,
-            "candidates": builtins.list(self.candidates),
+            "candidates": [start.body() for start in self.candidates],
             "client_version": self.client_version,
+            "context": self.context,
+            "detach": self.detach,
+            "deadline_s": self.deadline_s,
         }
 
 
@@ -82,6 +115,11 @@ class CandidateRecord:
     finished_at: datetime | None
     cost_usd: Decimal | None
     error_code: str | None
+    # P2 (spec §4.1): ``start`` and ``record`` only on the full read; ``record`` stays the
+    # Engine's object, decoded where a Candidate's outcome is built (`run_record.py`).
+    index: int = 0
+    start: StartRequest | None = None
+    record: Mapping[str, object] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -93,50 +131,70 @@ class RunRecord:
     benchmark: str
     case_count: int
     candidates: tuple[CandidateRecord, ...]
+    # P2 (spec §4.1). WHY defaults: an Engine from before P2 still answers the reads.
+    detached: bool = False
+    deadline_at: datetime | None = None
+    stopped_by: StopReason | None = None
+    context: ContextRef | None = None
 
 
-@dataclass(frozen=True, slots=True)
-class Unavailable:
-    """`POST /runs` did not register the Run (D7); ``reason`` says why, for the one notice."""
-
-    reason: str
-
-
-def marked_request(http: httpx.Client, *, timeout: float | None = None) -> Request:
-    """``http``'s calls, marked safe to replay; ``timeout`` bounds each (default: the client's)."""
+def marked_request(
+    http: httpx.Client, *, timeout: float | None = None, login: bool = True
+) -> Request:
+    """``http``'s calls, marked safe to replay; ``timeout`` bounds each (default: the
+    client's). Without ``login``, a call that is challenged fails instead of starting a sign-in
+    (`_core.wire._NO_LOGIN`)."""
     bound = httpx.USE_CLIENT_DEFAULT if timeout is None else timeout
+    marks = _marks(login)
 
     def request(method: str, path: str, json: object = None) -> httpx.Response:
-        return http.request(method, path, json=json, timeout=bound, extensions={_REPLAY_SAFE: True})
+        return http.request(method, path, json=json, timeout=bound, extensions=marks)
 
     return request
 
 
-def marked_async_request(http: httpx.AsyncClient, *, timeout: float | None = None) -> AsyncRequest:
+def marked_async_request(
+    http: httpx.AsyncClient, *, timeout: float | None = None, login: bool = True
+) -> AsyncRequest:
     """The async twin of ``marked_request``."""
     bound = httpx.USE_CLIENT_DEFAULT if timeout is None else timeout
+    marks = _marks(login)
 
     async def request(method: str, path: str, json: object = None) -> httpx.Response:
-        return await http.request(
-            method, path, json=json, timeout=bound, extensions={_REPLAY_SAFE: True}
-        )
+        return await http.request(method, path, json=json, timeout=bound, extensions=marks)
 
     return request
+
+
+def _marks(login: bool) -> dict[str, bool]:
+    return {_REPLAY_SAFE: True} if login else {_REPLAY_SAFE: True, _NO_LOGIN: True}
 
 
 # --- sync ---------------------------------------------------------------------------------
 
 
-def create_sync(request: Request, run: RunRequest) -> RunRecord | Unavailable:
+def create_sync(request: Request, run: RunRequest) -> RunRecord:
+    """Register the Run, which the Engine then starts and drives (P2 spec D1)."""
     try:
         response = request("POST", RUNS_PATH, json=run.body())
-    except (httpx.HTTPError, ScreamingFaceError) as exc:
-        return _unreached(exc)
-    return _created(response)
+    except httpx.HTTPError as exc:
+        raise _answer_lost(exc, run) from exc
+    except KeyboardInterrupt as exc:
+        exc.add_note(_maybe_registered(run))
+        raise
+    return _created(response, run)
 
 
-def get_sync(request: Request, run_id: str) -> RunRecord:
-    return _decode_run(_json(_answer(_send_sync(request, "GET", _run_path(run_id)), run_id)))
+def get_sync(request: Request, run_id: str, *, summary: bool = False) -> RunRecord:
+    """The Run; with ``summary``, without each Candidate's start and record (P2 spec §4.1)."""
+    path = _run_path(run_id) + ("?view=summary" if summary else "")
+    return _decode_run(_json(_answer(_send_sync(request, "GET", path), run_id)))
+
+
+def context_sync(request: Request, run_id: str, expected: ContextRef) -> str:
+    """The Run's context, checked against the checksum the Run holds (P2 spec D9b)."""
+    response = _send_sync(request, "GET", f"{_run_path(run_id)}/context")
+    return _checked_context(_answer_object(response, run_id), expected)
 
 
 def cancel_sync(request: Request, run_id: str) -> None:
@@ -171,12 +229,25 @@ def _send_sync(request: Request, method: str, path: str) -> httpx.Response:
 # --- async --------------------------------------------------------------------------------
 
 
-async def create_async(request: AsyncRequest, run: RunRequest) -> RunRecord | Unavailable:
+async def create_async(request: AsyncRequest, run: RunRequest) -> RunRecord:
     try:
         response = await request("POST", RUNS_PATH, json=run.body())
-    except (httpx.HTTPError, ScreamingFaceError) as exc:
-        return _unreached(exc)
-    return _created(response)
+    except httpx.HTTPError as exc:
+        raise _answer_lost(exc, run) from exc
+    except (KeyboardInterrupt, asyncio.CancelledError) as exc:
+        exc.add_note(_maybe_registered(run))
+        raise
+    return _created(response, run)
+
+
+async def get_async(request: AsyncRequest, run_id: str, *, summary: bool = False) -> RunRecord:
+    path = _run_path(run_id) + ("?view=summary" if summary else "")
+    return _decode_run(_json(_answer(await _send_async(request, "GET", path), run_id)))
+
+
+async def context_async(request: AsyncRequest, run_id: str, expected: ContextRef) -> str:
+    response = await _send_async(request, "GET", f"{_run_path(run_id)}/context")
+    return _checked_context(_answer_object(response, run_id), expected)
 
 
 async def cancel_async(request: AsyncRequest, run_id: str) -> None:
@@ -212,27 +283,142 @@ def _list_path(
     return f"{RUNS_PATH}?{urlencode(params)}"
 
 
-def _created(response: httpx.Response) -> RunRecord | Unavailable:
+def _created(response: httpx.Response, run: RunRequest) -> RunRecord:
     if response.status_code not in (200, 201):
-        return Unavailable(f"the SF Engine answered HTTP {response.status_code}")
+        raise _refused(response)
     try:
         return _decode_run(_json(response))
     except ExecutionError as exc:
-        return Unavailable(exc.message)
+        raise _unread_registration(response, run, exc) from exc
 
 
-def _unreached(exc: Exception) -> Unavailable:
-    return Unavailable(f"the SF Engine could not be reached ({type(exc).__name__})")
+def _unread_registration(
+    response: httpx.Response, run: RunRequest, exc: ExecutionError
+) -> ExecutionError:
+    """WHY (#1878 review): the Engine registered the Run, and started it, before this Client
+    failed to read the answer; most likely a newer Engine's. The error names the Run, from the
+    body when its id is there, and what becomes of it."""
+    try:
+        body = response.json()
+    except (ValueError, RecursionError):
+        body = None
+    found = body.get("id") if isinstance(body, dict) else None
+    run_id = found if isinstance(found, str) and _RUN_ID.fullmatch(found) else None
+    upgrade = "Upgrade the screamingface Client"
+    if run_id is not None:
+        upgrade += f", then follow or cancel the Run with `sf.runs.get({run_id!r})`"
+    else:
+        # WHY (#1878 review): with no id to name, the Run is found by when it was made.
+        upgrade += ", then find the Run newest first in `sf.runs.list()`"
+    if run.detach:
+        then = "It runs on the SF Engine until its deadline."
+    else:
+        then = "Nobody follows it, so the SF Engine stops it within 2 minutes."
+    return ExecutionError(
+        f"The SF Engine registered {'the Run' if run_id is None else f'Run {run_id}'}, but this "
+        f"Client could not read the answer ({exc.message}). {then}",
+        code=exc.code,
+        permanent=True,
+        hint=f"{upgrade}.",
+    )
+
+
+def _refused(response: httpx.Response) -> ScreamingFaceError:
+    """Why `POST /runs` registered nothing (P2 spec §4.1, D2, D16)."""
+    status = response.status_code
+    code = problem_code(response)
+    refusal: ScreamingFaceError
+    if code is None and status in (404, 422):
+        refusal = EngineCapabilityError(
+            "This SF Engine is older than this Client, so it cannot run an evaluation as a Run",
+            code=ENGINE_UPGRADE_REQUIRED,
+            status=status,
+            permanent=True,
+            hint="Upgrade the SF Engine to one that runs detached Runs, or ask its operator to.",
+        )
+    elif status == 404 and code == RUNS_OFF:
+        refusal = ExecutionError(
+            "Runs are off on this SF Engine, so it cannot run an evaluation",
+            code=RUNS_OFF,
+            status=status,
+            permanent=True,
+            hint="Ask the SF Engine's operator to turn Runs on.",
+        )
+    elif status in (401, 403):
+        refusal = AuthenticationError(
+            "The SF Engine refused the caller", code=code, status=status, permanent=True
+        )
+    else:
+        detail = _problem_detail(response)
+        refusal = ExecutionError(
+            f"The SF Engine refused the Run{f': {detail}' if detail else ''}",
+            code=code,
+            status=status,
+            permanent=status < 500,
+        )
+    return refusal
+
+
+def _answer_object(response: httpx.Response, run_id: str) -> httpx.Response:
+    """``response`` when it carries the object; its coded 404 (`context_not_found`,
+    `result_not_found`) raised as that, any other refusal as a Runs refusal."""
+    code = problem_code(response)
+    if response.status_code == 404 and code not in (None, RUN_NOT_FOUND, RUNS_OFF):
+        raise ExecutionError(
+            f"The SF Engine no longer holds this object of Run {run_id}",
+            code=code,
+            status=404,
+            permanent=True,
+        )
+    return _answer(response, run_id)
+
+
+def _checked_context(response: httpx.Response, expected: ContextRef) -> str:
+    body = response.content
+    if len(body) != expected.size_bytes or hashlib.sha256(body).hexdigest() != expected.sha256:
+        raise ExecutionError(
+            "The Run's context does not match the checksum the Run holds",
+            code=CONTEXT_MISMATCH,
+            permanent=True,
+        )
+    try:
+        return body.decode("utf-8")
+    except UnicodeDecodeError:
+        _malformed()
 
 
 def _unreachable(exc: httpx.HTTPError) -> EngineUnavailableError:
+    return EngineUnavailableError(
+        "Could not reach the SF Engine to read Runs", engine_url=_origin(exc)
+    )
+
+
+def _answer_lost(exc: httpx.HTTPError, run: RunRequest) -> EngineUnavailableError:
+    """WHY not "unreachable": the Engine may have registered the Run, and started its
+    Candidates, before the answer was lost."""
+    return EngineUnavailableError(
+        f"The SF Engine did not answer `POST /runs`. {_maybe_registered(run)}",
+        engine_url=_origin(exc),
+    )
+
+
+def _maybe_registered(run: RunRequest) -> str:
+    """What became of a Run whose registration got no answer (a lost connection, or Ctrl-C
+    while waiting for it), and how to find it: a Run shows no client key, so by when it was
+    made."""
+    if run.detach:
+        then = "Find it newest first in `sf.runs.list()`, and cancel it if it is not wanted."
+    else:
+        then = "Nobody follows it, so the SF Engine stops it within 2 minutes."
+    return f"The Run may have been registered and may be running. {then}"
+
+
+def _origin(exc: httpx.HTTPError) -> str:
     try:
         url = exc.request.url
     except RuntimeError:
-        origin = ""
-    else:
-        origin = f"{url.scheme}://{url.netloc.decode('ascii')}"
-    return EngineUnavailableError("Could not reach the SF Engine to read Runs", engine_url=origin)
+        return ""
+    return f"{url.scheme}://{url.netloc.decode('ascii')}"
 
 
 def _answer(response: httpx.Response, run_id: str | None) -> httpx.Response:
@@ -263,6 +449,14 @@ def _answer(response: httpx.Response, run_id: str | None) -> httpx.Response:
 
 
 def problem_code(response: httpx.Response) -> str | None:
+    return _problem_text(response, "code")
+
+
+def _problem_detail(response: httpx.Response) -> str | None:
+    return _problem_text(response, "detail")
+
+
+def _problem_text(response: httpx.Response, name: str) -> str | None:
     media_type = response.headers.get("content-type", "").split(";", 1)[0].casefold()
     if media_type != "application/problem+json":
         return None
@@ -270,8 +464,8 @@ def problem_code(response: httpx.Response) -> str | None:
         problem: object = response.json()
     except ValueError:
         return None
-    code = problem.get("code") if isinstance(problem, dict) else None
-    return code if isinstance(code, str) else None
+    value = problem.get(name) if isinstance(problem, dict) else None
+    return value if isinstance(value, str) else None
 
 
 def _json(response: httpx.Response) -> object:
@@ -296,6 +490,9 @@ def _decode_run(value: object) -> RunRecord:
     case_count = run.get("case_count")
     if not isinstance(candidates, builtins.list) or not _is_int(case_count):
         _malformed()
+    detached = run.get("detached", False)
+    if not isinstance(detached, bool):
+        _malformed()
     return RunRecord(
         id=_run_id(run.get("id")),
         state=cast(RunState, _choice(run.get("state"), _RUN_STATES)),
@@ -303,47 +500,109 @@ def _decode_run(value: object) -> RunRecord:
         finished_at=_optional(run.get("finished_at"), _time),
         benchmark=_text(run.get("benchmark")),
         case_count=cast(int, case_count),
-        candidates=tuple(_decode_candidate(candidate) for candidate in candidates),
+        candidates=_in_order(
+            [_decode_candidate(candidate, index) for index, candidate in enumerate(candidates)]
+        ),
+        detached=detached,
+        deadline_at=_optional(run.get("deadline_at"), _time),
+        stopped_by=cast(StopReason | None, _optional(run.get("stopped_by"), _stop_reason)),
+        context=_optional(run.get("context"), _context_ref),
     )
 
 
-def _decode_candidate(value: object) -> CandidateRecord:
+def _in_order(candidates: builtins.list[CandidateRecord]) -> tuple[CandidateRecord, ...]:
+    """The Candidates by index. WHY (#1878 review): the Report pairs each with the context's
+    Candidate at its position, so the indexes must be exactly 0..n-1, each once."""
+    ordered = sorted(candidates, key=lambda candidate: candidate.index)
+    if [candidate.index for candidate in ordered] != builtins.list(range(len(ordered))):
+        _malformed()
+    return tuple(ordered)
+
+
+def _decode_candidate(value: object, position: int) -> CandidateRecord:
     candidate = _object(value)
+    index = candidate.get("index", position)
+    name = _text(candidate.get("name"))
+    start = _optional(candidate.get("start"), _start)
+    if not _is_int(index) or (start is not None and start.name != name):
+        _malformed()
     return CandidateRecord(
-        name=_text(candidate.get("name")),
+        name=name,
         state=cast(CandidateState, _choice(candidate.get("state"), _CANDIDATE_STATES)),
         attempt_id=_optional(candidate.get("attempt_id"), _text),
         started_at=_optional(candidate.get("started_at"), _time),
         finished_at=_optional(candidate.get("finished_at"), _time),
         cost_usd=_optional(candidate.get("cost_usd"), _cost),
         error_code=_optional(candidate.get("error_code"), _text),
+        index=cast(int, index),
+        start=start,
+        record=_optional(candidate.get("record"), _object),
     )
 
 
-def _object(value: object) -> Mapping[str, object]:
-    if not isinstance(value, dict):
+def _start(value: object) -> StartRequest:
+    start = _object(value)
+    seed = start.get("answer_seed")
+    capture = start.get("capture", False)
+    use_cache = start.get("use_cache", True)
+    replay = start.get("replay_frozen_copy")
+    if (
+        not (seed is None or _is_int(seed))
+        or not isinstance(capture, bool)
+        or not isinstance(use_cache, bool)
+        or not (replay is None or isinstance(replay, str))
+    ):
         _malformed()
-    return cast(Mapping[str, object], value)
+    return StartRequest(
+        name=_text(start.get("name")),
+        url4=_text(start.get("url4")),
+        answer_seed=cast(int | None, seed),
+        capture=capture,
+        use_cache=use_cache,
+        replay_frozen_copy=replay,
+    )
 
 
-def _optional[T](value: object, decode: Callable[[object], T]) -> T | None:
-    return None if value is None else decode(value)
-
-
-def _text(value: object) -> str:
-    if not isinstance(value, str) or not value:
+def _context_ref(value: object) -> ContextRef:
+    context = _object(value)
+    digest = context.get("sha256")
+    size = context.get("size_bytes")
+    if not isinstance(digest, str) or _SHA256.fullmatch(digest) is None or not _is_int(size):
         _malformed()
-    return value
+    return ContextRef(sha256=digest, size_bytes=cast(int, size))
+
+
+def _stop_reason(value: object) -> str | None:
+    """A known stop reason, or None for one a newer Engine added. WHY not malformed: the Run's
+    `state` still says how it ended, and a released Client must still open it (spec D16)."""
+    reason = _text(value)
+    if reason in _STOP_REASONS:
+        return reason
+    if reason not in _UNKNOWN_STOP_REASONS:
+        _UNKNOWN_STOP_REASONS.add(reason)
+        _logger.warning(
+            "The SF Engine stopped a Run for %r, a reason this Client does not know; "
+            "it reads as None",
+            reason,
+        )
+    return None
+
+
+_CHECK = WireChecks("The SF Engine answered a Runs call with a malformed body")
+_object = _CHECK.object
+_optional = WireChecks.optional
+_text = _CHECK.text
+_is_int = WireChecks.is_int
+_time = _CHECK.time
+#: Cost is exact everywhere on the wire, so it is a string, never a JSON float.
+_cost = _CHECK.decimal
+_malformed = _CHECK.malformed
 
 
 def _run_id(value: object) -> str:
     if not isinstance(value, str) or _RUN_ID.fullmatch(value) is None:
         _malformed()
     return value
-
-
-def _is_int(value: object) -> bool:
-    return isinstance(value, int) and not isinstance(value, bool)
 
 
 def _choice(value: object, allowed: frozenset[str]) -> str:
@@ -354,50 +613,29 @@ def _choice(value: object, allowed: frozenset[str]) -> str:
     return value
 
 
-def _time(value: object) -> datetime:
-    try:
-        moment = datetime.fromisoformat(_text(value))
-    except ValueError:
-        _malformed()
-    if moment.tzinfo is None:
-        _malformed()
-    return moment
-
-
-def _cost(value: object) -> Decimal:
-    # WHY a string: cost is exact everywhere on the wire, so it is never a JSON float.
-    try:
-        cost = Decimal(_text(value))
-    except InvalidOperation:
-        _malformed()
-    if not cost.is_finite():
-        _malformed()
-    return cost
-
-
-def _malformed() -> NoReturn:
-    raise ExecutionError(
-        "The SF Engine answered a Runs call with a malformed body",
-        code="engine_contract_error",
-        permanent=True,
-    )
-
-
 __all__ = [
+    "CONTEXT_MISMATCH",
+    "ENGINE_UPGRADE_REQUIRED",
     "MAX_PAGE_SIZE",
+    "RUNS_OFF",
     "RUNS_UNAVAILABLE",
     "AsyncRequest",
     "CandidateRecord",
     "CandidateState",
+    "ContextRef",
     "Request",
     "RunRecord",
     "RunRequest",
     "RunState",
-    "Unavailable",
+    "StartRequest",
+    "StopReason",
     "cancel_async",
     "cancel_sync",
+    "context_async",
+    "context_sync",
     "create_async",
     "create_sync",
+    "get_async",
     "get_sync",
     "list_sync",
     "marked_async_request",

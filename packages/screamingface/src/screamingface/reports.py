@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import asyncio
 import builtins
-import hashlib
 import shutil
 import sqlite3
 import stat
@@ -59,13 +58,12 @@ def list(*, directory: str | Path | None = None) -> builtins.list[SavedReportInf
     sizes = _retained_sizes(store)
     for report_id, runs in groups.items():
         names = _listed_candidates(store, runs)
-        downloaded = {run.candidate.name for run in runs if run.path.exists()}
         entries.append(
             SavedReportInfo(
                 id=report_id,
                 candidates=names,
                 directory=store.directory,
-                downloaded=set(names) <= downloaded,
+                downloaded=_whole(names, runs),
                 # INVARIANT: undecodable members still occupy retained storage.
                 size_bytes=sizes.get(report_id, 0),
             )
@@ -82,6 +80,18 @@ def list(*, directory: str | Path | None = None) -> builtins.list[SavedReportInf
             )
         )
     return sorted(entries, key=lambda entry: entry.id)
+
+
+def _downloaded(report_id: str) -> bool:
+    """Whether the saved report ``report_id`` is whole here: ``list()``'s ``downloaded`` for
+    one id, without sizing every saved evaluation (`Run.report()` asks it each time)."""
+    store = _store(None)
+    runs = [run for run in store.list() if _report_id(run) == report_id]
+    return bool(runs) and _whole(_listed_candidates(store, runs), runs)
+
+
+def _whole(names: tuple[str, ...], runs: builtins.list[SavedRun]) -> bool:
+    return set(names) <= {run.candidate.name for run in runs if run.path.exists()}
 
 
 def _listed_candidates(store: ResultStore, runs: builtins.list[SavedRun]) -> tuple[str, ...]:
@@ -207,17 +217,28 @@ def _store(directory: str | Path | None) -> ResultStore:
 
 
 def _local(run: SavedRun) -> _RunOutcome | None:
+    from screamingface._engine.result_download import kept_here
+
     if not run.path.exists():
         return None
-    artifact = run.outcome.artifact
-    if artifact is not None:
-        with run.path.open("rb") as stream:
-            digest = hashlib.file_digest(stream, "sha256").hexdigest()
-        if run.path.stat().st_size != artifact.size_bytes or digest != artifact.sha256:
-            raise ExecutionError(
-                "Saved result failed integrity verification", code="result_integrity_mismatch"
-            )
+    # WHY both: a pre-P2 result names its artifact's size and digest; a P2 one, its Run's
+    # result reference (E5 P2 spec D9a). Either is checked before its bytes are trusted.
+    expected = run.outcome.artifact or run.outcome.run_result
+    if expected is not None and kept_here(run) is None:
+        raise ExecutionError(
+            "Saved result failed integrity verification", code="result_integrity_mismatch"
+        )
     return replace(run.outcome, result_path=run.path)
+
+
+def _redeemable(run: SavedRun) -> None:
+    """Raise when nothing on the Engine can give the result again: no artifact ticket and no
+    Run result reference."""
+    if run.outcome.artifact is None and run.outcome.run_result is None:
+        raise ExecutionError(
+            "Inline result was not saved before interruption; no Engine ticket",
+            code="result_unavailable",
+        )
 
 
 def _fetch(run: SavedRun) -> _RunOutcome:
@@ -228,11 +249,7 @@ def _fetch(run: SavedRun) -> _RunOutcome:
     local = _local(run)
     if local is not None:
         return local
-    if run.outcome.artifact is None:
-        raise ExecutionError(
-            "Inline result was not saved before interruption; no Engine ticket",
-            code="result_unavailable",
-        )
+    _redeemable(run)
     # WHY: authenticate afresh to this Engine; saved metadata never contains a credential.
     with Client(engine_url=run.engine_url) as client:
         return download_sync(client._http, run, lambda: _mint_sync(client._http))
@@ -246,11 +263,7 @@ async def _fetch_async(run: SavedRun) -> _RunOutcome:
     local = await asyncio.to_thread(_local, run)
     if local is not None:
         return local
-    if run.outcome.artifact is None:
-        raise ExecutionError(
-            "Inline result was not saved before interruption; no Engine ticket",
-            code="result_unavailable",
-        )
+    _redeemable(run)
     async with AsyncClient(engine_url=run.engine_url) as client:
         return await download_async(client._http, run, lambda: _mint_async(client._http))
 

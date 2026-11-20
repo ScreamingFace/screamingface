@@ -3,8 +3,7 @@
 import asyncio
 import errno
 from dataclasses import replace
-from typing import cast
-from unittest.mock import AsyncMock
+from typing import Any, cast
 
 import httpx
 import pytest
@@ -14,7 +13,6 @@ from test_transport_artifact_fetch import _candidate
 
 import screamingface as sf
 from screamingface._engine import transport as transport_module
-from screamingface._engine.trace import new_trace_context
 from screamingface._evaluation.model import _compiled_candidate, _compiled_evaluation
 from screamingface._results.store import ResultStore
 from screamingface.discovery import BenchmarkInfo
@@ -54,28 +52,45 @@ def standalone_outcome():
     return valid_outcome("standalone")
 
 
-@pytest.mark.parametrize("failure", ["admission", "run"])
+def _standalone(selected):
+    return _compiled_candidate(
+        name="standalone",
+        kind=selected.kind,
+        models=selected.models,
+        url4=selected.url4,
+        operations=selected.operations,
+    )
+
+
+def _evaluation_of(selected):
+    return _compiled_evaluation(
+        benchmark=BenchmarkInfo("draco", "fixture-revision", 1),
+        limit=None,
+        case_count=1,
+        candidates=(selected,),
+        required_models=selected.models,
+    )
+
+
+_FAILURES = {
+    "follow": sf.ExecutionError("the follow failed"),
+    "cancelled": asyncio.CancelledError(),
+}
+
+
+@pytest.mark.parametrize("failure", ["follow", "cancelled"])
 def test_failed_sync_membership_cannot_poison_later_standalone(tmp_path, monkeypatch, failure):
+    from screamingface._evaluation.runner import _prepared_results
+
     value, selected = prepared_transport(tmp_path, monkeypatch, False)
     transport = cast(transport_module.Url4CloudTransport, value)
     try:
-        monkeypatch.setattr(
-            transport_module,
-            "_mint_sync",
-            refuse_mint if failure == "admission" else lambda *a, **k: "token",
-        )
-        monkeypatch.setattr(transport, "_run_reconnecting", refuse_mint)
-        with pytest.raises(sf.ExecutionError):
-            transport.run(selected, None)
+        # The evaluation ends with its follow failing, inside the runner's own boundary.
+        with pytest.raises(type(_FAILURES[failure])):
+            with _prepared_results(transport, _evaluation_of(selected), (selected,)):
+                raise _FAILURES[failure]
         assert not transport._result_contexts
-        standalone = _compiled_candidate(
-            name="standalone",
-            kind=selected.kind,
-            models=selected.models,
-            url4=selected.url4,
-            operations=selected.operations,
-        )
-        transport._save_result(standalone, standalone_outcome(), new_trace_context())
+        transport._save_result(_standalone(selected), standalone_outcome())
         saved = ResultStore(tmp_path).list()[0]
         assert saved.evaluation is None
         assert sf.reports.get(saved.key, directory=tmp_path).candidates[0].name == "standalone"
@@ -84,38 +99,20 @@ def test_failed_sync_membership_cannot_poison_later_standalone(tmp_path, monkeyp
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("failure", ["admission", "run", "cancelled"])
+@pytest.mark.parametrize("failure", ["follow", "cancelled"])
 async def test_failed_async_membership_cannot_poison_later_standalone(
     tmp_path, monkeypatch, failure
 ):
+    from screamingface._evaluation.runner import _prepared_results
+
     value, selected = prepared_transport(tmp_path, monkeypatch, True)
     transport = cast(transport_module.AsyncUrl4CloudTransport, value)
-
-    async def mint(*args, **kwargs):
-        if failure == "admission":
-            refuse_mint()
-        return "token"
-
-    async def run(*args, **kwargs):
-        if failure == "cancelled":
-            raise asyncio.CancelledError
-        refuse_mint()
-
     try:
-        monkeypatch.setattr(transport_module, "_mint_async", mint)
-        monkeypatch.setattr(transport, "_run_reconnecting", run)
-        expected = asyncio.CancelledError if failure == "cancelled" else sf.ExecutionError
-        with pytest.raises(expected):
-            await transport.run(selected, None)
+        with pytest.raises(type(_FAILURES[failure])):
+            with _prepared_results(transport, _evaluation_of(selected), (selected,)):
+                raise _FAILURES[failure]
         assert not transport._result_contexts
-        standalone = _compiled_candidate(
-            name="standalone",
-            kind=selected.kind,
-            models=selected.models,
-            url4=selected.url4,
-            operations=selected.operations,
-        )
-        await transport._save_result(standalone, standalone_outcome(), new_trace_context())
+        await transport._save_result(_standalone(selected), standalone_outcome())
         saved = ResultStore(tmp_path).list()[0]
         assert saved.evaluation is None
         assert (await sf.reports.get_async(saved.key, directory=tmp_path)).candidates[
@@ -226,9 +223,9 @@ async def test_unstarted_membership_cannot_attach_to_distinct_candidate(
     )
     try:
         if isinstance(transport, transport_module.AsyncUrl4CloudTransport):
-            await transport._save_result(standalone, standalone_outcome(), new_trace_context())
+            await transport._save_result(standalone, standalone_outcome())
         else:
-            transport._save_result(standalone, standalone_outcome(), new_trace_context())
+            transport._save_result(standalone, standalone_outcome())
         saved = ResultStore(tmp_path).list()[0]
         assert saved.evaluation is None
         assert sf.reports.get(saved.key, directory=tmp_path).candidates[0].name == "standalone"
@@ -262,48 +259,35 @@ def test_all_completed_candidates_with_invalid_results_are_named(tmp_path, monke
 async def test_cancelled_evaluation_releases_candidates_waiting_for_capacity(
     tmp_path, monkeypatch, unrelated
 ):
+    """A cancelled evaluation whose Candidates wait for capacity cancels its Run and releases
+    every Candidate's membership; another evaluation's stays (E5 P2 spec D14)."""
+    from _run_engine import RUN_ID, run_engine, state
+
     monkeypatch.setenv("SCREAMINGFACE_RESULTS_DIR", str(tmp_path))
-    transport = transport_module.AsyncUrl4CloudTransport(
-        "https://engine.example", save_results=True
-    )
-    other = _candidate()
-    if unrelated:
-        evaluation = _compiled_evaluation(
-            benchmark=BenchmarkInfo("draco", "fixture-revision", 1),
-            limit=None,
-            case_count=1,
-            candidates=(other,),
-            required_models=other.models,
-        )
-        transport.prepare_results(evaluation, (other,))
-    entered = []
-    ready = asyncio.Event()
-
-    async def waiting(candidate, on_event):
-        entered.append(candidate.name)
-        if len(entered) == 8:
-            ready.set()
-        await asyncio.Event().wait()
-
-    monkeypatch.setattr(transport, "_run", waiting)
-    monkeypatch.setattr(transport, "cancel_active", AsyncMock())
-    async with sf.AsyncClient(
-        engine_url="https://engine.example",
-        http_transport=httpx.MockTransport(catalog_engine),
-        run_transport=transport,
-    ) as client:
-        task = asyncio.create_task(
-            client.evaluate(
-                [sf.Model("provider/opus", name=str(index)) for index in range(9)],
-                benchmark="draco",
-                progress=False,
+    script = [[*(state(index, "pending") for index in range(9)), "hold"]]
+    with run_engine(script, {}) as engine:
+        transport = transport_module.AsyncUrl4CloudTransport(engine.url, save_results=True)
+        other = _candidate()
+        if unrelated:
+            transport.prepare_results(_evaluation_of(other), (other,))
+        async with sf.AsyncClient(
+            engine_url=engine.url,
+            http_transport=httpx.MockTransport(catalog_engine),
+            run_transport=cast(Any, transport),
+        ) as client:
+            task = asyncio.create_task(
+                client.evaluate(
+                    [sf.Model("provider/opus", name=str(index)) for index in range(9)],
+                    benchmark="draco",
+                    progress=False,
+                )
             )
-        )
-        try:
-            await asyncio.wait_for(ready.wait(), timeout=5)
-        finally:
-            task.cancel()
-            with pytest.raises(asyncio.CancelledError):
-                await task
-        assert len(entered) == 8
-        assert set(transport._result_contexts) == ({id(other)} if unrelated else set())
+            try:
+                assert await asyncio.to_thread(engine.state.holding.wait, 5)
+            finally:
+                task.cancel()
+                with pytest.raises(asyncio.CancelledError):
+                    await task
+            assert set(transport._result_contexts) == ({id(other)} if unrelated else set())
+
+    assert engine.state.deleted == [f"/runs/{RUN_ID}"]

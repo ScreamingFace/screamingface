@@ -14,8 +14,39 @@ if TYPE_CHECKING:
     from screamingface.events import Event
     from screamingface.report import Usage
 
+#: The states a Candidate has ended in on the Engine (E5 P2 spec §4.3); every other is live.
+CANDIDATE_ENDED: frozenset[str] = frozenset({"succeeded", "failed", "timed_out", "stopped", "lost"})
+
 type SyncEventObserver = Callable[[Event], None]
 type AsyncEventObserver = Callable[[Event], None | Awaitable[None]]
+
+
+@dataclass(frozen=True, slots=True)
+class StartRequest:
+    """One Candidate's start (P2 spec D8): its url4 and the flags the start route took as
+    headers. The Engine's driver sends it for the Candidate, so the Client never starts one."""
+
+    name: str
+    url4: str
+    answer_seed: int | None = None
+    capture: bool = False
+    use_cache: bool = True
+    replay_frozen_copy: str | None = None
+
+    def __post_init__(self) -> None:
+        # INVARIANT (OME-1307): the Engine refuses both together, so no start carries both.
+        if self.capture and self.replay_frozen_copy is not None:
+            raise ValueError("capture and replay_frozen_copy are mutually exclusive")
+
+    def body(self) -> dict[str, object]:
+        return {
+            "name": self.name,
+            "url4": self.url4,
+            "answer_seed": self.answer_seed,
+            "capture": self.capture,
+            "use_cache": self.use_cache,
+            "replay_frozen_copy": self.replay_frozen_copy,
+        }
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,6 +58,17 @@ class _ResultArtifact:
     """
 
     id: str
+    size_bytes: int
+    sha256: str
+
+
+@dataclass(frozen=True, slots=True)
+class _RunResult:
+    """Where a driver-started Candidate's result is kept (E5 P2 spec D9a): the Run's result
+    route for the Candidate at ``index``, checked against ``size_bytes`` and ``sha256``."""
+
+    run_id: str
+    index: int
     size_bytes: int
     sha256: str
 
@@ -80,6 +122,9 @@ class _RunOutcome:
     capture_replay: str | None = None
     # The partial reasons the run counted (design §5.2), sorted. Empty when complete or unknown.
     capture_partial_reasons: tuple[str, ...] = ()
+    # FEATURE (OME-1837): a Candidate the Engine started keeps its result in the Run's
+    # run-results store; the Client reads it from the result route (E5 P2 spec D9a).
+    run_result: _RunResult | None = None
 
 
 # FEATURE: OME-1066 adds the two capacity states — a start the Engine did not admit yet
@@ -177,3 +222,151 @@ class _ResultPersistence(Protocol):
     def prepare_results(
         self, evaluation: _Evaluation, candidates: tuple[Candidate, ...]
     ) -> Path | None: ...
+
+
+class _RunSink(Protocol):
+    """What a followed Run reports to the runner, per Candidate by its index (E5 P2 spec §4.2).
+    ``settled`` carries the outcome with its result fetched and kept, or why it has none."""
+
+    def state(self, index: int, state: str) -> None: ...
+
+    def event(self, index: int, event: Event) -> None: ...
+
+    def settled(self, index: int, state: str, outcome: _RunOutcome | Exception) -> None: ...
+
+    def connection(self, notice: _ConnectionNotice) -> None: ...
+
+    def quiet(self) -> None:
+        """A heartbeat: time has passed with no frame."""
+        ...
+
+
+class _AsyncRunSink(Protocol):
+    async def state(self, index: int, state: str) -> None: ...
+
+    async def event(self, index: int, event: Event) -> None: ...
+
+    async def settled(self, index: int, state: str, outcome: _RunOutcome | Exception) -> None: ...
+
+    def connection(self, notice: _ConnectionNotice) -> None: ...
+
+    def quiet(self) -> None: ...
+
+
+@runtime_checkable
+class _RunFollowing(Protocol):
+    """A transport the Engine drives (E5 P2 spec D1, D13): it registers the whole evaluation as a
+    Run, with every Candidate's start, and follows it; the runner starts no Candidate.
+
+    A transport without it (a test fake with `run()` alone) keeps the per-Candidate path until
+    the Client port PR removes it.
+    """
+
+    def register_run(
+        self,
+        evaluation: _Evaluation | None,
+        candidates: tuple[Candidate, ...],
+        *,
+        detach: bool = False,
+        deadline_s: int | None = None,
+    ) -> str: ...
+
+    def follow_run(
+        self, run_id: str, candidates: tuple[Candidate, ...], sink: _RunSink
+    ) -> None: ...
+
+    def cancel_run(self, run_id: str) -> None: ...
+
+    def close(self) -> None: ...
+
+
+@runtime_checkable
+class _AsyncRunFollowing(Protocol):
+    """The async twin of `_RunFollowing`. AIDEV-NOTE: `isinstance` sees only the names, so
+    each caller checks the twin matching the transport it holds."""
+
+    async def register_run(
+        self,
+        evaluation: _Evaluation | None,
+        candidates: tuple[Candidate, ...],
+        *,
+        detach: bool = False,
+        deadline_s: int | None = None,
+    ) -> str: ...
+
+    async def follow_run(
+        self, run_id: str, candidates: tuple[Candidate, ...], sink: _AsyncRunSink
+    ) -> None: ...
+
+    async def cancel_run(self, run_id: str) -> None: ...
+
+    async def close(self) -> None: ...
+
+
+#: Where the follow keeps a settled Candidate's recorded outcome on the error of a result fetch
+#: that failed (E5 P2 spec D14).
+_RECORDED = "_screamingface_recorded"
+
+
+def with_recorded(error: Exception, recorded: _RunOutcome) -> Exception:
+    """``error``, a failed result fetch, naming the outcome the Engine recorded. WHY on the
+    error itself: the sink still receives the fetch's own error (its type and code, which the
+    transport tests pin), and the Report built when the Run ends fetches the result again
+    instead of failing a Candidate that succeeded on the Engine."""
+    setattr(error, _RECORDED, recorded)
+    return error
+
+
+def recorded_of(error: BaseException) -> _RunOutcome | None:
+    """The recorded outcome a failed result fetch names, else None (a Candidate that failed)."""
+    recorded = getattr(error, _RECORDED, None)
+    return recorded if isinstance(recorded, _RunOutcome) else None
+
+
+@dataclass(frozen=True, slots=True)
+class _EndedRun:
+    """A Run the Engine has ended, as the Client rebuilds its Report from it (E5 P2 spec D9b):
+    the context the Client sent, each Candidate's start, and each one's outcome, which raises
+    for a Candidate that did not succeed, as an attached evaluation's does."""
+
+    context: str
+    starts: tuple[StartRequest, ...]
+    outcomes: tuple[_RunOutcome | Exception, ...]
+
+
+@runtime_checkable
+class _RunReattaching(Protocol):
+    """A transport that can rebuild a Run's Report on any machine (E5 P2 spec D14): it keeps a
+    settled Candidate's result as an attached evaluation does, and follows a Run to its end."""
+
+    def adopt_run(self, run_id: str, candidates: tuple[Candidate, ...]) -> None: ...
+
+    def save_result(self, candidate: Candidate, outcome: _RunOutcome) -> _RunOutcome: ...
+
+    def wait_run(self, run_id: str, *, detached: bool) -> None: ...
+
+
+@runtime_checkable
+class _AsyncRunWaiting(Protocol):
+    """A transport that follows a Run to its end on the event loop (`Run.wait_async`), so
+    cancelling the wait ends the follow, and the hold it gives an attached Run."""
+
+    async def wait_run_async(self, run_id: str, *, detached: bool) -> None: ...
+
+
+@runtime_checkable
+class _AsyncRunReattaching(Protocol):
+    """The async twin of `_RunReattaching`: an `AsyncClient`'s transport, which rebuilds a Run's
+    Report and follows a Run to its end on the event loop (E5 P2 spec D14)."""
+
+    def adopt_run(self, run_id: str, candidates: tuple[Candidate, ...]) -> None: ...
+
+    async def save_result(self, candidate: Candidate, outcome: _RunOutcome) -> _RunOutcome: ...
+
+    async def wait_run_async(self, run_id: str, *, detached: bool) -> None: ...
+
+
+#: What a Client holds until the Client port PR leaves one port: a transport the Engine drives,
+#: or a `run()`-only one (every test fake).
+type _SyncTransport = SyncRunTransport | _RunFollowing
+type _AsyncTransport = AsyncRunTransport | _AsyncRunFollowing

@@ -138,10 +138,15 @@ def _connection_message(notice: _ConnectionNotice) -> str:
         "reconnecting": f"connection lost — reconnecting (attempt {notice.attempt})",
         "reconnected": "connection restored",
         # FEATURE OME-1066: a queued Candidate reads as queued, not as a hung one.
-        "waiting_for_capacity": f"waiting for Engine capacity (attempt {notice.attempt})",
+        "waiting_for_capacity": "waiting for Engine capacity" + _attempt(notice),
         "admitted": "Engine capacity available — starting",
     }
     return texts[notice.state]
+
+
+def _attempt(notice: _ConnectionNotice) -> str:
+    # WHY optional: a Candidate the Engine queues (E5 P2) waits with no attempt of its own.
+    return "" if notice.attempt is None else f" (attempt {notice.attempt})"
 
 
 def _message(event: Event) -> str | None:
