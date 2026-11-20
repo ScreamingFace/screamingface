@@ -10,6 +10,9 @@
 # an ungranted or disabled provider is answered exactly as an absent one.
 # INVARIANT: no chat module is imported; the credential steps are the same plain port calls.
 # INVARIANT (spec G9): neither the global cache nor usage accounting takes part.
+# FEATURE (C7): `input` is a text or a `classification-choice-input-v1` object. Its shape is checked
+# with the body; after the classifier come its input contracts (`unsupported_input`) and its
+# limits (`classifier_limit_exceeded`), both before the credential is read.
 """
 
 from __future__ import annotations
@@ -23,6 +26,12 @@ from fastapi import APIRouter, HTTPException, Request
 
 from ..core.admission import dispatch_with_budgets
 from ..core.auth.middleware import CurrentAccount
+from ..core.classification_input import (
+    CHOICE_INPUT,
+    TEXT_INPUT,
+    first_exceeded_limit,
+    parse_choice_input,
+)
 from ..core.endpoint_access import EndpointOperation, permits
 from ..core.provider_access import apply_authorization, provider_access_for
 from ..core.retry import RetryPolicy, with_overload_retry
@@ -46,7 +55,7 @@ _GATEWAY_BACKPRESSURE_CODES = frozenset({"provider_queue_timeout"})
 async def create_classification(request: Request, current: CurrentAccount) -> dict[str, Any]:
     with refusals_as_http():
         selector = selector_from_request(request)
-    model, text = await _model_and_input(request)
+    model, value = await _model_and_input(request)
     provider = model.split("/", 1)[0] if "/" in model else ""
     if not provider:
         raise HTTPException(status_code=400, detail="model must be provider-prefixed")
@@ -57,7 +66,8 @@ async def create_classification(request: Request, current: CurrentAccount) -> di
         request.app, provider, account_id=account_id, operation=EndpointOperation.INVOKE
     ):
         raise HTTPException(status_code=400, detail=f"unknown provider: {provider}")
-    if model not in {entry.model_name for entry in plugin.register_classifiers()}:
+    entry = next((e for e in plugin.register_classifiers() if e.model_name == model), None)
+    if entry is None:
         raise HTTPException(
             status_code=400,
             detail={
@@ -65,9 +75,10 @@ async def create_classification(request: Request, current: CurrentAccount) -> di
                 "message": "model is not a configured classifier of this provider",
             },
         )
+    _admit_input(value, entry.input_contracts, entry.limits)
 
     access = provider_access_for(request.app)
-    body: dict[str, Any] = {"model": model, "input": text}
+    body: dict[str, Any] = {"model": model, "input": value}
     with refusals_as_http():
         target = await access.resolve(account_id, provider, selector, plugin=plugin)
         access.auth_mode(target, plugin)
@@ -76,7 +87,7 @@ async def create_classification(request: Request, current: CurrentAccount) -> di
     return await dispatch_classification(request, plugin, provider, body)
 
 
-async def _model_and_input(request: Request) -> tuple[str, str]:
+async def _model_and_input(request: Request) -> tuple[str, str | dict[str, Any]]:
     """The two body fields; every other shape is refused before any provider is looked up."""
     try:
         body = await request.json()
@@ -104,6 +115,8 @@ async def _model_and_input(request: Request) -> tuple[str, str]:
                 "message": "a classification takes only a model and an input",
             },
         )
+    if isinstance(body, dict) and isinstance(body.get("input"), dict):
+        return _model_of(body), _choice_of(body["input"])
     if not (
         isinstance(body, dict)
         and isinstance(body.get("model"), str)
@@ -128,6 +141,52 @@ async def _model_and_input(request: Request) -> tuple[str, str]:
             },
         )
     return model, text
+
+
+def _model_of(body: dict[str, Any]) -> str:
+    model = body.get("model")
+    if not isinstance(model, str) or not _utf8(model):
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "invalid_request", "message": "model must be a valid Unicode string"},
+        )
+    return model
+
+
+def _choice_of(value: dict[str, Any]) -> dict[str, Any]:
+    choice = parse_choice_input(value)
+    if choice is None:
+        # INVARIANT: the refusal names the contract, never a caller value or key.
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "invalid_request",
+                "message": "input object must be a classification-choice-input-v1 choice",
+            },
+        )
+    return choice
+
+
+def _admit_input(value: str | dict[str, Any], contracts: tuple[str, ...], limits: Any) -> None:
+    """Refuse an input the classifier does not take, then one over its declared limits."""
+    if (CHOICE_INPUT if isinstance(value, dict) else TEXT_INPUT) not in contracts:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "unsupported_input",
+                "message": "this classifier does not take this kind of input",
+            },
+        )
+    exceeded = None if limits is None else first_exceeded_limit(value, limits)
+    if exceeded is not None:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "classifier_limit_exceeded",
+                "limit": exceeded,
+                "message": f"input exceeds this classifier's {exceeded}",
+            },
+        )
 
 
 def _utf8(value: str) -> bool:

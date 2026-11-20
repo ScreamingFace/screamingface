@@ -14,6 +14,7 @@ from litellm.types.utils import ModelResponse
 
 from aigateway.core.google_code_assist import parse_google_retry_after
 from aigateway.core.provider_error_text import error_message_from_body
+from aigateway.core.upstream_attempts import observe
 
 from .auth import CLIENT_AUTH_HEADER_NAMES, GEMINI_PROFILE_HEADER, GEMINI_USER_AGENT
 from .message_adapter import (
@@ -257,7 +258,8 @@ class GeminiCustomLLM(CustomLLM):
         }
         url = f"{CODE_ASSIST_ENDPOINT}/{CODE_ASSIST_API_VERSION}:generateContent"
         try:
-            async with self._http_client_factory() as http_client:
+            # INVARIANT (contract C7): the inference send is counted; `_ensure_setup` is not.
+            async with observe(self._http_client_factory()) as http_client:
                 response = await http_client.post(
                     url,
                     json=wrapped_body,
@@ -294,7 +296,7 @@ class GeminiCustomLLM(CustomLLM):
         url = f"{GEMINI_API_BASE}/models/{model}:generateContent"
         headers = {"x-goog-api-key": api_key, "content-type": "application/json"}
         try:
-            async with self._http_client_factory() as http_client:
+            async with observe(self._http_client_factory()) as http_client:
                 response = await http_client.post(url, json=body, headers=headers, timeout=timeout)
         except httpx.RequestError as exc:
             raise CustomLLMError(

@@ -21,6 +21,7 @@ from aigateway.core.plugin_base import (
     ProviderPluginBase,
 )
 from aigateway.core.provider_error_text import credential_values, plugin_error_message
+from aigateway.core.upstream_attempts import PLUGIN_HTTP
 
 from . import live_models
 from .auth import (
@@ -73,6 +74,7 @@ class CodexProviderPlugin(ProviderPluginBase):
     # api_key_not_supported for codex. Routing API-key connections to the OpenAI
     # platform API instead is a possible follow-up.
     custom_llm_provider = "codex"
+    upstream_send_path = PLUGIN_HTTP
     provider_display_name = "Codex"
     # WHY (OME-1541 decision, re-confirmed OME-1542): `chat_handler._input_part` copies an https
     # image URL into `input_image.image_url` and POSTs it to the ChatGPT backend; OpenAI fetches

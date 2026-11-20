@@ -117,7 +117,7 @@ class FrozenCopyStore:
         return await FrozenCopy.get_or_none(id=copy_id)
 
     async def seal(
-        self, copy_id: UUID, account_id: UUID, provenance: dict[str, str] | None = None
+        self, copy_id: UUID, account_id: UUID, provenance: dict[str, Any] | None = None
     ) -> FrozenCopy | None:
         """Seal the owner's copy; ``None`` for an unknown copy or a non-owner (no leak).
 

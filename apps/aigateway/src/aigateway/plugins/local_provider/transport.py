@@ -7,6 +7,7 @@ import httpx
 from fastapi import HTTPException
 
 from aigateway.core.json_bounds import assert_bounded_json
+from aigateway.core.upstream_attempts import observe
 
 _MAX_RESPONSE_BYTES = 1_000_000
 _MAX_JSON_DEPTH = 16
@@ -132,13 +133,16 @@ async def post_chat_completion(
     try:
         # INVARIANT: core.admission is the one wall-clock authority. A second HTTPX phase
         # timeout would silently cut the Engine/operator budget (up to 1800 s) back to 30 s.
-        async with httpx.AsyncClient(
-            base_url=base_url,
-            follow_redirects=False,
-            trust_env=False,
-            timeout=None,
-            transport=transport,
-        ) as client:
+        client = observe(
+            httpx.AsyncClient(
+                base_url=base_url,
+                follow_redirects=False,
+                trust_env=False,
+                timeout=None,
+                transport=transport,
+            )
+        )
+        async with client:
             async with client.stream("POST", "/chat/completions", json=payload) as response:
                 if response.status_code < 200 or response.status_code >= 300:
                     raise _upstream_error(response)

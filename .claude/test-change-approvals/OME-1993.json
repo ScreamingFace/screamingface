@@ -1,0 +1,18 @@
+{
+  "issue": "OME-1993",
+  "branch": "OME-1993-classify-choice-gateway",
+  "approver": "Dmitry Stebukov (owner)",
+  "date": "2026-11-20",
+  "scope": "Expected values only. In test_app_classifier_catalog.py, the expected catalog rows of test_each_account_lists_exactly_the_classifiers_granted_to_it and test_the_details_read_missing_until_that_account_attaches_a_key gain exactly \"input_contracts\": [\"text\"] and \"limits\": None; nothing else in that file changes. The recorded fixture openrouter_hit.json gains exactly the header \"x-aigw-upstream-attempts\": \"0\", produced by the fixture test's own regeneration switch; nothing else in that file changes.",
+  "reason": "Router Recipe extension Unit 5.1 (contract C7): every classifier catalog row now states its input contracts and its classifier-limits-v1 limits, null for a target that declares none, and every non-streaming chat answer, a cache hit included, carries X-AIGW-Upstream-Attempts, which a cache hit sets to 0. Both prior tests pin the exact row and the exact recorded header set, so each gains the new field and nothing else.",
+  "files": {
+    "apps/aigateway/tests/unit/remote_endpoint/test_app_classifier_catalog.py": {
+      "base_blob": "d71d7abcbe9522e3c78a94ec031607deec2976e3",
+      "approved_blob": "2b675d227c4d25ccf5437913ea05339aee8afb50"
+    },
+    "apps/aigateway/tests/fixtures/cache_hit_contract/openrouter_hit.json": {
+      "base_blob": "f935a58399c713cbf6c6ff6976e29ec399206baa",
+      "approved_blob": "de998a55668616de3b44cca01dc0bcff1b10b408"
+    }
+  }
+}

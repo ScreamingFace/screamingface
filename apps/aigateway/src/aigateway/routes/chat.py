@@ -80,6 +80,7 @@ from ..core.provider_error_text import credential_values
 from ..core.registry import ProviderRegistry
 from ..core.request_hardening import chat_body_shape_error, prepare_ingress_body
 from ..core.retry import case_insensitive_header
+from ..core.upstream_attempts import with_observed_litellm_client
 from ..unhandled_errors import generic_detail
 from .chat_accounting import (
     accounting_handler,
@@ -173,6 +174,13 @@ async def _dispatch_and_finalize_accounting(
 ) -> Any:
     """Dispatch once through the provider and finalize any observed accounting evidence."""
     dispatch_body = dispatch_body_with_accounting(body, accounting, accounting_handler(request))
+    # FEATURE (contract C7): an unaccounted LiteLLM dispatch gets the attempt handler, so every
+    # physical send reaches the attempt header; an accounted one already carries a handler.
+    dispatch_body = with_observed_litellm_client(
+        dispatch_body,
+        plugin=plugin,
+        handler=getattr(request.app.state, "upstream_attempts_handler", None),
+    )
     on_dispatch = accounting.note_dispatch if accounting is not None else None
     try:
         with bound_dispatch(accounting):

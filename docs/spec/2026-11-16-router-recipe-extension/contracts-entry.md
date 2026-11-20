@@ -119,7 +119,7 @@ Engine, and classifier metadata lives in the Gateway; the Engine serves model di
 
 ```text
 {"object": "list", "data": [{"id": str, "input_contracts": <C7 input_contracts>,
-                             "limits": <C7 TextLimits | ChoiceLimits>}]}
+                             "limits": <C7 TextLimits | ChoiceLimits | null>}]}
 ```
 
 - Same caller identity, credential handling and RFC 9457 problem mapping as `GET /v1/models`; it
@@ -129,6 +129,8 @@ Engine, and classifier metadata lives in the Gateway; the Engine serves model di
 - Rows are strict under C7: an unknown `input_contracts` value, a `limits.contract` other than
   `classifier-limits-v1`, a missing or unknown limit key, or a value outside `1..2147483647` makes that
   row unusable, and the SDK refuses a Router that needs it. A missing row means the classifier is
-  not usable.
+  not usable. `limits: null` is a valid row for a target that declares no limits: the classifier
+  still serves direct scalar classification, and ADMIT and the SDK preflight refuse a Router that
+  needs it.
 - ADMIT reads the same Gateway metadata on its own; the SDK preflight never replaces it.
 - Covered by `router-v1` (C12); the SDK reads it only after the capability check.

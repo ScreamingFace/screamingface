@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Mapping
-from functools import partial
 from typing import Any
 
 import httpx
@@ -25,12 +24,21 @@ from aigateway.core.api_key_validation import ApiKeyValidator
 from aigateway.core.auth_types import AuthMode
 from aigateway.core.cache_ports import CacheBypass
 from aigateway.core.chat_parameters import ParameterProjectionRule
+from aigateway.core.classification_input import CHOICE_INPUT, TEXT_INPUT
 from aigateway.core.credential_blob import CredentialBlobStore
 from aigateway.core.plugin_base import ClassifierEntry, ModelEntry, ProviderPluginBase
+from aigateway.core.upstream_attempts import PLUGIN_HTTP
 
-from .classification import classification_request, classification_result, decode_scores
+from .classification import classification_result, classifier_exchange
 from .credential import OriginBoundApiKeyStrategy
-from .definitions import ChatTarget, ClassificationTarget, EndpointDefinition
+from .definitions import (
+    ChatTarget,
+    ChoiceTarget,
+    ClassificationTarget,
+    ClassifierTarget,
+    EndpointDefinition,
+    Target,
+)
 from .global_cache import project_global_cache_request
 from .request import chat_parameter_rules, chat_request, check_text_messages
 from .transport import EndpointClient, post_chat_completion, post_json
@@ -44,6 +52,8 @@ def _bearer(api_key: str) -> dict[str, str]:
 
 
 class RemoteEndpointPlugin(ProviderPluginBase):
+    upstream_send_path = PLUGIN_HTTP
+
     def __init__(
         self,
         definition: EndpointDefinition,
@@ -71,13 +81,21 @@ class RemoteEndpointPlugin(ProviderPluginBase):
 
     def register_classifiers(self) -> list[ClassifierEntry]:
         # WHY every declared classifier: the grant (`VIEW`, `INVOKE`) gates both kinds alike.
-        # INVARIANT: an entry names the task and contract only; origin and path stay here.
+        # INVARIANT: an entry names the task, the contracts and the limits only; origin, path and
+        # upstream model stay here.
+        # WHY `targets`, not `classifier_targets`: that one keeps its HF-only meaning, and this
+        # walk lists HF and choice targets together in declaration order.
         definition = self._definition
         return [
             ClassifierEntry(
-                model_name=definition.model_id(target), task=target.task, contract=target.contract
+                model_name=definition.model_id(target),
+                task=target.task,
+                contract=target.contract,
+                input_contracts=_input_contracts(target),
+                limits=None if target.limits is None else target.limits.row(),
             )
-            for target in definition.classifier_targets
+            for target in definition.targets
+            if not isinstance(target, ChatTarget)
         ]
 
     def supports_api_key(self) -> bool:
@@ -146,14 +164,19 @@ class RemoteEndpointPlugin(ProviderPluginBase):
         )
 
     async def classify(self, body: dict[str, Any]) -> dict[str, Any]:
-        target = self._target_for(body.get("model"), ClassificationTarget)
+        # INVARIANT: the route admitted ``input`` against this target's `input_contracts` and
+        # limits, so the target's own contract picks the codec.
+        target = self._declared(body.get("model"), ClassificationTarget) or self._target_for(
+            body.get("model"), ChoiceTarget
+        )
         api_key = _resolved_key(body)
+        request, decode = classifier_exchange(target, body["input"])
         scores = await post_json(
             self._definition.origin + target.request_path,
-            classification_request(body["input"]),
+            request,
             api_key=api_key,
             client=self._client.open(self._transport),
-            decode=partial(decode_scores, envelope=target.response_envelope),
+            decode=decode,
         )
         return classification_result(self._definition.model_id(target), scores)
 
@@ -161,9 +184,7 @@ class RemoteEndpointPlugin(ProviderPluginBase):
         """Start closing this endpoint's client; a chat after this gets a 502 and opens none."""
         return self._client.begin_close()
 
-    def _declared[T: ChatTarget | ClassificationTarget](
-        self, model: object, kind: type[T]
-    ) -> T | None:
+    def _declared[T: Target](self, model: object, kind: type[T]) -> T | None:
         # INVARIANT: a target answers only for its own kind, so a classifier is never a chat
         # model and a chat model is never a classifier.
         prefix = f"{self.custom_llm_provider}/"
@@ -172,7 +193,7 @@ class RemoteEndpointPlugin(ProviderPluginBase):
             return target if isinstance(target, kind) else None
         return None
 
-    def _target_for[T: ChatTarget | ClassificationTarget](self, model: object, kind: type[T]) -> T:
+    def _target_for[T: Target](self, model: object, kind: type[T]) -> T:
         target = self._declared(model, kind)
         if target is None:
             raise HTTPException(
@@ -183,6 +204,11 @@ class RemoteEndpointPlugin(ProviderPluginBase):
                 },
             )
         return target
+
+
+def _input_contracts(target: ClassifierTarget) -> tuple[str, ...]:
+    # WHY one each: no target in this contract version declares both inputs (C7).
+    return (CHOICE_INPUT,) if isinstance(target, ChoiceTarget) else (TEXT_INPUT,)
 
 
 def _resolved_key(body: dict[str, Any]) -> str:

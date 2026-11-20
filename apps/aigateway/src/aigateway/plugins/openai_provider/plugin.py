@@ -19,6 +19,7 @@ from aigateway.core.input_modalities import (
 from aigateway.core.plugin_base import CredentialStrategy, ModelEntry, ProviderPluginBase
 from aigateway.core.request_hardening import strip_dispatch_controls
 from aigateway.core.standard_parameters import direct_parameter_observations
+from aigateway.core.upstream_attempts import PLUGIN_HTTP, observe
 
 from .api_key_validation import OpenAIApiKeyValidator
 from .global_cache import gateway_dispatch_controls, project_global_cache_request
@@ -48,10 +49,14 @@ def _credential_service_for(credential_name: str) -> str:
 
 
 def _openai_http_client() -> httpx.AsyncClient:
-    return httpx.AsyncClient(
-        verify=True,
-        trust_env=False,
-        follow_redirects=False,
+    # INVARIANT (contract C7): the chat dispatch's only HTTP client; its sends reach the attempt
+    # header. `AsyncOpenAI(max_retries=0)` keeps the SDK from resending on its own.
+    return observe(
+        httpx.AsyncClient(
+            verify=True,
+            trust_env=False,
+            follow_redirects=False,
+        )
     )
 
 
@@ -98,6 +103,7 @@ _INPUT_MODALITY_FAMILIES: tuple[tuple[str, tuple[InputModality, ...]], ...] = (
 
 class OpenAIProviderPlugin(ProviderPluginBase[OpenAIPluginSettings]):
     custom_llm_provider = "openai"
+    upstream_send_path = PLUGIN_HTTP
     provider_display_name = "OpenAI"
     settings_cls = OpenAIPluginSettings
 

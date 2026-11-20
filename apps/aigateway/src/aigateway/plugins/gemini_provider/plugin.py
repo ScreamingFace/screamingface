@@ -31,6 +31,7 @@ from aigateway.core.plugin_base import (
 )
 from aigateway.core.provider_error_text import credential_values, plugin_error_message
 from aigateway.core.standard_parameters import tool_parameter_observations
+from aigateway.core.upstream_attempts import PLUGIN_HTTP
 
 from .api_key_validation import GeminiApiKeyValidator
 from .auth import (
@@ -115,6 +116,7 @@ _INPUT_MODALITY_FAMILIES: tuple[tuple[str, tuple[InputModality, ...]], ...] = (
 
 class GeminiProviderPlugin(ProviderPluginBase[GeminiPluginSettings]):
     custom_llm_provider = "gemini-cli"
+    upstream_send_path = PLUGIN_HTTP
     provider_display_name = "Gemini CLI"
     settings_cls = GeminiPluginSettings
 

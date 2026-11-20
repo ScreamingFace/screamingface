@@ -31,6 +31,75 @@ Base `31c1158e8`. Path conventions, design citations and the strict-record rule 
   and startup make no inference. Grants, request-local keys, fixed origins, no redirects or cookies,
   bounded I/O and no fallback stay as today.
 
+#### Input rules and refusal order
+
+An object `input` has exactly the keys `contract`, `text`, `instructions` and `options`. `contract` is
+`classification-choice-input-v1`; `text` and `instructions` are strings, `instructions` nonempty;
+`options` is a nonempty list of objects with exactly `label` and `description`, both strings,
+`description` nonempty. A label is nonempty, has no control character and appears once in the list.
+Every string is valid Unicode, as for the scalar input (`routes/classifications.py:120-129`). Any
+other shape, an unknown key included, is HTTP 400 `invalid_request`, and the refusal names no caller
+value.
+
+The route keeps the Unit 3 order (`routes/classifications.py:5-8`): the body and input shape before
+any provider lookup; then the provider, grant and classifier; then the target's input contract
+(`unsupported_input`); then its limits, when the target declares them; then the credential and
+dispatch. Every refusal uses the Gateway's `HTTPException` wire, the fields inside `detail`. A request
+over a limit is HTTP 400:
+
+```json
+{"detail": {"code": "classifier_limit_exceeded", "limit": "max_text_chars", "message": "..."}}
+```
+
+`limit` names the first exceeded key in the order `max_text_chars`, `max_options`, `max_label_bytes`,
+`max_description_chars`, `max_instructions_chars`, and the refusal names no caller value.
+
+#### Native request
+
+```json
+{"model": "<upstream_model>", "state": {"body": "<text>"},
+ "questions": {"choice": {"type": "choice", "instructions": "<instructions>",
+                          "criteria": {"<label 1>": "<description 1>", "<label 2>": "<description 2>"}}}}
+```
+
+- The question ID is the fixed `choice`, and a request asks one question. Another ID is another
+  contract version.
+- `state` is the object `{"body": text}`, the shape of the design's example and of the pilot wrapper
+  (`classification-capabilities.md:136-146`, `engine/model-routing.md:56-59`).
+- `model` is sent only when the target configures `upstream_model`. Jev requires it; Laya 0.4.21 may
+  omit it or name a Laya checkpoint (`classification-capabilities.md:132-133`, `:149-153`).
+- Nothing else is sent: no Laya runtime control (`task`, `lang`, `lang_guess`, `max_len`,
+  `head_max_len`, `min_confidence`), no Jev `assets` and no `TypeSafe-Danger-Zone-*` header. This
+  common subset lets one codec serve both (`classification-capabilities.md:93-94`); a field only one
+  of them takes needs another contract version.
+
+#### Native response
+
+- The transport bounds stay: HTTP 200, a JSON media type, identity encoding, at most 1,000,000 bytes
+  and strict finite JSON (`plugins/remote_endpoint/transport.py:30`, `:148-154`, `:176-188`;
+  `completion.py:42-54`). The codec also refuses a repeated key in any object, which `strict_json`
+  alone would collapse to the last value.
+- The body is an object whose `answers` is an object with the one key `choice`. That answer has `type`
+  `"choice"` and `probabilities`, an object of 1 to `max_labels` entries. Each key is a label under the
+  input's label rule and at most `max_label_bytes` UTF-8 bytes; each value is a number in `0..1`, not a
+  boolean. Native answers key probabilities by label, so the projection keeps the object's key order
+  (`classification-capabilities.md:155`). The sum is not checked: Laya rounds each value to four
+  decimals without renormalizing.
+- A non-null `error`, on the body or on the `choice` answer, fails the response even beside valid
+  probabilities: a classifier that reports a failure gives no scores a Router may select by. An
+  `error` of `null` is no error, as for a chat completion (`completion.py:90`, `:112`).
+- `usage` is optional. When present it is an object, and the response fails when it reports lost
+  input: `truncated` true, `state_tokens_dropped` above `0`, a nonempty `truncated_questions`, or an
+  `options` key, Laya's report of colliding option spans (`classification-capabilities.md:170-173`).
+  `truncated` that is not a boolean, `state_tokens_dropped` that is not a nonnegative integer and
+  `truncated_questions` that is not a list fail as well.
+- Other fields (`model`, `routing`, and the answer's `choice`, `confidence`, `answer_confidence` and
+  `action`) are neither checked nor projected. Native usage reaches no evidence contract in this Unit
+  (`classification-capabilities.md:181-182`).
+- Every failure above, and every upstream refusal (Laya answers 413 over its own size limits and 422
+  for a question it cannot take), is HTTP 502 `provider_error` with no upstream body
+  (`transport.py:126-137`); only 429 and 503 keep their status for the overload retry.
+
 ### Catalog metadata
 
 `ClassifierEntry` (`core/plugin_base/_ports.py:49-59`) and the `/v1/classifiers` and
@@ -38,7 +107,8 @@ Base `31c1158e8`. Path conventions, design citations and the strict-record rule 
 
 ```text
 input_contracts = ["text"] | ["choice"] | ["text", "choice"]
-limits          = TextLimits | ChoiceLimits      ChoiceLimits iff "choice" is in input_contracts
+limits          = TextLimits | ChoiceLimits | null
+                  ChoiceLimits iff "choice" is in input_contracts; null only with ["text"]
 TextLimits      = {"contract": "classifier-limits-v1", "max_labels": int, "max_label_bytes": int,
                    "max_text_chars": int}
 ChoiceLimits    = {"contract": "classifier-limits-v1", "max_labels": int, "max_label_bytes": int,
@@ -55,25 +125,85 @@ ChoiceLimits    = {"contract": "classifier-limits-v1", "max_labels": int, "max_l
 | `max_description_chars` | Unicode code points | Length of one option description |
 | `max_instructions_chars` | Unicode code points | Length of the instructions |
 
-Every value is a JSON integer in `1..2147483647`, never a boolean or a float. A request over a target
-limit is refused with HTTP 400 before upstream I/O. The effective bound is the smaller of the target
-limit and C16. The values come from the configured target; Unit 5.1 adds their config keys here
-before code. Trained vocabulary metadata stays a Unit 8 option.
+Every value is a JSON integer in `1..2147483647`, never a boolean or a float. The values come from
+the target config below, and the Gateway enforces exactly them: a request over a target limit is
+refused with HTTP 400 `classifier_limit_exceeded` before upstream I/O, and a response over one fails
+`provider_error`. `limits: null` means the target declares no limits. Direct scalar classification
+then works as today, with no new check, while ADMIT and the SDK preflight refuse a Router that needs
+that classifier (C17); for Router use, the operator qualifies the target and writes its limits.
+`max_text_chars` is the target's own bound: Unit 6 makes a Router's effective question bound the
+smaller of it and the measured Router question or carrier bound (C16). Trained vocabulary metadata
+stays a Unit 8 option.
+
+#### Target config
+
+Schema version 1 gains these keys additively; a document without them parses as today.
+
+```toml
+[[endpoints.targets]]
+alias = "router"
+task = "text-classification"
+contract = "systemone-choice-v1"
+request_path = "/v1/systemone"
+upstream_model = "<pinned provider model>"   # optional; sent as `model`
+
+[endpoints.targets.limits]
+max_labels = 32
+max_label_bytes = 64
+max_text_chars = 20000
+max_options = 32
+max_description_chars = 1024
+max_instructions_chars = 4096
+```
+
+- A `systemone-choice-v1` target takes `alias`, `task`, `contract`, `request_path`, an optional
+  `upstream_model` under the chat rule (1-256 printable ASCII characters without spaces,
+  `plugins/remote_endpoint/definitions.py:49`, `:146-151`) and a required `limits` table of all six
+  keys. It takes no `response_envelope` or `score_semantics`.
+- An `hf-text-classification-v1` target gains an optional `limits` table of exactly the three text
+  keys, each in `1..2147483647`. Without it the row's `limits` is `null`, and a string input keeps
+  today's acceptance under the request body cap and the response byte cap.
+- A `systemone-choice-v1` target's values hold these ranges:
+
+  ```text
+  1           <= max_options            <= 32
+  max_options <= max_labels             <= 32
+  1           <= max_label_bytes        <= 64
+  1           <= max_description_chars  <= 1024
+  1           <= max_instructions_chars <= 4096
+  1           <= max_text_chars         <= 2147483647
+  ```
+
+  The first five follow the C16 rows for candidates, labels, descriptions and instructions.
+- Every value is a TOML integer. A breach fails startup with the location and the rule, never the
+  value (`definitions.py:7-8`).
+- A catalog row copies the configured values and adds `"contract": "classifier-limits-v1"`.
+  `input_contracts` is `["text"]` for an HF target and `["choice"]` for a SystemOne target; no target
+  in this Unit declares both.
+
+#### Token budgets
 
 `classifier-limits-v1` has no token field, and no bound in C16 is a token count. The token-aware
 bound is enforced inside the target, where the tokenizer is: the target refuses text whose token
 count, special tokens included, exceeds its limit and never truncates it
 (`classification-capabilities.md:70-72`), and that refusal reaches the Engine as a classifier failure
-with a bounded code, never as a score vector. Unit 8 pins this for the BERT reference server; Unit
-5.1 pins the SystemOne state and option budgets (`classification-capabilities.md:170-173`). If a
-target ever advertises token limits, they arrive as a new `limits.contract` value: a strict C17
-reader treats an unknown contract as an unusable row, so the readers that accept it deploy before any
-Gateway writes it.
+with a bounded code, never as a score vector. Unit 8 pins this for the BERT reference server. A
+SystemOne target gets no token or length control from the Gateway, so its state and option budgets
+are the server's own (Laya 0.4.21: `LAYA_MAX_TOKEN_BUDGET` and its `max_len` and `head_max_len`
+defaults). Its size refusal and any reported truncation or colliding options reach the Engine as
+`provider_error` (Native response, above). Jev documents no truncation report, so a Jev target relies
+on `limits` the operator sets during qualification so that the largest admitted input fits its window
+(`classification-capabilities.md:170-173`). If a target ever advertises token limits, they arrive as a
+new `limits.contract` value: a strict C17 reader treats an unknown contract as an unusable row, so
+the readers that accept it deploy before any Gateway writes it.
 
 ### Upstream attempts
 
 The Gateway answers every non-streaming `POST /v1/chat/completions` and `POST /v1/classifications`,
-success or error, with `X-AIGW-Upstream-Attempts: <n>`. A pure-ASGI middleware registered immediately
+success or error, with `X-AIGW-Upstream-Attempts: <n>`. Their frozen-copy replays,
+`POST /v1/frozen-copies/{id}/chat/completions` and the C9 `POST /v1/frozen-copies/{id}/classifications`,
+carry it too and always say `0`: a replay sends nothing upstream, whatever count the captured call had,
+and the evidence stored in the copy is unchanged. A pure-ASGI middleware registered immediately
 inside the outer `CallIdMiddleware` strips a whole-segment `root_path` exactly as
 `middleware/body_cap.py:54-71` does, then matches those routed paths before downstream routing. It
 binds one request-scoped mutable counter object at `0`; transport hooks mutate that object rather than
@@ -93,6 +223,13 @@ are unchanged; the count travels only in the header, so the scalar classificatio
 (`apps/aigateway/tests/unit/remote_endpoint/test_app_classification.py:76` pins it).
 The send observer runs before the accounting hook's `active_collector()` early return: the attempt
 header is mandatory even when taxonomy/accounting collection is disabled or partial.
+
+A LiteLLM dispatch that is not accounted sends through a second app-lifetime handler that carries
+only the send observer. Both app-lifetime handlers close with the app, each in its own task: a
+shutdown cancelled during a close waits once more for that close to end, runs every later shutdown
+step, then raises the cancellation; a second cancellation stops the wait but never the close, and a
+failed close is logged. The shutdown drops each handler before closing it, so no request reuses a
+closing pool and no pool outlives the app because its shutdown was cancelled.
 
 Unit 5.1 inventories every non-streaming inference transport at its fresh base, installs the observer
 on each one and updates this list if it differs. The current minimum is: shared and default LiteLLM
@@ -247,13 +384,17 @@ cannot share an occurrence stream when their classifier bodies are equal.
   field, so no migration (`core/frozen_copy/models.py:42-43`). A new read route
   `GET /v1/frozen-copies/{copy_id}/provenance` returns `{"engine_version": str | null, "routers": [...]}`
   (`[]` when the seal sent none), for a sealed copy only through `_sealed_copy`, with the chat replay
-  route's caller auth. An old Gateway rejects a seal with `routers`, so the writer waits for the
-  reader (C12).
+  route's caller auth. The route publishes that strict response schema and reads the stored row
+  field by field with the seal's own types: a stored value the seal would refuse today, from an
+  older writer or a damaged row, reads `null` for `engine_version` and `[]` for `routers`, never a
+  500 and never the stored JSON itself. An invalid stored manifest therefore reads as a copy sealed
+  without `routers`, which the Check below refuses. An old Gateway rejects a seal with `routers`, so
+  the writer waits for the reader (C12).
 - **Check.** In a replay run with a non-empty manifest, the executor reads that provenance after
   resolving the run definition set and before `url4_run`, beside the capture branch of
   `_evaluate_in_copy` (`runner/executor.py:1138-1160`), and compares the lists exactly. Unequal
   lists, or a copy sealed without `routers`, fail the run `frozen_copy_miss` before any replayed or
-  live operation; an unknown, open or foreign copy fails `frozen_copy_unavailable`. Both are
+  live operation; an unknown or open copy fails `frozen_copy_unavailable`. Both are
   existing Engine codes (`error_text.py:64`). A replay run with an empty manifest sends no extra
   request and behaves as today.
 
