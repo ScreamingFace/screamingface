@@ -79,22 +79,26 @@ class CardState:
     id: str
     stage_id: str
     values: Mapping[str, str | None]
-    # Properties whose latest value came from a person (Bennett's rule: never overwrite those).
-    hand_set: frozenset[str]
+    # INVARIANT (Bennett's rule, spec "Matching in HubSpot" 3): filled properties whose newest
+    # value did NOT come from this sync. A person, a workflow, an import or another integration
+    # may have set them, and the sync never overwrites any of those.
+    protected: frozenset[str]
 
 
 def ineligible_reason(submitted_by: str | None, *, internal_emails: frozenset[str]) -> str | None:
     """Why a submitter is not sent to HubSpot, or None when they are.
 
-    WHY `str.rpartition` and no pattern: in production `submitted_by` is the email Envoy stamps
-    after verifying Cloudflare Access, so the only question is whether it has a local part and a
-    domain. `internal_emails` must hold lower-case addresses.
+    WHY `str.partition` and no pattern: in production `submitted_by` is the email Envoy stamps
+    after verifying Cloudflare Access, so the only question is its shape: exactly one `@`, a
+    non-empty local part and domain, and no whitespace. `internal_emails` must hold lower-case
+    addresses.
     """
     if not submitted_by:
         return "no_submitter"
-    local, at, domain = submitted_by.rpartition("@")
+    local, at, domain = submitted_by.partition("@")
     reason: str | None = None
-    if not at or not local or not domain:
+    malformed = "@" in domain or any(character.isspace() for character in submitted_by)
+    if not at or not local or not domain or malformed:
         reason = "not_an_email"
     elif domain.lower() == INTERNAL_DOMAIN or submitted_by.lower() in internal_emails:
         reason = "internal"
@@ -136,7 +140,7 @@ def target_for(submissions: Sequence[Submission], stages: Stages, base_url: str)
 
 
 def _write_if_changed(changes: dict[str, str], card: CardState, prop: str, value: str) -> None:
-    if prop in card.hand_set or card.values.get(prop) == value:
+    if prop in card.protected or card.values.get(prop) == value:
         return
     changes[prop] = value
 
@@ -157,7 +161,7 @@ def card_changes(card: CardState, target: Target, stages: Stages) -> dict[str, s
     _write_if_changed(changes, card, PROP_ENTRY, target.entry_url)
     # INVARIANT: the SOTA flag is set once and never cleared or moved to a later entry; a value a
     # person set on either field wins.
-    sota_untouched = PROP_SOTA not in card.hand_set and PROP_SOTA_ENTRY not in card.hand_set
+    sota_untouched = PROP_SOTA not in card.protected and PROP_SOTA_ENTRY not in card.protected
     if target.sota_entry_url and card.values.get(PROP_SOTA) != "true" and sota_untouched:
         changes[PROP_SOTA] = "true"
         changes[PROP_SOTA_ENTRY] = target.sota_entry_url

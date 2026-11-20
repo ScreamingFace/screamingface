@@ -54,6 +54,7 @@ class FakeSink:
         self.cards: dict[str, list[CardState]] = {}
         self.writes: list[tuple[str, str, Any]] = []
         self.fail_for: dict[str, CrmError] = {}
+        self.lose_create_response: CrmError | None = None
 
     def _maybe_fail(self, email: str) -> None:
         if email in self.fail_for:
@@ -82,6 +83,13 @@ class FakeSink:
 
     async def create_card(self, contact_id: str, properties: Mapping[str, str]) -> str:
         self.writes.append(("create_card", contact_id, dict(properties)))
+        if self.lose_create_response is not None:
+            # HubSpot committed the card (and its association), but the response never arrived.
+            self.cards[contact_id] = [
+                CardState("new-card", properties["dealstage"], dict(properties), frozenset())
+            ]
+            error, self.lose_create_response = self.lose_create_response, None
+            raise error
         return "new-card"
 
     async def update_card(self, card_id: str, properties: Mapping[str, str]) -> None:
@@ -410,3 +418,105 @@ async def test_deleting_scores_removes_their_sync_rows_and_counts_scores_only(
 
     assert deleted == 2
     assert await HubSpotSyncRecord.all().count() == 0
+
+
+# --- review of #1981: visibility, re-grades, a lost create response ---------------------------
+
+
+async def test_a_pending_row_whose_board_goes_private_is_never_sent(tortoise_db: None) -> None:
+    await _board()
+    row = await _score("ana@uni.edu")
+    sink = FakeSink()
+    sink.fail_for["ana@uni.edu"] = CrmRateLimited(429)
+    await run_sync(sink, CONFIG, now=NOW)
+    assert (await _rows())[row.id].status == "pending"
+    await Benchmark.filter(id="mmlu").update(visibility="private")
+    del sink.fail_for["ana@uni.edu"]
+
+    await run_sync(sink, CONFIG, now=NOW + timedelta(minutes=1))
+
+    assert sink.writes == []
+    sync_row = (await _rows())[row.id]
+    assert (sync_row.status, sync_row.reason) == ("skipped", "private_board")
+
+
+async def test_a_failed_row_whose_board_goes_private_is_never_retried(tortoise_db: None) -> None:
+    await _board()
+    row = await _score("ana@uni.edu")
+    sink = FakeSink()
+    sink.fail_for["ana@uni.edu"] = CrmError(503)
+    await run_sync(sink, CONFIG, now=NOW)
+    assert (await _rows())[row.id].status == "failed"
+    await Benchmark.filter(id="mmlu").update(visibility="private")
+    del sink.fail_for["ana@uni.edu"]
+
+    await run_sync(sink, CONFIG, now=NOW + timedelta(hours=1))
+
+    assert sink.writes == []
+    sync_row = (await _rows())[row.id]
+    assert (sync_row.status, sync_row.reason) == ("skipped", "private_board")
+
+
+async def test_a_board_gone_private_drops_out_of_the_count(tortoise_db: None) -> None:
+    await _board()
+    await _board("gpqa")
+    await _score("ana@uni.edu", spec="r1", day=1)
+    sink = FakeSink()
+    await run_sync(sink, CONFIG, now=NOW)
+    await Benchmark.filter(id="mmlu").update(visibility="private")
+    sink.cards["c-1"] = [CardState("deal-1", "s1", {}, frozenset())]
+    sink.writes.clear()
+    await _score("ana@uni.edu", benchmark="gpqa", spec="r2", day=2)
+
+    await run_sync(sink, CONFIG, now=NOW)
+
+    [update] = [write for write in sink.writes if write[0] == "update_card"]
+    # Only the gpqa result counts now, and the link never points at the hidden board.
+    assert update[2][PROP_COUNT] == "1"
+    assert update[2][PROP_ENTRY] == "https://board.example/spec.html?benchmark=gpqa&spec=r2"
+
+
+async def test_a_regrade_is_skipped_and_never_counted(tortoise_db: None) -> None:
+    await _board()
+    original = await _score("ana@uni.edu", spec="r1", day=1)
+    regrade = await Score.create(
+        spec_id="r1",
+        url4_expression="url4://x",
+        score=0.9,
+        total_questions=10,
+        ran_with_providers=[],
+        benchmark_id="mmlu",
+        submitted_by="ana@uni.edu",
+        regraded_from_id=original.id,
+        benchmark_revision="rev-2",
+    )
+    sink = FakeSink()
+
+    await run_sync(sink, CONFIG, now=NOW)
+
+    rows = await _rows()
+    assert (rows[regrade.id].status, rows[regrade.id].reason) == ("skipped", "regrade")
+    [(_, _, properties)] = [write for write in sink.writes if write[0] == "create_card"]
+    assert properties[PROP_COUNT] == "1"
+    # The activity date is the original run's, not the re-grade's.
+    assert ("set_last_active", "c-1", date(2026, 11, 1)) in sink.writes
+
+
+async def test_a_lost_create_response_never_makes_a_second_card(tortoise_db: None) -> None:
+    # WHY no extra HubSpot property: every attempt re-reads the person's SOTA cards before it
+    # creates one, and a card is created together with its association to the contact, so a
+    # card HubSpot committed is found on the retry and updated instead.
+    await _board()
+    row = await _score("ana@uni.edu")
+    sink = FakeSink()
+    sink.lose_create_response = CrmError(None)
+
+    await run_sync(sink, CONFIG, now=NOW)
+    failed = (await _rows())[row.id]
+    assert (failed.status, failed.reason) == ("failed", "hubspot_unreachable")
+
+    await run_sync(sink, CONFIG, now=NOW + timedelta(minutes=6))
+
+    assert [write[0] for write in sink.writes].count("create_card") == 1
+    assert sink.writes[-1][0:2] == ("update_card", "new-card")
+    assert (await _rows())[row.id].status == "sent"

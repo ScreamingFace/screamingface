@@ -1,4 +1,4 @@
-"""Migration 0025 adds the HubSpot sync queue table and touches no existing row (OME-1504).
+"""Migration 0026 adds the HubSpot sync queue table and touches no existing row (OME-1504).
 
 FEATURE: the HubSpot submission sync keeps one row per score in `hubspot_sync`. The migration only
 creates the table; existing scores get their rows from the job's first run, not from here.
@@ -21,7 +21,7 @@ def _columns(connection: sqlite3.Connection, table: str) -> set[str]:
 
 def test_migration_creates_the_queue_table_and_leaves_scores_alone(tmp_path: Path) -> None:
     database = tmp_path / "hubspot.sqlite3"
-    _migrate(database, "0024_benchmark_revisions")
+    _migrate(database, "0025_score_regraded_from")
     score_id = str(uuid4())
     with sqlite3.connect(database) as connection:
         connection.execute(
@@ -37,7 +37,7 @@ def test_migration_creates_the_queue_table_and_leaves_scores_alone(tmp_path: Pat
             (score_id,),
         )
 
-    _migrate(database, "0025_hubspot_sync")
+    _migrate(database, "0026_hubspot_sync")
 
     with sqlite3.connect(database) as connection:
         assert _columns(connection, "hubspot_sync") == {
@@ -58,7 +58,7 @@ def test_migration_creates_the_queue_table_and_leaves_scores_alone(tmp_path: Pat
 
 def test_a_score_has_at_most_one_sync_row(tmp_path: Path) -> None:
     database = tmp_path / "hubspot-unique.sqlite3"
-    _migrate(database, "0025_hubspot_sync")
+    _migrate(database, "0026_hubspot_sync")
     score_id = str(uuid4())
     with sqlite3.connect(database) as connection:
         connection.execute(

@@ -165,7 +165,14 @@ async def _queue(
     unseen = await (
         Score.filter(~Q(id__in=Subquery(HubSpotSyncRecord.all().values("score_id"))))
         .using_db(connection)
-        .values("id", "submitted_by", "benchmark_id", "metadata", "benchmark__visibility")
+        .values(
+            "id",
+            "submitted_by",
+            "benchmark_id",
+            "metadata",
+            "regraded_from_id",
+            "benchmark__visibility",
+        )
     )
     boards = _Boards(connection)
     records: list[HubSpotSyncRecord] = []
@@ -175,6 +182,10 @@ async def _queue(
         # scoreboard (spec decision 5). An unknown visibility reads as public, as on the board.
         if reason is None and (score["benchmark__visibility"] or "public") != "public":
             reason = "private_board"
+        # INVARIANT: a re-grade (OME-1909) is the same run graded again, not a new submission;
+        # it must not move a card, its link or the person's activity date.
+        if reason is None and score["regraded_from_id"] is not None:
+            reason = "regrade"
         if reason is not None:
             records.append(
                 HubSpotSyncRecord(score_id=score["id"], status=STATUS_SKIPPED, reason=reason)
@@ -193,10 +204,48 @@ async def _queue(
         await HubSpotSyncRecord.bulk_create(records, using_db=connection)
 
 
+# An unknown visibility reads as public, as on the board.
+_ON_PUBLIC_BOARD = Q(score__benchmark__visibility="public") | Q(
+    score__benchmark__visibility__isnull=True
+)
+
+
+async def _revalidate(connection: BaseDBAsyncClient | None, email: str) -> int:
+    """Skip this person's due rows whose board has gone private since they were queued.
+
+    INVARIANT: visibility is checked again right before any HubSpot write, not only when a score
+    is queued; a result its board has since hidden never leaves the scoreboard.
+    """
+    hidden = await (
+        HubSpotSyncRecord.filter(status__in=DUE_STATUSES, score__submitted_by__iexact=email)
+        .filter(~_ON_PUBLIC_BOARD)
+        .using_db(connection)
+        .values("id")
+    )
+    if hidden:
+        await (
+            HubSpotSyncRecord.filter(id__in=[row["id"] for row in hidden])
+            .using_db(connection)
+            .update(status=STATUS_SKIPPED, reason="private_board", next_attempt_at=None)
+        )
+    return len(hidden)
+
+
+async def _still_due(connection: BaseDBAsyncClient | None, email: str) -> bool:
+    return await (
+        HubSpotSyncRecord.filter(status__in=DUE_STATUSES, score__submitted_by__iexact=email)
+        .using_db(connection)
+        .exists()
+    )
+
+
 async def _submissions(connection: BaseDBAsyncClient | None, email: str) -> list[Submission]:
+    # INVARIANT: only scores on boards that are public NOW count, and never a re-grade; a sent
+    # row on a board that later went private drops out of the count.
     rows = await (
         HubSpotSyncRecord.filter(score__submitted_by__iexact=email)
         .exclude(status=STATUS_SKIPPED)
+        .filter(_ON_PUBLIC_BOARD, score__regraded_from_id__isnull=True)
         .using_db(connection)
         .values("score__benchmark_id", "score__spec_id", "score__submitted_at", "sota_qualified")
     )
@@ -278,7 +327,11 @@ async def _process(
         .values_list("score__submitted_by", flat=True)
     )
     for email in sorted({str(address).lower() for address in due}):
-        target = target_for(await _submissions(connection, email), config.stages, config.base_url)
+        summary.skipped += await _revalidate(connection, email)
+        submissions = await _submissions(connection, email)
+        if not submissions or not await _still_due(connection, email):
+            continue
+        target = target_for(submissions, config.stages, config.base_url)
         try:
             refusal = await _apply(sink, email, target, config.stages)
         except CrmRateLimited:
@@ -352,7 +405,11 @@ async def _main(dry_run: bool) -> SyncSummary:
         if sync_settings.token is None:
             return await run_sync(None, config, now=datetime.now(UTC))
         async with build_client(sync_settings.token.get_secret_value()) as client:
-            sink = HubSpotSink(client, pipeline_id=sync_settings.pipeline_id or "")
+            sink = HubSpotSink(
+                client,
+                pipeline_id=sync_settings.pipeline_id or "",
+                app_id=sync_settings.app_id,
+            )
             return await run_sync(sink, config, now=datetime.now(UTC), dry_run=dry_run)
     finally:
         await close_db()

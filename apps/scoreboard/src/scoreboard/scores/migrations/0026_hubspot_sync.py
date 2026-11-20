@@ -6,7 +6,7 @@ from tortoise.migrations import operations as ops
 
 
 class Migration(migrations.Migration):
-    dependencies = [("models", "0024_benchmark_revisions")]
+    dependencies = [("models", "0025_score_regraded_from")]
 
     initial = False
 

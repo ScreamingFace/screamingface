@@ -165,6 +165,9 @@ hubspotSync:
   # The Secret holding the HubSpot private app token (infra: ExternalSecret from Key Vault).
   existingSecret: ""
   existingSecretKey: token
+  # The "ScreamingFace Leaderboard sync" private app: HubSpot's property history names this
+  # sync's own writes by it, and only those are ever overwritten (read 2026-11-20).
+  appId: "62476090"
   pipelineId: "941434182"
   # Onboarding, Engaged: the stages before Submission 1 that a card may move forward from.
   earlyStageIds: ["1450673809", "1489861179"]

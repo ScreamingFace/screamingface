@@ -28,16 +28,26 @@ spec:
             app.kubernetes.io/component: hubspot-sync
         spec:
           enableServiceLinks: false
+          # WHY: the job talks to Postgres and HubSpot only, never the Kubernetes API.
+          automountServiceAccountToken: false
           restartPolicy: Never
           serviceAccountName: {{ .Values.hubspotSync.serviceAccountName | quote }}
           {{- with .Values.imagePullSecrets }}
           imagePullSecrets:
             {{- toYaml . | nindent 12 }}
           {{- end }}
+          {{- with .Values.podSecurityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           containers:
             - name: hubspot-sync
               image: {{ include "scoreboard.image" . | quote }}
               imagePullPolicy: {{ .Values.image.pullPolicy }}
+              {{- with .Values.securityContext }}
+              securityContext:
+                {{- toYaml . | nindent 16 }}
+              {{- end }}
               command: ["python", "-m", "scoreboard.hubspot_sync"]
               {{- if .Values.hubspotSync.dryRun }}
               # Reads HubSpot and logs every write it would make; sends nothing, changes no row.
@@ -58,6 +68,8 @@ spec:
                       name: {{ . | quote }}
                       key: {{ $.Values.hubspotSync.existingSecretKey | quote }}
                 {{- end }}
+                - name: SCOREBOARD_HUBSPOT_APP_ID
+                  value: {{ .Values.hubspotSync.appId | quote }}
                 - name: SCOREBOARD_HUBSPOT_PIPELINE_ID
                   value: {{ .Values.hubspotSync.pipelineId | quote }}
                 - name: SCOREBOARD_HUBSPOT_EARLY_STAGE_IDS

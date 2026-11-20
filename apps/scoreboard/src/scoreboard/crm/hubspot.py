@@ -7,7 +7,7 @@ FEATURE: OME-1504. Authenticated with the "ScreamingFace Leaderboard sync" priva
 from __future__ import annotations
 
 from collections.abc import Mapping
-from datetime import date
+from datetime import UTC, date, datetime
 from typing import Any
 from urllib.parse import quote
 
@@ -27,12 +27,9 @@ from .port import Contact, CrmAuthFailed, CrmError, CrmRateLimited
 
 API_BASE_URL = "https://api.hubapi.com"
 
-# INVARIANT (Bennett's rule): a property whose latest value came from one of these sources was set
-# by a person, and the sync never overwrites it. Everything else (this app, workflows, imports)
-# may be updated.
-# AIDEV-NOTE: confirm on the dummy record that this app's own writes do NOT show as one of these
-# (spec question 5) before switching prod on.
-HAND_SOURCES = frozenset({"CRM_UI", "MOBILE_IOS", "MOBILE_ANDROID"})
+# HubSpot's source type for a write made through a private app's token; the entry's `sourceId`
+# is the app's id. AIDEV-NOTE: confirm both on the dummy record before prod leaves dry run.
+SELF_SOURCE_TYPE = "INTEGRATION"
 
 # WHY these: the card fields `card_changes` compares, plus the two that place it.
 _CARD_PROPERTIES = ("pipeline", PROP_STAGE, PROP_COUNT, PROP_ENTRY, PROP_SOTA, PROP_SOTA_ENTRY)
@@ -64,21 +61,51 @@ def _contact(payload: Mapping[str, Any]) -> Contact:
     )
 
 
-def _hand_set(history: Mapping[str, Any]) -> frozenset[str]:
-    # WHY the first entry: HubSpot lists a property's history newest first.
-    return frozenset(
-        prop
-        for prop, entries in history.items()
-        if entries and entries[0].get("sourceType") in HAND_SOURCES
-    )
+def _timestamp(entry: Mapping[str, Any]) -> datetime:
+    raw = str(entry.get("timestamp") or "")
+    try:
+        return datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return datetime.min.replace(tzinfo=UTC)
+
+
+def _protected(
+    properties: Mapping[str, Any], history: Mapping[str, Any], app_id: str | None
+) -> frozenset[str]:
+    """Filled properties the sync must not overwrite: every one whose newest value is not its own.
+
+    INVARIANT (spec, "Matching in HubSpot" 3): only this private app's own latest write may be
+    replaced. A person, a workflow, an import or another integration wins. WHY by timestamp:
+    HubSpot does not promise the history's order. WHY fail closed: with no app id configured,
+    or no history for a filled value, nothing filled is treated as the sync's own.
+    """
+    protected: set[str] = set()
+    for prop in _HISTORY_PROPERTIES:
+        if properties.get(prop) in (None, ""):
+            continue
+        entries = history.get(prop) or []
+        newest = max(entries, key=_timestamp) if entries else None
+        own = (
+            app_id is not None
+            and newest is not None
+            and newest.get("sourceType") == SELF_SOURCE_TYPE
+            and str(newest.get("sourceId")) == app_id
+        )
+        if not own:
+            protected.add(prop)
+    return frozenset(protected)
 
 
 class HubSpotSink:
     """`CrmSink` over HubSpot's API, limited to one deal pipeline (😱 SOTA)."""
 
-    def __init__(self, client: httpx.AsyncClient, *, pipeline_id: str) -> None:
+    def __init__(
+        self, client: httpx.AsyncClient, *, pipeline_id: str, app_id: str | None = None
+    ) -> None:
         self._client = client
         self._pipeline_id = pipeline_id
+        # The private app's id: how HubSpot's property history names this sync's own writes.
+        self._app_id = app_id
 
     async def _request(
         self,
@@ -175,7 +202,9 @@ class HubSpotSink:
                         id=str(row["id"]),
                         stage_id=properties.get(PROP_STAGE) or "",
                         values=properties,
-                        hand_set=_hand_set(row.get("propertiesWithHistory") or {}),
+                        protected=_protected(
+                            properties, row.get("propertiesWithHistory") or {}, self._app_id
+                        ),
                     )
                 )
         return cards

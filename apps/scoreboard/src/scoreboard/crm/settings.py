@@ -33,6 +33,9 @@ class HubSpotSyncSettings(BaseSettings):
     # INVARIANT: unset means nothing is sent; dev and staging run this way.
     token: SecretStr | None = None
     pipeline_id: str | None = None
+    # The private app's id, as HubSpot's property history names this sync's own writes. Unset
+    # means every filled card field counts as someone else's and is never overwritten.
+    app_id: str | None = None
     # Comma-separated HubSpot stage ids, in pipeline order (NoDecode: a list, not JSON).
     early_stage_ids: Annotated[tuple[str, ...], NoDecode] = Field(default=())
     submission_stage_ids: Annotated[tuple[str, ...], NoDecode] = Field(default=())

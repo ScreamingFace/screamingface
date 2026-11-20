@@ -59,7 +59,7 @@ def _card(stage: str, values: dict[str, str | None] | None = None, hand: set[str
         id="deal-1",
         stage_id=stage,
         values=values or {},
-        hand_set=frozenset(hand or set()),
+        protected=frozenset(hand or set()),
     )
 
 
@@ -74,6 +74,10 @@ def _card(stage: str, values: dict[str, str | None] | None = None, hand: set[str
         ("filip.boltuzic", "not_an_email"),
         ("@uni.edu", "not_an_email"),
         ("ana@", "not_an_email"),
+        ("ana@lab@uni.edu", "not_an_email"),
+        ("ana @uni.edu", "not_an_email"),
+        ("ana@uni.edu\n", "not_an_email"),
+        ("ana@\tuni.edu", "not_an_email"),
         ("khoa@openmined.org", "internal"),
         ("Khoa@OpenMined.ORG", "internal"),
         ("friend@partner.org", "internal"),

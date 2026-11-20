@@ -21,6 +21,7 @@ pytestmark = pytest.mark.asyncio
 
 PIPELINE = "941434182"
 TOKEN = "pat-secret-token"
+APP_ID = "62476090"
 
 
 class _Recorder:
@@ -33,14 +34,16 @@ class _Recorder:
         return self._respond(request)
 
 
-def _sink(respond: Callable[[httpx.Request], httpx.Response]) -> tuple[HubSpotSink, _Recorder]:
+def _sink(
+    respond: Callable[[httpx.Request], httpx.Response], *, app_id: str | None = APP_ID
+) -> tuple[HubSpotSink, _Recorder]:
     recorder = _Recorder(respond)
     client = httpx.AsyncClient(
         base_url="https://api.hubapi.com",
         transport=httpx.MockTransport(recorder),
         headers={"Authorization": f"Bearer {TOKEN}"},
     )
-    return HubSpotSink(client, pipeline_id=PIPELINE), recorder
+    return HubSpotSink(client, pipeline_id=PIPELINE, app_id=app_id), recorder
 
 
 def _body(request: httpx.Request) -> dict[str, object]:
@@ -131,7 +134,14 @@ async def test_sota_cards_keeps_only_this_pipeline_and_marks_hand_typed_values()
                         },
                         "propertiesWithHistory": {
                             PROP_ENTRY: [{"value": "typed by hand", "sourceType": "CRM_UI"}],
-                            PROP_COUNT: [{"value": "1", "sourceType": "INTEGRATION"}],
+                            PROP_COUNT: [
+                                {
+                                    "value": "1",
+                                    "sourceType": "INTEGRATION",
+                                    "sourceId": APP_ID,
+                                    "timestamp": "2026-11-20T10:00:00Z",
+                                }
+                            ],
                         },
                     },
                     {
@@ -148,7 +158,7 @@ async def test_sota_cards_keeps_only_this_pipeline_and_marks_hand_typed_values()
 
     assert (card.id, card.stage_id) == ("11", "1450673810")
     assert card.values[PROP_COUNT] == "1"
-    assert card.hand_set == frozenset({PROP_ENTRY})
+    assert card.protected == frozenset({PROP_ENTRY})
     association, batch = recorder.requests
     assert association.url.path == "/crm/v4/objects/contacts/501/associations/deals"
     assert batch.url.path == "/crm/v3/objects/deals/batch/read"
@@ -244,3 +254,90 @@ async def test_a_network_failure_is_a_retryable_error() -> None:
         await sink.find_contact("ana@uni.edu")
     assert type(raised.value) is CrmError
     assert (raised.value.status, str(raised.value)) == (None, "hubspot_unreachable")
+
+
+def _one_card(properties: dict[str, str | None], history: dict[str, list[dict[str, str]]]):
+    def respond(request: httpx.Request) -> httpx.Response:
+        if request.url.path.startswith("/crm/v4/"):
+            return httpx.Response(200, json={"results": [{"toObjectId": 11}]})
+        return httpx.Response(
+            200,
+            json={
+                "results": [
+                    {
+                        "id": "11",
+                        "properties": {"pipeline": PIPELINE, PROP_STAGE: "s1", **properties},
+                        "propertiesWithHistory": history,
+                    }
+                ]
+            },
+        )
+
+    return respond
+
+
+def _entry(source_type: str, source_id: str, timestamp: str) -> dict[str, str]:
+    return {"value": "x", "sourceType": source_type, "sourceId": source_id, "timestamp": timestamp}
+
+
+@pytest.mark.parametrize(
+    ("entries", "protected"),
+    [
+        ([_entry("INTEGRATION", APP_ID, "2026-11-20T10:00:00Z")], False),
+        # Another private app or integration: not ours, so kept.
+        ([_entry("INTEGRATION", "99999", "2026-11-20T10:00:00Z")], True),
+        # A workflow, an import, a person: kept.
+        ([_entry("AUTOMATION_PLATFORM", "wf-1", "2026-11-20T10:00:00Z")], True),
+        ([_entry("IMPORT", "imp-1", "2026-11-20T10:00:00Z")], True),
+        ([_entry("CRM_UI", "user-7", "2026-11-20T10:00:00Z")], True),
+        # The newest entry decides, whatever the array order.
+        (
+            [
+                _entry("INTEGRATION", APP_ID, "2026-11-19T10:00:00Z"),
+                _entry("CRM_UI", "user-7", "2026-11-20T10:00:00Z"),
+            ],
+            True,
+        ),
+        (
+            [
+                _entry("CRM_UI", "user-7", "2026-11-19T10:00:00Z"),
+                _entry("INTEGRATION", APP_ID, "2026-11-20T10:00:00Z"),
+            ],
+            False,
+        ),
+        # A filled value with no history is not provably ours.
+        ([], True),
+    ],
+)
+async def test_only_this_apps_own_newest_write_may_be_replaced(
+    entries: list[dict[str, str]], protected: bool
+) -> None:
+    sink, _ = _sink(_one_card({PROP_ENTRY: "x"}, {PROP_ENTRY: entries}))
+    [card] = await sink.sota_cards("501")
+    assert (PROP_ENTRY in card.protected) is protected
+
+
+async def test_without_an_app_id_every_filled_value_is_kept() -> None:
+    history = {PROP_ENTRY: [_entry("INTEGRATION", APP_ID, "2026-11-20T10:00:00Z")]}
+    sink, _ = _sink(_one_card({PROP_ENTRY: "x", PROP_COUNT: None}, history), app_id=None)
+    [card] = await sink.sota_cards("501")
+    assert card.protected == frozenset({PROP_ENTRY})
+
+
+async def test_an_empty_value_is_never_protected() -> None:
+    history = {PROP_ENTRY: [_entry("CRM_UI", "user-7", "2026-11-20T10:00:00Z")]}
+    sink, _ = _sink(_one_card({PROP_ENTRY: ""}, history))
+    [card] = await sink.sota_cards("501")
+    assert card.protected == frozenset()
+
+
+async def test_a_read_timeout_is_a_retryable_error_with_no_status() -> None:
+    # WHY: a create whose response is lost surfaces as this error; the next run re-reads the
+    # person's cards before creating anything (tests/unit/test_hubspot_sync_job.py).
+    def respond(request: httpx.Request) -> httpx.Response:
+        raise httpx.ReadTimeout("no response", request=request)
+
+    sink, _ = _sink(respond)
+    with pytest.raises(CrmError) as raised:
+        await sink.create_card("501", {"dealname": "Ana"})
+    assert type(raised.value) is CrmError and raised.value.status is None

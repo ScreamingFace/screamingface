@@ -103,3 +103,24 @@ Written in the spec.
   - The delete paths needed no change: `delete_scores` and `purge_private_benchmark` already
     count what is left of the scores, and a test proves a delete with sync rows present.
   - Re-grade rows (#1896) are not excluded yet: `regraded_from_id` is not on `main`.
+
+### Review of #1981 (Dmitry, 2026-11-20)
+
+- Rebased on `main`, which took migration 0025 (`score_regraded_from`); the sync's migration is
+  now `0026_hubspot_sync`.
+- Visibility is checked again right before each person's HubSpot write: due rows on a board that
+  went private become `skipped`/`private_board`, and only scores on boards public now count.
+- Re-grades (`regraded_from_id` set) are skipped (`regrade`) and never counted.
+- A filled card field is writable only when its newest history entry, by timestamp, is this
+  private app's own write (`INTEGRATION`, `sourceId` = app id 62476090, read from HubSpot's
+  token info). Every other source is kept; without an app id nothing filled is overwritten.
+- Email shape: exactly one `@` and no whitespace.
+- CronJob: the chart's pod and container security contexts, no service-account token.
+- Not done as asked: an extra unique HubSpot deal property for idempotent creates. Every attempt
+  re-reads the person's SOTA cards before creating, and a card is created together with its
+  contact association, so a committed create whose response was lost is found and updated on
+  the retry. A test pins it. Residual risk: HubSpot's association read lagging the create by
+  more than the 5-minute backoff.
+- Tests edited inside this PR (none on `main`): the adapter test's history entries now carry
+  `sourceId` and `timestamp` (the old one encoded the looser rule), the migration test moved to
+  0026, and the fake sink gained a lost-response mode.
