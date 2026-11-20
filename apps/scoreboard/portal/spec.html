@@ -65,18 +65,22 @@
 
     <div id="spec-content" hidden>
       <div class="stats" aria-label="Submission summary">
-        <div class="s"><span class="k">Best score</span><div class="v gain" id="best-score">—</div></div>
+        <div class="s"><span class="k" id="best-score-label">Best score</span><div class="v gain" id="best-score">—</div></div>
         <div class="s"><span class="k">Runs</span><div class="v" id="submission-count">—</div></div>
         <div class="s"><span class="k">Reproduce</span><div id="run-region" class="run-region" hidden></div></div>
       </div>
 
       <h2>History</h2>
 
-      <div class="table-wrap">
+      <!-- The Revision column can push this table past a phone's width, so it scrolls sideways.
+           Like the leaderboard's table, the scroll region is focusable and named, or a keyboard
+           user could not reach what is off-screen. -->
+      <div class="table-wrap" tabindex="0" role="region" aria-label="Run history, scrollable">
         <table aria-label="Run history">
           <thead>
             <tr>
               <th>When</th>
+              <th>Revision</th>
               <th>Submitter</th>
               <th>Authors</th>
               <th class="num">Score</th>
@@ -97,6 +101,7 @@
   </div>
 
   <script src="main.js" defer></script>
+  <script src="revision-selector.js" defer></script>
   <script src="spec.js" defer></script>
   <script src="subscribe.js" defer></script>
   <script src="theme.js" defer></script>

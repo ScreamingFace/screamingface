@@ -11,33 +11,19 @@ adapter resolves it with a warning, as it already does for a cost total that dis
 parts.
 
 INVARIANT: clamp, never drop. The span still counts as a cache hit and still carries its saving;
-dropping it would under-count a run that succeeded.
+dropping it would under-count a run that succeeded. The record that counts it is the Engine's,
+pinned in `apps/screamingface-engine/tests/unit/test_candidate_record_evidence_rules.py`.
 """
 
 from __future__ import annotations
 
-import json
 import logging
-from datetime import timedelta
-from decimal import Decimal
-from pathlib import Path
 from typing import Any
 
 import pytest
 
 import screamingface as sf
 from screamingface._engine import contract as _engine_contract
-from screamingface._engine.contract import _RunState
-
-_REPO_ROOT = Path(__file__).resolve().parents[3]
-# The real Engine stream for a run whose only model call was a cache hit (see
-# `test_cache_hit_contract.py`); read by repository path, the Engine is not a dependency.
-RUN_EVENTS = (
-    _REPO_ROOT / "apps/screamingface-engine/tests/unit/data/cache_hit_contract/run_events.json"
-)
-_URL4 = "/openrouter/anthropic/claude-fable-5(ctx)!go"
-_SAVED = Decimal("0.012345")
-_STEP = timedelta(milliseconds=211)
 
 
 def _envelope() -> dict[str, Any]:
@@ -79,34 +65,3 @@ def test_an_inverted_span_is_clamped_to_zero_length_with_a_warning(
     ]
     assert len(warnings) == 1
     assert "ends before it starts" in warnings[0].getMessage()
-
-
-def _stream_with_inverted_hit_span() -> list[dict[str, Any]]:
-    """The real cache-hit stream, with its hit span ending one clock step before it starts.
-
-    The root's cache summary is emptied (an older engine, or a summary dropped under
-    backpressure) so the run's hit count and saving come from the SPANS alone: a dropped span
-    would then show as zero hits and no saving.
-    """
-    events = json.loads(RUN_EVENTS.read_text(encoding="utf-8"))
-    for event in events:
-        data = event["data"]
-        if event["type"] == "ai.url4.span" and data.get("cache_status") == "hit":
-            start = _engine_contract._timestamp(data["start"])
-            data["end"] = (start - _STEP).isoformat().replace("+00:00", "Z")
-        elif event["type"] == "ai.url4.log":
-            data["attributes"] = {}
-    return events
-
-
-def test_an_inverted_hit_span_still_counts_its_hit_and_its_saving() -> None:
-    state = _RunState(_URL4)
-    outcome = None
-    for event in _stream_with_inverted_hit_span():
-        accepted = state.accept(json.dumps(event))
-        if accepted.outcome is not None:
-            outcome = accepted.outcome
-
-    assert outcome is not None, "the stream never produced a root outcome"
-    assert outcome.cache_hits == 1
-    assert outcome.cache_saved_cost_usd == _SAVED

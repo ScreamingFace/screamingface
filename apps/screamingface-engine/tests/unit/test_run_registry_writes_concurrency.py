@@ -52,14 +52,16 @@ async def test_expire_counts_the_runs_it_deleted_not_their_candidates(
     await registry.store.create(ALICE, spec("alpha", "beta", "gamma"))
     registry.clock.advance(days=31)
 
-    assert await registry.store.expire(registry.clock() - timedelta(days=30)) == 1
+    expiring = await registry.store.expiring(registry.clock() - timedelta(days=30))
+
+    assert await registry.store.expire(expiring) == 1
 
 
 async def test_concurrent_expiries_count_each_run_once(registry: Registry) -> None:
     await registry.store.create(ALICE, spec("alpha"))
-    cutoff = T0 + timedelta(seconds=1)
+    expiring = await registry.store.expiring(T0 + timedelta(seconds=1))
 
-    counts = await asyncio.gather(registry.store.expire(cutoff), registry.store.expire(cutoff))
+    counts = await asyncio.gather(registry.store.expire(expiring), registry.store.expire(expiring))
 
     assert sorted(counts) == [0, 1]
 
@@ -105,9 +107,13 @@ async def test_binds_and_a_cancel_of_one_run_never_deadlock(registry: Registry) 
     )
 
     record = await registry.store.get(ALICE, run.id)
-    assert record is not None and record.state == "canceled"
-    # A bind either landed before the cancel, which then stopped it, or was refused after it.
-    assert {c.state for c in record.candidates} == {"stopped"}
+    assert record is not None and record.stopped_by == "canceled"
+    # A bind either landed before the cancel, so its start may have landed and it stays
+    # scheduled, owed a stop (R9), or was refused after it and the cancel stopped it.
+    bound = sorted(f"{c.index:064d}" for c in record.candidates if c.state == "scheduled")
+    assert {c.state for c in record.candidates} <= {"scheduled", "stopped"}
+    assert sorted(await registry.store.owed_stops(ALICE, run.id)) == bound
+    assert record.state == ("running" if bound else "canceled")
 
 
 async def test_a_cancel_racing_the_last_outcome_never_cancels_a_finished_run(

@@ -1,0 +1,218 @@
+{
+ "url4": "/mmlu?model=openai/gpt-4o-mini&case=12",
+ "trace_id": "0af7651916cd43dd8448eb211c80319c",
+ "frames": [
+  {
+   "specversion": "1.0",
+   "id": "0b9dca0066269c4202155b78f396a2c5",
+   "source": "/trace/url4-cloud.460ee6aa3a80359181b794cc31a7185a/node/root",
+   "subject": "url4-cloud.460ee6aa3a80359181b794cc31a7185a",
+   "time": "2026-11-12T09:00:00Z",
+   "datacontenttype": "application/json",
+   "dataschema": null,
+   "sequence": "1",
+   "sequencetype": "Integer",
+   "traceparent": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01",
+   "tracestate": null,
+   "type": "ai.url4.started",
+   "data": {
+    "url4": "/mmlu?model=openai/gpt-4o-mini&case=12"
+   }
+  },
+  {
+   "specversion": "1.0",
+   "id": "a4bff72c879e0362fb1c99219111c82e",
+   "source": "/trace/url4-cloud.460ee6aa3a80359181b794cc31a7185a/node/root",
+   "subject": "url4-cloud.460ee6aa3a80359181b794cc31a7185a",
+   "time": "2026-11-12T09:00:00.100000Z",
+   "datacontenttype": "application/json",
+   "dataschema": null,
+   "sequence": "2",
+   "sequencetype": "Integer",
+   "traceparent": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01",
+   "tracestate": null,
+   "type": "ai.url4.log",
+   "data": {
+    "severity_number": 9,
+    "severity_text": "INFO",
+    "body": "client",
+    "attributes": {
+     "screamingface.client.version": "1.4.0"
+    }
+   }
+  },
+  {
+   "specversion": "1.0",
+   "id": "3d35da1360a5d8a935c9e5441232684f",
+   "source": "/trace/url4-cloud.460ee6aa3a80359181b794cc31a7185a/node/n1",
+   "subject": "url4-cloud.460ee6aa3a80359181b794cc31a7185a",
+   "time": "2026-11-12T09:00:01.200000Z",
+   "datacontenttype": "application/json",
+   "dataschema": null,
+   "sequence": "3",
+   "sequencetype": "Integer",
+   "traceparent": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01",
+   "tracestate": null,
+   "type": "ai.url4.span",
+   "data": {
+    "name": "chat gpt-4o-mini",
+    "kind": "client",
+    "gen_ai.operation.name": "chat",
+    "gen_ai.provider.name": "openai",
+    "gen_ai.request.model": "gpt-4o-mini",
+    "gen_ai.response.model": null,
+    "gen_ai.usage.input_tokens": null,
+    "gen_ai.usage.output_tokens": null,
+    "gen_ai.response.finish_reasons": null,
+    "refusal": null,
+    "cache_status": "miss",
+    "cache_reason": null,
+    "cache_saved_cost_usd": null,
+    "cache_saved_cost_archive_usd": null,
+    "start": "2026-11-12T09:00:00.200000Z",
+    "end": "2026-11-12T09:00:01.200000Z",
+    "status": "ok"
+   }
+  },
+  {
+   "specversion": "1.0",
+   "id": "10602098345a8931efebfd90d1087219",
+   "source": "/trace/url4-cloud.460ee6aa3a80359181b794cc31a7185a/node/root",
+   "subject": "url4-cloud.460ee6aa3a80359181b794cc31a7185a",
+   "time": "2026-11-12T09:00:02.500000Z",
+   "datacontenttype": "application/json",
+   "dataschema": null,
+   "sequence": "4",
+   "sequencetype": "Integer",
+   "traceparent": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01",
+   "tracestate": null,
+   "type": "ai.url4.cost.usage",
+   "data": {
+    "scope": "subtree",
+    "gen_ai.provider.name": "openai",
+    "gen_ai.response.model": "gpt-4o-mini",
+    "pricing_version": "2026-11-01",
+    "usage": {
+     "gen_ai.usage.input_tokens": 1200,
+     "gen_ai.usage.output_tokens": 300,
+     "gen_ai.usage.cache_read_tokens": 0,
+     "gen_ai.usage.cache_creation_tokens": 0,
+     "gen_ai.usage.reasoning_tokens": 0
+    },
+    "cost": {
+     "input_usd": "0.00018",
+     "output_usd": "0.00018",
+     "cache_read_usd": "0",
+     "cache_creation_usd": "0",
+     "reasoning_usd": "0",
+     "total_usd": "0.00036"
+    }
+   }
+  },
+  {
+   "specversion": "1.0",
+   "id": "befd86a35051409fcd0209ba4f71a47e",
+   "source": "/trace/url4-cloud.460ee6aa3a80359181b794cc31a7185a/node/root",
+   "subject": "url4-cloud.460ee6aa3a80359181b794cc31a7185a",
+   "time": "2026-11-12T09:00:03Z",
+   "datacontenttype": "application/json",
+   "dataschema": null,
+   "sequence": "5",
+   "sequencetype": "Integer",
+   "traceparent": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01",
+   "tracestate": null,
+   "type": "ai.url4.log",
+   "data": {
+    "severity_number": 9,
+    "severity_text": "INFO",
+    "body": "cache summary",
+    "attributes": {
+     "cache.hits": 0,
+     "cache.misses": 1,
+     "cache.bypasses": 0,
+     "capture.frozen_copy_id": "fc_7d1e",
+     "capture.status": "partial",
+     "capture.partial.seal": 1
+    }
+   }
+  },
+  {
+   "specversion": "1.0",
+   "id": "e9e6836ef2cdacda8c15ac564f42c0de",
+   "source": "/trace/url4-cloud.460ee6aa3a80359181b794cc31a7185a/node/root",
+   "subject": "url4-cloud.460ee6aa3a80359181b794cc31a7185a",
+   "time": "2026-11-12T09:00:03.500000Z",
+   "datacontenttype": "application/json",
+   "dataschema": null,
+   "sequence": "6",
+   "sequencetype": "Integer",
+   "traceparent": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01",
+   "tracestate": null,
+   "type": "ai.url4.result",
+   "data": {
+    "body": "{\"answer\": \"A\", \"score\": 1.0}",
+    "media_type": "application/json"
+   }
+  },
+  {
+   "specversion": "1.0",
+   "id": "b4100a5f5007bc75438856bf0bb7cefb",
+   "source": "/trace/url4-cloud.460ee6aa3a80359181b794cc31a7185a/node/root",
+   "subject": "url4-cloud.460ee6aa3a80359181b794cc31a7185a",
+   "time": "2026-11-12T09:00:04Z",
+   "datacontenttype": "application/json",
+   "dataschema": null,
+   "sequence": "7",
+   "sequencetype": "Integer",
+   "traceparent": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01",
+   "tracestate": null,
+   "type": "ai.url4.terminated",
+   "data": {
+    "status": "succeeded",
+    "error": null
+   }
+  }
+ ],
+ "record": {
+  "trace_id": "0af7651916cd43dd8448eb211c80319c",
+  "started_at": "2026-11-12T09:00:00+00:00",
+  "completed_at": "2026-11-12T09:00:04+00:00",
+  "usage": {
+   "scope": "subtree",
+   "gen_ai.provider.name": "openai",
+   "gen_ai.response.model": "gpt-4o-mini",
+   "pricing_version": "2026-11-01",
+   "usage": {
+    "gen_ai.usage.input_tokens": 1200,
+    "gen_ai.usage.output_tokens": 300,
+    "gen_ai.usage.cache_read_tokens": 0,
+    "gen_ai.usage.cache_creation_tokens": 0,
+    "gen_ai.usage.reasoning_tokens": 0
+   },
+   "cost": {
+    "input_usd": "0.00018",
+    "output_usd": "0.00018",
+    "cache_read_usd": "0",
+    "cache_creation_usd": "0",
+    "reasoning_usd": "0",
+    "total_usd": "0.00036"
+   }
+  },
+  "cache_hits": 0,
+  "cache_unpriced_hits": null,
+  "cache_saved_cost_usd": null,
+  "cache_saved_cost_archive_usd": null,
+  "frozen_copy_id": "fc_7d1e",
+  "capture_status": "partial",
+  "capture_replay": null,
+  "capture_partial_reasons": [
+   "seal"
+  ],
+  "client_version": "1.4.0",
+  "result": {
+   "media_type": "application/json",
+   "size_bytes": 29,
+   "sha256": "f5b5d2688ab64ca3fe5fa7d6a93a2bf4148369f7761fe4e814873dec6e9a19e8"
+  }
+ }
+}

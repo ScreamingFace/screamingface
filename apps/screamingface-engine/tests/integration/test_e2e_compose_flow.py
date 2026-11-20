@@ -60,6 +60,8 @@ class MockRunnerJobRunner(IdentityAwareJobRunner):
         capture: bool = False,
         replay_frozen_copy: str | None = None,
         enqueued_at: Any = None,
+        result_prefix: str | None = None,
+        exclusive: bool = False,
     ) -> str:
         self.scheduled.append((topic, url4, deadline_s))
         self._tasks.append(asyncio.ensure_future(publish_mock_run(self._stream, topic, url4)))

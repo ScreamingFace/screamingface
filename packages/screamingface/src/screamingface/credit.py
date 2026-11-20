@@ -73,7 +73,7 @@ def _path(provider: str, *, refresh: bool | None = None) -> str:
 
 def _unavailable(provider: str) -> CreditStatus:
     # WHY: the request itself failed, so every amount, hosted included, is a failed lookup;
-    # a hosted panel must say "Lookup failed", not that hosted has no allowance (OME-1935).
+    # a hosted panel must say "Lookup failed", not that hosted has no allowance (OME-1968).
     unknown = CreditAmount("unavailable", reason="lookup_failed")
     return CreditStatus(provider, unknown, unknown, unknown)
 

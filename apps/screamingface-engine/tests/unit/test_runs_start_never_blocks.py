@@ -1,8 +1,8 @@
-"""E5 P1 spec §8, R2: a Run's history never blocks a start, whether Runs are off or the
-database hangs (OME-1785).
+"""E5 P2 spec §4.1 (`GET /`) and D16: a raw start never touches the Run registry, so a Run's
+history never blocks it, and the `X-SF-Run` headers a Client from before P2 sends bind nothing.
 
-FEATURE: first-class Runs. STORY: as a researcher, my evaluation starts even when the Engine's
-Run history is off or its database stops answering.
+FEATURE: a detached Run (OME-1837). STORY: as a researcher on a released Client, my evaluation
+starts on a P2 Engine whatever its Run history says, even when its database stops answering.
 """
 
 from __future__ import annotations
@@ -20,9 +20,9 @@ from run_registry_support import (
     open_registry,
     postgres_server,  # noqa: F401  (a fixture the Postgres parameter requests)
 )
-from test_runs_routes import _Engine
+from test_runs_routes import ALICE, BOB, UNKNOWN, _Engine
 
-from screamingface_engine.rest import runs_start
+from screamingface_engine.runs.records import owner_key
 
 pytestmark = pytest.mark.asyncio
 
@@ -42,30 +42,54 @@ async def test_runs_off_ignores_a_malformed_binding() -> None:
     assert len(engine.runner.scheduled) == 1
 
 
-class _Hangs:
-    """A registry whose named write never answers."""
+@pytest.mark.parametrize(
+    ("who", "candidate"),
+    [
+        ("own", "0"),
+        ("foreign", "0"),
+        ("unknown", "0"),
+        ("canceled", "0"),
+        ("own", "x"),
+        ("own", None),
+    ],
+    ids=["own", "foreign", "unknown", "canceled", "bad-index", "no-index"],
+)
+async def test_a_start_that_names_a_run_runs_as_a_plain_start(
+    registry: Registry, who: str, candidate: str | None
+) -> None:
+    engine = _Engine(registry)
+    run_id = (await engine.create()).json()["id"]
+    if who == "canceled":
+        await engine.client.delete(f"/runs/{run_id}", headers=ALICE)
+    named = UNKNOWN if who == "unknown" else run_id
+    headers = BOB if who == "foreign" else {}
 
-    def __init__(self, store: Any, hung: str) -> None:
+    resp = await engine.start("topic-a", named, candidate=candidate, **headers)
+
+    assert resp.status_code == 202
+    assert [s.topic for s in engine.runner.scheduled] == ["topic-a"]
+    run = await registry.store.get(owner_key(ALICE["X-User-Email"]), run_id)
+    assert run is not None
+    assert {c.attempt_id for c in run.candidates} == {None}
+
+
+class _Hangs:
+    """A registry none of whose calls ever answers."""
+
+    def __init__(self, store: Any) -> None:
         self._store = store
-        self._hung = hung
 
     def __getattr__(self, name: str) -> Any:
-        if name == self._hung:
-            return self._never
-        return getattr(self._store, name)
+        return self._never
 
     async def _never(self, *args: Any) -> Any:
         await asyncio.Event().wait()
 
 
-@pytest.mark.parametrize("hung", ["bind", "mark_scheduled"])
-async def test_a_hung_database_does_not_hold_a_bound_start(
-    registry: Registry, hung: str, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(runs_start, "_START_WRITE_TIMEOUT_S", 0.05)
+async def test_a_hung_database_does_not_hold_a_start(registry: Registry) -> None:
     engine = _Engine(registry)
-    run_id = (await engine.create(candidates=["a"])).json()["id"]
-    engine.app.state.run_registry = _Hangs(registry.store, hung)
+    run_id = (await engine.create()).json()["id"]
+    engine.app.state.run_registry = _Hangs(registry.store)
 
     resp = await asyncio.wait_for(engine.start("topic-a", run_id), timeout=5)
 

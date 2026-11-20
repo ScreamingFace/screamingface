@@ -34,6 +34,10 @@ from nats.js.errors import APIError, NotFoundError
 from pydantic import ValidationError
 
 from screamingface_engine import subjects
+
+# WHY from the port: the error is part of the `last_frame` contract (E5 P2 review round 3);
+# this adapter raises it, and every caller importing it from here still gets the same type.
+from screamingface_engine.ports import QueueReadError
 from screamingface_engine.readiness import StreamNotReadyError
 from screamingface_engine.subjects import owns_stream, subject_for
 from url4.streaming.codec import decode, encode
@@ -138,18 +142,6 @@ class DeferredPublishError(RuntimeError):
     error. Wrapped rather than re-raised bare so the message says WHERE it surfaced: the
     frame that caused it is long gone by then, and a naked APIError at a later sequence
     number reads as a failure of the wrong frame.
-    """
-
-
-class QueueReadError(RuntimeError):
-    """The stream tail could not be read — a TRANSIENT broker failure, not an answer.
-
-    Distinct from "no frame" (which `last_frame` returns as `None`): this says the read
-    itself failed — a `nats.errors.Error` that is not a JetStream `APIError` (a request
-    timeout, a closed connection, a reconnect in flight). Callers that must not mistake
-    "unreadable" for "empty" — the worker's claim-time dedupe gate — catch this and skip
-    the claim, leaving the message for redelivery, instead of either acting on a phantom
-    `None` or letting the error escape into a shared task group.
     """
 
 

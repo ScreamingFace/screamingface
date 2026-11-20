@@ -54,3 +54,9 @@ PRs so each stays under the review size cap. `sdlc-python` loop, with the mandat
 
 Review follow-up: reject unregistered scopes; suppress inferred historical frontiers;
 put Latest first; count in SQL with current scope; add regression and purge tests.
+
+## Authorized review follow-up — 2026-11-20
+
+Rebase PR #1943, preserving the union of portal test entries. Correct the historical API fixture and pin neutral scope wording. Add versioned baseline-only status regressions, then adjust scope/status rendering without changing the API. Run full scoreboard gates and desktop/mobile light/dark previews before updating the PR.
+
+Additional P2 follow-up: pass valid explicit URL revisions directly to `load`, and retain community-presence state before top-50 selection. Add real-script regressions for a benchmark bump between list and board requests and for 50 imports displacing an existing community row. Preserve empty-cohort and Latest-selection behavior.

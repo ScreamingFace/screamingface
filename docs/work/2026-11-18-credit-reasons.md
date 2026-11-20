@@ -35,10 +35,12 @@ Behaviour is specified in `docs/spec/2026-11-17-credits-repr.md` (updated here).
 
 ## Test plan
 
-- RED first:
+- Two tests that fail first:
   - a hosted panel on the real `_unavailable()` result says "Lookup failed";
-  - the account box says "Management key rejected" next to a readable key allowance;
-  - both amounts rejected still read "Key rejected" in the neutral box.
+  - the account box says "Management key rejected" next to a readable key allowance.
+- One test that pins unchanged wording (it already passed on base): both amounts rejected
+  still read "Key rejected" in the neutral box. Corrected 2026-11-19 after Sergey's review of
+  PR #1942, which found 2 failing and 25 passing with base sources.
 - One committed test case encodes the old account-box wording
   (`test_an_unavailable_amount_says_why[credential_rejected]`, reason on the account slot).
   Owner decision 2026-11-18: move that case's reason to the key slot, where "Key rejected"

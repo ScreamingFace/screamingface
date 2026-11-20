@@ -1,5 +1,4 @@
-"""E5 P1 spec D6, D12, R2: what a cancel stops, what a start may bind, and what every `/runs`
-answer carries (OME-1785).
+"""E5 P1 spec D6, D12: what a cancel stops, and what every `/runs` answer carries (OME-1785).
 
 FEATURE: first-class Runs. STORY: as a researcher, I cancel a Run and every Candidate on a
 runner stops, a Candidate that already finished is left alone, and nothing another person runs
@@ -10,7 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import os
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Sequence
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -26,7 +25,7 @@ from run_registry_support import (
 from test_runs_routes import ALICE, BOB, _Engine, _record
 
 from screamingface_engine.candidate_outcomes import CandidateOutcome
-from screamingface_engine.runs.records import MAX_CANDIDATES, owner_key
+from screamingface_engine.runs.records import owner_key
 from screamingface_engine.runs.sweeps import RunSweeper
 from screamingface_engine.runs.wiring import LocalDatabaseInUseError, hold_local_database
 
@@ -55,7 +54,8 @@ async def test_cancel_stops_a_bound_candidate_not_yet_confirmed(registry: Any) -
 
     assert resp.status_code == 202
     assert engine.runner.stopped == ["topic-a"]
-    assert (await _record(registry, run_id)).candidates[0].state == "stopped"
+    # E5 P2 spec R9: its start may have landed, so it is `scheduled` until its stop's outcome.
+    assert (await _record(registry, run_id)).candidates[0].state == "scheduled"
 
 
 async def test_a_sibling_cancel_never_stops_a_candidate_that_succeeded(registry: Any) -> None:
@@ -100,29 +100,6 @@ async def test_a_cancel_the_last_outcome_beat_answers_204(registry: Any) -> None
     assert resp.status_code == 204
     assert engine.runner.stopped == []
     assert (await _record(registry, run_id)).state == "complete"
-
-
-# --- binding a start (spec R2) -------------------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    ("with_run", "candidate"),
-    [(False, "0"), (True, str(MAX_CANDIDATES)), (True, "9" * 5_000)],
-    ids=["candidate-alone", "past-the-cap", "thousands-of-digits"],
-)
-async def test_a_malformed_binding_is_refused_before_scheduling(
-    registry: Any, with_run: bool, candidate: str
-) -> None:
-    engine = _Engine(registry)
-    run_id = (await engine.create()).json()["id"]
-
-    if with_run:
-        resp = await engine.start("topic-a", run_id, candidate=candidate)
-    else:
-        resp = await engine.start("topic-a", **{"X-SF-Run-Candidate": candidate})
-
-    assert (resp.status_code, resp.json()["code"]) == (400, "malformed_header")
-    assert engine.runner.scheduled == []
 
 
 # --- every answer is private (spec D5, D6) -------------------------------------------------
@@ -187,15 +164,13 @@ async def test_a_nul_in_a_run_field_is_422_on_either_database(
 # --- the documented contract ---------------------------------------------------------------
 
 
-async def test_the_openapi_documents_the_runs_answers_and_binding_headers() -> None:
+async def test_the_openapi_documents_the_runs_answers() -> None:
     engine = _Engine(None)
     spec = (await engine.client.get("/openapi.json")).json()
 
     runs, run = spec["paths"]["/runs"], spec["paths"]["/runs/{run_id}"]
     assert {"200", "201", "401", "409", "422"} <= runs["post"]["responses"].keys()
     assert {"202", "204", "401", "404", "503"} <= run["delete"]["responses"].keys()
-    start = {p["name"] for p in spec["paths"]["/"]["get"]["parameters"]}
-    assert {"X-SF-Run", "X-SF-Run-Candidate"} <= start
     (tag,) = [t for t in spec["tags"] if t["name"] == "Runs"]
     assert "/runs" in tag["description"]
 
@@ -227,7 +202,10 @@ class _CountingRegistry:
         self.sweeps += 1
         return 0
 
-    async def expire(self, older_than: datetime) -> int:
+    async def expiring(self, older_than: datetime) -> list[str]:
+        return []
+
+    async def expire(self, run_ids: Sequence[str]) -> int:
         return 0
 
 

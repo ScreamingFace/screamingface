@@ -203,6 +203,8 @@ class _SeedRecordingRunner(RecordingJobRunner):
         capture: bool = False,
         replay_frozen_copy: str | None = None,
         enqueued_at: Any = None,
+        result_prefix: str | None = None,
+        exclusive: bool = False,
     ) -> str:
         self.answer_seeds.append(answer_seed)
         return await super().schedule(

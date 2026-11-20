@@ -7,7 +7,7 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
-from protocol_server import protocol_server
+from _run_engine import AsyncCollectingSink, CollectingSink, one_candidate, run_engine
 from test_saved_runs import saved_fixture
 from test_transport_artifact_fetch import _candidate
 
@@ -42,20 +42,27 @@ def parameterized():
 @pytest.mark.parametrize("asynchronous", [False, True])
 def test_parameterized_transport_retains_completed_ticket(tmp_path, monkeypatch, asynchronous):
     monkeypatch.setenv("SCREAMINGFACE_RESULTS_DIR", str(tmp_path))
+    script, results = one_candidate(b'{"cases":[]}')
 
     async def run(url):
         transport = AsyncUrl4CloudTransport(url, save_results=True)
+        sink = AsyncCollectingSink()
         try:
-            return await transport.run(parameterized(), None)
+            run_id = await transport.register_run(None, (parameterized(),))
+            await transport.follow_run(run_id, (parameterized(),), sink)
         finally:
             await transport.close()
+        return sink.outcomes[0]
 
-    with protocol_server(mode="artifact_result", artifact_body='{"cases":[]}') as engine:
+    with run_engine(script, results) as engine:
         if asynchronous:
             result = asyncio.run(run(engine.url))
         else:
+            sink = CollectingSink()
             with closing(Url4CloudTransport(engine.url, save_results=True)) as transport:
-                result = transport.run(parameterized(), None)
+                run_id = transport.register_run(None, (parameterized(),))
+                transport.follow_run(run_id, (parameterized(),), sink)
+            result = sink.outcomes[0]
     saved = ResultStore(tmp_path).list()
     assert len(saved) == 1
     assert saved[0].outcome.run_id == result.run_id

@@ -17,6 +17,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import Any
 
+import asyncpg.exceptions as asyncpg_errors
 from tortoise import Tortoise
 from tortoise.context import TortoiseContext, _current_context
 from tortoise.exceptions import OperationalError, TransactionManagementError
@@ -28,12 +29,17 @@ CONNECTION = "runs"
 # file path would leave a stray database wherever the command happened to run.
 # The failures that mean the database could not answer, not that the request or the code is wrong:
 # a lost or refused connection and a timeout are `OSError`s (Tortoise's `DBConnectionError` is
-# one), a locked or failing database is `OperationalError`, a broken transaction the other. A
-# caller may retry these; anything else is a bug.
+# one), a locked or failing database is `OperationalError`, a broken transaction the other.
+# asyncpg lets three through Tortoise unwrapped when Postgres drops a query's connection in
+# flight: a lost connection, a server shutting down or a restart, and a pooled connection found
+# closed. A caller may retry these; anything else is a bug.
 UNAVAILABLE_ERRORS: tuple[type[Exception], ...] = (
     OSError,
     OperationalError,
     TransactionManagementError,
+    asyncpg_errors.PostgresConnectionError,
+    asyncpg_errors.OperatorInterventionError,
+    asyncpg_errors.InterfaceError,
 )
 _CLI_DATABASE_URL = os.environ.get("URL4_CLOUD_DATABASE_URL") or "sqlite://:memory:"
 
