@@ -178,3 +178,19 @@ def test_each_outcome_is_logged_and_a_second_run_retries_only_the_retryable_one(
 
     assert regrader.calls == ["judge-outage"]
     assert second["skipped"] == 3
+
+
+def test_an_engine_still_on_the_old_revision_is_retried_on_the_next_run(tmp_path: Path) -> None:
+    # WHY: the board lists the entry as old, so `already_current` from the Engine means a pod not
+    # yet updated in a rolling deploy. Settling it would skip the entry on every scheduled run.
+    regrader = _FakeRegrader(
+        {"stale-pod": PlanningError("current", code="already_current", permanent=True)}
+    )
+    log: Path = tmp_path / "log.jsonl"
+
+    first: dict[str, int] = batch.regrade_all(regrader, [_entry("stale-pod", "s1")], log)
+    regrader.answers["stale-pod"] = None
+    second: dict[str, int] = batch.regrade_all(regrader, [_entry("stale-pod", "s1")], log)
+
+    assert first == {"refused_retryable": 1}
+    assert second == {"regraded": 1}

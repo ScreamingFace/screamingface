@@ -56,6 +56,8 @@ _EXIT_OK: int = 0
 _EXIT_SOME_REFUSED: int = 1
 #: Outcomes a later run never retries: the entry moved, or the SDK said it never will.
 _SETTLED: frozenset[str] = frozenset({"regraded", "already_regraded", "refused_permanently"})
+#: Permanent in the SDK, but a deploy in progress, never the entry: a later run tries again.
+_RETRIED_ANYWAY: frozenset[str] = frozenset({"already_current"})
 
 
 class BoardReadError(RuntimeError):
@@ -165,11 +167,14 @@ def _refusal(exc: Any) -> dict[str, object]:
 
     WHY ``already_regraded`` is its own outcome: the board already holds this source's re-grade
     at this revision (a ``LeaderboardError`` naming it), so the entry moved and is settled.
+    WHY ``already_current`` is never settled here: the board listed the entry as old, so an
+    Engine answering that its revision is current is an Engine pod not yet updated (a rolling
+    deploy). Settling it would skip the entry on every later run.
     """
 
     if exc.code == "already_regraded":
         return {"outcome": "already_regraded", "new_score_id": str(exc.existing_score_id)}
-    permanent: bool = exc.permanent is True
+    permanent: bool = exc.permanent is True and exc.code not in _RETRIED_ANYWAY
     return {
         "outcome": "refused_permanently" if permanent else "refused_retryable",
         "code": exc.code,
