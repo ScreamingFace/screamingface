@@ -37,6 +37,30 @@ INVARIANT: the key pair comes from the SAME Secret the App and the Runner read (
 `secret-artifact-storage.yaml`). One source, three consumers — so the store cannot end up holding
 a key the engine does not present.
 */}}
+{{- define "screamingface-engine.garageConfig" -}}
+metadata_dir = "/var/lib/garage/meta"
+data_dir = "/var/lib/garage/data"
+db_engine = "sqlite"
+replication_factor = 1
+# WHY fsync: one server, so no other copy covers a crash, and Garage turns both off by
+# default. data_fsync fsyncs each data block and its directory after writing it.
+# metadata_fsync runs the sqlite metadata with WAL synchronous=NORMAL: a power loss cannot
+# corrupt it, but the last commits before one can roll back.
+metadata_fsync = true
+data_fsync = true
+# Cluster-internal only: this store is reached by the App and by the runner pool's pods,
+# never from
+# outside. The read path deliberately goes THROUGH the App (spec D4) rather than handing a
+# client a presigned URL, so nothing off-cluster ever needs to resolve this endpoint.
+rpc_bind_addr = "[::]:3901"
+rpc_public_addr = "127.0.0.1:3901"
+rpc_secret = {{ derivePassword 1 "long" (printf "%s-garage-rpc" .Release.Name) "garage" "screamingface" | sha256sum | quote }}
+
+[s3_api]
+s3_region = {{ .Values.artifactStorage.s3.region | quote }}
+api_bind_addr = "[::]:3900"
+root_domain = ".s3.garage"
+{{- end -}}
 {{- if .Values.garage.enabled }}
 {{- $name := printf "%s-garage" (include "screamingface-engine.fullname" .) -}}
 apiVersion: v1
@@ -47,26 +71,7 @@ metadata:
     {{- include "screamingface-engine.labels" . | nindent 4 }}
 data:
   garage.toml: |
-    metadata_dir = "/var/lib/garage/meta"
-    data_dir = "/var/lib/garage/data"
-    db_engine = "sqlite"
-    replication_factor = 1
-    # WHY fsync: one server, so a write Garage confirms must already be on disk. Garage turns
-    # both off by default, and a crash right after a confirmed write would lose it.
-    metadata_fsync = true
-    data_fsync = true
-    # Cluster-internal only: this store is reached by the App and by the runner pool's pods,
-    # never from
-    # outside. The read path deliberately goes THROUGH the App (spec D4) rather than handing a
-    # client a presigned URL, so nothing off-cluster ever needs to resolve this endpoint.
-    rpc_bind_addr = "[::]:3901"
-    rpc_public_addr = "127.0.0.1:3901"
-    rpc_secret = {{ derivePassword 1 "long" (printf "%s-garage-rpc" .Release.Name) "garage" "screamingface" | sha256sum | quote }}
-
-    [s3_api]
-    s3_region = {{ .Values.artifactStorage.s3.region | quote }}
-    api_bind_addr = "[::]:3900"
-    root_domain = ".s3.garage"
+    {{- include "screamingface-engine.garageConfig" . | nindent 4 }}
 ---
 apiVersion: v1
 kind: Service
@@ -101,6 +106,8 @@ spec:
       app.kubernetes.io/component: garage
   template:
     metadata:
+      annotations:
+        checksum/garage-config: {{ include "screamingface-engine.garageConfig" . | sha256sum }}
       labels:
         {{- include "screamingface-engine.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: garage

@@ -22,6 +22,7 @@ Run:  python3 .github/scripts/verify_chart_wiring.py
 from __future__ import annotations
 
 import ast
+import hashlib
 import ipaddress
 import json
 import re
@@ -1061,6 +1062,21 @@ check(
     and not any(_selects(_runs_svc["spec"]["selector"], pods) for pods in _other_pods),
     "the run-results Garage Service selects ONLY the run-results Garage's pods",
 )
+# WHY: Garage reads garage.toml once, at start, through a subPath mount the kubelet never
+# refreshes. Only a changed pod template rolls the pod, so each carries its config's checksum.
+for _suffix in ("-garage", "-garage-blobs", "-garage-run-results"):
+    _garage_sts = find_named(engine_runs, "StatefulSet", f"{ENGINE_FULLNAME}{_suffix}")
+    _garage_toml = find_named(engine_runs, "ConfigMap", f"{ENGINE_FULLNAME}{_suffix}")[
+        "data"
+    ]["garage.toml"]
+    check(
+        (_garage_sts["spec"]["template"]["metadata"].get("annotations") or {}).get(
+            "checksum/garage-config"
+        )
+        == hashlib.sha256(_garage_toml.rstrip("\n").encode()).hexdigest(),
+        f"the {_suffix[1:]} pod template carries the checksum of its garage.toml, so a config "
+        "change rolls the pod",
+    )
 for _cm_name in (ENGINE_FULLNAME, f"{ENGINE_FULLNAME}-runner-env"):
     _data = find_named(engine_runs, "ConfigMap", _cm_name)["data"]
     check(
