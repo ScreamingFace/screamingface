@@ -1,5 +1,5 @@
 ---
-ticket: unfiled   # slug-named ledger; set to OME-N when the issue is filed at PR-open
+ticket: OME-1982
 stack: screamingface-engine
 status: done
 started: 2026-11-20
@@ -25,7 +25,7 @@ grading and no published revision moves.
   `ANSWER_FORMAT` text and its FEATURE comment.
 - `apps/screamingface-engine/tests/unit/test_medxpert_answer_format_scoring_path.py` (new) —
   grades every reply the sentence quotes through the scoring path.
-- `docs/tasks/2026-11-20-OME-N-medxpert-card-first-letter-rule.md` (mirror, at PR-open).
+- `docs/tasks/2026-11-20-OME-1982-medxpert-card-first-letter-rule.md` (mirror, at PR-open).
 
 ## Test plan
 
@@ -44,8 +44,8 @@ grading and no published revision moves.
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:** as planned — `medxpert/definition.py` (`ANSWER_FORMAT` + its comment) and
-  the new `tests/unit/test_medxpert_answer_format_scoring_path.py`; mirror added at PR-open.
+- **Actual files:** as planned, plus the mirror `docs/tasks/2026-11-20-OME-1982-medxpert-card-first-letter-rule.md` — `medxpert/definition.py` (`ANSWER_FORMAT` + its comment) and
+  the new `tests/unit/test_medxpert_answer_format_scoring_path.py`.
 - **Commits:** `fix(screamingface-engine): state MedXpertQA's real first-letter rule on its page`
 - **Gates:** RED 3 failed / 13 passed (the prose trap unquoted, no authoring advice, "last"
   still present) → GREEN: 50 passed, 1 skipped across the new file,
