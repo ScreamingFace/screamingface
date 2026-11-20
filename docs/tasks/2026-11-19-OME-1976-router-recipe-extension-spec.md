@@ -1,13 +1,13 @@
 ---
 id: OME-1976
 linear_url: https://linear.app/openmined/issue/OME-1976/publish-the-router-recipe-extension-implementation-spec-and-plan
-status: In Progress
+status: Done
 type: task
 priority: high
 labels: [repo-dev-processes, agentic, autonomous]
 parent: OME-1306
 created: 2026-11-19
-closed:
+closed: 2026-11-19
 ---
 
 # Publish the Router Recipe extension implementation spec and plan
@@ -27,3 +27,6 @@ Spec: `docs/spec/2026-11-16-router-recipe-extension/`.
 Plan: `docs/plan/2026-11-16-router-recipe-extension.md`.
 Ledger: `docs/work/2026-11-16-router-recipe-extension-spec.md`.
 Branch: `OME-1976-router-recipe-extension-spec`.
+
+Merged [PR #1957](https://github.com/ScreamingFace/screamingface/pull/1957) as `c403ebd33`.
+Linear is Done.

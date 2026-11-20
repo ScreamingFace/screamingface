@@ -208,6 +208,17 @@ async def test_a_hold_leaves_a_stopped_run_alone(registry: Registry) -> None:
     assert (await _read(registry, run.id)).deadline_at == T0 + ORPHAN_GRACE
 
 
+async def test_a_hold_leaves_a_finished_run_alone(registry: Registry) -> None:
+    run = await registry.store.create(ALICE, start_spec("alpha"))
+    await _start(registry, run.id, 0)
+    await registry.store.settle(_topic(0), CandidateOutcome("succeeded"))
+    registry.clock.advance(seconds=100)
+
+    await registry.store.hold(run.id)
+
+    assert (await _read(registry, run.id)).deadline_at == T0 + ORPHAN_GRACE
+
+
 async def test_a_run_without_starts_has_no_deadline_and_a_hold_gives_it_none(
     registry: Registry,
 ) -> None:

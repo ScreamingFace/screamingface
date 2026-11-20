@@ -206,15 +206,31 @@ class DriverStore(StoreCore):
     async def hold(self, run_id: str) -> None:
         until = self._clock() + self._held_for
         # INVARIANT (R10): a deadline only moves forward, so a late or slow hold never pulls it
-        # in; a detached or stopped Run's never moves (an older App's cancel sets only the flag,
-        # R12); NULL (a Run without starts) stays NULL.
-        await Run.filter(
-            id=run_id,
-            detached=False,
-            stopped_by__isnull=True,
-            canceled=False,
-            deadline_at__lt=until,
-        ).update(deadline_at=until)
+        # in; a detached, stopped or finished Run's never moves (an older App's cancel sets only
+        # the flag, R12); NULL (a Run without starts) stays NULL.
+        # WHY under the Run's lock (store_core.lock_run), as `stop` checks for a live Candidate:
+        # a settle takes the same lock, so no Candidate ends between the check and the update.
+        # WHY a live Candidate locked too, after the Run as every write orders them: reconcile
+        # settles stale ones `lost` in one UPDATE without the Run's lock (OME-1992). The locked
+        # one stays live until this commits, so the Run cannot finish in between. WHY one: it is
+        # enough, and a hold that waits on no second row never closes a lock cycle with
+        # reconcile's many-row UPDATE. SQLite serializes the whole transaction anyway.
+        async with in_transaction(CONNECTION) as conn:
+            await lock_run(run_id, conn)
+            live = Candidate.filter(run_id=run_id, state__in=LIVE).using_db(conn)
+            if await live.select_for_update().only("id").first() is None:
+                return
+            await (
+                Run.filter(
+                    id=run_id,
+                    detached=False,
+                    stopped_by__isnull=True,
+                    canceled=False,
+                    deadline_at__lt=until,
+                )
+                .using_db(conn)
+                .update(deadline_at=until)
+            )
 
     @in_context
     async def stop(

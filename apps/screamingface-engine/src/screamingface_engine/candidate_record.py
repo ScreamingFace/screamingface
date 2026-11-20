@@ -5,8 +5,9 @@ Client that reattaches from another machine has none of them. So the runner fold
 they are published, and reports the record with the Candidate's outcome.
 
 INVARIANT: the rules the Client's own fold held (the root, the cache evidence, the capture
-summary, the provenance), pinned in `tests/unit/test_candidate_record_rules.py` and
-`tests/unit/test_candidate_record_evidence_rules.py`. The Client folds nothing: it reads the
+summary, the provenance, and the refusal of a malformed run summary, OME-1988), pinned in
+`tests/unit/test_candidate_record_rules.py`, `tests/unit/test_candidate_record_evidence_rules.py`
+and `tests/unit/test_candidate_record_fail_closed.py`. The Client folds nothing: it reads the
 record.
 
 LAYERING: a shared leaf beside `run_evidence`, url4's protocol and the standard library only.
@@ -14,10 +15,13 @@ LAYERING: a shared leaf beside `run_evidence`, url4's protocol and the standard 
 
 from __future__ import annotations
 
+import contextvars
 import hashlib
 import json
-from collections.abc import Mapping
-from decimal import Decimal, InvalidOperation
+import re
+from collections.abc import Callable, Iterator, Mapping
+from contextlib import contextmanager
+from decimal import Decimal
 from typing import Any
 
 from screamingface_engine.client_provenance import VERSION_ATTRIBUTE, valid_version
@@ -36,6 +40,9 @@ MAX_RECORD_BYTES = 48 * 1024
 """The largest encoded record (§4.3). With the outcome's own fields it stays under the outcome's
 64 KiB, and under the child's control-pipe line."""
 
+RUN_SUMMARY_INVALID = "run_summary_invalid"
+"""The error code a run fails with when its run summary has a malformed figure (OME-1988)."""
+
 # The run summary's attributes (`runner/cache_counters.py`, `capture_outcomes.py`), as the Client
 # reads them. WHY named here: those modules are the run half's, which a shared leaf cannot import.
 _CACHE_HITS = "cache.hits"
@@ -48,6 +55,17 @@ _FROZEN_COPY_ID = "capture.frozen_copy_id"
 _CAPTURE_STATUS = "capture.status"
 _CAPTURE_REPLAY = "capture.replay"
 _PARTIAL_PREFIX = "capture.partial."
+# A summary amount as the run writes each total: `format(total, "f")` of a non-negative amount.
+_AMOUNT = re.compile(r"[0-9]+(?:\.[0-9]+)?")
+# The record's optional fields a run summary certifies (§4.3); a refused record carries none.
+_OPTIONAL_FIGURES = (
+    "cache_unpriced_hits",
+    "cache_saved_cost_usd",
+    "cache_saved_cost_archive_usd",
+    "frozen_copy_id",
+    "capture_status",
+    "capture_replay",
+)
 
 type _Attributes = Mapping[str, str | int | float | bool | None]
 
@@ -59,10 +77,14 @@ class CandidateRecordFold:
         self._url4 = url4
         self._trace_id = trace_id
         self._root: str | None = None
+        # The trace context of the root's own frames: a frame no span owns is published under it.
+        self._root_traceparent: str | None = None
         self._started_at: str | None = None
         self._version: str | None = None
         self._version_conflict = False
         self._summary: _Attributes | None = None
+        # The first malformed attribute of any run summary the run published.
+        self._invalid: str | None = None
         self._summary_hits = 0
         self._hit_spans = 0
         self._saved: Decimal | None = None
@@ -76,6 +98,7 @@ class CandidateRecordFold:
             # The root is the first started frame naming the run's own url4, not the first one.
             if self._root is None and frame.data.url4 == self._url4:
                 self._root = frame.source
+                self._root_traceparent = frame.traceparent
                 self._started_at = _time(frame)
         elif isinstance(frame, SpanEvent):
             self._span(frame)
@@ -94,7 +117,7 @@ class CandidateRecordFold:
 
     def _root_frame(self, frame: OutboundFrame) -> None:
         if isinstance(frame, LogEvent):
-            self._log(frame.data.attributes)
+            self._log(frame)
         elif isinstance(frame, CostUsageEvent) and frame.data.scope == "subtree":
             self._usage = _wire_data(frame)
         elif isinstance(frame, ResultEvent) and self._result is None:
@@ -102,21 +125,66 @@ class CandidateRecordFold:
         elif isinstance(frame, TerminatedEvent) and self._terminated is None:
             self._terminated = frame
 
-    def _log(self, attributes: _Attributes) -> None:
+    def _log(self, frame: LogEvent) -> None:
+        attributes = frame.data.attributes
         raw = attributes.get(VERSION_ATTRIBUTE)
         version = valid_version(raw) if isinstance(raw, str) else None
         if version is not None:
             if self._version is not None and self._version != version:
                 self._version_conflict = True
             self._version = version
+        if not self._runs_own(frame):
+            # A node's `ctx.log` is never the run summary, whatever it carries (OME-1988).
+            return
+        invalid = _invalid_attribute(attributes)
+        if invalid is not None:
+            # INVARIANT (OME-1463, OME-1307; the Client's `_CacheSummary.parse`): fail closed. These
+            # figures decide whether a cost or a frozen copy may publish as exact, so one that
+            # cannot be trusted fails the run (`refusal`), never reads as unknown or zero. Sticky:
+            # a later well-formed summary does not clear it.
+            self._invalid = self._invalid or invalid
+            return
         hits = _count(attributes.get(_CACHE_HITS))
         if hits is None:
+            # Not the run summary: only the run's own line carrying `cache.hits` is.
             return
         self._summary_hits = max(self._summary_hits, hits)
         # The run's own tally only grows, so the largest summary is the latest complete one.
         current = None if self._summary is None else _count(self._summary.get(_CACHE_HITS))
         if current is None or hits >= current:
             self._summary = attributes
+
+    def _runs_own(self, frame: LogEvent) -> bool:
+        """Whether ``frame`` is the run's own log, as its closing summary is, and not a node's.
+
+        INVARIANT (§4.3, "the run's closing summary log"): url4's lifecycle stamps every frame of
+        a run with the root's `source`, so the source cannot tell a node's `ctx.log` from the
+        run's own log. The trace context can: the executor publishes the summary with no span
+        (`executor._closing_logs`), so it goes out under the root's traceparent, the one its
+        `Started` carries, with no tracestate; a node's log goes out under its own span's.
+        WHY not a marker attribute: a node's log could carry one too, and this needs no producer
+        change. AIDEV-NOTE: stricter than the Client's `_RunState`, which read a node's line
+        carrying `cache.hits` as the summary; no recorded run has one.
+        """
+        return frame.traceparent == self._root_traceparent and frame.tracestate is None
+
+    @property
+    def malformed(self) -> str | None:
+        """The first malformed attribute of any run summary the run published, else None."""
+        return self._invalid
+
+    @property
+    def refusal(self) -> str | None:
+        """The message a run whose summary had a malformed figure fails with, else None.
+
+        The run's executor fails the run with it before its result and terminal frames
+        (`bound_refusal`, OME-1988); for an executor that does not, `SettlementWatch` publishes
+        the run's success as this refusal. So the terminal frame, the outcome and the record
+        agree.
+        """
+        if self._invalid is None:
+            return None
+        return f"SF Engine run summary {self._invalid} is invalid"
 
     def record(self) -> dict[str, Any] | None:
         """The record, cut to `MAX_RECORD_BYTES`; None until the root has ended, or when even
@@ -142,7 +210,17 @@ class CandidateRecordFold:
             "capture_partial_reasons": _partial_reasons(summary),
             "client_version": None if self._version_conflict else self._version,
         }
+        if self._invalid is not None:
+            # INVARIANT (OME-1988): a refused record certifies no figure. A well-formed summary
+            # before or after the malformed one would otherwise still set them. The two the
+            # Client's `_RunOutcome` always carries keep its defaults (`cache_hits: int = 0`,
+            # `capture_partial_reasons: tuple[str, ...] = ()`); the optional ones are null.
+            record.update(dict.fromkeys(_OPTIONAL_FIGURES))
+            record.update(cache_hits=0, capture_partial_reasons=[])
         status = terminated.data.status
+        # AIDEV-NOTE (OME-1988): a refused run is recorded here as `failed`. Its terminal frame
+        # says so whether its executor failed it or `SettlementWatch` published its success so,
+        # and the watch folds the frames as it published them.
         if status != "succeeded":
             # What the Client raises with, from the same terminal frame.
             error = terminated.data.error
@@ -266,12 +344,16 @@ def _count(value: object) -> int | None:
 
 
 def _decimal(value: object) -> Decimal | None:
-    if not isinstance(value, str):
+    """A summary amount: a fixed-point STRING of ASCII digits, as the run writes each total
+    (`_AMOUNT`); None for anything else, a float included.
+
+    WHY not whatever `Decimal` reads: it also reads exponents, signs, spaces, underscores and
+    non-ASCII digits, none of which the run writes, and `_amount` writes an exponent out in fixed
+    point (`1E+999999999` is about 1 GB).
+    """
+    if not isinstance(value, str) or _AMOUNT.fullmatch(value) is None:
         return None
-    try:
-        return Decimal(value)
-    except InvalidOperation:
-        return None
+    return Decimal(value)
 
 
 def _text(value: object) -> str | None:
@@ -282,6 +364,61 @@ def _capture_status(value: object) -> str | None:
     return value if value in ("complete", "partial") else None
 
 
+# The parser of each figure the Client's fold read (`_CacheSummary.parse`), None for a malformed
+# value. The rest (misses, bypasses and their reasons) never reach a record.
+_PARSERS: dict[str, Callable[[object], object]] = {
+    **dict.fromkeys((_CACHE_HITS, _REPORTED_HITS, _ARCHIVE_HITS, _UNPRICED_HITS), _count),
+    **dict.fromkeys((_SAVED_COST_USD, _SAVED_COST_ARCHIVE_USD), _decimal),
+    **dict.fromkeys((_FROZEN_COPY_ID, _CAPTURE_REPLAY), _text),
+}
+
+
+def _invalid_attribute(attributes: _Attributes) -> str | None:
+    """The first figure of a run summary that the Client's fold refused; None when every figure
+    is well formed, or when the log is no run summary (it carries no `cache.hits`)."""
+    if _CACHE_HITS not in attributes:
+        return None
+    return next((key for key, value in attributes.items() if not _well_formed(key, value)), None)
+
+
+def _well_formed(key: str, value: object) -> bool:
+    if key == _CAPTURE_STATUS:
+        # Null is a status nobody stated (unknown), which the Client read as such.
+        return value is None or _capture_status(value) is not None
+    parse = _count if key.startswith(_PARTIAL_PREFIX) else _PARSERS.get(key)
+    return parse is None or parse(value) is not None
+
+
+_bound_fold: contextvars.ContextVar[CandidateRecordFold | None] = contextvars.ContextVar(
+    "candidate_record_fold", default=None
+)
+
+
+@contextmanager
+def binding_record(fold: CandidateRecordFold | None) -> Iterator[None]:
+    """Bind ``fold`` for the run task created inside it (a task copies the context it is created
+    in), so that run's executor can read `bound_refusal`. None binds no record.
+
+    WHY a ContextVar (the engine's idiom for per-run state, as `binding_result_spool`): the
+    executor is built by a factory that knows nothing of the run's record, and the producer that
+    folds the record (`runner.main._run_and_log`, `InProcessJobRunner.schedule`) creates the run's
+    task.
+    """
+    token = _bound_fold.set(fold)
+    try:
+        yield
+    finally:
+        _bound_fold.reset(token)
+
+
+def bound_refusal() -> str | None:
+    """The message the running run must fail with because its record refused its run summary
+    (`CandidateRecordFold.refusal`); None when it did not, or when the run folds no record (it is
+    not driver-started)."""
+    fold = _bound_fold.get()
+    return None if fold is None else fold.refusal
+
+
 def _partial_reasons(summary: _Attributes) -> list[str]:
     return sorted(
         key.removeprefix(_PARTIAL_PREFIX)
@@ -290,4 +427,11 @@ def _partial_reasons(summary: _Attributes) -> list[str]:
     )
 
 
-__all__ = ["MAX_RECORD_BYTES", "CandidateRecordFold", "fit_record"]
+__all__ = [
+    "MAX_RECORD_BYTES",
+    "RUN_SUMMARY_INVALID",
+    "CandidateRecordFold",
+    "binding_record",
+    "bound_refusal",
+    "fit_record",
+]
