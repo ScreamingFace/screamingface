@@ -1,18 +1,14 @@
 {
   "issue": "OME-1958",
-  "branch": "OME-1958-bump-47-revisions",
-  "approver": "owner, who on 2026-11-17 changed the revision rule so a grading change moves the published revision, and on 2026-11-18 moved the bump of OME-1907's 47 revisions out of #1896 into OME-1958",
+  "branch": "OME-1958-regrade-environments",
+  "approver": "FilipBolt: Yes, correct the test and IDs (2026-11-20 conversation)",
   "date": "2026-11-20",
-  "scope": "Prior-test edits in 2 files and nothing else, pinned against main at 855ec8dd2 (#1896, OME-1909, merged there on 2026-11-20, so its own four files are already on main and need no entry here). (a) test_published_revisions.py: 47 literals move to the new published ids, each with a comment naming its old id, and one header line says why. (b) test_benchmark_fingerprints.py: on top of OME-1909's rule text, the OME-1907 comment says the ids moved in OME-1958 instead of held, and the OME-1853 HELD note says the three picture and cyse4 rows' old ids span two Case sets; no fingerprint literal moves.",
-  "reason": "(a) The published ids move because the 2026-11-17 rule moves the id on a grading change, and OME-1907 changed how these 47 rows grade a wrapped answer letter. (b) The comment must not say the ids are held once they move.",
+  "scope": "Only the expected board-ID calculation in test_transition_table_matches_exactly_the_47_engine_bumps; retain all 47 source and target assertions.",
+  "reason": "Local Tasks bbh and medmcqa use bare catalogue IDs. The previous test repeated the incorrect unconditional inspect- prefix.",
   "files": {
-    "apps/screamingface-engine/tests/unit/inspect/test_benchmark_fingerprints.py": {
-      "base_blob": "13afdcf4f6581ba48199dc5faee27ae3e1d9bf2e",
-      "approved_blob": "d7f21dbd69fb828d008b8739a7a4533f78395861"
-    },
-    "apps/screamingface-engine/tests/unit/inspect/test_published_revisions.py": {
-      "base_blob": "1b60ce1550546bd4cd81618ef06151562ac1fd20",
-      "approved_blob": "a71589c5375c3400864b7602ea3dcf3a13a69da0"
+    "packages/screamingface/tests/unit/test_regrade_batch_safety.py": {
+      "base_blob": "dddb8922c640aa38b936370b064efc26b600146d",
+      "approved_blob": "adc327ff28f65fb09299533d9b0ef69b3162c67b"
     }
   }
 }
