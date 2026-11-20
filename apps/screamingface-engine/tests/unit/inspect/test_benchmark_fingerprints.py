@@ -7,14 +7,14 @@ A Benchmark's fingerprint is the hash of everything that defines it: its Cases, 
 source, its judge and the pinned packages. It is an alarm, never published: every row sets
 ``published_revision`` and the Engine publishes that id, and nothing compares the two at run
 time (owner decision, 2026-10-15). ``test_published_revisions.py`` pins the id a Benchmark
-publishes; this file pins what its inputs compute. So a code move, a grading fix or a package
-bump turns a literal here red while the published id, and every leaderboard result under it,
-stays where it is.
+publishes; this file pins what its inputs compute. So a code move or a package bump turns a
+literal here red while the published id, and every leaderboard result under it, stays where it
+is; a grading change turns it red and also moves the published id (owner decision, 2026-11-17).
 
 AIDEV-NOTE: a red literal here is NEVER a reason to change ``published_revision``. Read the
 rule in ``docs/adding-an-imported-benchmark.md`` ("Changing a Benchmark's published
-revision") first. Same Cases (a refactor, a grading fix, a package bump): update only the
-literal here. A fundamental change (a changed Case set, a new Benchmark): run
+revision") first. Only code moved, every grade the same (a refactor, a code move, a package
+bump): update only the literal here. Changed Cases, changed grading or a new Benchmark: run
 ``just engine benchmark-bump <key>`` and get the owner's sign-off before the id moves.
 
 Runs only with the `inspect` extra installed.
@@ -196,9 +196,10 @@ def test_the_fingerprint_follows_the_exam_not_the_published_id(key: str) -> None
 
     assert computed == _FINGERPRINTS[key], (
         f"{key}: the fingerprint moved ({_FINGERPRINTS[key]} -> {computed}). "
-        "Do NOT change published_revision to make this green. Same Cases (a refactor, a "
-        "grading fix, a package bump): update only this literal. A fundamental change (a "
-        f"changed Case set): run `just engine benchmark-bump {key}` and follow its checklist; "
+        "Do NOT change published_revision to make this green. Only code moved, every grade "
+        "the same (a refactor, a code move, a package bump): update only this literal. "
+        f"Changed Cases or changed grading: run `just engine benchmark-bump {key}` and follow "
+        "its checklist; "
         "the published id moves only with the owner's sign-off. Rule: "
         "docs/adding-an-imported-benchmark.md, 'Changing a Benchmark's published revision'."
     )

@@ -40,6 +40,11 @@ config:
   # exclusively through that mesh (OME-404).
   authMode: disabled
   allowedNetworks: ""
+  # Verified emails that may re-grade an old entry onto a Benchmark's bumped revision (OME-1909,
+  # `POST /v1/scores/{id}/regrades`). Empty here, so a deployment that never set it has no
+  # re-graders; the infra repo sets it per environment. The route also refuses everyone while
+  # authMode is disabled, where the identity header is an unverified claim.
+  regradeIdentities: []
   # Request-pool bounds per pod for a PostgreSQL database (OME-1452). 1 / 5 are Tortoise 1.1.8's
   # own defaults, made explicit — not a capacity change. Each pod holds ONE more connection,
   # reserved for /readyz, so the budget is replicas x (dbPoolMaxsize + 1). Ignored for SQLite.

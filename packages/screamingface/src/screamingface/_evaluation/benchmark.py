@@ -8,6 +8,7 @@ from typing import Literal, NoReturn, cast
 from screamingface._catalogue_vocabulary import INVERTED_GRADE_KEY
 from screamingface._core.wire import mapping as _wire_mapping
 from screamingface._core.wire import text as _wire_text
+from screamingface._core.wire import text_tuple as _wire_text_tuple
 from screamingface._evaluation.answer_rule import _AnswerRule, decode_answer_rule
 from screamingface._evaluation.model import _canonical_url4
 from screamingface.discovery import BenchmarkInfo
@@ -41,6 +42,9 @@ class _BenchmarkResource:
     answer_rule: _AnswerRule | None = None
     # FEATURE (OME-1739): the Case ids the Engine echoed for `cases=`; None for a `limit=` run.
     selected_case_ids: tuple[int, ...] | None = None
+    # FEATURE (OME-1909): the old published revisions a score may be re-graded from (the Engine's
+    # `regradable_from`); empty when none, or when an older Engine sends no key.
+    regradable_from: tuple[str, ...] = ()
 
 
 def _decode_benchmark_resource(
@@ -92,6 +96,9 @@ def _decode_benchmark_resource(
         check_surface=_check_surface(resource.get("check_surface")),
         answer_rule=decode_answer_rule(resource.get("answer_rule"), _invalid),
         selected_case_ids=selected_case_ids,
+        regradable_from=_wire_text_tuple(
+            resource.get("regradable_from", []), "Benchmark regradable_from", _invalid
+        ),
     )
 
 

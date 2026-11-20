@@ -161,10 +161,15 @@ class LeaderboardScore:
     last_reproduced_at: datetime | None = None
     # The revision of the benchmark the score ran on, which a reproduction must match.
     benchmark_revision: str | None = None
+    # FEATURE (OME-1909): on a re-graded entry, the score it was re-graded from; None on an
+    # ordinary entry, and on a board that predates the field.
+    regraded_from: UUID | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.id, UUID):
             raise TypeError("Leaderboard score id must be a UUID")
+        if self.regraded_from is not None and not isinstance(self.regraded_from, UUID):
+            raise TypeError("Leaderboard score regraded_from must be a UUID or None")
         _positive_int(self.version, "Leaderboard score version")
         for name in ("benchmark_id", "spec_id"):
             object.__setattr__(
