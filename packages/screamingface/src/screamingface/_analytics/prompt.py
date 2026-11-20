@@ -1,6 +1,7 @@
 """Default-on analytics with best-effort notice; every explicit opt-out wins."""
 
 import asyncio
+import builtins
 import logging
 import os
 import sys
@@ -83,6 +84,41 @@ def wait_for_setup(generation: int | None = None) -> None:
             # an in-flight reply enable tracking later. Interruptions propagate.
             selected.expire_setup(generation, reason="unavailable")
             _LOG.debug("Analytics setup skipped")
+
+
+def offer_and_settle() -> None:
+    """Offer setup and, in Colab, wait (bounded) until it finishes inside this cell."""
+    # WHY: Colab only answers a background eval_js while the triggering cell runs; setup left
+    # running after import or connect returned ends `unknown` (2026-11-19 trace). offer()
+    # itself stays non-blocking because the async evaluation path calls it on the event loop.
+    offer()
+    wait_for_setup()
+
+
+def offer_at_import() -> None:
+    """Offer setup on import; in Colab, settle it once the importing cell's code has run."""
+    # WHY: waiting inside `screamingface/__init__.py` deadlocks on the package import lock (the
+    # worker imports `screamingface` modules). IPython's `post_run_cell` runs after the cell's
+    # code, outside that lock, while Colab still treats the cell as running (2026-11-19).
+    offer()
+    if origin() != "colab":
+        return
+    try:
+        # Same host hook `_environment.running_in_notebook` reads; absent outside IPython.
+        get_ipython = getattr(builtins, "get_ipython", None)
+        shell = get_ipython() if callable(get_ipython) else None
+        events = getattr(shell, "events", None)
+        if events is None:
+            return
+
+        def settle(*_: object) -> None:
+            events.unregister("post_run_cell", settle)
+            offer_and_settle()
+
+        events.register("post_run_cell", settle)
+    except Exception:
+        # INVARIANT: optional analytics setup can never break `import screamingface`.
+        _LOG.debug("Analytics setup skipped")
 
 
 def before_evaluation() -> None:

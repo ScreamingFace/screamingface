@@ -434,10 +434,10 @@ def connect(
     if provider is None:
         if api_key is not None or method is not None:
             raise TypeError("provider is required when api_key or method is supplied")
-        from screamingface._analytics.prompt import offer
+        from screamingface._analytics.prompt import offer_and_settle
         from screamingface._ui.connections import ConnectionPanel
 
-        offer()
+        offer_and_settle()
         return ConnectionPanel(default_client())
     client = default_client()
     if api_key is not None:
