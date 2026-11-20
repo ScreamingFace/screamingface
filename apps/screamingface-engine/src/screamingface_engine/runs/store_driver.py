@@ -206,8 +206,10 @@ class DriverStore(StoreCore):
     async def hold(self, run_id: str) -> None:
         until = self._clock() + self._held_for
         # INVARIANT (R10): a deadline only moves forward, so a late or slow hold never pulls it
-        # in; a detached or stopped Run's never moves (an older App's cancel sets only the flag,
-        # R12); NULL (a Run without starts) stays NULL.
+        # in; a detached, stopped or finished Run's never moves (an older App's cancel sets only
+        # the flag, R12); NULL (a Run without starts) stays NULL.
+        if not await Candidate.filter(run_id=run_id, state__in=LIVE).exists():
+            return
         await Run.filter(
             id=run_id,
             detached=False,
