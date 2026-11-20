@@ -4,6 +4,11 @@
 
 ### Added
 
+* Re-grading accepts `expected_target_revision` on sync and async clients. A catalogue or
+  replay result on another revision is refused before submission (`regrade_target_mismatch`).
+  The batch verifies returned score evidence and preserves unresolved journal state through
+  tail recovery, log rotation and interrupted owner resolutions (OME-1958).
+
 * `Client.regrade(score_id)` and `AsyncClient.regrade` move a published score onto its
   Benchmark's current revision (`OME-1909`): the score's url4 is rebuilt against today's
   Benchmark, replayed from its pinned cache with its answer seed at no Candidate cost, and posted

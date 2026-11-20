@@ -11,20 +11,25 @@ For dev, select both services explicitly (an apply override requires both):
         --scoreboard-url https://leaderboard.dev.screamingface.ai
 
 regrade_transitions.json fixes the scope. Every selected board must serve its exact target;
-missing boards, unknown revisions and truncated reads stop the batch. Only the declared
-source revision is discovered, never unrelated historical revisions or boards.
+missing boards, missing source metadata, unknown revisions and truncated reads stop the batch.
+Only the declared source revision is discovered. Explicitly select public boards for rollout;
+the three unlisted WMDP boards cannot participate in a public batch.
 
-Use one persistent log path on one operator machine for all scheduled runs. An OS lock
-excludes overlapping processes. Complete records are fsynced; an unterminated final record
-is truncated under the lock before resuming. Malformed complete records require inspection.
-Legacy logs without target/environment identity must be inspected and archived first.
+Use one persistent log path on one operator machine for all scheduled runs. Its persistent
+`.lock` sidecar excludes overlapping processes. Never rotate/delete either file while running.
+Records are fsynced; a valid final record missing its newline is retained and repaired. Only
+an undecodable unterminated tail is truncated. Complete invalid records require inspection.
+Version-2 keys distinguish score IDs from spec IDs and escape CLI delimiters. Older ambiguous
+keys require manual reconciliation into a new journal before resuming; never discard unresolved
+owner work. Keep the archived original as evidence.
 
 Permanent refusals and uncached rows are not retried automatically, but remain unresolved
 (exit 1), even if a later discovery no longer lists them. After an owner decision, record it:
     uv run python scripts/regrade_batch.py --log /path/to/regrade.jsonl \
         --resolve 'ENTRY_KEY=Fresh run linked at ...'
 The entry key is printed and stored in each log record. Resolution only updates the local
-log; it never re-grades. Keep the note as evidence of the actual owner action.
+log; it never re-grades. Keep the note as evidence of the actual owner action. Retrying the same
+key and note is safe after interruption; a conflicting note is refused.
 
 Optional --when-revision inspect-mmlu_pro=4efebd6cc74c2dca waits while that board serves
 its declared source revision. The guard must name a selected board and its exact target;
@@ -87,7 +92,9 @@ class Entry(NamedTuple):
 class _Regrader(Protocol):
     """The one SDK call the loop needs, so a test can stand in for ``sf.Client``."""
 
-    def regrade(self, score_id: str) -> Any:
+    leaderboards: Any
+
+    def regrade(self, score_id: str, *, expected_target_revision: str) -> Any:
         """Re-grade one score and return the new board entry."""
 
 
@@ -131,7 +138,7 @@ def _source_entries(http: httpx.Client, board_id: str) -> list[Entry]:
     revisions = _get(http, f"/v1/leaderboard/{board_id}/revisions")["revisions"]
     summary = next((r for r in revisions if r["revision"] == source), None)
     if summary is None:
-        return []  # No published runs ever used this source revision.
+        raise BoardReadError(f"{board_id}: declared source revision {source} is missing")
     count = summary["result_count"]
     if not isinstance(count, int) or not 0 <= count <= _TOP:
         raise BoardReadError(
@@ -168,10 +175,47 @@ def _outcome(regrader: _Regrader, entry: Entry) -> dict[str, object]:
     from screamingface.errors import ScreamingFaceError
 
     try:
-        new = regrader.regrade(str(entry.score_id))
+        new = regrader.regrade(
+            str(entry.score_id), expected_target_revision=TRANSITIONS[entry.benchmark_id]["target"]
+        )
     except ScreamingFaceError as exc:
+        if exc.code == "already_regraded":
+            return _existing_result(regrader, entry, exc)
         return _refusal(exc)
-    return {"outcome": "regraded", "new_score_id": str(new.id)}
+    return _verified_result(new, entry, "regraded", getattr(new, "id", None))
+
+
+def _existing_result(regrader: _Regrader, entry: Entry, exc: Any) -> dict[str, object]:
+    from screamingface.errors import ScreamingFaceError
+
+    existing = getattr(exc, "existing_score_id", None)
+    if existing is None:
+        return _invalid_result("already_regraded did not name an existing score")
+    try:
+        new = regrader.leaderboards._public_score(existing)
+    except ScreamingFaceError as read_error:
+        return _invalid_result(f"cannot verify existing score: {read_error.code}")
+    return _verified_result(new, entry, "already_regraded", str(existing))
+
+
+def _invalid_result(message: str) -> dict[str, object]:
+    return {"outcome": "refused_retryable", "code": "regrade_result_mismatch", "message": message}
+
+
+def _verified_result(new: Any, entry: Entry, outcome: str, score_id: Any) -> dict[str, object]:
+    """Only evidence for this exact source/target transition can settle its journal entry."""
+    if (
+        score_id is None
+        or not str(score_id).strip()
+        or getattr(new, "benchmark_id", None) != entry.benchmark_id
+        or getattr(new, "benchmark_revision", None) != TRANSITIONS[entry.benchmark_id]["target"]
+        or str(getattr(new, "regraded_from", None)) != entry.score_id
+        or (outcome == "already_regraded" and str(getattr(new, "score_id", None)) != score_id)
+    ):
+        return _invalid_result(
+            "returned score does not prove the declared source/target transition"
+        )
+    return {"outcome": outcome, "new_score_id": str(score_id)}
 
 
 def _refusal(exc: Any) -> dict[str, object]:
@@ -184,8 +228,6 @@ def _refusal(exc: Any) -> dict[str, object]:
     deploy). Settling it would skip the entry on every later run.
     """
 
-    if exc.code == "already_regraded":
-        return {"outcome": "already_regraded", "new_score_id": str(exc.existing_score_id)}
     permanent: bool = exc.permanent is True and exc.code not in _RETRIED_ANYWAY
     return {
         "outcome": "refused_permanently" if permanent else "refused_retryable",
@@ -208,6 +250,7 @@ def regrade_all(
     with locked_journal(log_path, scope.rstrip("/"), TRANSITIONS) as journal:
         journal.resolve(resolutions or {}, now().isoformat())
         for entry in entries:
+            journal.check_current()
             transition = TRANSITIONS.get(entry.benchmark_id)
             if transition is None or entry.revision != transition["source"]:
                 raise LogError(f"entry outside OME-1958 source transitions: {entry}")

@@ -559,6 +559,7 @@ class Client:
         *,
         on_event: Callable[[Event], None] | None = None,
         progress: bool | None = None,
+        expected_target_revision: str | None = None,
     ) -> LeaderboardScore:
         """Move a published score onto its Benchmark's current revision, at no model cost.
 
@@ -568,6 +569,11 @@ class Client:
         grading changed (OME-1909); the Scoreboard accepts it only from an identity it lists as a
         re-grader. A Benchmark whose judge request changed (a new judge prompt or `max_tokens`)
         misses the cache on every judged Case, so it cannot be re-graded this way.
+
+        Set ``expected_target_revision`` when moving scores under a declared transition.
+        A different catalogue revision refuses before replay; a different result revision
+        refuses before submission (``regrade_target_mismatch``, retryable). Omit it to use
+        the current revision as before.
 
         Stages, in the order they run:
 
@@ -613,7 +619,13 @@ class Client:
         from screamingface._regrade import regrade_sync
 
         self._require_open()
-        return regrade_sync(self, score_id, on_event=on_event, progress=progress)
+        return regrade_sync(
+            self,
+            score_id,
+            on_event=on_event,
+            progress=progress,
+            expected_target_revision=expected_target_revision,
+        )
 
     @overload
     def connect(
@@ -1249,6 +1261,7 @@ class AsyncClient:
         *,
         on_event: Callable[[Event], None | Awaitable[None]] | None = None,
         progress: bool | None = None,
+        expected_target_revision: str | None = None,
     ) -> LeaderboardScore:
         """Asynchronously move a published score onto its Benchmark's current revision.
 
@@ -1258,7 +1271,13 @@ class AsyncClient:
         from screamingface._regrade import regrade_async
 
         self._require_open()
-        return await regrade_async(self, score_id, on_event=on_event, progress=progress)
+        return await regrade_async(
+            self,
+            score_id,
+            on_event=on_event,
+            progress=progress,
+            expected_target_revision=expected_target_revision,
+        )
 
     @overload
     async def connect(

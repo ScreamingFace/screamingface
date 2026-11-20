@@ -194,15 +194,34 @@ def _complete(report: Report, source: PublishedScore) -> CandidateResult:
     return result
 
 
+def _validate_target(expected: str | None) -> None:
+    if expected is not None and (not isinstance(expected, str) or not expected.strip()):
+        raise ValueError("expected_target_revision must be a nonempty string or None")
+
+
+def _check_target(actual: str, expected: str | None, *, before_run: bool) -> None:
+    """A batch's deployment snapshot must constrain the effect, not only its log label."""
+    if expected is not None and actual != expected:
+        error = PlanningError if before_run else ExecutionError
+        raise error(
+            f"Expected re-grade target {expected}, received {actual}; nothing was submitted",
+            code="regrade_target_mismatch",
+            permanent=False,
+            details={"expected_revision": expected, "actual_revision": actual},
+        )
+
+
 def regrade_sync(
     client: Client,
     score_id: UUID | str,
     *,
     on_event: Callable[[Event], None] | None,
     progress: bool | None,
+    expected_target_revision: str | None = None,
 ) -> LeaderboardScore:
     """Re-grade one score; the stages are those of `Client.regrade`'s docstring."""
 
+    _validate_target(expected_target_revision)
     # Stage 1 — the source's PUBLIC read only: the board refuses to re-grade a private score, so
     # a private one is refused here, before a run.
     source: PublishedScore = client.leaderboards._public_score(score_id)
@@ -214,6 +233,7 @@ def regrade_sync(
     resource: _BenchmarkResource = client._benchmark_resources.load(
         source.benchmark_id, source.total_questions
     )
+    _check_target(resource.info.revision, expected_target_revision, before_run=True)
     # Stage 4 — refuse a current or unlisted revision; rebuild the Benchmark part only.
     plan: _Regrade = _planned(source, pinned_cache, resource)
     # Stage 5 — replay from the copy with the published seed; never capture.
@@ -229,6 +249,7 @@ def regrade_sync(
     )
     # Stage 6 — one cache miss anywhere submits nothing.
     result: CandidateResult = _complete(report, source)
+    _check_target(result.benchmark.revision, expected_target_revision, before_run=False)
     # Stage 7 — post to the source's re-grade route; the board credits the source's submitter.
     return client.leaderboards._submit_regrade(source.score_id, result)
 
@@ -239,9 +260,11 @@ async def regrade_async(
     *,
     on_event: Callable[[Event], None | Awaitable[None]] | None,
     progress: bool | None,
+    expected_target_revision: str | None = None,
 ) -> LeaderboardScore:
     """Async twin of `regrade_sync`: the same stages and checks, awaited."""
 
+    _validate_target(expected_target_revision)
     # Stage 1 — the source's public read only.
     source: PublishedScore = await client.leaderboards._public_score(score_id)
     # Stage 2 — a re-grade of a re-grade names its root; a capture a replay cannot name starts
@@ -252,6 +275,7 @@ async def regrade_async(
     resource: _BenchmarkResource = await client._benchmark_resources.load(
         source.benchmark_id, source.total_questions
     )
+    _check_target(resource.info.revision, expected_target_revision, before_run=True)
     # Stage 4 — refuse a current or unlisted revision; rebuild the Benchmark part only.
     plan: _Regrade = _planned(source, pinned_cache, resource)
     # Stage 5 — replay from the copy with the published seed; never capture.
@@ -266,6 +290,7 @@ async def regrade_async(
     )
     # Stage 6 — one cache miss anywhere submits nothing.
     result: CandidateResult = _complete(report, source)
+    _check_target(result.benchmark.revision, expected_target_revision, before_run=False)
     # Stage 7 — post to the source's re-grade route.
     return await client.leaderboards._submit_regrade(source.score_id, result)
 
