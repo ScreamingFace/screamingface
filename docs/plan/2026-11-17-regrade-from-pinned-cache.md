@@ -7,7 +7,7 @@
 
 **Goal:** a ScreamingFace team member can move an old leaderboard entry onto its Benchmark's bumped revision by replaying the entry's pinned cache under the new grading, at no Candidate cost, and the PR that adds this also bumps the 47 revisions OME-1907's grader change touches.
 
-**Architecture:** the Engine catalogue serves, per Benchmark, the old revisions it may be re-graded from; each is declared on the row with that revision's Case Digest, and assembly refuses a declaration whose digest no longer matches (so "same Cases" is checked at build time). The SDK's `Client.regrade(score_id)` rebuilds the published run's url4 against the current catalogue (the partial-replay rebuild, `_replay_partial.py`), replays it from the pinned cache, refuses on any cache miss, and posts the result to a new Scoreboard route that creates a linked entry credited to the original submitter. An optional live-judge header sends chosen Cases' judge calls live while every Candidate call still replays.
+**Architecture:** the Engine catalogue serves, per Benchmark, the old revisions it may be re-graded from; each is declared on the row with that revision's Case Digest, and assembly refuses a declaration whose digest no longer matches (so "same Cases" is checked at build time). The SDK's `Client.regrade(score_id)` rebuilds the published run's url4 against the current catalogue (the partial-replay rebuild, `_replay_partial.py`), replays it from the pinned cache, refuses on any cache miss, and posts the result to a new Scoreboard route that creates a linked entry credited to the original submitter.
 
 **Tech Stack:** Python 3.12, uv; Engine (FastAPI, url4, inspect_ai extra), SDK `packages/screamingface` (httpx), Scoreboard (FastAPI, Tortoise ORM + migrations).
 
@@ -18,7 +18,7 @@
 - One PR, stacked on #1783 (branch `OME-1907-wrapped-answer-letter`); title `feat(screamingface-engine): re-grade an old entry from its pinned cache, and bump the 47 revisions (OME-1907, OME-1909, PR 2 of 2)`. #1783 keeps its revisions held; this PR bumps them.
 - Landing: merge this PR into #1783's branch, then squash #1783 into main, so prod never serves the new grader under an old revision.
 - A re-grade makes **no Candidate model call**. Any `frozen_copy_miss` on a Candidate call refuses the whole re-grade: no partial score, no submit.
-- Judge calls go live only when the caller names them (`live_judge=`); otherwise every judge call replays too.
+- Every call of a re-grade, Candidate and judge, replays from the pinned cache; a Benchmark whose judge request changed cannot be re-graded until OME-1979.
 - Who may re-grade: identities listed in the Scoreboard setting `regrade_identities`; the route refuses everyone in `auth_mode="disabled"`.
 - The new entry: `submitted_by` and `authors` copied from the source score; `regraded_from` = source id (unique per source and revision, so the root can be re-graded again under each later revision); `regraded_by` = caller; `frozen_copy_id` NULL (the column is unique and belongs to the source).
 - Revision, not grade: the score's own `case_digest` hashes grades and is never compared for a re-grade.
@@ -78,24 +78,9 @@ def test_no_declaration_serves_an_empty_list() -> None:
 - [ ] **Step 4: Run, expect PASS**, plus `tests/unit/inspect/test_benchmark_fingerprints.py` and `test_published_revisions.py` unchanged-green.
 - [ ] **Step 5: Commit** `feat(screamingface-engine): serve the old revisions a Benchmark may be re-graded from`.
 
-### Task 2: Engine — send chosen judge calls live during a replay
+### Task 2: removed (2026-11-20)
 
-**Files:**
-- Modify: `apps/screamingface-engine/src/screamingface_engine/request_scope.py` (header constant, parser beside `frozen_copy_mode_from_headers` `:269`, `RequestScope.replay_live_judge`)
-- Modify: the path `X-Replay-Frozen-Copy` already travels: `rest/routes.py:464,866`, `job_env` (`FROZEN_COPY_ID` beside it), and wherever the job rebuilds its `RequestScope`
-- Modify: `apps/screamingface-engine/src/screamingface_engine/world/connector.py` (`_recorded_completion` `:1414`)
-- Test: `apps/screamingface-engine/tests/unit/test_replay_live_judge.py` (new)
-
-**Interfaces:**
-- Produces: header `X-Replay-Live-Judge`, value `all` or a comma list of Case ids; `RequestScope.replay_live_judge: frozenset[str] | Literal["all"] | None = None`; `parse_live_judge(raw: str | None, replay: str | None) -> frozenset[str] | Literal["all"] | None`, raising `FrozenCopyHeaderError` when sent without `X-Replay-Frozen-Copy` or blank-listed.
-- Rule in the connector: in a replay run, a call made while `current_grading_case()` is set and the scope names that Case (`str(case)` in the set, or `"all"`) goes through `_fetch_completion` (live); every other call, every Candidate call included, keeps `_fetch_replay`.
-- Live judge calls are not captured (the Engine refuses capture with replay): a re-judged entry has no pinned cache of its own. Declared as a known limitation on the ticket.
-
-- [ ] **Step 1: Write the failing tests**: `test_a_named_cases_judge_call_goes_live_during_a_replay`, `test_a_candidate_call_always_replays_even_when_its_case_is_named`, `test_all_sends_every_judge_call_live`, `test_live_judge_without_a_replay_is_refused`, `test_a_blank_live_judge_list_is_refused`. Assert on which fetch function the connector called (patch `_fetch_completion` / `_fetch_replay`).
-- [ ] **Step 2: Run, expect FAIL.**
-- [ ] **Step 3: Implement** the parser, the scope field, the carrier through the job env exactly as `X-Replay-Frozen-Copy` travels, and the connector branch.
-- [ ] **Step 4: Run, expect PASS**, plus `tests/unit/test_request_scope*.py` and the existing frozen-copy replay connector tests (`git grep -l _fetch_replay apps/screamingface-engine/tests`).
-- [ ] **Step 5: Commit** `feat(screamingface-engine): let a replay send chosen Cases' judge calls live`.
+Sending chosen judge calls live during a replay was built here (commits 8e3fe0295, 347585e78) and taken out after review: the Cases it did not name sent today's judge request to the pinned cache and missed after a `max_tokens` raise. It is OME-1979. The Engine's replay path is unchanged by this plan.
 
 ### Task 3: Scoreboard — the re-grade route
 
@@ -119,15 +104,15 @@ def test_no_declaration_serves_an_empty_list() -> None:
 
 **Files:**
 - Create: `packages/screamingface/src/screamingface/_regrade.py`
-- Modify: `packages/screamingface/src/screamingface/client.py` (`Client.regrade`, `AsyncClient.regrade`), `_engine/catalog_contract.py` (`_BenchmarkEntry.regradable_from`), `_evaluation/benchmark.py` (resource decode), `_scoreboard/leaderboards.py` (`_submit_regrade` sync/async, path `f"{_SCORES_PATH}/{source}/regrades"`, payload from `_submission`), `_evaluation/url4.py` / transport only if `X-Replay-Live-Judge` needs a parameter beside `replay_frozen_copy`
+- Modify: `packages/screamingface/src/screamingface/client.py` (`Client.regrade`, `AsyncClient.regrade`), `_engine/catalog_contract.py` (`_BenchmarkEntry.regradable_from`), `_evaluation/benchmark.py` (resource decode), `_scoreboard/leaderboards.py` (`_submit_regrade` sync/async, path `f"{_SCORES_PATH}/{source}/regrades"`, payload from `_submission`)
 - Test: `packages/screamingface/tests/unit/test_regrade.py` (new)
 
 **Interfaces:**
-- Consumes: Task 1's `regradable_from` on the catalogue entry; Task 2's header; Task 3's route.
-- Produces: `Client.regrade(score_id: UUID | str, *, live_judge: Sequence[str] | Literal["all"] | None = None, on_event: Callable[[Event], None] | None = None, progress: bool | None = None) -> LeaderboardScore` and the async twin. Returns the new entry.
-- Steps inside `_regrade.py`, in order: read the published score (`_published_score`); refuse via `_not_reproducible` (no or partial capture); load the current resource at `published.total_questions`; refuse `already_current` when its revision equals the source's, `not_regradable` when the source's revision is not in `regradable_from`; rebuild `_linked(resource.url4, _candidate_text(build(published.url4)))`; run `evaluate_url4_*` with `replay_frozen_copy=published.pinned_cache`, `answer_seed=published.answer_seed`, `capture=False`, the live-judge header; refuse `regrade_incomplete` if any Case carries `frozen_copy_miss`; post with `_submit_regrade`. Never calls `_reproduction._classify` or records a reproduction.
+- Consumes: Task 1's `regradable_from` on the catalogue entry; Task 3's route.
+- Produces: `Client.regrade(score_id: UUID | str, *, on_event: Callable[[Event], None] | None = None, progress: bool | None = None) -> LeaderboardScore` and the async twin. Returns the new entry.
+- Steps inside `_regrade.py`, in order: read the published score (`_published_score`); refuse via `_not_reproducible` (no or partial capture); load the current resource at `published.total_questions`; refuse `already_current` when its revision equals the source's, `not_regradable` when the source's revision is not in `regradable_from`; rebuild `_linked(resource.url4, _candidate_text(build(published.url4)))`; run `evaluate_url4_*` with `replay_frozen_copy=published.pinned_cache`, `answer_seed=published.answer_seed`, `capture=False`; refuse `regrade_incomplete` if any Case carries `frozen_copy_miss` or any other failure a stored reply does not explain; post with `_submit_regrade`. Never calls `_reproduction._classify` or records a reproduction.
 
-- [ ] **Step 1: Write the failing tests** (fake transport and board, as `tests/unit/test_replay*.py` do): `test_regrade_rebuilds_only_the_benchmark_part_of_a_fusion_url4`, `test_regrade_replays_with_the_published_seed_and_pinned_cache_and_never_captures`, `test_regrade_refuses_an_entry_already_on_the_current_revision`, `test_regrade_refuses_a_revision_the_benchmark_does_not_list`, `test_regrade_refuses_a_partial_capture_before_any_run`, `test_one_cache_miss_refuses_the_whole_regrade_and_submits_nothing`, `test_regrade_posts_to_the_regrades_route_of_the_source_score`, `test_live_judge_sends_the_header_only_when_asked`, `test_a_private_score_the_caller_cannot_read_is_refused`.
+- [ ] **Step 1: Write the failing tests** (fake transport and board, as `tests/unit/test_replay*.py` do): `test_regrade_rebuilds_only_the_benchmark_part_of_a_fusion_url4`, `test_regrade_replays_with_the_published_seed_and_pinned_cache_and_never_captures`, `test_regrade_refuses_an_entry_already_on_the_current_revision`, `test_regrade_refuses_a_revision_the_benchmark_does_not_list`, `test_regrade_refuses_a_partial_capture_before_any_run`, `test_one_cache_miss_refuses_the_whole_regrade_and_submits_nothing`, `test_regrade_posts_to_the_regrades_route_of_the_source_score`, `test_a_private_score_the_caller_cannot_read_is_refused`.
 - [ ] **Step 2: Run, expect FAIL** — `cd packages/screamingface && uv run --isolated pytest -q tests/unit/test_regrade.py`.
 - [ ] **Step 3: Implement** `_regrade.py` (sync and async share the checks; the two runners differ only in await), the decode of `regradable_from` (absent → `()`, so an older Engine reads as "nothing regradable"), the board calls, the two public methods.
 - [ ] **Step 4: Run, expect PASS**, plus `tests/unit/test_replay*.py`, the catalogue-contract tests (`git grep -l _benchmark_entry packages/screamingface/tests`), ruff and pyright on touched files.

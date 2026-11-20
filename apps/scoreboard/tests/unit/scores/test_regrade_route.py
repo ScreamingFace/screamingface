@@ -345,6 +345,39 @@ async def test_a_later_revision_may_regrade_the_same_source_again(client: AsyncC
 
 
 @pytest.mark.asyncio
+async def test_a_regrade_that_runs_other_models_than_the_source_is_422(client: AsyncClient) -> None:
+    """A body naming other models is another entry's result, not a re-grade of this one."""
+    # WHY (OME-1909 review): a batch that mixed two results up would credit this researcher with
+    # someone else's recipe and score, and the one-re-grade-per-revision index blocks the fix.
+    source_id: str = await _submit_source(client, models=["openrouter/deepseek/deepseek-v4-pro"])
+
+    mixed: Response = await _post_regrade(client, source_id, models=["openrouter/openai/gpt-6"])
+    same: Response = await _post_regrade(
+        client, source_id, models=["openrouter/deepseek/deepseek-v4-pro"]
+    )
+
+    assert mixed.status_code == 422
+    assert _code(mixed) == "different_models"
+    assert same.status_code == 201, same.text
+
+
+@pytest.mark.asyncio
+async def test_a_regrade_of_a_regraded_row_is_422_naming_the_original(client: AsyncClient) -> None:
+    """Only the root source keeps a pinned cache, so the board refuses a re-grade's re-grade."""
+    source_id: str = await _submit_source(client)
+    first: Response = await _post_regrade(client, source_id)
+    await Benchmark.filter(id="hle").update(revision="rev-3")
+
+    again: Response = await _post_regrade(
+        client, first.json()["id"], benchmark_revision="rev-3", score=0.5
+    )
+
+    assert first.status_code == 201, first.text
+    assert again.status_code == 422
+    assert _code(again) == "regrade_the_source"
+
+
+@pytest.mark.asyncio
 async def test_a_regrade_of_a_different_case_count_is_422(client: AsyncClient) -> None:
     """A body grading another number of Cases than the source is not a re-grade of it."""
     # WHY (OME-1909): the board does not take the posted body on trust. A replay of 3 Cases posted

@@ -278,6 +278,72 @@ def test_one_cache_miss_refuses_the_whole_regrade_and_submits_nothing(stage: str
     assert board.posts == []
 
 
+@pytest.mark.parametrize(
+    ("stage", "code"),
+    [
+        ("grading", "case_execution_failed"),  # the new grader raises on a replayed reply
+        ("grading", "medxpert_grading_failed"),  # a Benchmark grader's own failure
+        ("candidate", "caller_deadline_exceeded"),  # the replay ran out of time
+        ("candidate", "aigateway_transport_error"),  # the replay's call never reached the copy
+    ],
+)
+def test_a_failure_the_pinned_cache_does_not_explain_refuses_the_regrade(
+    stage: str, code: str
+) -> None:
+    # WHY (OME-1909 review): a Case lost to a timeout or a raising grader would lower the score,
+    # and the board keeps one re-grade per source and revision, so that lower score would stay
+    # under the original researcher's name. Retryable: a second try costs nothing.
+    engine = _Staged(stage, cases=((1, None), (2, code), (3, None)))
+    board = _Board(public=_source())
+
+    with _client(engine, _Catalog(regradable_from=[OLD_REVISION]), board) as client:
+        with pytest.raises(ExecutionError) as caught:
+            client.regrade(SCORE_ID, progress=False)
+
+    assert caught.value.code == "regrade_incomplete"
+    assert caught.value.retryable is True
+    assert caught.value.details == {"failed_cases": [2], "run_failed": False}
+    assert board.posts == []
+
+
+def test_a_run_level_failure_refuses_the_regrade_even_with_a_score() -> None:
+    # The review's probe: a run-level failure beside a 0.25 score was posted as 0.25.
+    run_failure: dict[str, Any] = {
+        "stage": "candidate",
+        "code": "caller_deadline_exceeded",
+        "message": "the run ran out of time",
+        "retryable": True,
+        "case_id": None,
+        "metadata": {},
+    }
+    engine = _Replayer(
+        cases=((1, None), (2, None), (3, None)),
+        score=0.25,
+        benchmark_revision=NEW_REVISION,
+        failures=[run_failure],
+    )
+    board = _Board(public=_source())
+
+    with _client(engine, _Catalog(regradable_from=[OLD_REVISION]), board) as client:
+        with pytest.raises(ExecutionError) as caught:
+            client.regrade(SCORE_ID, progress=False)
+
+    assert caught.value.details == {"failed_cases": [], "run_failed": True}
+    assert board.posts == []
+
+
+def test_a_failure_read_from_a_stored_reply_is_the_sources_own_and_is_submitted() -> None:
+    # A refusal is the reply the copy holds: the source run failed Case 2 the same way, so the
+    # re-grade posts it, as the source was scored.
+    engine = _Staged("candidate", cases=((1, None), (2, "provider_refusal"), (3, None)))
+    board = _Board(public=_source())
+
+    with _client(engine, _Catalog(regradable_from=[OLD_REVISION]), board) as client:
+        client.regrade(SCORE_ID, progress=False)
+
+    assert [path for path, _ in board.posts] == [REGRADE_PATH]
+
+
 class _Staged(_Replayer):
     """The replay fake, its failed Cases' failures moved to one stage (`grading`: a judge call)."""
 
@@ -469,16 +535,20 @@ def test_a_second_regrade_of_one_source_names_the_existing_regrade() -> None:
 
 
 @pytest.mark.parametrize(
-    ("status", "code"),
+    ("status", "code", "permanent"),
     [
-        (403, "regrade_unavailable"),
-        (403, "not_allowed"),
-        (409, "not_current_revision"),
-        (409, "already_on_board"),
-        (422, "different_benchmark"),
+        # WHY retryable: each clears when the deployment catches up (the re-grade list deployed,
+        # re-grades switched on, the seed on the new revision), never by changing the entry.
+        (403, "regrade_unavailable", False),
+        (403, "not_allowed", False),
+        (409, "not_current_revision", False),
+        (409, "already_on_board", True),
+        (422, "different_benchmark", True),
     ],
 )
-def test_the_boards_coded_refusals_keep_their_codes(status: int, code: str) -> None:
+def test_the_boards_coded_refusals_keep_their_codes(
+    status: int, code: str, permanent: bool
+) -> None:
     refusal = httpx.Response(status, json={"detail": {"code": code, "message": "refused"}})
     board = _Board(public=_source(), regrade=refusal)
 
@@ -488,7 +558,19 @@ def test_the_boards_coded_refusals_keep_their_codes(status: int, code: str) -> N
 
     assert (caught.value.code, caught.value.status) == (code, status)
     assert caught.value.existing_score_id is None
-    assert caught.value.permanent is True
+    assert caught.value.permanent is permanent
+
+
+def test_a_regrade_with_no_identity_is_retryable() -> None:
+    # A 401 means the caller is not signed in yet; signing in clears it, so a batch retries it.
+    board = _Board(public=_source(), regrade=httpx.Response(401, json={"detail": "no identity"}))
+
+    with _client(_new_revision_replayer(), _Catalog(regradable_from=[OLD_REVISION]), board) as c:
+        with pytest.raises(LeaderboardError) as caught:
+            c.regrade(SCORE_ID, progress=False)
+
+    assert caught.value.status == 401
+    assert caught.value.permanent is False
 
 
 def test_a_visibility_change_mid_regrade_is_retryable() -> None:

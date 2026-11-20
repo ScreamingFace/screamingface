@@ -935,6 +935,24 @@ async def _regrade_source(source_id: UUID, submission: ScoreSubmission) -> Score
             f"a re-grade must grade the source score's {source.total_questions} Cases, "
             f"not {submission.total_questions}",
         )
+    # INVARIANT (OME-1909 review): a re-graded row has no pinned cache, so only its root can be
+    # replayed; the SDK refuses this too, and the board does not rely on the caller.
+    if getattr(source, "regraded_from_id") is not None:
+        raise _regrade_refusal(
+            422, "regrade_the_source", "a re-grade must name the original score, not a re-grade"
+        )
+    # WHY the models: a re-grade replays the source's Candidate unchanged, so its models are the
+    # source's. A body from another entry (a batch that mixed two results up) would credit this
+    # researcher with someone else's recipe and score, and the unique index blocks the fix.
+    # Compared only when both name them: rows from before OME-1180 carry none.
+    if (
+        source.models is not None
+        and submission.models is not None
+        and sorted(source.models) != sorted(submission.models)
+    ):
+        raise _regrade_refusal(
+            422, "different_models", "a re-grade must run the source score's models"
+        )
     return source
 
 
