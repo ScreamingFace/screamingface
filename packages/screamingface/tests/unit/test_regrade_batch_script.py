@@ -110,12 +110,12 @@ class _FakeRegrader:
 
     def __init__(self, answers: dict[str, Exception | None]) -> None:
         self.answers: dict[str, Exception | None] = answers
-        self.calls: list[tuple[str, object]] = []
+        self.calls: list[str] = []
 
-    def regrade(self, score_id: str, *, live_judge: object = None) -> Any:
+    def regrade(self, score_id: str) -> Any:
         """Record the call, then raise the planned error or return a new entry."""
 
-        self.calls.append((score_id, live_judge))
+        self.calls.append(score_id)
         error: Exception | None = self.answers[score_id]
         if error is not None:
             raise error
@@ -176,20 +176,5 @@ def test_each_outcome_is_logged_and_a_second_run_retries_only_the_retryable_one(
     regrader.calls.clear()
     second: dict[str, int] = batch.regrade_all(regrader, entries, log)
 
-    assert [score_id for score_id, _ in regrader.calls] == ["judge-outage"]
+    assert regrader.calls == ["judge-outage"]
     assert second["skipped"] == 3
-
-
-def test_live_judge_cases_go_only_to_the_score_they_name(tmp_path: Path) -> None:
-    # WHY: a live judge call is paid; HLE's re-judge names a few Cases per entry, and every other
-    # entry must replay its judge calls from the copy.
-    regrader = _FakeRegrader({"hle-1": None, "hle-2": None})
-
-    batch.regrade_all(
-        regrader,
-        [_entry("hle-1", "s1"), _entry("hle-2", "s2")],
-        tmp_path / "log.jsonl",
-        live_judge={"hle-1": ["17", "203"]},
-    )
-
-    assert regrader.calls == [("hle-1", ["17", "203"]), ("hle-2", None)]

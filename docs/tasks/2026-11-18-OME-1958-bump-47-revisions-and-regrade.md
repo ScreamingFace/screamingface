@@ -1,13 +1,13 @@
 ---
 id: OME-1958
 linear_url: https://linear.app/openmined/issue/OME-1958/move-the-old-leaderboard-entries-onto-the-new-revisions-once-the-re
-status: done
+status: in_progress
 type: task
 priority: medium
 labels: [scoreboard, human, task]
 parent: OME-1299
 created: 2026-11-18
-closed: 2026-11-18
+closed:
 ---
 
 # Move the old leaderboard entries onto the new revisions once the re-grade is deployed
@@ -18,6 +18,8 @@ the deploy the batch re-grade moves every old entry with a pinned cache onto the
 model cost (`Client.regrade`, OME-1909).
 
 - 2026-11-18: filed as the reminder for the batch; the bump moved here from #1896 (owner).
+- 2026-11-20: the batch script ships here; live judging moved to OME-1979 and HLE keeps its
+  revision (owner), so no HLE re-judge runs in this batch. Open until the batch has run.
 - Pending the owner: merge after #1896 is deployed and right before the batch, then the steps
-  in the Linear issue (seed check, batch re-grade, HLE re-judge after OME-1939, the 8 uncached).
+  in the Linear issue (seed check, one cyse4 entry first, batch re-grade, the uncached entries).
 - Ledger: `docs/work/2026-11-18-bump-47-revisions.md`

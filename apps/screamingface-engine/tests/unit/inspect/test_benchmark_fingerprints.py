@@ -59,6 +59,8 @@ _FINGERPRINTS: dict[str, str] = {
     # OME-1853: Pillow 13 re-encoded every picture of the three picture Benchmarks and pypdf
     # 6.21 re-extracted cyse4's report text, so their Cases and fingerprints moved; each
     # published id HELD by owner ruling 2026-11-09 (no official leaderboard runs on them yet).
+    # OME-1958 then moved all three for OME-1907's grading change; each old id spans both Case
+    # sets, so an entry from before OME-1853 misses its pinned cache and needs a fresh run.
     # mmmu_multiple_choice: published id 5b008891134ef4c1 (fingerprint was the same).
     "mmmu_multiple_choice": "c537e4e84ccb4d32",
     # mathvista: published id ca4cd0f692d18f0e (fingerprint was the same).

@@ -6997,7 +6997,9 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     BenchmarkSpec(
         key="cyse4_threat_intelligence",
         # OME-1958: moved from 92558cfb773e64d2 by OME-1907's grading change (a wrapped letter
-        # such as `ANSWER: $B` is read); its old entries re-grade onto this id.
+        # such as `ANSWER: $B` is read); its old entries re-grade onto this id. The old id also
+        # spans OME-1853's Case change (held 2026-11-09), so an entry from before that change
+        # misses its pinned cache, is refused (`regrade_incomplete`) and needs a fresh run.
         published_revision="80aa663a5187f5bd",
         regradable_from=(
             (
@@ -7414,7 +7416,9 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     BenchmarkSpec(
         key="mmmu_multiple_choice",
         # OME-1958: moved from 5b008891134ef4c1 by OME-1907's grading change (a wrapped letter
-        # such as `ANSWER: $B` is read); its old entries re-grade onto this id.
+        # such as `ANSWER: $B` is read); its old entries re-grade onto this id. The old id also
+        # spans OME-1853's Case change (held 2026-11-09), so an entry from before that change
+        # misses its pinned cache, is refused (`regrade_incomplete`) and needs a fresh run.
         published_revision="c537e4e84ccb4d32",
         regradable_from=(
             (
@@ -7494,7 +7498,9 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     BenchmarkSpec(
         key="mathvista",
         # OME-1958: moved from ca4cd0f692d18f0e by OME-1907's grading change (a wrapped letter
-        # such as `ANSWER: $B` is read); its old entries re-grade onto this id.
+        # such as `ANSWER: $B` is read); its old entries re-grade onto this id. The old id also
+        # spans OME-1853's Case change (held 2026-11-09), so an entry from before that change
+        # misses its pinned cache, is refused (`regrade_incomplete`) and needs a fresh run.
         published_revision="126be76d042c445b",
         regradable_from=(
             (

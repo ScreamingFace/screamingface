@@ -30,8 +30,9 @@ run lists 3 lines; ``--apply`` logs two ``regraded`` lines naming each new score
 ``no_pinned_cache`` line naming the row's spec. Run again: both re-graded ids are settled, so
 nothing is posted twice.
 
-``--live-judge-file`` names, per source score id, the Case ids whose judge calls go live (paid),
-or ``"all"``: ``{"af95…": ["17", "203"]}``. Every other entry replays its judge calls too.
+Every call of a re-grade, Candidate and judge, replays from the pinned cache, so the run makes
+no model call. A Benchmark whose judge request changed misses on every judged Case and is
+refused (``regrade_incomplete``); re-judging is OME-1979.
 
 Exit status: 0 when every entry was re-graded or settled, 1 when any was refused or failed.
 """
@@ -75,7 +76,7 @@ class Entry(NamedTuple):
 class _Regrader(Protocol):
     """The one SDK call the loop needs, so a test can stand in for ``sf.Client``."""
 
-    def regrade(self, score_id: str, *, live_judge: Any = None) -> Any:
+    def regrade(self, score_id: str) -> Any:
         """Re-grade one score and return the new board entry."""
 
 
@@ -147,13 +148,13 @@ def settled_ids(log_path: Path) -> set[str]:
     return settled
 
 
-def _outcome(regrader: _Regrader, entry: Entry, live_judge: object) -> dict[str, object]:
+def _outcome(regrader: _Regrader, entry: Entry) -> dict[str, object]:
     """Re-grade one entry and say what happened, in the log's words; never raises an SDK error."""
 
     from screamingface.errors import ScreamingFaceError
 
     try:
-        new = regrader.regrade(str(entry.score_id), live_judge=live_judge)
+        new = regrader.regrade(str(entry.score_id))
     except ScreamingFaceError as exc:
         return _refusal(exc)
     return {"outcome": "regraded", "new_score_id": str(new.id)}
@@ -181,7 +182,6 @@ def regrade_all(
     entries: Iterable[Entry],
     log_path: Path,
     *,
-    live_judge: Mapping[str, object] | None = None,
     now: Callable[[], datetime] = lambda: datetime.now(UTC),
 ) -> dict[str, int]:
     """Re-grade every entry not yet settled and append one log line each (stages 2-3).
@@ -206,8 +206,7 @@ def regrade_all(
                 counts["skipped"] = counts.get("skipped", 0) + 1
                 continue
             else:
-                judge: object = (live_judge or {}).get(entry.score_id)
-                record.update(_outcome(regrader, entry, judge))
+                record.update(_outcome(regrader, entry))
             outcome: str = str(record["outcome"])
             counts[outcome] = counts.get(outcome, 0) + 1
             log.write(json.dumps(record) + "\n")
@@ -225,7 +224,6 @@ def _arguments(argv: Sequence[str]) -> argparse.Namespace:
         "--benchmark", action="append", default=[], help="a board id; repeat for several"
     )
     parser.add_argument("--log", type=Path, default=Path("regrade-log.jsonl"))
-    parser.add_argument("--live-judge-file", type=Path, default=None)
     parser.add_argument("--scoreboard-url", default=None, help="default: the SDK's")
     return parser.parse_args(argv)
 
@@ -247,12 +245,9 @@ def main(argv: Sequence[str]) -> int:
     )
     if not args.apply:
         return _EXIT_OK
-    live: Mapping[str, object] | None = (
-        json.loads(args.live_judge_file.read_text()) if args.live_judge_file else None
-    )
     if not client.authenticated:
         client.login()
-    counts: dict[str, int] = regrade_all(client, entries, args.log, live_judge=live)
+    counts: dict[str, int] = regrade_all(client, entries, args.log)
     print(json.dumps(counts, sort_keys=True))
     failed: int = sum(n for name, n in counts.items() if name.startswith("refused"))
     return _EXIT_SOME_REFUSED if failed else _EXIT_OK
