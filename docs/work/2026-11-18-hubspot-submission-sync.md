@@ -57,11 +57,15 @@ instead of pairs would move cards on reruns.
 
 ## Planned changes
 
-Phase 1: spec (`docs/spec/2026-11-18-hubspot-submission-sync.md`), then plan, then code.
+Spec `docs/spec/2026-11-18-hubspot-submission-sync.md`; plan
+`docs/plan/2026-11-18-hubspot-submission-sync.md` (files table there). Schema change: table
+`hubspot_sync`, migration `0025_hubspot_sync.py` in the same iteration (S1).
 
 ## Test plan
 
-Written in the spec.
+Spec "Test plan" and plan "Order": rules without DB or network; the adapter against
+`httpx.MockTransport`; the job against SQLite with a fake sink; the migration; both delete
+paths with sync rows present.
 
 ## Acceptance
 
@@ -69,7 +73,33 @@ Written in the spec.
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:**
-- **Commits:**
-- **Gates:**
+- **Actual files (scoreboard PR):**
+  - Model `scores/models/hubspot_sync.py` and migration `0025_hubspot_sync.py` (table only).
+  - `crm/decisions.py` (rules), `crm/port.py`, `crm/hubspot.py` (adapter), `crm/dry_run.py`,
+    `crm/settings.py` (`SCOREBOARD_HUBSPOT_*`, separate from the web `Settings`).
+  - Job `hubspot_sync.py` (`python -m scoreboard.hubspot_sync [--dry-run]`).
+  - Chart `templates/cronjob-hubspot-sync.yaml` and the `hubspotSync` values block (off by
+    default; the SOTA pipeline and stage ids as defaults).
+  - Tests: `tests/unit/crm/` (rules, adapter, settings and entry point),
+    `tests/unit/test_hubspot_sync_job.py`, `tests/unit/test_migration_0025_hubspot_sync.py`:
+    96 tests.
+- **Commits:** the scoreboard commit on branch `hubspot-submission-sync`.
+- **Gates:** `run_gates.py scoreboard` all green: append-only check, ruff, ruff format, pyright,
+  the full pytest suite (2,339 collected) with coverage 92.75%, every portal Node suite. The 94
+  rules, adapter and job tests also pass on a local Postgres 15. `helm template` renders the
+  chart with the CronJob off, on with a Secret, and on without one (no token variable then).
+  No prior test was edited.
 - **Deviations:**
+  - No token now means "count only", and `--dry-run` (with a token) reads HubSpot and logs the
+    writes inside a rolled-back transaction. The spec had "runs dry without a key"; a dry run
+    without reads cannot say what it would change.
+  - A Dropped out card's rows are marked `sent` with reason `dropped_out`, not `skipped`, so they
+    still count if the team brings the card back.
+  - The one-to-one link to `scores` has no reverse relation (`related_name=False`): a prior test
+    asserts every `Score` field reaches a read DTO, and the sync's bookkeeping must not change
+    `Score`.
+  - Settings errors hide their input (`hide_input_in_errors`): pydantic otherwise prints every
+    value, the token included, into a crash log. Found by a test.
+  - The delete paths needed no change: `delete_scores` and `purge_private_benchmark` already
+    count what is left of the scores, and a test proves a delete with sync rows present.
+  - Re-grade rows (#1896) are not excluded yet: `regraded_from_id` is not on `main`.

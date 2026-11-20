@@ -1,0 +1,71 @@
+{{- if .Values.hubspotSync.enabled -}}
+# FEATURE: OME-1504 — sends each outside submitter's progress to the 😱 SOTA pipeline in HubSpot.
+# The scoreboard's `hubspot_sync` table is the queue; this job drains it every few minutes.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "scoreboard.fullname" . }}-hubspot-sync
+  labels:
+    {{- include "scoreboard.labels" . | nindent 4 }}
+    app.kubernetes.io/component: hubspot-sync
+spec:
+  schedule: {{ .Values.hubspotSync.schedule | quote }}
+  # INVARIANT: never two runs at once. One run per person per pass is what keeps a card from
+  # being created twice.
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: {{ .Values.hubspotSync.activeDeadlineSeconds }}
+      ttlSecondsAfterFinished: {{ .Values.hubspotSync.ttlSecondsAfterFinished }}
+      template:
+        metadata:
+          labels:
+            {{- include "scoreboard.selectorLabels" . | nindent 12 }}
+            # The egress NetworkPolicy (infra repo) opens TCP 443 to HubSpot for this label only.
+            app.kubernetes.io/component: hubspot-sync
+        spec:
+          enableServiceLinks: false
+          restartPolicy: Never
+          serviceAccountName: {{ .Values.hubspotSync.serviceAccountName | quote }}
+          {{- with .Values.imagePullSecrets }}
+          imagePullSecrets:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          containers:
+            - name: hubspot-sync
+              image: {{ include "scoreboard.image" . | quote }}
+              imagePullPolicy: {{ .Values.image.pullPolicy }}
+              command: ["python", "-m", "scoreboard.hubspot_sync"]
+              env:
+                - name: SCOREBOARD_DATABASE_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ required "database.existingSecret is required" .Values.database.existingSecret }}
+                      key: {{ .Values.database.existingSecretKey }}
+                {{- with .Values.hubspotSync.existingSecret }}
+                # INVARIANT: the token reaches this container only; the web Deployment never
+                # mounts it. Without the Secret the job sends nothing and only counts.
+                - name: SCOREBOARD_HUBSPOT_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ . | quote }}
+                      key: {{ $.Values.hubspotSync.existingSecretKey | quote }}
+                {{- end }}
+                - name: SCOREBOARD_HUBSPOT_PIPELINE_ID
+                  value: {{ .Values.hubspotSync.pipelineId | quote }}
+                - name: SCOREBOARD_HUBSPOT_EARLY_STAGE_IDS
+                  value: {{ join "," .Values.hubspotSync.earlyStageIds | quote }}
+                - name: SCOREBOARD_HUBSPOT_SUBMISSION_STAGE_IDS
+                  value: {{ join "," .Values.hubspotSync.submissionStageIds | quote }}
+                - name: SCOREBOARD_HUBSPOT_DROPPED_OUT_STAGE_ID
+                  value: {{ .Values.hubspotSync.droppedOutStageId | quote }}
+                - name: SCOREBOARD_HUBSPOT_INTERNAL_EMAILS
+                  value: {{ join "," .Values.hubspotSync.internalEmails | quote }}
+                - name: SCOREBOARD_HUBSPOT_PUBLIC_BASE_URL
+                  value: {{ .Values.hubspotSync.publicBaseUrl | quote }}
+              resources:
+                {{- toYaml .Values.resources | nindent 16 }}
+{{- end }}
