@@ -39,6 +39,10 @@ spec:
               image: {{ include "scoreboard.image" . | quote }}
               imagePullPolicy: {{ .Values.image.pullPolicy }}
               command: ["python", "-m", "scoreboard.hubspot_sync"]
+              {{- if .Values.hubspotSync.dryRun }}
+              # Reads HubSpot and logs every write it would make; sends nothing, changes no row.
+              args: ["--dry-run"]
+              {{- end }}
               env:
                 - name: SCOREBOARD_DATABASE_URL
                   valueFrom:

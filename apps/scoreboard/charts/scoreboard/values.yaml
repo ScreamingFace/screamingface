@@ -155,6 +155,9 @@ seedBenchmarks:
 # Dropped out needs naming (the sync never touches a card there).
 hubspotSync:
   enabled: false
+  # INVARIANT: true by default, so switching the job on sends nothing until someone turns this
+  # off on purpose, after reviewing the dry run's log.
+  dryRun: true
   schedule: "*/5 * * * *"
   serviceAccountName: default
   activeDeadlineSeconds: 900
