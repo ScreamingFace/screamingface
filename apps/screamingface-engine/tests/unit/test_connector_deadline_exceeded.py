@@ -16,7 +16,7 @@ import httpx
 import pytest
 
 from screamingface_engine.request_scope import RequestScope, request_scope
-from screamingface_engine.world import connector as connector_module
+from screamingface_engine.world import gateway_transport
 from url4.core.errors import ResolutionError
 
 pytestmark = pytest.mark.asyncio
@@ -49,14 +49,14 @@ def _client(gateway: _Gateway, timeout: float) -> httpx.AsyncClient:
 
 async def _post(client: httpx.AsyncClient, deadline: float | None) -> tuple[httpx.Response, bool]:
     with request_scope(RequestScope(origin="run", deadline=deadline)):
-        return await connector_module._post_completion(client, headers={}, body={})
+        return await gateway_transport._post_completion(client, headers={}, body={})
 
 
 async def test_an_attempt_that_times_out_at_the_deadline_bound_is_deadline_exceeded(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The attempt's timeout was the time left (1 s < 28 s), so the budget is what ran out."""
-    monkeypatch.setattr(connector_module, "_transport_backoff", lambda _: 0.0)
+    monkeypatch.setattr(gateway_transport, "_transport_backoff", lambda _: 0.0)
     gateway = _Gateway(fail_times=1, error=httpx.ReadTimeout)
     async with _client(gateway, timeout=28.0) as client:
         with pytest.raises(ResolutionError) as caught:
@@ -69,7 +69,7 @@ async def test_an_attempt_that_times_out_at_the_deadline_bound_is_deadline_excee
 async def test_a_retry_skipped_because_the_deadline_is_near_is_deadline_exceeded(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(connector_module, "_transport_backoff", lambda _: 0.5)
+    monkeypatch.setattr(gateway_transport, "_transport_backoff", lambda _: 0.5)
     gateway = _Gateway(fail_times=1, error=httpx.ConnectError)
     async with _client(gateway, timeout=1.0) as client:
         with pytest.raises(ResolutionError) as caught:
@@ -82,7 +82,7 @@ async def test_a_retry_skipped_because_the_deadline_is_near_is_deadline_exceeded
 async def test_a_connect_error_that_leaves_room_retries_and_keeps_the_transport_code(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(connector_module, "_transport_backoff", lambda _: 0.0)
+    monkeypatch.setattr(gateway_transport, "_transport_backoff", lambda _: 0.0)
     gateway = _Gateway(fail_times=2, error=httpx.ConnectError)
     async with _client(gateway, timeout=0.2) as client:
         with pytest.raises(ResolutionError) as caught:
@@ -96,7 +96,7 @@ async def test_no_deadline_keeps_the_transport_code(
     monkeypatch: pytest.MonkeyPatch, error: type[httpx.TransportError]
 ) -> None:
     """The ensemble path binds no deadline: its codes are exactly the ones on `main`."""
-    monkeypatch.setattr(connector_module, "_transport_backoff", lambda _: 0.0)
+    monkeypatch.setattr(gateway_transport, "_transport_backoff", lambda _: 0.0)
     gateway = _Gateway(fail_times=2, error=error)
     async with _client(gateway, timeout=0.2) as client:
         with pytest.raises(ResolutionError) as caught:

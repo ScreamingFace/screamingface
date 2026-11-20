@@ -26,6 +26,7 @@ from screamingface_engine.artifacts.blobs import (
     S3BlobObjects,
     ScopedBlobReader,
 )
+from screamingface_engine.artifacts.chat_inputs import chat_input_store
 from screamingface_engine.artifacts.filesystem import FilesystemArtifactStore
 from screamingface_engine.artifacts.ports import ArtifactWriter
 from screamingface_engine.artifacts.s3 import S3ArtifactStore, S3Config
@@ -126,6 +127,23 @@ def blob_reader_from_env(env: Mapping[str, str]) -> ScopedBlobReader:
     return ScopedBlobReader(blob_store_from_env(env), blob_scope_from_env(env))
 
 
+def chat_input_store_from_values(values: Mapping[str, str]) -> BlobStore:
+    """The chat-input store on the run blob objects: ONE function for the App and the Runner.
+
+    Raises BlobStoreNotConfigured / ValueError as `blob_objects_from_values`.
+    """
+    return chat_input_store(blob_objects_from_values(values))
+
+
+def chat_input_reader_from_env(env: Mapping[str, str]) -> ScopedBlobReader:
+    """The run-scoped reader of the chat-input store (contracts C6).
+
+    Raises:
+        BlobStoreNotConfigured: the run's env names no blob store.
+    """
+    return ScopedBlobReader(chat_input_store_from_values(env), blob_scope_from_env(env))
+
+
 def s3_config_from_values(values: Mapping[str, str]) -> S3Config:
     """Build the ARTIFACT store's `S3Config` from env-named values, or raise naming what is missing.
 
@@ -218,6 +236,8 @@ __all__ = [
     "blob_s3_config_from_values",
     "blob_scope_from_env",
     "blob_store_from_env",
+    "chat_input_reader_from_env",
+    "chat_input_store_from_values",
     "result_writer_from_env",
     "s3_config_from_values",
 ]

@@ -19,7 +19,7 @@ from screamingface_engine.request_scope import RequestScope
 from screamingface_engine.runner_queue import encode_message
 from screamingface_engine.worker.supervisor import cold_child_env
 from screamingface_engine.worker.warm_pool import deploy_env
-from screamingface_engine.world.connector import _headers as world_headers
+from screamingface_engine.world.gateway_transport import _headers as world_headers
 from url4.streaming.interfaces import Executor
 
 _FORGED_IDENTITY = {

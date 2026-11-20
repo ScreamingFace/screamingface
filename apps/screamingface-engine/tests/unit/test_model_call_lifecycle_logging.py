@@ -23,7 +23,7 @@ import httpx
 import pytest
 
 from screamingface_engine.request_scope import RequestScope
-from screamingface_engine.world import connector as connector_module
+from screamingface_engine.world import gateway_transport
 from screamingface_engine.world.config import ModelSpec
 from screamingface_engine.world.connector import AigatewayConfig, _chat_completion_loop
 from screamingface_engine.world.errors import RunnerRequestError
@@ -51,7 +51,7 @@ def _completion(content: str = "4") -> dict:
 
 
 async def _run_loop(monkeypatch: pytest.MonkeyPatch, fetch) -> str:
-    monkeypatch.setattr(connector_module, "_fetch_completion", fetch)
+    monkeypatch.setattr(gateway_transport, "_fetch_completion", fetch)
     # WHY the cast: the loop never touches the client once `_fetch_completion` is stubbed — the
     # client exists only to be forwarded to the stub. F2: the per-request values travel in the
     # scope, so an anonymous scope is exactly the pre-F2 `identity_headers=None`.
@@ -103,7 +103,7 @@ async def test_a_failed_call_logs_the_error_code_before_raising(
 async def test_a_slow_call_heartbeats_until_it_resolves(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
-    monkeypatch.setattr(connector_module, "_IN_FLIGHT_HEARTBEAT_S", 0.05)
+    monkeypatch.setattr(gateway_transport, "_IN_FLIGHT_HEARTBEAT_S", 0.05)
 
     async def fetch(client, *, headers, body, cache):
         await asyncio.sleep(0.18)
@@ -125,7 +125,7 @@ async def test_lifecycle_records_never_carry_prompt_text(
 ) -> None:
     """INVARIANT (OME-990): the runtime log is world-readable operational history — the
     prompt must never reach it through lifecycle lines."""
-    monkeypatch.setattr(connector_module, "_IN_FLIGHT_HEARTBEAT_S", 0.05)
+    monkeypatch.setattr(gateway_transport, "_IN_FLIGHT_HEARTBEAT_S", 0.05)
 
     async def fetch(client, *, headers, body, cache):
         await asyncio.sleep(0.08)
@@ -164,8 +164,8 @@ async def test_heartbeats_back_off_instead_of_spamming(
     """WHY: a 20-minute reasoning marathon at a fixed interval is 20 log lines saying
     the same thing — doubling waits keep a long call to a handful of beats while a
     fixed cadence would flood the log."""
-    monkeypatch.setattr(connector_module, "_IN_FLIGHT_HEARTBEAT_S", 0.04)
-    monkeypatch.setattr(connector_module, "_IN_FLIGHT_HEARTBEAT_MAX_S", 10.0)
+    monkeypatch.setattr(gateway_transport, "_IN_FLIGHT_HEARTBEAT_S", 0.04)
+    monkeypatch.setattr(gateway_transport, "_IN_FLIGHT_HEARTBEAT_MAX_S", 10.0)
 
     async def fetch(client, *, headers, body, cache):
         await asyncio.sleep(0.4)
@@ -205,12 +205,12 @@ async def test_post_completion_reports_no_retry_when_the_first_attempt_succeeds(
     """Regression guard for OME-1203 finding 3: a mutant `attempt >= 0` would mark this call
     retried too, and every cache hit downstream would be withdrawn forever with the suite
     still green. Asserted positionally so swapping the tuple's two elements also fails."""
-    monkeypatch.setattr(connector_module, "_transport_backoff", lambda _: 0)
+    monkeypatch.setattr(gateway_transport, "_transport_backoff", lambda _: 0)
     flaky = _FlakyTransport(fail_times=0)
     async with httpx.AsyncClient(
         transport=httpx.MockTransport(flaky.handler), base_url="http://aigateway.test"
     ) as client:
-        result = await connector_module._post_completion(client, headers={}, body={})
+        result = await gateway_transport._post_completion(client, headers={}, body={})
 
     assert isinstance(result[0], httpx.Response)
     assert result[1] is False
@@ -223,12 +223,12 @@ async def test_post_completion_reports_a_retry_when_the_first_attempt_fails_tran
     """The companion case: a transport failure followed by a success must report `True` —
     the fact `avoided_usd_for_outcome` relies on to withdraw a hit's saved cost. Asserted
     positionally so swapping the tuple's two elements also fails."""
-    monkeypatch.setattr(connector_module, "_transport_backoff", lambda _: 0)
+    monkeypatch.setattr(gateway_transport, "_transport_backoff", lambda _: 0)
     flaky = _FlakyTransport(fail_times=1)
     async with httpx.AsyncClient(
         transport=httpx.MockTransport(flaky.handler), base_url="http://aigateway.test"
     ) as client:
-        result = await connector_module._post_completion(client, headers={}, body={})
+        result = await gateway_transport._post_completion(client, headers={}, body={})
 
     assert isinstance(result[0], httpx.Response)
     assert result[1] is True

@@ -16,7 +16,7 @@ Two tools, with different jobs:
 - :data:`ENGINE_ERROR_CODES` is the closed set of error codes the engine RESERVES to itself.
   A boundary may treat one of these as evidence that url4 core or the engine's own control plane
   authored the accompanying message — and, precisely because a boundary may, no code lifted off
-  an upstream response is allowed to be one of them (`world/connector.py::_raise_for_status`
+  an upstream response is allowed to be one of them (`world/gateway_transport.py::_raise_for_status`
   enforces that end).
 """
 
@@ -40,7 +40,7 @@ __all__ = [
 # INVARIANT: membership requires auditing every raise site of the code AND every class carrying
 # it as a default. A CODE IS NOT AN AUTHOR — see the two ways that premise broke below. Adding a
 # code also forbids an upstream from ever reporting it
-# (`runner/connector.py::_raise_for_status` enforces that end).
+# (`world/gateway_transport.py::_raise_for_status` enforces that end).
 #
 # Audited 2026-09-17 (OME-941 round 3). REMOVED, each with the raise site that disproved it:
 #
@@ -75,13 +75,13 @@ ENGINE_ERROR_CODES: frozenset[str] = frozenset(
         # ResultTooLarge, raised by benchmarks/grading_endpoints.py::deliver_result. Both use
         # artifacts/delivery.py::result_too_large_message — two byte counts, no values.
         "result_too_large",
-        # world/connector.py::_replay_refusal, world/web_tools.py::FrozenToolResults.lookup
+        # world/gateway_transport.py::_replay_refusal, world/web_tools.py::FrozenToolResults.lookup
         # (OME-1307) — a replay the frozen copy cannot answer. Each raise site uses a fixed message
         # and interpolates nothing, and `_raise_for_status` never lifts the text of the upstream
         # response that triggered it.
         "frozen_copy_miss",
         "frozen_copy_unavailable",
-        # world/connector.py::_raise_for_status via
+        # world/gateway_transport.py::_raise_for_status via
         # benchmarks/failure_classes.py::logprobs_unsupported (E4b part 3) — a member call refused
         # for its logprobs. One fixed message, nothing interpolated, never the upstream text.
         "logprobs_unsupported",
@@ -94,6 +94,12 @@ ENGINE_ERROR_CODES: frozenset[str] = frozenset(
         # world/branch.py DECIDE via benchmarks/failure_classes.py::signal_missing (E4c) — a
         # recipe-otherwise Gate read a missing number. One fixed message plus the gate id.
         "signal_missing",
+        # world/chat_turn.py (chat_input_unavailable, chat_input_invalid) and world/chat_final.py
+        # (final_step_ambiguous, unit U6) of POST /v1/chat/completions — each raise site uses a
+        # fixed message and interpolates no value, never the input or a provider text.
+        "chat_input_unavailable",
+        "chat_input_invalid",
+        "final_step_ambiguous",
     }
 )
 
@@ -111,7 +117,7 @@ constants by ``test_the_control_plane_set_is_exactly_the_supervisors_own_constan
 
 ENGINE_RESERVED_CODES: frozenset[str] = ENGINE_ERROR_CODES | CONTROL_PLANE_TERMINAL_CODES
 """Every code a public boundary reads as engine-authored. No upstream may mint one of these
-(``world/connector.py::_raise_for_status``), or it could borrow the engine's voice."""
+(``world/gateway_transport.py::_raise_for_status``), or it could borrow the engine's voice."""
 
 PUBLIC_UNVOUCHED_CODES: frozenset[str] = frozenset({"intent_error"})
 """Codes a public boundary reports AS THEMSELVES while withholding their message.

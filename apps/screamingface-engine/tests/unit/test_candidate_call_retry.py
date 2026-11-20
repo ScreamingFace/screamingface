@@ -30,7 +30,7 @@ from screamingface_engine.candidate_scope import candidate_invocation_scope
 from screamingface_engine.capture_outcomes import CALL_OCCURRENCE_HEADER, REPLAY_FIELD
 from screamingface_engine.request_scope import RequestScope, request_scope
 from screamingface_engine.world import candidate_call_retry as policy
-from screamingface_engine.world import connector
+from screamingface_engine.world import gateway_transport
 from url4.core.errors import ResolutionError
 from url4.streaming.protocol import CachePolicy
 
@@ -45,7 +45,7 @@ def _waits(monkeypatch: pytest.MonkeyPatch) -> list[float]:
     async def record(_attempt: int, delay: float) -> None:
         waits.append(delay)
 
-    monkeypatch.setattr(connector, "_wait_to_retry", record)
+    monkeypatch.setattr(gateway_transport, "_wait_to_retry", record)
     monkeypatch.setattr(policy, "_jitter", lambda _low, _high: 0.0)
     return waits
 
@@ -170,7 +170,7 @@ async def test_a_retry_that_does_not_fit_the_deadline_is_not_started(
     monkeypatch: pytest.MonkeyPatch, _waits: list[float]
 ) -> None:
     clock: list[float] = [100.0]
-    monkeypatch.setattr(connector.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(gateway_transport.time, "monotonic", lambda: clock[0])
     gateway = Gateway([_busy(), chat()])
 
     # 8 s left: the 10 s wait alone outlasts it.
@@ -191,7 +191,7 @@ async def test_a_retry_after_a_5xx_is_marked_possibly_billed(first: int, billed:
     gateway = Gateway([error(first, "blip"), chat()])
     async with gateway.client() as client:
         with request_scope(_RUN), candidate_invocation_scope():
-            _resp, outcome = await connector._fetch_completion(
+            _resp, outcome = await gateway_transport._fetch_completion(
                 client, headers={}, body={"model": "m"}, cache=CachePolicy()
             )
     assert outcome.retried is billed
@@ -258,7 +258,7 @@ async def test_a_queue_refusal_retry_is_not_marked_possibly_billed() -> None:
     gateway = Gateway([refusal, refusal, chat()])
     async with gateway.client() as client:
         with request_scope(_RUN), candidate_invocation_scope():
-            resp, outcome = await connector._fetch_completion(
+            resp, outcome = await gateway_transport._fetch_completion(
                 client, headers={}, body={"model": "m"}, cache=CachePolicy()
             )
     assert resp.status_code == 200
@@ -274,12 +274,12 @@ async def test_a_late_wakeup_does_not_start_a_try_cut_short_by_the_deadline(
     # left, the 10 s wait plus a 6 s try fits; the wakeup comes 2 s late, leaving 5 s, which no
     # longer holds a full try, so none starts (a cut-short try is billed and useless).
     clock: list[float] = [100.0]
-    monkeypatch.setattr(connector.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(gateway_transport.time, "monotonic", lambda: clock[0])
 
     async def late(_attempt: int, delay: float) -> None:
         clock[0] += delay + 2.0
 
-    monkeypatch.setattr(connector, "_wait_to_retry", late)
+    monkeypatch.setattr(gateway_transport, "_wait_to_retry", late)
     gateway = Gateway([_busy(), chat()])
     headers: dict[str, str] = {"x-aigw-execution-timeout-s": "0.4", "x-aigw-queue-timeout-s": "0.6"}
     async with gateway.client() as client:
@@ -288,7 +288,7 @@ async def test_a_late_wakeup_does_not_start_a_try_cut_short_by_the_deadline(
             candidate_invocation_scope(),
             pytest.raises(ResolutionError) as failure,
         ):
-            await connector._fetch_completion(
+            await gateway_transport._fetch_completion(
                 client, headers=headers, body={"model": "m"}, cache=CachePolicy()
             )
 

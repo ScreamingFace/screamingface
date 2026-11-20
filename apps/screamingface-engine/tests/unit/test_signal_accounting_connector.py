@@ -248,7 +248,7 @@ async def test_unexpected_signal_accounting_failure_does_not_fail_a_successful_a
         raise ValueError("private accounting payload")
 
     monkeypatch.setattr(
-        "screamingface_engine.world.connector.signal_accounting_from_aigw", fail_accounting
+        "screamingface_engine.world.gateway_transport.signal_accounting_from_aigw", fail_accounting
     )
     world, client = await _world([("miss", _miss_body())])
     try:

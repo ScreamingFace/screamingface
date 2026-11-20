@@ -45,6 +45,7 @@ export const sfClientNavigation: NavEntry[] = [
       { title: "Use the community's cache", path: '/sf-client/guides/community-cache' },
       { title: 'Publish to the leaderboard', path: '/sf-client/guides/leaderboards' },
       { title: 'Reproduce & share', path: '/sf-client/guides/reproduce-and-share' },
+      { title: 'Use an OpenAI client', path: '/sf-client/guides/openai-api' },
       { title: 'Manage the Client', path: '/sf-client/guides/clients' },
     ],
   },

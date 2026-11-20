@@ -22,7 +22,7 @@ import pytest
 
 from screamingface_engine.benchmarks.aggregation import public_error
 from screamingface_engine.error_text import public_message
-from screamingface_engine.world.connector import _raise_for_status
+from screamingface_engine.world.gateway_transport import _raise_for_status
 from url4.core.errors import ResolutionError
 
 _REPO_ROOT = Path(__file__).resolve().parents[4]

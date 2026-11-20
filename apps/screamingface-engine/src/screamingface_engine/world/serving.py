@@ -49,7 +49,7 @@ from screamingface_engine.world.config import (
     WorldFile,
     read_world_file,
 )
-from screamingface_engine.world.factory import World, build_world
+from screamingface_engine.world.factory import World, build_world, direct_mount_paths
 from screamingface_engine.world.publication import private_mount_paths
 from screamingface_engine.world.wire import AsgiApp
 from url4.core.errors import ErrorCode
@@ -163,6 +163,20 @@ def mount_descriptors(
     )
 
 
+def direct_mount_descriptors(
+    node: Any, *, private_paths: Collection[str] = frozenset()
+) -> tuple[MountDescriptor, ...]:
+    """The mounts of ``node`` that are direct mounts (`world.factory.direct_mount_paths`).
+
+    The App and the local stack publish the same mounts through this one filter, so an internal
+    route (CR-S19) is never public.
+    """
+    direct = direct_mount_paths(node)
+    return tuple(
+        m for m in mount_descriptors(node, private_paths=private_paths) if m.path in direct
+    )
+
+
 async def derive_mount_table(
     *,
     env: Mapping[str, str],
@@ -190,7 +204,7 @@ async def derive_mount_table(
         env=env, engine_routes=engine_routes, config=world.config
     )
     try:
-        mounts = mount_descriptors(io, private_paths=private_mount_paths(world.config))
+        mounts = direct_mount_descriptors(io, private_paths=private_mount_paths(world.config))
     finally:
         if aclose is not None:
             await aclose()
@@ -487,6 +501,7 @@ __all__ = [
     "MountDescriptor",
     "MountTable",
     "derive_mount_table",
+    "direct_mount_descriptors",
     "mount_descriptors",
     "mount_http_status",
     "NodeMountRoute",

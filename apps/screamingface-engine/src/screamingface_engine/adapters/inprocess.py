@@ -282,6 +282,7 @@ class InProcessJobRunner(IdentityAwareJobRunner):
         shape: job_env.RunShape = "expression",
         capture: bool = False,
         replay_frozen_copy: str | None = None,
+        chat_input: str | None = None,
     ) -> dict[str, str]:
         """The environment this run's `Executor` is built from.
 
@@ -335,9 +336,9 @@ class InProcessJobRunner(IdentityAwareJobRunner):
         env.pop(job_env.IO_CONCURRENCY, None)
         # Same reset: the shape is THIS run's, never an ambient value (uniform executor PRD 04).
         env.pop(job_env.RUN_SHAPE, None)
+        env.pop(job_env.CHAT_INPUT, None)
         env[job_env.SPEC_VERSION] = job_env.CURRENT_SPEC_VERSION
-        if shape == "direct":
-            env[job_env.RUN_SHAPE] = "direct"
+        env.update(job_env.shape_env(shape, chat_input))
         return env
 
     # --- the JobRunner port -----------------------------------------------------------------
@@ -355,6 +356,7 @@ class InProcessJobRunner(IdentityAwareJobRunner):
         answer_seed: int | None = None,
         client_version: str | None = None,
         shape: job_env.RunShape = "expression",
+        chat_input: str | None = None,
         capture: bool = False,
         replay_frozen_copy: str | None = None,
         enqueued_at: datetime | None = None,
@@ -392,6 +394,7 @@ class InProcessJobRunner(IdentityAwareJobRunner):
                 shape=shape,
                 capture=capture,
                 replay_frozen_copy=replay_frozen_copy,
+                chat_input=chat_input,
             )
             return self._factory(env)
 

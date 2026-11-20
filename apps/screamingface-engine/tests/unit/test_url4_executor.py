@@ -659,6 +659,12 @@ _ALLOWED_RUNNER_IMPORTERS = frozenset(
         # delegation is exactly why the engine imports url4 here rather than parsing again.
         Path("screamingface_engine/world/config.py"),
         Path("screamingface_engine/world/connector.py"),
+        # The gateway round trip moved out of `connector.py` with its url4 imports (errors and
+        # observation sinks). It is the same world adapter code (owner-approved edit, 2026-11-17).
+        Path("screamingface_engine/world/gateway_transport.py"),
+        # WHY: the chat recipe check reads the structure of a recipe and renders the re-pointed
+        # copy of its final model steps (owner-approved edit, 2026-11-17).
+        Path("screamingface_engine/chat/recipe.py"),
         Path("screamingface_engine/world/factory.py"),
         Path("screamingface_engine/world/candidate_adapter.py"),
         # FX-56 (04-review-fixes.md B3): the F4 collision guard now checks `isinstance(io,
@@ -674,6 +680,14 @@ _ALLOWED_RUNNER_IMPORTERS = frozenset(
         # OME-1291 E4c: the branch route adapter registers /ensemble/branch/v1 and
         # /ensemble/select/v1 on the node, the same way as the combine adapter.
         Path("screamingface_engine/world/branch.py"),
+        # The chat turn route adapter registers /ensemble/chat/v1/turn on the node and dispatches
+        # it as one observed node, the same way as the combine and branch adapters
+        # (owner-approved edit, 2026-11-17).
+        Path("screamingface_engine/world/chat_turn.py"),
+        # The chat final-step adapter registers /ensemble/chat/v1/final/<route id> for each
+        # declared model and sends the one final request through the shared round trip
+        # (owner-approved edit, 2026-11-17).
+        Path("screamingface_engine/world/chat_final.py"),
     }
 )
 

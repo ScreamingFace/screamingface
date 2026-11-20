@@ -43,6 +43,11 @@ class BoundedBlobObjects(BlobObjects, Protocol):
     WHY a second protocol rather than widening `BlobObjects`: `BlobObjects` is the public port a
     backend may implement with put/get alone; `BlobStore` adapts such a backend
     (`UnboundedObjects`) instead of refusing it.
+
+    INVARIANT: `delete` is part of this protocol (chat-run owner decision Q2). A backend that has
+    `get_at_most` and `create` but no `delete` does not match it, so `BlobStore` wraps it in
+    `UnboundedObjects` and it loses its atomic create and its read cap with no error. A new bounded
+    backend must implement all three.
     """
 
     def get_at_most(self, key: str, max_bytes: int) -> bytes | None:
@@ -51,6 +56,10 @@ class BoundedBlobObjects(BlobObjects, Protocol):
 
     def create(self, key: str, data: bytes) -> bool:
         """Write `key` only if absent; True when THIS call created it."""
+        ...
+
+    def delete(self, key: str) -> None:
+        """Remove the object; an absent object is not an error."""
         ...
 
 
@@ -86,6 +95,15 @@ class UnboundedObjects:
         self._inner.put(key, data)
         return True
 
+    def delete(self, key: str) -> None:
+        """Forwards to the inner backend when it has a delete; else does nothing.
+
+        WHY nothing: the TTL sweep stays the safety net for a backend that cannot delete.
+        """
+        delete = getattr(self._inner, "delete", None)
+        if callable(delete):
+            delete(key)
+
 
 def _too_large(key: str, max_bytes: int) -> BlobCorrupted:
     return BlobCorrupted(key.rsplit("/", 1)[-1], f"object exceeds the {max_bytes}-byte read cap")
@@ -120,6 +138,10 @@ class FilesystemBlobObjects:
         if len(data) > max_bytes:
             raise _too_large(key, max_bytes)
         return data
+
+    def delete(self, key: str) -> None:
+        """Remove the object; an absent object is not an error."""
+        (self._root / key).unlink(missing_ok=True)
 
     def create(self, key: str, data: bytes) -> bool:
         """Create `key` exclusively; False when it already exists (item 5).
@@ -180,6 +202,9 @@ class S3BlobObjects:
             return self._store.get_object_at_most(key, max_bytes)
         except S3ObjectTooLarge:
             raise _too_large(key, max_bytes) from None
+
+    def delete(self, key: str) -> None:
+        self._store.delete_object(key)
 
     def create(self, key: str, data: bytes) -> bool:
         # AIDEV-NOTE: atomic on a conforming S3; Garage ignores the condition (see

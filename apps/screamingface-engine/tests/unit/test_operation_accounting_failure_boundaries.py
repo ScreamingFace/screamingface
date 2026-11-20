@@ -194,7 +194,7 @@ async def test_unexpected_accounting_failure_does_not_fail_a_successful_answer(
         raise ValueError("private accounting payload")
 
     monkeypatch.setattr(
-        "screamingface_engine.world.connector.retained_operation_accounting",
+        "screamingface_engine.world.gateway_transport.retained_operation_accounting",
         fail_accounting,
     )
     with caplog.at_level(logging.WARNING):
@@ -234,7 +234,7 @@ async def test_one_unavailable_tool_round_poisons_the_complete_operation_account
         )
 
     monkeypatch.setattr(
-        "screamingface_engine.world.connector.retained_operation_accounting",
+        "screamingface_engine.world.gateway_transport.retained_operation_accounting",
         fail_first_round,
     )
 

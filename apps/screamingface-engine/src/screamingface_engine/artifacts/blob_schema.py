@@ -13,10 +13,12 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Literal
 
 BLOB_REF_PREFIX = "blob:sha256/"
+SHA256_DIGEST_PREFIX = "sha256:"
 SOURCE_NOT_FOUND = "source_not_found"
 BLOB_DIGEST_MISMATCH = "x.blob_digest_mismatch"
 # AIDEV-NOTE: the two codes below are new `x.*` url4 wire codes (owner decision 2026-10-28,
@@ -157,6 +159,13 @@ class StoredBlob:
         return f"{BLOB_REF_PREFIX}{self.sha256}"
 
 
+def blob_ref_digest(ref: str) -> str | None:
+    """The `sha256:<hex>` digest of a `blob:sha256/<hex>` ref; None when `ref` is not a blob ref."""
+    if not ref.startswith(BLOB_REF_PREFIX):
+        return None
+    return SHA256_DIGEST_PREFIX + ref.removeprefix(BLOB_REF_PREFIX)
+
+
 @dataclass(frozen=True)
 class BlobPolicy:
     """What the store accepts. Both limits are `Settings`-configurable on the App."""
@@ -167,6 +176,9 @@ class BlobPolicy:
     # ingest path (uploads, and OME-1543's write-through); the Runner only reads. A store built
     # bare keeps the original label-trusting behaviour its first tests pinned.
     verify_signature: bool = False
+    # WHY a check on the parsed body: a media type with no reliable signature (the chat-input
+    # record) is checked by parsing its body at ingest instead. Ingest only: reads never run it.
+    content_check: Callable[[bytes], bool] | None = None
 
 
 def encode_sidecar(blob: StoredBlob) -> bytes:

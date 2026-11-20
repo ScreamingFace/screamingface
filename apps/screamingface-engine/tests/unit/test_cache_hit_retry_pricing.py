@@ -130,8 +130,12 @@ async def _run(
     ) as client:
         world = await build_aigateway_world(cfg, client=client)
         with (
-            mock.patch("screamingface_engine.world.connector._TRANSPORT_BACKOFF_BASE_S", 0.0),
-            mock.patch("screamingface_engine.world.connector._TRANSPORT_BACKOFF_JITTER_S", 0.0),
+            mock.patch(
+                "screamingface_engine.world.gateway_transport._TRANSPORT_BACKOFF_BASE_S", 0.0
+            ),
+            mock.patch(
+                "screamingface_engine.world.gateway_transport._TRANSPORT_BACKOFF_JITTER_S", 0.0
+            ),
         ):
             return await url4_run(f"/{_MODEL}(ctx)!go", io=world.node, observer=rec)
 

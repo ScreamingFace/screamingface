@@ -18,7 +18,10 @@ being built out per section.
 - **Lint**: `npm run lint` (oxlint + eslint, auto-fix)
 - **Format**: `npm run format` (Prettier, `src/`)
 
-There is no automated test setup in this project.
+The site has no test runner of its own. Two Engine tests read this site:
+`apps/screamingface-engine/tests/unit/test_chat_docs_page.py` reads
+`src/pages/sf-client/guides/OpenAiApiPage.vue`, and the docs example tests of the Engine run the
+files in `src/snippets/openai-chat/`. When you change these files, run those Engine tests.
 
 ## Stack
 
@@ -42,6 +45,7 @@ There is no automated test setup in this project.
 - `src/stores/` — Pinia stores for shared reactive state: `theme` (`isDark` state, `theme` getter, dark/light + localStorage persistence) and `codeLang` (shared code-tab language across `TabbedCodeBlock`s)
 - `src/lib/` — framework-agnostic helpers: `utils.ts` (`cn` class merge), `notebook.ts` (nbformat types + pure helpers for `NotebookViewer`) and `analytics.ts` (`track` wrapper over the Plausible snippet in `index.html`; no-op when the script is absent)
 - `src/pages/` — route components; `src/router/index.ts` — routes
+- `src/snippets/` — code samples that a page imports as raw text (`?raw`); Engine tests run the files in `src/snippets/openai-chat/`, so keep them runnable as they are
 - `src/navigation/` — one data file per documentation section (drives the sidebar + prev/next)
 - `src/style.css` — Tailwind import + light/dark theme tokens + prose styling (includes `@tailwindcss/typography` with prose variables mapped to the theme tokens)
 
@@ -66,6 +70,7 @@ There is no automated test setup in this project.
 | `/sf-client/guides/managing-experiments`  | `src/pages/sf-client/guides/ExperimentsPage.vue`  |
 | `/sf-client/guides/leaderboards`          | `src/pages/sf-client/guides/LeaderboardsPage.vue` |
 | `/sf-client/guides/reproduce-and-share`   | `src/pages/sf-client/guides/Url4Page.vue`         |
+| `/sf-client/guides/openai-api`            | `src/pages/sf-client/guides/OpenAiApiPage.vue`    |
 | `/sf-client/api/recipes`                  | `src/pages/sf-client/api/RecipesPage.vue`         |
 | `/sf-client/api/models`                   | `src/pages/sf-client/api/ModelsCatalogPage.vue`   |
 | `/sf-client/api/benchmarks`               | `src/pages/sf-client/api/BenchmarksPage.vue`      |

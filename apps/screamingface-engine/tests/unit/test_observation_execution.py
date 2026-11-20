@@ -18,7 +18,7 @@ import asyncio
 import importlib.util
 import logging
 import httpx
-from screamingface_engine.world import connector
+from screamingface_engine.world import connector, gateway_transport
 from screamingface_engine.runner.main import build_executor
 from screamingface_engine.local import create_local_app
 from screamingface_engine.observations import ModelCall
@@ -32,7 +32,7 @@ class Capture(logging.Handler):
         messages.append(record.getMessage())
 connector.logger.addHandler(Capture())
 connector.logger.setLevel(logging.INFO)
-connector._transport_backoff = lambda attempt: 0.0
+gateway_transport._transport_backoff = lambda attempt: 0.0
 
 def response():
     return httpx.Response(200, json={
@@ -43,7 +43,7 @@ def response():
 
 async def call(client):
     accounting = []
-    choice = await connector._logged_round_trip(
+    choice = await gateway_transport.round_trip(
         client, real_model_id='model', headers={}, body={}, cache=CachePolicy(),
         max_tokens=None, operation_accounting=accounting,
     )

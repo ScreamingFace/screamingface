@@ -30,7 +30,7 @@ from screamingface_engine.auth import JwtCodec
 from screamingface_engine.config import Settings
 from screamingface_engine.error_text import CONTROL_PLANE_TERMINAL_CODES, ENGINE_ERROR_CODES
 from screamingface_engine.testing import InMemoryEventStream
-from screamingface_engine.world.connector import _raise_for_status
+from screamingface_engine.world.gateway_transport import _raise_for_status
 from url4.core.errors import CollectionError, RenderError, ResolutionError
 from url4.streaming.lifecycle import _error_info
 from url4.streaming.protocol import ErrorInfo, TerminatedData, TerminatedEvent
@@ -345,6 +345,9 @@ ALLOWLISTED_CODES = (
     "fail_closed",
     "quorum_not_met",
     "signal_missing",
+    "chat_input_unavailable",
+    "chat_input_invalid",
+    "final_step_ambiguous",
 )
 
 
