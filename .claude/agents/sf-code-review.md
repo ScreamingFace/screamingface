@@ -543,6 +543,28 @@ uncapped bill.
   you get one answer back eight times and a fake 8–0 "consensus". `samples()` must
   vary seed/temperature/prompt per copy; `[solver] * 8` is the version of this bug
   that is impossible to see in a score, which is why the helper exists.
+- **A changed request byte is a cache miss, and a miss is a paid call.** Two stores
+  answer a call from what they hold, and both key on the request itself:
+  - the gateway's response cache keys on request content plus its revision constants
+    (Lane 3's cache-key bullet);
+  - the **pinned cache** (the frozen copy a published run is replayed from) keys each entry
+    on `request_digest` in `apps/aigateway/src/aigateway/core/frozen_copy/store.py`: the
+    canonical JSON of the entry kind, the WHOLE request body and the Attempt number. The
+    Engine looks it up per Case key and call number.
+
+  So any diff that changes a field inside a request (`max_tokens`, temperature, reasoning
+  effort, a prompt word, message order, a seed, a model id) makes every stored entry for
+  that call miss. On a normal run the miss is silent: each call is bought again. On a
+  replay or a re-grade the miss refuses the run. Ask the author three things: which inputs
+  the key hashes (read the key builder, not the diff), which of them this diff changes, and
+  either that the change is meant (a revision move with its re-run or re-grade cost stated)
+  or proof that the bytes are unchanged (the old golden replayed through the real
+  transport). Worked example, #1896 (OME-1909), found in review: a partial re-judge sent
+  TODAY's judge request for the Cases it did not name, with `max_tokens` raised from 8,192
+  to 131,072, to a copy captured at 8,192, so every unnamed Case missed and the whole
+  re-grade was refused. The tests had not seen it because their fake gateway answered every
+  lookup as a hit. A test of any cache or replay path needs a fake that matches by request
+  contents (Lane 7).
 - **Unbounded growth.** `asyncio.gather` over a caller-sized collection fans out
   without limit (the OME-906 event-bridge incident); buffers bounded in *items* when
   the risk is *bytes*; dicts keyed by user-supplied IDs with no eviction; caches with
