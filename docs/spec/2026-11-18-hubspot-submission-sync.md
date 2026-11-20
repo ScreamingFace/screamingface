@@ -90,10 +90,17 @@ For one submitter:
 - **Forward only:** a card in Onboarding, Engaged or an earlier Submission stage moves to the
   target if the target is later. A card in Project completed, Publication or Dropped out is
   never moved (those are set by hand).
-- **SOTA flag (rule pending Irina, Open question 4a):** when a submission meets the SOTA rule,
-  set `sf_sota_achieved` = true and `sf_sota_entry` to its public page. Set once, never
-  cleared, never moved to a later entry. Only a `candidate_kind` of `fusion` can qualify
-  (Irina, 2026-11-19). Until the rule is fixed, the job does not write these two fields.
+- **SOTA flag (rule B, Filip, 2026-11-20, "for starters"):** a submission qualifies when
+  1. its `candidate_kind` is `fusion` (Irina, 2026-11-19: only a fusion, not a solo model);
+  2. the board, at its registered revision, has at least one solo reference: an entry whose
+     `candidate_kind` is `model`, or an imported single-model baseline;
+  3. its score is strictly higher than every solo reference on that board.
+
+  Checked once, when the job first processes the submission, and recorded in the sync row.
+  On the first qualifying submission, set `sf_sota_achieved` = true and `sf_sota_entry` to
+  its public page. Set once, never cleared, never moved to a later entry. A row without
+  `candidate_kind` is neither a fusion nor a solo reference. Rejected alternatives: top
+  score alone (trivial on empty boards), the Pareto frontier (7 of 8 people on 2026-11-19).
 - **😱 Last Active Date (contact):** the time of the newest eligible submission, written
   only when later than the stored value.
 - **😱 Leaderboard entry:** the public page of the newest eligible submission,
@@ -255,8 +262,10 @@ deleted after (Bennett's rule).
    holds a top score against other submitters. Irina (2026-11-19): SOTA is not a stage but a
    flag, reached at least once, and only with a fusion, not a solo model; she is still
    working out which results deserve it. Bennett replaced the stage with the two fields the
-   same day. Still open: the rule itself, and whether a fusion of one model repeated counts
-   (it is `candidate_kind` `fusion` by the Client's definition). The CSV sent to Irina is not
-   kept in the repo (it lists emails).
+   same day. Decided (Filip, 2026-11-20): rule B, a fusion that beats every solo model on its
+   board (What the card shows). A fusion of one model repeated counts only if it beats that
+   model run solo, so it needs no special case. To check before going live: how many prod
+   rows carry `candidate_kind`; without it a board has no recognisable solo reference and
+   gives no flag. The CSV sent to Irina is not kept in the repo (it lists emails).
 5. **Integration source check:** confirm HubSpot's property history marks writes by this
    private app distinctly from UI edits, on the dummy record.
