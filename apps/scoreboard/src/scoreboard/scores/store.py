@@ -1996,7 +1996,7 @@ class ScoreStore:
 
         FEATURE: OME-1909 — a re-grade is a NEW row, not an edit of the source. The result
         (score, revision, client) is the replay's; everything that says WHO is the source's, and so
-        is the cost.
+        are the cost and the submission time.
 
         WHY the cost is the source's: a replay serves every Candidate answer from the pinned
         cache, so it reports an unpriced `partial` with no amount. Stored as is, every re-graded
@@ -2011,8 +2011,11 @@ class ScoreStore:
            resolved the way a submission's is, so one named only in `metadata` counts.
         1. Build the row from the replay with the normal submission mapping, then overwrite the
            credit with the source's (`submitted_by`, `authors`, their metadata, the paper link),
-           `verified_by_screamingface` with the source's flag, and the four cost fields with the
-           source's.
+           `verified_by_screamingface` with the source's flag, the four cost fields and
+           `submitted_at` with the source's (owner, 2026-11-20). WHY the time: tied specs rank by
+           the earlier claim, and the frontier trend is built by date, so a row dated the re-grade
+           day would rank 130 old entries in batch order and put them all on one day. Within one
+           spec the newest submission still wins, so a fresh run at the new revision replaces it.
         2. Clear the frozen copy, its capture status and its case digest. The copy belongs to the
            source (one copy, one score, OME-1596), and the digest is only ever set with a status.
         3. Insert under the board's lock, re-checked public (`_insert_regrade`).
@@ -2047,6 +2050,7 @@ class ScoreStore:
             "run_cost_status": source.run_cost_status,
             "cache_saved_cost_usd": source.cache_saved_cost_usd,
             "cache_saved_cost_archive_usd": source.cache_saved_cost_archive_usd,
+            "submitted_at": source.submitted_at,
             # Stage 2 — the source's frozen copy stays the source's.
             "frozen_copy_id": None,
             "capture_status": None,

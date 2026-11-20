@@ -621,6 +621,13 @@ def _error_details(response: httpx.Response) -> object:
     return payload
 
 
+_UNAUTHORIZED: int = 401
+#: Re-grade refusals that clear when the deployment catches up, never by changing the entry.
+_ENVIRONMENT_REFUSALS: frozenset[str] = frozenset(
+    {"not_allowed", "regrade_unavailable", "not_current_revision"}
+)
+
+
 def _regrade_refusal(response: httpx.Response, scoreboard_url: str) -> LeaderboardError:
     """The board's refusal of a re-grade, under the board's own code when it names one (OME-1909).
 
@@ -628,8 +635,13 @@ def _regrade_refusal(response: httpx.Response, scoreboard_url: str) -> Leaderboa
     `not_allowed`; 409 `not_current_revision`, `already_regraded` or `already_on_board`), and a
     batch of re-grades must tell them apart by code, never by message text. A refusal with no code
     (a string `detail`: an untrusted peer, a visibility change) keeps its status's name.
-    INVARIANT: only an uncoded 409 (the board changed mid-request) and a 429 or 5xx are retryable.
-    A coded refusal is permanent, `already_regraded` too: it names the re-grade that won.
+    INVARIANT: a refusal about THIS entry is permanent (`already_regraded` too: it names the
+    re-grade that won). A refusal about the environment is retryable, because it clears without
+    touching the entry: no identity yet (401), the caller not yet on the board's re-grade list
+    (`not_allowed`), re-grades switched off (`regrade_unavailable`), or the board not yet on the
+    new revision (`not_current_revision`, before the seed runs). So are an uncoded 409 (the board
+    changed mid-request), a 429 and a 5xx. Example: a batch run before the infra list is deployed
+    logs every entry `not_allowed`, retryable, and the next run re-grades them all.
     """
     status: int = response.status_code
     details: object = _error_details(response)
@@ -637,12 +649,13 @@ def _regrade_refusal(response: httpx.Response, scoreboard_url: str) -> Leaderboa
     coded: Mapping[str, object] | None = _coded_detail(response)
     code: str = _status_code(status, _REGRADE_OPERATION) if coded is None else str(coded["code"])
     conflict: bool = status == 409 and coded is None
+    environment: bool = status == _UNAUTHORIZED or code in _ENVIRONMENT_REFUSALS
     return LeaderboardError(
         f"Could not {_REGRADE_OPERATION} the Scoreboard: HTTP {status}{suffix}",
         scoreboard_url=scoreboard_url,
         code=code,
         status=status,
-        permanent=status < 500 and status != 429 and not conflict,
+        permanent=status < 500 and status != 429 and not conflict and not environment,
         details=details,
         hint="Retry the re-grade." if conflict else None,
         existing_score_id=(

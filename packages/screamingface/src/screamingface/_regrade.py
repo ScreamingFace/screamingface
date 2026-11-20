@@ -49,6 +49,14 @@ if TYPE_CHECKING:
     from screamingface.report import CandidateResult, Report
 
 
+#: Failures read from a stored model reply's content (a refusal, a reply cut at its token cap, an
+#: empty reply, a judge reply with no grade). The copy hands back the same reply, so the source run
+#: failed the same Case the same way; every other failure is new in the replay (OME-1909 review).
+_REPLAYED_REPLY_CODES: frozenset[str] = frozenset(
+    {"provider_refusal", "model_token_cap", "model_empty_content", "judge_reply_invalid"}
+)
+
+
 @dataclass(frozen=True, slots=True)
 class _Regrade:
     """What a re-grade runs, decided before any run: the rebuilt url4 and the copy."""
@@ -138,10 +146,17 @@ def _planned(
 
 
 def _complete(report: Report, source: PublishedScore) -> CandidateResult:
-    """The replayed result, only if every call came from the copy.
+    """The replayed result, only if every call came from the copy and nothing else failed.
 
     INVARIANT (OME-1909): one miss refuses the whole re-grade, on a Candidate call or a judge call.
     A score over the Cases that did replay would rank a run that never happened.
+    INVARIANT (OME-1909, review): any other failure refuses too, except one read from a stored
+    reply (`_REPLAYED_REPLY_CODES`), which the source run had identically. A run-level failure, a
+    deadline, a transport error or a grader that now raises would lower the score, and the board
+    keeps one re-grade per source and revision, so posting it would put that lower score under the
+    original researcher's name for good. Example: Cases 1-3 replay, Case 2's new grader raises
+    `case_execution_failed` -> refused, retryably, nothing posted; Case 2's stored reply was a
+    `provider_refusal` -> the source's own failure, posted as the source scored it.
     """
 
     (result,) = report.candidates
@@ -158,6 +173,23 @@ def _complete(report: Report, source: PublishedScore) -> CandidateResult:
             code="regrade_incomplete",
             permanent=True,
             details={"missed_cases": missed},
+        )
+    failed: list[CaseId] = [
+        case.case_id
+        for case in result.cases
+        if any(failure.code not in _REPLAYED_REPLY_CODES for failure in case.failures)
+    ]
+    if failed or result.failures:
+        # WHY retryable: a deadline or transport error passes on a second try, and a re-grade
+        # costs nothing to repeat; a grader that keeps raising keeps being refused, never posted.
+        raise ExecutionError(
+            f"The re-grade of score {source.score_id} had {len(failed)} of {len(result.cases)} "
+            "Cases fail"
+            + (" and a run-level failure" if result.failures else "")
+            + " for a reason its pinned cache does not explain, so nothing was submitted",
+            code="regrade_incomplete",
+            permanent=False,
+            details={"failed_cases": failed, "run_failed": bool(result.failures)},
         )
     return result
 

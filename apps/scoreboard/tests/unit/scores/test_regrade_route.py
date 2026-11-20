@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncGenerator
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 from uuid import uuid4
@@ -342,6 +343,73 @@ async def test_a_later_revision_may_regrade_the_same_source_again(client: AsyncC
         str(row.benchmark_revision) for row in await Score.filter(regraded_from_id=source_id)
     )
     assert revisions == [NEW_REVISION, "rev-3"]
+
+
+@pytest.mark.asyncio
+async def test_tied_regrades_rank_by_their_sources_dates_not_the_batch_order(
+    client: AsyncClient,
+) -> None:
+    """A re-graded row keeps its source's `submitted_at` (owner, 2026-11-20)."""
+    # WHY: tied specs rank by the earlier claim. Dated the re-grade day, the batch's order would
+    # decide every tie, and the frontier trend would put all moved entries on one day.
+    early: str = await _submit_source(client, spec_id="spec-early", url4_expression="url4://a")
+    await Benchmark.filter(id="hle").update(revision=OLD_REVISION)
+    late: str = await _submit_source(
+        client,
+        spec_id="spec-late",
+        url4_expression="url4://b",
+        frozen_copy_id="0192a1b2-c3d4-4e5f-8a9b-0c1d2e3f4a5c",
+    )
+    await Score.filter(id=early).update(submitted_at=datetime(2026, 11, 1, tzinfo=UTC))
+    await Score.filter(id=late).update(submitted_at=datetime(2026, 11, 5, tzinfo=UTC))
+
+    # The batch reaches the later source first.
+    second: Response = await _post_regrade(
+        client, late, spec_id="spec-late", url4_expression="url4://b"
+    )
+    first: Response = await _post_regrade(
+        client, early, spec_id="spec-early", url4_expression="url4://a"
+    )
+
+    assert second.status_code == 201, second.text
+    assert first.status_code == 201, first.text
+    stored: Score = await Score.get(id=first.json()["id"])
+    assert stored.submitted_at == datetime(2026, 11, 1, tzinfo=UTC)
+    board: Response = await client.get("/v1/leaderboard/hle")
+    assert [entry["spec_id"] for entry in board.json()["entries"]] == ["spec-early", "spec-late"]
+
+
+@pytest.mark.asyncio
+async def test_a_regrade_that_runs_other_models_than_the_source_is_422(client: AsyncClient) -> None:
+    """A body naming other models is another entry's result, not a re-grade of this one."""
+    # WHY (OME-1909 review): a batch that mixed two results up would credit this researcher with
+    # someone else's recipe and score, and the one-re-grade-per-revision index blocks the fix.
+    source_id: str = await _submit_source(client, models=["openrouter/deepseek/deepseek-v4-pro"])
+
+    mixed: Response = await _post_regrade(client, source_id, models=["openrouter/openai/gpt-6"])
+    same: Response = await _post_regrade(
+        client, source_id, models=["openrouter/deepseek/deepseek-v4-pro"]
+    )
+
+    assert mixed.status_code == 422
+    assert _code(mixed) == "different_models"
+    assert same.status_code == 201, same.text
+
+
+@pytest.mark.asyncio
+async def test_a_regrade_of_a_regraded_row_is_422_naming_the_original(client: AsyncClient) -> None:
+    """Only the root source keeps a pinned cache, so the board refuses a re-grade's re-grade."""
+    source_id: str = await _submit_source(client)
+    first: Response = await _post_regrade(client, source_id)
+    await Benchmark.filter(id="hle").update(revision="rev-3")
+
+    again: Response = await _post_regrade(
+        client, first.json()["id"], benchmark_revision="rev-3", score=0.5
+    )
+
+    assert first.status_code == 201, first.text
+    assert again.status_code == 422
+    assert _code(again) == "regrade_the_source"
 
 
 @pytest.mark.asyncio
