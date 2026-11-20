@@ -40,7 +40,24 @@ OME-1988's PR (#1977).
   `test_run_registry_driving.py`, `test_run_driver_ticks.py` and `test_run_owner_email_sealed.py`
   (every caller of `hold()`): 87 passed, 74 skipped (Postgres). ruff, ruff format and pyright clean
   on both files. CI runs the full gates.
-- **Deviations:** two statements, not one: `hold()` checks for a live Candidate, then updates.
-  A Candidate that ends between them lets one hold move the deadline once more, which is the old,
-  harmless behaviour; a single UPDATE with a subquery was not worth the risk without a local
-  Postgres run. No `docs/tasks/` mirror, as for OME-1988 (owner).
+- **Deviations:** none left (review round 2): `hold()` first checked for a live Candidate and
+  then updated in two unlocked statements; it now does both in one transaction under the Run's
+  lock, as `stop()` does. No `docs/tasks/` mirror, as for OME-1988 (owner).
+
+## Review round 2 — 2026-11-20
+
+From the second `/code-review` of #1977 (owner approved 2026-11-20; one commit with OME-1988's
+round 2, `2026-11-20-fail-closed-record.md`).
+
+- **Finding 2.** `hold()`'s live-Candidate check and its UPDATE were two unlocked statements,
+  against the module's compare-and-set rule that `stop()` keeps with `lock_run`. Fix:
+  `runs/store_driver.py::hold` runs both in one `in_transaction(CONNECTION)` after
+  `lock_run(run_id, conn)`. A settle takes the same lock, so no Candidate ends between the check
+  and the update.
+- **Finding 6.** `runs/registry.py`, the `hold` port's docstring: a finished Run (no live
+  Candidate) is left alone too.
+- **Gates.** `test_a_hold_leaves_a_finished_run_alone` and every existing hold test pass
+  unchanged: `test_run_registry_driving.py`, `test_run_driver_ticks.py` and
+  `test_run_owner_email_sealed.py` 87 passed, 74 skipped on SQLite, and their Postgres parameters
+  74 passed (testcontainers). No new test: the race needs two writers interleaved inside one
+  call. ruff, ruff format and pyright clean on both files.

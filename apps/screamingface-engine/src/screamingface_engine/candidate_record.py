@@ -55,16 +55,14 @@ _CAPTURE_REPLAY = "capture.replay"
 _PARTIAL_PREFIX = "capture.partial."
 # A summary amount as the run writes each total: `format(total, "f")` of a non-negative amount.
 _AMOUNT = re.compile(r"[0-9]+(?:\.[0-9]+)?")
-# The record's fields a run summary certifies (§4.3); a refused record carries none of them.
-_SUMMARY_FIGURES = (
-    "cache_hits",
+# The record's optional fields a run summary certifies (§4.3); a refused record carries none.
+_OPTIONAL_FIGURES = (
     "cache_unpriced_hits",
     "cache_saved_cost_usd",
     "cache_saved_cost_archive_usd",
     "frozen_copy_id",
     "capture_status",
     "capture_replay",
-    "capture_partial_reasons",
 )
 
 type _Attributes = Mapping[str, str | int | float | bool | None]
@@ -77,11 +75,13 @@ class CandidateRecordFold:
         self._url4 = url4
         self._trace_id = trace_id
         self._root: str | None = None
+        # The trace context of the root's own frames: a frame no span owns is published under it.
+        self._root_traceparent: str | None = None
         self._started_at: str | None = None
         self._version: str | None = None
         self._version_conflict = False
         self._summary: _Attributes | None = None
-        # The first malformed attribute of any run summary the root published.
+        # The first malformed attribute of any run summary the run published.
         self._invalid: str | None = None
         self._summary_hits = 0
         self._hit_spans = 0
@@ -96,6 +96,7 @@ class CandidateRecordFold:
             # The root is the first started frame naming the run's own url4, not the first one.
             if self._root is None and frame.data.url4 == self._url4:
                 self._root = frame.source
+                self._root_traceparent = frame.traceparent
                 self._started_at = _time(frame)
         elif isinstance(frame, SpanEvent):
             self._span(frame)
@@ -114,7 +115,7 @@ class CandidateRecordFold:
 
     def _root_frame(self, frame: OutboundFrame) -> None:
         if isinstance(frame, LogEvent):
-            self._log(frame.data.attributes)
+            self._log(frame)
         elif isinstance(frame, CostUsageEvent) and frame.data.scope == "subtree":
             self._usage = _wire_data(frame)
         elif isinstance(frame, ResultEvent) and self._result is None:
@@ -122,13 +123,17 @@ class CandidateRecordFold:
         elif isinstance(frame, TerminatedEvent) and self._terminated is None:
             self._terminated = frame
 
-    def _log(self, attributes: _Attributes) -> None:
+    def _log(self, frame: LogEvent) -> None:
+        attributes = frame.data.attributes
         raw = attributes.get(VERSION_ATTRIBUTE)
         version = valid_version(raw) if isinstance(raw, str) else None
         if version is not None:
             if self._version is not None and self._version != version:
                 self._version_conflict = True
             self._version = version
+        if not self._runs_own(frame):
+            # A node's `ctx.log` is never the run summary, whatever it carries (OME-1988).
+            return
         invalid = _invalid_attribute(attributes)
         if invalid is not None:
             # INVARIANT (OME-1463, OME-1307; the Client's `_CacheSummary.parse`): fail closed. These
@@ -139,7 +144,7 @@ class CandidateRecordFold:
             return
         hits = _count(attributes.get(_CACHE_HITS))
         if hits is None:
-            # Not the run summary: only the line carrying `cache.hits` is.
+            # Not the run summary: only the run's own line carrying `cache.hits` is.
             return
         self._summary_hits = max(self._summary_hits, hits)
         # The run's own tally only grows, so the largest summary is the latest complete one.
@@ -147,9 +152,23 @@ class CandidateRecordFold:
         if current is None or hits >= current:
             self._summary = attributes
 
+    def _runs_own(self, frame: LogEvent) -> bool:
+        """Whether ``frame`` is the run's own log, as its closing summary is, and not a node's.
+
+        INVARIANT (§4.3, "the run's closing summary log"): url4's lifecycle stamps every frame of
+        a run with the root's `source`, so the source cannot tell a node's `ctx.log` from the
+        run's own log. The trace context can: the executor publishes the summary with no span
+        (`executor._closing_logs`), so it goes out under the root's traceparent, the one its
+        `Started` carries, with no tracestate; a node's log goes out under its own span's.
+        WHY not a marker attribute: a node's log could carry one too, and this needs no producer
+        change. AIDEV-NOTE: stricter than the Client's `_RunState`, which read a node's line
+        carrying `cache.hits` as the summary; no recorded run has one.
+        """
+        return frame.traceparent == self._root_traceparent and frame.tracestate is None
+
     @property
     def malformed(self) -> str | None:
-        """The first malformed attribute of any run summary the root published, else None."""
+        """The first malformed attribute of any run summary the run published, else None."""
         return self._invalid
 
     @property
@@ -189,13 +208,17 @@ class CandidateRecordFold:
         }
         if self._invalid is not None:
             # INVARIANT (OME-1988): a refused record certifies no figure. A well-formed summary
-            # before or after the malformed one would otherwise still set them.
-            record.update(dict.fromkeys(_SUMMARY_FIGURES))
+            # before or after the malformed one would otherwise still set them. The two the
+            # Client's `_RunOutcome` always carries keep its defaults (`cache_hits: int = 0`,
+            # `capture_partial_reasons: tuple[str, ...] = ()`); the optional ones are null.
+            record.update(dict.fromkeys(_OPTIONAL_FIGURES))
+            record.update(cache_hits=0, capture_partial_reasons=[])
         status = terminated.data.status
         if status == "succeeded" and self._invalid is not None:
             # AIDEV-NOTE: reached only by an executor that does not read `bound_refusal`; the
             # `Url4Executor` fails such a run before its terminal frame, which the next branch
-            # records. Kept with `settlement_of`'s matching branch so no reader takes it as exact.
+            # records. Kept with `SettlementWatch`'s matching backstop so no reader takes it as
+            # exact.
             record["error"] = {
                 "code": RUN_SUMMARY_INVALID,
                 "message": self.refusal,

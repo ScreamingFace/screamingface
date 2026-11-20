@@ -8,14 +8,17 @@ INVARIANT: one verdict. The run's executor fails the run with `run_summary_inval
 before it builds its result, so url4's lifecycle publishes `Terminated(failed)`, and the frame,
 the outcome, the R7 settle, the record and the log lines all say `failed`.
 
-Each run here is the real `Url4Executor` running a node that logs the given run summaries (a root
-log carrying `cache.hits` is the summary the fold reads), through a real producer.
+Each run here is the real `Url4Executor`, through a real producer, running a node that makes one
+priced model call. The run summary is the run's own closing log (`executor._closing_logs`,
+published with no span); the `summary` fixture makes it state the given attributes. A node's own
+`ctx.log` is never the summary, whatever it carries (review round 2).
 """
 
 from __future__ import annotations
 
 import logging
-from collections.abc import AsyncIterator, Mapping, Sequence
+from collections.abc import AsyncIterator, Callable, Mapping, Sequence
+from decimal import Decimal
 from pathlib import Path
 from typing import Any, cast
 
@@ -38,6 +41,7 @@ from screamingface_engine.adapters.memory import (
 )
 from screamingface_engine.candidate_outcomes import CandidateOutcome
 from screamingface_engine.runner import main
+from screamingface_engine.runner.cache_counters import RunCacheCounters
 from screamingface_engine.runner.executor import Url4Executor
 from screamingface_engine.runner.operation_capture import OperationCapturingExecutor
 from screamingface_engine.runner.summary import RunSummary
@@ -56,6 +60,8 @@ ALICE = owner_key("alice@example.org")
 # WHY the literals: the code is what the registry stores and the Client raises with.
 CODE = "run_summary_invalid"
 UNPRICED = "cache.saved_cost.unpriced_hits"
+# The run's one model call: what a refused run still spent (review round 2, finding 5).
+COST = Decimal("0.0042")
 
 WELL_FORMED: dict[str, Any] = {
     "cache.hits": 1,
@@ -81,28 +87,48 @@ FIGURES = (
     "capture_replay",
     "capture_partial_reasons",
 )
+# What a refused record says for them (review round 2, finding 3): no figure is certified, and
+# the two the Client's `_RunOutcome` always carries keep their defaults.
+REFUSED_FIGURES = {**dict.fromkeys(FIGURES), "cache_hits": 0, "capture_partial_reasons": []}
 
 
-class _Summaries:
-    """A url4 node that logs each run summary it was given, then answers."""
+@pytest.fixture
+def summary(monkeypatch: pytest.MonkeyPatch) -> Callable[[Mapping[str, Any]], None]:
+    """Make the run's own closing summary state the given attributes.
+
+    WHY a patch of the run's cache counters: the line stays the real one (`_closing_logs`, no
+    span, the root traceparent), and the run never writes a malformed figure itself.
+    """
+
+    def state(attributes: Mapping[str, Any]) -> None:
+        monkeypatch.setattr(RunCacheCounters, "observed", property(lambda self: True))
+        monkeypatch.setattr(RunCacheCounters, "attributes", lambda self: dict(attributes))
+
+    return state
+
+
+class _Node:
+    """A url4 node that makes one priced model call, logs each line it was given with its own
+    `ctx.log`, then answers."""
 
     deps: dict[str, object] = {}
 
-    def __init__(self, summaries: Sequence[Mapping[str, Any]]) -> None:
-        self._summaries = summaries
+    def __init__(self, logs: Sequence[Mapping[str, Any]]) -> None:
+        self._logs = logs
 
     async def resolve(self, inputs: object, ctx: Any) -> str:
-        for summary in self._summaries:
-            ctx.log("INFO", "run summary", attributes=summary)
+        ctx.report_usage(provider="test", model="m", input_tokens=3, output_tokens=2, cost_usd=COST)
+        for attributes in self._logs:
+            ctx.log("INFO", "a node's log", attributes=attributes)
         return "ANSWER"
 
 
 class _Run(Executor):
-    """The real `Url4Executor`, running `_Summaries` under whatever url4 the run names."""
+    """The real `Url4Executor`, running `_Node` under whatever url4 the run names."""
 
-    def __init__(self, *summaries: Mapping[str, Any]) -> None:
+    def __init__(self, *node_logs: Mapping[str, Any]) -> None:
         self._executor = Url4Executor(StaticIOLayer())
-        self._node = _Summaries(summaries)
+        self._node = _Node(node_logs)
 
     def execute(self, url4: str, *, trace: TraceContext | None = None) -> AsyncIterator[ExecStep]:
         return self._executor.execute(cast("str", self._node), trace=trace)
@@ -121,10 +147,10 @@ async def _frames(stream: InMemoryEventStream, topic: str) -> list[OutboundFrame
 
 
 async def _local(
-    *summaries: Mapping[str, Any], prefix: str | None = PREFIX
+    *node_logs: Mapping[str, Any], prefix: str | None = PREFIX
 ) -> tuple[CandidateOutcome, list[OutboundFrame], _Run]:
     """One run on the in-process runner (local mode's producer): its outcome and its frames."""
-    executor = _Run(*summaries)
+    executor = _Run(*node_logs)
     stream = InMemoryEventStream()
     outcomes = InMemoryCandidateOutcomeStream()
     local = InProcessJobRunner(stream, lambda env: executor, outcomes=outcomes)
@@ -146,9 +172,10 @@ def _assert_refused(outcome: CandidateOutcome, frames: Sequence[OutboundFrame], 
     assert _terminal(frames).data.status == "failed"
     assert error is not None
     assert (error.code, error.message, error.permanent) == (CODE, message, True)
-    # Refused before its result: no result frame, and no exact subtree cost.
+    # Refused before its result: no result frame. Finding 5: every call was made and paid for,
+    # so the Candidate still states the run's exact cost.
     assert [frame.type for frame in frames if frame.type == "ai.url4.result"] == []
-    assert (outcome.status, outcome.error_code, outcome.cost_usd) == ("failed", CODE, None)
+    assert (outcome.status, outcome.error_code, outcome.cost_usd) == ("failed", CODE, COST)
     record = outcome.record
     assert record is not None
     assert "result" not in record
@@ -159,12 +186,16 @@ def _assert_refused(outcome: CandidateOutcome, frames: Sequence[OutboundFrame], 
 # --- The control ---------------------------------------------------------------------------------
 
 
-async def test_a_well_formed_summary_succeeds_with_its_result_and_its_figures() -> None:
+async def test_a_well_formed_summary_succeeds_with_its_result_and_its_figures(
+    summary: Callable[[Mapping[str, Any]], None],
+) -> None:
     """The harness alone fails nothing: the figures the refused cases must not carry."""
-    outcome, frames, _ = await _local(WELL_FORMED)
+    summary(WELL_FORMED)
+
+    outcome, frames, _ = await _local()
 
     assert _terminal(frames).data.status == "succeeded"
-    assert (outcome.status, outcome.error_code) == ("succeeded", None)
+    assert (outcome.status, outcome.error_code, outcome.cost_usd) == ("succeeded", None, COST)
     record = outcome.record
     assert record is not None
     assert record["result"]["size_bytes"] == len(b"ANSWER")
@@ -192,9 +223,7 @@ async def registry(request: pytest.FixtureRequest, tmp_path: Path) -> AsyncItera
 async def _run_the_start(start: Mapping[str, Any]) -> tuple[CandidateOutcome, TerminatedEvent]:
     """Run a start the driver sent on a local runner: its outcome, and its terminal frame."""
     outcomes = InMemoryCandidateOutcomeStream()
-    local = InProcessJobRunner(
-        InMemoryEventStream(), lambda env: _Run(MALFORMED), outcomes=outcomes
-    )
+    local = InProcessJobRunner(InMemoryEventStream(), lambda env: _Run(), outcomes=outcomes)
     await local.schedule(
         start["topic"],
         start["url4"],
@@ -210,10 +239,11 @@ async def _run_the_start(start: Mapping[str, Any]) -> tuple[CandidateOutcome, Te
 
 
 async def test_r7_settles_a_refused_candidate_failed_and_its_late_outcome_agrees(
-    registry: Registry,
+    registry: Registry, summary: Callable[[Mapping[str, Any]], None]
 ) -> None:
     """The finding: the refusal used to be decided after a `succeeded` terminal frame, so R7
     settled a Candidate whose outcome was late `succeeded`, and first-wins kept it."""
+    summary(MALFORMED)
     run, _ = await registry.store.register(ALICE, start_spec("a"))
     runner = DriverRunner()
     driver = drivers(registry.store, runner, registry.clock)
@@ -233,7 +263,8 @@ async def test_r7_settles_a_refused_candidate_failed_and_its_late_outcome_agrees
     (first,) = settled.candidates
     assert (first.state, first.error_code, first.record) == ("failed", CODE, None)
     (candidate,) = filled.candidates
-    assert (candidate.state, candidate.error_code) == ("failed", CODE)
+    # Finding 5: the late outcome fills the Candidate's cost with what the refused run spent.
+    assert (candidate.state, candidate.error_code, candidate.cost_usd) == ("failed", CODE, COST)
     assert candidate.record is not None
     assert candidate.record["error"]["code"] == CODE
     assert "result" not in candidate.record
@@ -243,16 +274,17 @@ async def test_r7_settles_a_refused_candidate_failed_and_its_late_outcome_agrees
 
 
 async def test_the_local_runner_ends_the_run_failed_and_says_so_in_every_line(
-    caplog: pytest.LogCaptureFixture,
+    caplog: pytest.LogCaptureFixture, summary: Callable[[Mapping[str, Any]], None]
 ) -> None:
     caplog.set_level(logging.INFO)
+    summary(MALFORMED)
 
-    outcome, frames, executor = await _local(MALFORMED)
+    outcome, frames, executor = await _local()
 
     _assert_refused(outcome, frames, UNPRICED)
-    summary = executor.last_summary()
-    assert summary is not None
-    assert (summary.outcome, summary.error_code) == ("failed", CODE)
+    run_summary = executor.last_summary()
+    assert run_summary is not None
+    assert (run_summary.outcome, run_summary.error_code) == ("failed", CODE)
     messages = [record.getMessage() for record in caplog.records]
     terminated = [line for line in messages if line.startswith("run terminated")]
     assert len(terminated) == 1
@@ -267,16 +299,17 @@ async def test_the_local_runner_ends_the_run_failed_and_says_so_in_every_line(
 
 
 async def test_the_queue_child_ends_the_run_failed_and_says_so_in_every_line(
-    caplog: pytest.LogCaptureFixture,
+    caplog: pytest.LogCaptureFixture, summary: Callable[[Mapping[str, Any]], None]
 ) -> None:
     caplog.set_level(logging.INFO)
+    summary(MALFORMED)
     stream = InMemoryEventStream()
     params = main.RunnerParams(
         topic=TOPIC, url4=URL4, nats_url="nats://unused", deadline_s=60.0, result_prefix=PREFIX
     )
 
     outcome = await main._run_and_log(  # noqa: SLF001
-        OperationCapturingExecutor(_Run(MALFORMED)), stream, params, TRACEPARENT
+        OperationCapturingExecutor(_Run()), stream, params, TRACEPARENT
     )
 
     _assert_refused(outcome, await _frames(stream, TOPIC), UNPRICED)
@@ -289,30 +322,62 @@ async def test_the_queue_child_ends_the_run_failed_and_says_so_in_every_line(
 # --- The record and the rule ---------------------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    "summaries",
-    [
-        pytest.param((MALFORMED,), id="malformed"),
-        pytest.param((WELL_FORMED, MALFORMED), id="well-formed-then-malformed"),
-        pytest.param((MALFORMED, WELL_FORMED), id="malformed-then-well-formed"),
-    ],
-)
-async def test_one_malformed_summary_refuses_the_run_for_good_and_its_record_has_no_figures(
-    summaries: tuple[Mapping[str, Any], ...],
+async def test_a_malformed_closing_summary_refuses_the_run_and_its_record_states_no_figure(
+    summary: Callable[[Mapping[str, Any]], None],
 ) -> None:
-    """Fix 5: one malformed summary refuses the run for good. Fix 4: the refused record carries
-    none of a summary's figures, though a well-formed one would have set them all."""
-    outcome, frames, _ = await _local(*summaries)
+    """Round 1 fix 4, as round 2's finding 3 corrects it: the refused record certifies none of
+    the summary's figures, though a node's well-formed log carries them all. The sticky rule
+    (round 1 fix 5) is the fold's: `test_candidate_record_fail_closed.py`."""
+    summary(MALFORMED)
+
+    outcome, frames, _ = await _local(WELL_FORMED)
 
     _assert_refused(outcome, frames, UNPRICED)
     assert outcome.record is not None
-    assert {name: outcome.record[name] for name in FIGURES} == dict.fromkeys(FIGURES)
+    assert {name: outcome.record[name] for name in FIGURES} == REFUSED_FIGURES
 
 
-async def test_an_amount_with_a_huge_exponent_fails_the_run_instead_of_expanding_it() -> None:
+async def test_a_nodes_log_is_no_run_summary_whatever_it_carries(
+    caplog: pytest.LogCaptureFixture, summary: Callable[[Mapping[str, Any]], None]
+) -> None:
+    """Round 2, finding 1: url4 stamps every frame of a run with the root's `source`, so a node's
+    `ctx.log` carrying `cache.hits` used to pass for the run summary, and a malformed one failed
+    the run. Only the run's own closing log is the summary; here it is well formed."""
+    caplog.set_level(logging.INFO)
+    summary(WELL_FORMED)
+
+    outcome, frames, _ = await _local({**MALFORMED, "capture.status": "maybe"})
+
+    assert _terminal(frames).data.status == "succeeded"
+    assert (outcome.status, outcome.error_code, outcome.cost_usd) == ("succeeded", None, COST)
+    assert outcome.record is not None
+    assert outcome.record["result"]["size_bytes"] == len(b"ANSWER")
+    assert (outcome.record["cache_unpriced_hits"], outcome.record["capture_status"]) == (
+        0,
+        "partial",
+    )
+    assert not [record for record in caplog.records if record.levelno >= logging.WARNING]
+
+
+async def test_a_nodes_malformed_log_alone_fails_nothing() -> None:
+    """Finding 1, with no closing summary at all (the run observed no cache outcome): the
+    node's line certifies no figure either."""
+    outcome, frames, _ = await _local({**WELL_FORMED, "capture.status": "maybe"})
+
+    assert _terminal(frames).data.status == "succeeded"
+    assert (outcome.status, outcome.error_code) == ("succeeded", None)
+    assert outcome.record is not None
+    assert (outcome.record["cache_hits"], outcome.record["capture_status"]) == (0, None)
+
+
+async def test_an_amount_with_a_huge_exponent_fails_the_run_instead_of_expanding_it(
+    summary: Callable[[Mapping[str, Any]], None],
+) -> None:
     """Fix 6: `1E+999999999` used to read as a finite amount, which `_amount` wrote out in
     fixed point, about 1 GB."""
-    outcome, frames, _ = await _local({**WELL_FORMED, "cache.saved_cost_usd": "1E+999999999"})
+    summary({**WELL_FORMED, "cache.saved_cost_usd": "1E+999999999"})
+
+    outcome, frames, _ = await _local()
 
     _assert_refused(outcome, frames, "cache.saved_cost_usd")
     assert outcome.record is not None
@@ -320,11 +385,13 @@ async def test_an_amount_with_a_huge_exponent_fails_the_run_instead_of_expanding
 
 
 async def test_a_run_nobody_asked_a_record_of_is_not_refused(
-    caplog: pytest.LogCaptureFixture,
+    caplog: pytest.LogCaptureFixture, summary: Callable[[Mapping[str, Any]], None]
 ) -> None:
     """Only a driver-started run folds a record (§4.3), so only it is refused: every other run
     ends as it did."""
-    outcome, frames, _ = await _local(MALFORMED, prefix=None)
+    summary(MALFORMED)
+
+    outcome, frames, _ = await _local(prefix=None)
 
     assert _terminal(frames).data.status == "succeeded"
     assert (outcome.status, outcome.record) == ("succeeded", None)

@@ -210,6 +210,12 @@ class SettlementWatch(TerminalWatch):
     ``record`` (E5 P2 spec §4.3) is given for a driver-started run only. It folds the frames the
     inner publisher accepted, so the record states what a follower could have seen. Its producer
     also binds it for the run's task (`binding_record`), where the executor reads its refusal.
+
+    INVARIANT (OME-1988): a landed success whose record refused its run summary reads `failed`
+    with `run_summary_invalid` in ``outcome``, ``error``, ``error_code`` and ``landed`` alike, so
+    the evidence line (`outcome_of`), the runner's verdict and the outcome (`settlement_of`)
+    agree. Only an executor that does not read `bound_refusal` lands such a success; the
+    `Url4Executor` fails the run before its terminal frame.
     """
 
     def __init__(self, inner: EventPublisher, *, record: CandidateRecordFold | None = None) -> None:
@@ -221,14 +227,6 @@ class SettlementWatch(TerminalWatch):
     def record(self) -> dict[str, Any] | None:
         """The run's record, cut to fit; None for a run nobody asked one of."""
         return None if self._record is None else self._record.record()
-
-    @property
-    def refused(self) -> str | None:
-        """`RUN_SUMMARY_INVALID` when the run's record refused its run summary
-        (`CandidateRecordFold.malformed`); None otherwise, and for a run with no record."""
-        if self._record is None or self._record.malformed is None:
-            return None
-        return RUN_SUMMARY_INVALID
 
     async def publish(self, topic: str, event: OutboundFrame) -> None:
         await super().publish(topic, event)
@@ -255,6 +253,12 @@ class SettlementWatch(TerminalWatch):
         if error is None:
             self.error = None
         self.landed = event.data.status
+        refusal = None if self._record is None else self._record.refusal
+        if self.landed == "succeeded" and refusal is not None:
+            # AIDEV-NOTE: the backstop (class docstring). Every reader reads these fields.
+            self.outcome = self.landed = "failed"
+            self.error_code = RUN_SUMMARY_INVALID
+            self.error = f"{RUN_SUMMARY_INVALID}: {refusal}"
 
 
 def settlement_of(
@@ -268,15 +272,13 @@ def settlement_of(
     INVARIANT (spec R3): one classifier. A landed terminal frame decides it; without one, the
     task decides it, as `outcome_of` does. A run whose record refused its run summary
     (OME-1988) is failed by its executor before its terminal frame, so that frame already says
-    `failed` with `run_summary_invalid`, and an R7 settle from it agrees.
+    `failed` with `run_summary_invalid`, and an R7 settle from it agrees; a success that lands
+    all the same reads `failed` through the watch (`SettlementWatch`).
     """
     if watch.landed is not None:
-        # AIDEV-NOTE: a landed success whose record refused it all the same (only an executor
-        # that does not read `bound_refusal` publishes one) settles `failed`, as its record says.
-        refused = watch.refused if watch.landed == "succeeded" else None
         return CandidateOutcome(
-            _status(watch.landed) if refused is None else "failed",
-            storable_error_code(watch.error_code if refused is None else refused),
+            _status(watch.landed),
+            storable_error_code(watch.error_code),
             cost_usd,
             record=watch.record(),
         )

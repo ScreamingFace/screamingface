@@ -180,3 +180,85 @@ changes.
   assertions, so it stays; the docstrings say what it does. In production the `Url4Executor`
   fails the run first, so the branch is not reached.
 - **Commit.** One signed commit, `fix(engine): address the review on the fail-closed record`.
+
+## Review round 2 — 2026-11-20
+
+A second `/code-review` at xhigh; the owner approved all six fixes on 2026-11-20, as one new
+commit kept local. A seventh finding, the missing `docs/tasks/` mirrors, is waived by the owner.
+Findings 2 and 6 are OME-1992's (`2026-11-20-finished-run-deadline.md`).
+
+1. **Only the run's own closing log is its summary.** The fold took any root-source log carrying
+   `cache.hits` as the run summary, but url4's lifecycle stamps every frame of a run with the
+   root's `source`, so a node's `ctx.log` passed, and since this PR a malformed one failed the
+   run. Round 1's own test used a node log as the summary.
+3. A refused record keeps `cache_hits` 0 and `capture_partial_reasons` [] (the Client's
+   `_RunOutcome` defaults) and nulls only the optional figures.
+4. On the backstop path (an executor that does not read `bound_refusal`) the outcome said
+   `failed` while `outcome_of` (the `run terminated` line) and the in-process runner's verdict
+   still read the `succeeded` frame.
+5. A refused run made and paid for every call, but its Candidate showed no cost: the refusal was
+   raised before `build_subtree()`.
+
+Test plan: RED first for 1, 4 and 5. Round 1's real-run tests now drive the real closing summary
+(`executor._closing_logs`, no span) through both producers, with a node that makes one priced
+call; a node's malformed log no longer refuses the run, the real summary still does; a refused
+run's Candidate carries the run's cost (both producers, and the late outcome after an R7
+settle); on the backstop the `run terminated` line, `status()` and the outcome all say `failed`.
+
+### Review round 2 — outcome
+
+- **1.** `candidate_record.py`: the fold keeps the root `Started`'s traceparent
+  (`_root_traceparent`), and `_runs_own(frame)` accepts as a run summary only a log under that
+  traceparent with no tracestate, which is how url4's lifecycle publishes a step with
+  `span=None` (`_closing_logs`); a node's log goes out under its own span's traceparent (checked
+  on a real run). No producer change: a marker attribute could be forged by a node's log too.
+  Every recorded run in `tests/fixtures/candidate_runs/` and
+  `tests/unit/data/cache_hit_contract/run_events.json` still folds as before (their summaries sit
+  under the root traceparent with no tracestate).
+- **3.** `CandidateRecordFold.record`: a refused record nulls `_OPTIONAL_FIGURES` and sets
+  `cache_hits` 0 and `capture_partial_reasons` [].
+- **4.** `run_evidence.py`: `SettlementWatch.publish` applies the refusal once, when a
+  `succeeded` terminal frame lands and the record refused its summary: `outcome`, `landed`,
+  `error_code` and `error` all read `failed` / `run_summary_invalid`. So `outcome_of`, the
+  in-process verdict (`_exported_run`) and `settlement_of` agree by construction.
+  `SettlementWatch.refused` is gone and `settlement_of` is back to its pre-PR body.
+- **5.** `runner/executor.py`: `_run_steps` builds the subtree cost before
+  `_refuse_an_unvouched_summary(subtree)`, which raises `SummaryRefusedError` (a
+  `ResolutionError`, `run_summary_invalid`, permanent) carrying it; `execute` records the failed
+  run's summary with that cost, so `_cost_of` / `_summary_cost` give the outcome the exact spend.
+  `_summary_attributes` keys the cache counters on `outcome == "succeeded"` (its `succeeded`
+  parameter is gone), so a refused run states its cost but not the refused cache counts.
+- **Tests.** `test_run_summary_refused_before_terminal.py` (this PR's): the `summary` fixture
+  makes the real closing summary state the given attributes (it patches `RunCacheCounters`), the
+  node reports one priced call (`COST`), and `_assert_refused` expects that cost; new
+  `test_a_nodes_log_is_no_run_summary_whatever_it_carries` and
+  `test_a_nodes_malformed_log_alone_fails_nothing`; the R7 test also checks the Candidate's cost;
+  the refused-figures test expects finding 3's values. `test_candidate_record_fail_closed.py`
+  (this PR's), appended: a summary under a node's span or with a tracestate is no summary; the
+  sticky rule, moved here from the real-run file (a real run states one closing summary); the
+  backstop through `InProcessJobRunner` with an executor that does not read the binding. No test
+  that existed before this PR changed.
+- **Gates.** Not the full `run_gates.py` (CI runs it). RED on b74e26f62: 10 of the new or changed
+  cases failed, each for its finding: 5 on the refused run's cost (`None`), 4 because a node's log
+  refused the run (2 real runs, 2 fold cases), 1 because `status()` read `succeeded` on the
+  backstop. The controls, the no-record case and the 2 sticky cases passed (the fold was already
+  sticky). Finding 3's figures were not seen failing on their own: the refused-figures test
+  stopped at the cost line first. GREEN: the two files and `test_candidate_record.py` 64 passed
+  (Postgres on, via testcontainers); 53 Engine unit files on the record, outcomes, runner,
+  executor, in-process adapter, run registry, store, driver and R7, and the `candidate_runs`
+  fixture tests, Postgres on: 838 passed, 10 skipped; the whole Engine unit suite (Postgres off):
+  10091 passed, 515 skipped. ruff check, ruff format --check and pyright clean on the seven
+  touched files; `check_layering.py` OK. Branch coverage of the new lines: full.
+- **Deviations.**
+  - Finding 5 carries the cost, it does not publish it: no subtree cost frame goes on the stream
+    before `Terminated(failed)`, which would be a new stream shape for followers. The record's
+    `usage` stays null, as for every failed run; the outcome's `cost_usd` (and so the
+    Candidate's) is the exact spend.
+  - Finding 1 is stricter than the Client's `_RunState`, which read a node's line carrying
+    `cache.hits` as the summary; spec §4.3 names "the run's closing summary log", and no recorded
+    run has such a node line.
+  - A refused run's `run finished` line says `type=SummaryRefusedError` (was `ResolutionError`).
+  - Round 1's deviation above (`settlement_of` keeps its backstop branch) now lives in
+    `SettlementWatch`; the record keeps its matching error.
+- **Commit.** One signed commit, `fix(engine): address the second review on the fail-closed
+  record`.

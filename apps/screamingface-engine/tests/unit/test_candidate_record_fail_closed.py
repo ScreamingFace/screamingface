@@ -13,26 +13,35 @@ A refused success both settles the Candidate `failed` and leaves the result out 
 Client reads a succeeded Candidate's record and ignores an `error` on it.
 
 AIDEV-NOTE: these replay a recorded success, its `succeeded` terminal frame included, so they read
-the fold's rule through `settlement_of`'s backstop. A real run is failed by its executor before its
-terminal frame: `test_run_summary_refused_before_terminal.py` (review round 1).
+the fold's rule through `SettlementWatch`'s backstop. A real run is failed by its executor before
+its terminal frame: `test_run_summary_refused_before_terminal.py` (review round 1).
 """
 
 from __future__ import annotations
 
 import asyncio
+import copy
 import json
-from collections.abc import Mapping
+import logging
+from collections.abc import AsyncIterator, Mapping
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
 import pytest
+from test_inprocess_outcomes import _published, _subtree
 
-from screamingface_engine.adapters.memory import InMemoryEventStream
+from screamingface_engine.adapters.inprocess import InProcessJobRunner
+from screamingface_engine.adapters.memory import (
+    InMemoryCandidateOutcomeStream,
+    InMemoryEventStream,
+)
 from screamingface_engine.candidate_outcomes import CandidateOutcome
 from screamingface_engine.candidate_record import CandidateRecordFold
 from screamingface_engine.run_evidence import SettlementWatch, settlement_of
 from url4.streaming.codec import decode
+from url4.streaming.interfaces import Completed, ExecStep, Executor, TraceContext
+from url4.streaming.protocol import LogData, ResultData, TerminatedEvent
 
 pytestmark = pytest.mark.asyncio
 
@@ -248,3 +257,98 @@ async def test_an_amount_the_run_never_writes_is_refused(value: str) -> None:
     between them. `Decimal` reads far more, and an exponent it reads `_amount` writes out in
     fixed point (`1E+999999999` is about 1 GB)."""
     _assert_refused(await _settle(_stream({_SAVED: value})), _SAVED)
+
+
+# --- Only the run's own closing log is its summary (review round 2) -------------------------------
+
+
+def _summary_frame(events: list[dict[str, Any]]) -> dict[str, Any]:
+    return next(
+        event
+        for event in events
+        if event["type"] == "ai.url4.log" and "cache.hits" in event["data"]["attributes"]
+    )
+
+
+@pytest.mark.parametrize("under", ["a-nodes-span", "a-tracestate"])
+async def test_a_log_that_is_not_the_runs_own_is_no_run_summary(under: str) -> None:
+    """Finding 1: url4 stamps every frame of a run with the root's `source`, so a node's
+    `ctx.log` carrying `cache.hits` used to pass for the run summary. The run's closing log is
+    published with no span, so under the root traceparent with no tracestate; a node's log is
+    published under its own span's."""
+    events = _stream({"cache.hits": -1})
+    frame = _summary_frame(events)
+    if under == "a-nodes-span":
+        frame["traceparent"] = next(e["traceparent"] for e in events if e["type"] == "ai.url4.span")
+    else:
+        frame["tracestate"] = "url4.parent=0000000000000005"
+
+    outcome = await _settle(events)
+
+    assert (outcome.status, outcome.error_code) == ("succeeded", None)
+    assert outcome.record is not None
+    # The summary was not read: no unpriced count, which only a summary states.
+    assert outcome.record["cache_unpriced_hits"] is None
+
+
+@pytest.mark.parametrize(
+    ("first", "second"),
+    [
+        pytest.param({}, {"cache.hits": -1}, id="well-formed-then-malformed"),
+        pytest.param({"cache.hits": -1}, {}, id="malformed-then-well-formed"),
+    ],
+)
+async def test_one_malformed_closing_summary_refuses_the_run_for_good(
+    first: dict[str, object], second: dict[str, object]
+) -> None:
+    """Round 1 fix 5, moved here in round 2: a run states one closing summary, so two are a
+    fold rule. One malformed refuses the run whatever comes before or after it."""
+    events = _events()
+    frame = _summary_frame(events)
+    again = copy.deepcopy(frame)
+    again["id"] = "f" * 32
+    frame["data"]["attributes"].update(first)
+    again["data"]["attributes"].update(second)
+    events.insert(events.index(frame) + 1, again)
+
+    _assert_refused(await _settle(events), "cache.hits")
+
+
+# --- Every reader agrees on the backstop path (review round 2) ------------------------------------
+
+
+class _Unbound(Executor):
+    """An executor that does not read `bound_refusal`: it states a malformed closing summary (no
+    span, as `executor._closing_logs` does) and succeeds all the same."""
+
+    async def execute(
+        self, url4: str, *, trace: TraceContext | None = None
+    ) -> AsyncIterator[ExecStep]:
+        yield LogData.at("INFO", "cache summary", {"cache.hits": -1})
+        yield Completed(result=ResultData(body="ANSWER"), subtree_cost=_subtree())
+
+
+async def test_a_success_its_record_refused_reads_failed_to_every_reader(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Finding 4: the outcome said `failed`, but `outcome_of` (the `run terminated` line) and the
+    runner's verdict (`status`) still read the `succeeded` frame."""
+    caplog.set_level(logging.INFO)
+    outcomes = InMemoryCandidateOutcomeStream()
+    local = InProcessJobRunner(InMemoryEventStream(), lambda env: _Unbound(), outcomes=outcomes)
+
+    await local.schedule(TOPIC, "q", 60, result_prefix=f"runs/run_{'a' * 32}/0")
+    outcome = (await _published(outcomes)).outcome
+
+    frame = await local.last_frame(TOPIC)
+    assert isinstance(frame, TerminatedEvent)
+    assert frame.data.status == "succeeded"
+    _assert_refused(outcome, "cache.hits")
+    assert await local.status(TOPIC) == "failed"
+    (terminated,) = [
+        record.getMessage()
+        for record in caplog.records
+        if record.getMessage().startswith("run terminated")
+    ]
+    message = "SF Engine run summary cache.hits is invalid"
+    assert f"outcome=failed error={CODE}: {message}" in terminated

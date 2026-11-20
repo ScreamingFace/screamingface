@@ -907,7 +907,7 @@ def _closing_logs(
 
 
 def _summary_attributes(
-    state: _RunState, outcome: RunOutcome, *, succeeded: bool
+    state: _RunState, outcome: RunOutcome
 ) -> Mapping[str, str | int | float | bool | None] | None:
     """The run summary's cache attributes.
 
@@ -916,26 +916,38 @@ def _summary_attributes(
     state; with no capture or replay that is nothing, so a normal failed run keeps ``None``. A
     stopped run states neither: its copy stays open.
     """
-    if succeeded:
+    if outcome == "succeeded":
         return {**state.cache_counters.attributes(), **state.capture_tally.attributes()}
     if outcome == "failed":
         return state.capture_tally.attributes() or None
     return None
 
 
-def _refuse_an_unvouched_summary() -> None:
+class SummaryRefusedError(ResolutionError):
+    """The run's failure when its record refused its run summary (E5 P2 spec §4.3, OME-1988).
+
+    Permanent: the summary is the run's own, and the same Candidate on the same Engine computes
+    it the same way. It carries the run's subtree cost: the run made and paid for every call, so
+    that spend is exact, and `Url4Executor.execute` states it for the Candidate.
+    """
+
+    def __init__(self, message: str, subtree: CostUsageData) -> None:
+        super().__init__(message, code=RUN_SUMMARY_INVALID, permanent=True)
+        self.subtree = subtree
+
+
+def _refuse_an_unvouched_summary(subtree: CostUsageData) -> None:
     """Fail the run when its record refused its run summary (E5 P2 spec §4.3, OME-1988).
 
     WHY here: after the run's last log, so its record has read every summary the run published
     (the lifecycle publishes each step before it asks for the next), and before the result is
     built or written and before `Completed`, so url4's lifecycle publishes `Terminated(failed)`
     with this code. The terminal frame is then what every reader settles from, R7 included, and
-    the run's summary line states `failed` too. Permanent: the summary is the run's own, and the
-    same Candidate on the same Engine computes it the same way.
+    the run's summary line states `failed` too.
     """
     refusal = bound_refusal()
     if refusal is not None:
-        raise ResolutionError(refusal, code=RUN_SUMMARY_INVALID, permanent=True)
+        raise SummaryRefusedError(refusal, subtree)
 
 
 def _failed_run_logs(capture: CaptureTally) -> list[Traced]:
@@ -1095,8 +1107,10 @@ class Url4Executor(Executor):
             # A failed run states no cost and no cache counts: neither is exact, and a
             # partial figure would read as a complete one. The error code/type follow the
             # stream's own `_error_info` vocabulary (code, or None when the exception
-            # carries none).
-            self._record_summary("failed", trace, started, bridge, state, error=exc)
+            # carries none). The one exception is a run refused for its run summary: it made
+            # every call, so its cost is exact (OME-1988); its cache counts stay unstated.
+            spent = exc.subtree if isinstance(exc, SummaryRefusedError) else None
+            self._record_summary("failed", trace, started, bridge, state, subtree=spent, error=exc)
             raise
         finally:
             await self._aclose_world()
@@ -1179,7 +1193,9 @@ class Url4Executor(Executor):
                 raise
             for frame in _closing_logs(bridge, state.cache_counters, state.capture_tally):
                 yield frame
-            _refuse_an_unvouched_summary()
+            # WHY before the refusal (OME-1988): a refused run made and paid for every call.
+            subtree = state.build_subtree()
+            _refuse_an_unvouched_summary(subtree)
             # WHY to_thread: for a spilled result this hashes and writes up to hard_cap
             # bytes — synchronous disk work that would otherwise stall the very loop that
             # pumps heartbeats, letting a client declare a FINISHING run dead.
@@ -1193,7 +1209,6 @@ class Url4Executor(Executor):
                 spool=bound_result_spool(),
                 sink=self._result_sink,
             )
-            subtree = state.build_subtree()
             # FEATURE (OME-1069): recorded BEFORE the Completed yield, because
             # `lifecycle.run` breaks out of its `async for` on Completed and never resumes
             # this generator — code after the yield would never run. The summary is the
@@ -1320,8 +1335,9 @@ class Url4Executor(Executor):
     ) -> None:
         """Record the run's process-level summary (OME-1069).
 
-        Exact-only, like the rest of the run's accounting: cost and cache counters are
-        stated only for a completed run — a failed run's figures are partial and must not
+        Exact-only, like the rest of the run's accounting: cost is stated only for a run that
+        made every call (``subtree``: a success, or a run refused for its run summary), and
+        cache counters only for a success — a failed run's figures are partial and must not
         read as exact. The error code/type follow the stream's own `_error_info`
         vocabulary.
         """
@@ -1335,7 +1351,7 @@ class Url4Executor(Executor):
             duration_s=time.monotonic() - started,
             cost_usd=subtree.cost.total_usd if subtree is not None else None,
             pricing_version=subtree.pricing_version if subtree is not None else None,
-            cache_attributes=_summary_attributes(state, outcome, succeeded=subtree is not None),
+            cache_attributes=_summary_attributes(state, outcome),
             dropped_logs=bridge.dropped,
             high_water=bridge.high_water,
         )

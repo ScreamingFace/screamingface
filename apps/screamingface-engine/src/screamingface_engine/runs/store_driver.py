@@ -208,15 +208,23 @@ class DriverStore(StoreCore):
         # INVARIANT (R10): a deadline only moves forward, so a late or slow hold never pulls it
         # in; a detached, stopped or finished Run's never moves (an older App's cancel sets only
         # the flag, R12); NULL (a Run without starts) stays NULL.
-        if not await Candidate.filter(run_id=run_id, state__in=LIVE).exists():
-            return
-        await Run.filter(
-            id=run_id,
-            detached=False,
-            stopped_by__isnull=True,
-            canceled=False,
-            deadline_at__lt=until,
-        ).update(deadline_at=until)
+        # WHY under the Run's lock (store_core.lock_run), as `stop` checks for a live Candidate:
+        # a settle takes the same lock, so no Candidate ends between the check and the update.
+        async with in_transaction(CONNECTION) as conn:
+            await lock_run(run_id, conn)
+            if not await Candidate.filter(run_id=run_id, state__in=LIVE).using_db(conn).exists():
+                return
+            await (
+                Run.filter(
+                    id=run_id,
+                    detached=False,
+                    stopped_by__isnull=True,
+                    canceled=False,
+                    deadline_at__lt=until,
+                )
+                .using_db(conn)
+                .update(deadline_at=until)
+            )
 
     @in_context
     async def stop(
