@@ -1,13 +1,13 @@
 ---
 id: OME-1935
 linear_url: https://linear.app/openmined/issue/OME-1935/give-sfcredits-a-rich-notebook-repr-like-sfconnect
-status: In Progress
+status: Done
 type: feature
 priority: high
 labels: [client-sf, human]
 parent: OME-1294
 created: 2026-11-16
-closed:
+closed: 2026-11-17
 ---
 
 # Give sf.credits() a rich notebook repr like sf.connect()
@@ -22,3 +22,5 @@ Spec: `docs/spec/2026-11-17-credits-repr.md`.
 Plan: `docs/plan/2026-11-17-credits-repr.md`.
 Ledger: `docs/work/2026-11-17-credits-repr.md`.
 Branch: `OME-1935-credits-repr`.
+
+Completed in [PR #1883](https://github.com/ScreamingFace/screamingface/pull/1883) (`3afc0ee29`). Linear reconciled to Done on 2026-11-18.

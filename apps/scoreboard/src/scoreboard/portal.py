@@ -7,6 +7,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from .board_pages import register_board_pages
 from .config import Settings
 
 PUBLIC_ARTIFACTS = (
@@ -28,6 +29,7 @@ def register_portal(app: FastAPI, settings: Settings) -> None:
 
     _register_forbidden_artifacts(app)
     _register_public_artifacts(app, artifacts_dir)
+    register_board_pages(app, portal_dir)
 
     app.mount("/", StaticFiles(directory=portal_dir, html=True), name="portal")
 

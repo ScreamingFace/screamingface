@@ -5,6 +5,7 @@ from pathlib import Path
 
 import nbformat
 
+from workbench import bundle, image_notebook
 from workbench.bundle import write_bundle
 from workbench.evidence import Hop, TraceChain
 from workbench.redaction import redact
@@ -123,3 +124,69 @@ def test_summary_accumulates_rows_and_escapes_pipes(tmp_path: Path) -> None:
     assert summary.count("| target |") == 1
     assert "| replay | a | PASS | — | x\\|y |" in summary
     assert "| replay | b | PASS |" in summary
+
+
+def test_a_result_matrix_is_written_redacted_with_capped_answers(tmp_path: Path) -> None:
+    """Image input matrix spec §3.5: ``matrix.json`` holds one row per cell, answers ≤ 200
+    characters, redacted like every other sink (a model may echo anything)."""
+    rows = [
+        {"path": "url4", "model": "m", "observed": "answered", "answer": "7392 " + "x" * 400},
+        {"path": "url4", "model": "m", "observed": "wrong", "answer": f"saw {KEY}"},
+        {"path": "benchmark", "model": "m", "observed": "refused", "answer": None},
+    ]
+    run = _run("ok\n", result={"trace_ids": [TID], "matrix": rows})
+
+    out = write_bundle(
+        tmp_path,
+        target="local",
+        notebook="image_input_matrix",
+        run=run,
+        chain=TraceChain((), ()),
+        passed=True,
+        reasons=[],
+    )
+
+    body = (out / "matrix.json").read_text()
+    assert KEY not in body
+    matrix = json.loads(body)
+    assert [row["observed"] for row in matrix] == ["answered", "wrong", "refused"]
+    assert len(matrix[0]["answer"]) == 200 and matrix[0]["answer"].startswith("7392 ")
+    assert "[REDACTED]" in matrix[1]["answer"]
+    assert matrix[2]["answer"] is None
+
+
+def test_no_matrix_file_without_a_result_matrix(tmp_path: Path) -> None:
+    out = write_bundle(
+        tmp_path,
+        target="replay",
+        notebook="quickstart",
+        run=_run("ok\n", result={"trace_ids": [TID]}),
+        chain=TraceChain((), ()),
+        passed=True,
+        reasons=[],
+    )
+    assert not (out / "matrix.json").exists()
+
+
+def test_a_malformed_matrix_is_kept_as_reported_not_dropped(tmp_path: Path) -> None:
+    """A notebook bug that reports a non-list still leaves evidence; ``check_result`` and the
+    notebook's own verdict decide the outcome, the bundle only records."""
+    out = write_bundle(
+        tmp_path,
+        target="local",
+        notebook="image_input_matrix",
+        run=_run("ok\n", result={"trace_ids": [TID], "matrix": f"oops {KEY}"}),
+        chain=TraceChain((), ()),
+        passed=False,
+        reasons=["x"],
+    )
+    body = (out / "matrix.json").read_text()
+    assert KEY not in body and json.loads(body) == "oops [REDACTED]"
+
+
+def test_bundle_and_notebook_cap_answers_at_one_shared_limit() -> None:
+    """Both sides cap ``matrix.json`` answers; one constant, so the two caps cannot drift."""
+    import inspect
+
+    assert bundle.ANSWER_CAP == image_notebook.ANSWER_CAP
+    assert "ANSWER_CAP =" not in inspect.getsource(bundle), "bundle must import the cap"

@@ -22,5 +22,11 @@ Plan: `docs/plan/2026-11-11-provider-credit.md`.
 Ledger: `docs/work/2026-11-11-provider-credit.md`.
 Branch: `OME-893-provider-credit`.
 
-Owner approved the notebook preview and requested PR publication. Full live HTTP
-end-to-end verification is deferred to dev. Merged [PR #1753](https://github.com/ScreamingFace/screamingface/pull/1753) as `95f172afd`. Linear is Done.
+Merged in [PR #1753](https://github.com/ScreamingFace/screamingface/pull/1753) as
+`95f172afdc77b1e0d9f60ee126db9307aeab4dc6`. Linear is Done.
+Authenticated hosted dev verification passed on 2026-11-16 after the owner-authorized
+replacement of the caller's stored OpenRouter credential with the verified team key.
+Cached and fresh sync reads plus cached async SDK reads return a numeric allowance.
+The notebook card shows one hosted allowance and hides the platform account balance.
+Personal matching/mismatched key-pair checks also passed through the read-only
+provider adapter. See the ledger for scope and remaining release/operator notes.

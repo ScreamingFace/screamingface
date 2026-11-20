@@ -1,25 +1,20 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 232" width="720" height="232" font-family="Helvetica Neue, Arial, sans-serif">
-<title>Your local cache fills from your own runs and from pulling the shared global community cache; calls already in the cache run for free.</title>
-<defs>
-<marker id="arw" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7.5" markerHeight="7.5" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#8a9099"/></marker>
-<marker id="arwg" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7.5" markerHeight="7.5" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#58b36e"/></marker>
-</defs>
-<rect width="720" height="232" fill="#ffffff"/>
-
-<!-- global cache -->
-<rect x="64" y="104" width="252" height="74" rx="10" fill="#f1f9f3" stroke="#58b36e" stroke-width="1.4"/>
-<text x="190" y="138" font-size="16" fill="#2f8a46" text-anchor="middle" font-weight="500">global cache</text>
-<text x="190" y="160" font-size="12" fill="#5aa16f" text-anchor="middle">grows as the community runs</text>
-
-<!-- your cache cylinder -->
-<line x1="508" y1="46" x2="508" y2="90" stroke="#8a9099" stroke-width="1.8" marker-end="url(#arw)"/>
-<text x="508" y="38" font-size="12.5" fill="#8b9096" text-anchor="middle">your runs</text>
-<path d="M456 92 a52 11 0 0 1 104 0 v62 a52 11 0 0 1 -104 0 z" fill="#f0f1f3" stroke="#cdd0d6" stroke-width="1.3"/>
-<path d="M456 92 a52 11 0 0 0 104 0" fill="none" stroke="#cdd0d6" stroke-width="1.3"/>
-<text x="508" y="130" font-size="15" fill="#2c2f36" text-anchor="middle">your cache</text>
-<text x="508" y="196" font-size="12.5" fill="#8b9096" text-anchor="middle">cached calls run for free</text>
-
-<!-- pull -->
-<line x1="316" y1="138" x2="452" y2="138" stroke="#58b36e" stroke-width="1.8" stroke-dasharray="6 4" marker-end="url(#arwg)"/>
-<text x="384" y="128" font-size="12.5" fill="#2f8a46" text-anchor="middle">pull from global cache</text>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-35.0 78 1060 224" width="1060" height="224" font-family="Helvetica Neue, Arial, sans-serif">
+<title>Your cache fills from your runs and the shared global cache</title>
+<defs><marker id="a-mid" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#5a6069"/></marker><marker id="a-bad" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#d0634a"/></marker><marker id="a-ok" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#58b36e"/></marker><marker id="a-accent" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#c9821f"/></marker></defs>
+<path d="M290 132 L372 132 L372 150 L450 150" fill="none" stroke="#5a6069" stroke-width="1.8" marker-end="url(#a-mid)"/>
+<path d="M290 248 L372 248 L372 188 L450 188" fill="none" stroke="#58b36e" stroke-width="1.8" stroke-dasharray="5 4" marker-end="url(#a-ok)"/>
+<path d="M600 168 L720 168" fill="none" stroke="#58b36e" stroke-width="1.8" marker-end="url(#a-ok)"/>
+<rect x="40" y="96" width="250" height="72" rx="11" fill="#f4f5f7" stroke="#cdd0d6" stroke-width="1.6"/>
+<text x="165.0" y="125.0" font-size="15" fill="#2c2f36" text-anchor="middle" font-weight="600">your runs</text>
+<text x="165.0" y="149.0" font-size="13" fill="#5a6069" text-anchor="middle">answers you compute</text>
+<rect x="40" y="212" width="250" height="72" rx="11" fill="#f1f9f3" stroke="#58b36e" stroke-width="1.6"/>
+<text x="165.0" y="241.0" font-size="15" fill="#2c2f36" text-anchor="middle" font-weight="600">global cache</text>
+<text x="165.0" y="265.0" font-size="13" fill="#5a6069" text-anchor="middle">grows as the community runs</text>
+<path d="M450 112 a75.0 12 0 0 1 150 0 v112 a75.0 12 0 0 1 -150 0 z" fill="#f4f5f7" stroke="#cdd0d6" stroke-width="1.3"/>
+<path d="M450 112 a75.0 12 0 0 0 150 0" fill="none" stroke="#cdd0d6" stroke-width="1.3"/>
+<text x="525.0" y="176.0" font-size="15" fill="#2c2f36" text-anchor="middle" font-weight="600">your cache</text>
+<rect x="720" y="132" width="230" height="72" rx="11" fill="#f1f9f3" stroke="#58b36e" stroke-width="1.6"/>
+<text x="835.0" y="161.0" font-size="15" fill="#2c2f36" text-anchor="middle" font-weight="600">a cached call</text>
+<text x="835.0" y="185.0" font-size="13" fill="#5a6069" text-anchor="middle">runs for free</text>
+<text x="408" y="203" font-size="13" fill="#58b36e" text-anchor="middle" font-weight="600">pull</text>
 </svg>

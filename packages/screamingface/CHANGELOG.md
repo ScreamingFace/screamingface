@@ -13,14 +13,19 @@
   `LeaderboardScore.regraded_from` names the score a re-graded entry came from, and a re-grade
   of a re-graded entry is refused (`regrade_the_source`) naming that root score to re-grade.
 
+- `Benchmark.provenance.contributors` names the GitHub handles of whoever wrote a Benchmark
+  from outside the team; such a Benchmark's `origin` is `external`.
+
 - The notebook filter of `sf.models.list()` and `sf.benchmarks.list()` matches each word of the
   query, in any order: `claude 5.5` shows the entries that contain both words.
 
 - `sf.credits()` now renders as a notebook card in the connection panel's style, instead of
   the plain dataclass repr. An unavailable amount says why ("Not connected", "Key
   rejected", "Lookup failed", "Not supported", "Unreadable response", "Not available on
-  hosted"), in the card and in the connection panel. When no amount is known, the card shows one "Credits unavailable"
-  box (OME-1935).
+  hosted"), in the card and in the connection panel. When no amount is known, the card
+  shows one "Credits unavailable" box (OME-1935). A hosted panel says "Lookup failed" when
+  the credit request fails, and a rejected management key reads "Management key
+  rejected" on the account box (OME-1968).
 
 - Notebook credits now show account credit separately from the key spending cap,
   with optional account settings and visible-only five-minute refresh. OpenRouter

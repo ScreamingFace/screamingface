@@ -215,3 +215,42 @@ async def test_a_page_logs_its_unrecognised_models_once_in_aggregate(
     warnings = [r for r in caplog.records if r.levelname == "WARNING"]
     assert len(warnings) == 1
     assert "20 unrecognized" in warnings[0].getMessage()
+
+
+# OME-1918: hybrid is presentation detail, never a change to the open-share definition.
+@pytest.mark.parametrize(
+    ("models", "override", "hybrid", "openness"),
+    [
+        (OPEN, None, False, "open"),
+        (["openai/gpt-5.5"], None, False, "closed"),
+        (CLOSED, None, True, "closed"),
+        (list(reversed(CLOSED)), None, True, "closed"),
+        (None, None, False, "unidentified"),
+        ([*OPEN, "nobody/mystery"], None, False, "closed"),
+        ([*CLOSED, "nobody/mystery"], None, False, "closed"),
+        (CLOSED, "open", False, "open"),
+        (CLOSED, "closed", False, "closed"),
+    ],
+)
+async def test_hybrid_flag_preserves_frontier_semantics(
+    client: httpx.AsyncClient,
+    models: list[str] | None,
+    override: str | None,
+    hybrid: bool,
+    openness: str,
+) -> None:
+    await _board()
+    score_id = await _score("weights", 0.5, "1.00", models, 0)
+    if override:
+        await Score.filter(id=score_id).update(openness_override=override)
+
+    row = (await _rows(client))["weights"]
+    assert row["openness"] == openness
+    if hybrid:
+        assert row["is_hybrid"] is True
+    else:
+        assert "is_hybrid" not in row
+    assert "models" not in row
+    card = (await client.get(f"/v1/leaderboard/{BOARD}/frontier")).json()
+    assert card["open_count"] == int(openness == "open")
+    assert card["closed_count"] == int(openness == "closed")

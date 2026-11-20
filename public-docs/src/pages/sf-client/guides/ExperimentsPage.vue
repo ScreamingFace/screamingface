@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { RouterLink } from 'vue-router'
 import DocLayout from '@/components/layout/DocLayout.vue'
-import CodeBlock from '@/components/ui/CodeBlock.vue'
 import NbCell from '@/components/nb/NbCell.vue'
 import NbTextOut from '@/components/nb/NbTextOut.vue'
 import Note from '@/components/ui/Note.vue'
@@ -9,17 +8,6 @@ import {
   sfClientNavigation as navigation,
   sfClientVersion as version,
 } from '@/navigation/sf-client'
-
-const installLocal = `pip install "screamingface[runtime,notebook]"`
-const stackUp = `screamingface prepare ifeval  # first run only: download the pinned benchmark assets
-screamingface up
-screamingface status`
-const installHosted = `pip install "screamingface[notebook]"`
-
-const configure = `import screamingface as sf
-
-sf.configure(engine_url="http://127.0.0.1:9108", scoreboard_url="http://127.0.0.1:9106")
-sf.connect()`
 
 const start = `MODEL = sf.Model("openrouter/google/gemini-3-flash-preview")
 
@@ -87,12 +75,12 @@ runs = await sf.runs.list_async(state="running")`
   >
     <p>
       Every <code>sf.evaluate(...)</code> creates a
-      <RouterLink to="/sf-client/api/runs">Run</RouterLink> on the engine, with an id, a state, and an
-      outcome and cost for each candidate. Think of it as the record of that experiment. It outlives
-      the cell that launched it, so you can come back later to find it by its id, watch its progress,
-      reopen its <RouterLink to="/sf-client/api/reports">Report</RouterLink>, or cancel it, from any
-      notebook or machine you are signed in on, for up to 30 days, on the hosted engine or your own
-      stack.
+      <RouterLink to="/sf-client/api/runs">Run</RouterLink> on the engine. A Run is the record of one
+      experiment: it has an id, a state, and an outcome and cost for each candidate. It outlives the
+      cell that launched it, so you can come back to it later. From any notebook or machine you are
+      signed in on, for up to 30 days, you can find it by its id, watch its progress, reopen its
+      <RouterLink to="/sf-client/api/reports">Report</RouterLink>, or cancel it, whether it ran on the
+      hosted engine or your own stack.
     </p>
 
     <p>
@@ -164,45 +152,6 @@ runs = await sf.runs.list_async(state="running")`
       different values.</Note
     >
 
-    <h2>Before you start</h2>
-
-    <p>
-      First decide where your evaluations run. <strong>Local</strong> runs on a stack you start
-      yourself with <code>screamingface up</code>; <strong>hosted</strong> runs on
-      <code>fusion.screamingface.ai</code> with nothing to start. Either way the Run and its metadata
-      are visible from any machine you are signed in on, but <code>Run.report()</code> can only open a
-      Report saved on the machine that ran the evaluation.
-    </p>
-
-    <p>For <strong>local</strong>, install the runtime and start the stack from a terminal.</p>
-
-    <CodeBlock :code="installLocal" language="bash" />
-    <CodeBlock :code="stackUp" language="bash" />
-
-    <p>
-      If something does not come up cleanly, <code>screamingface logs</code> shows you why, and
-      <code>screamingface down</code> stops the stack when you are done. From a checkout,
-      <code>just local-stack-notebooks</code> in <code>packages/screamingface/</code> does the lot in
-      one go: assets, stack, and Jupyter.
-    </p>
-
-    <p>
-      For <strong>hosted</strong>, there is nothing to start.
-      <code>pip install "screamingface[notebook]"</code> is enough, and <code>sf.connect()</code> opens
-      the login in your browser.
-    </p>
-
-    <CodeBlock :code="installHosted" language="bash" />
-
-    <p>
-      Then point the Client at your target and connect the provider for the model you will evaluate,
-      OpenRouter here:
-    </p>
-
-    <div class="not-prose">
-      <NbCell :count="1" :code="configure" />
-    </div>
-
     <h2>1 · Start an evaluation</h2>
 
     <p>
@@ -212,7 +161,7 @@ runs = await sf.runs.list_async(state="running")`
     </p>
 
     <div class="not-prose">
-      <NbCell :count="2" :code="start"><NbTextOut :text="startOut" /></NbCell>
+      <NbCell :count="1" :code="start"><NbTextOut :text="startOut" /></NbCell>
     </div>
 
     <Note
@@ -225,40 +174,40 @@ runs = await sf.runs.list_async(state="running")`
     <h2>2 · Find your Runs</h2>
 
     <p>
-      <code>sf.runs.list()</code> gives you your Runs, newest first. Pass <code>state</code> to find
-      the ones still in flight, or <code>since</code> (a <strong>timezone-aware</strong> datetime) to
-      look at recent Runs. None of this starts any work.
+      <code>sf.runs.list()</code> returns your Runs, newest first. Pass <code>state</code> to find the
+      ones still running, or <code>since</code> (a timezone-aware datetime) to look at recent Runs.
+      None of this starts any work.
     </p>
 
     <div class="not-prose">
-      <NbCell :count="3" :code="list"><NbTextOut :text="listOut" /></NbCell>
+      <NbCell :count="2" :code="list"><NbTextOut :text="listOut" /></NbCell>
     </div>
 
     <div class="not-prose">
-      <NbCell :count="4" :code="filter"><NbTextOut :text="filterOut" /></NbCell>
+      <NbCell :count="3" :code="filter"><NbTextOut :text="filterOut" /></NbCell>
     </div>
 
     <h2>3 · Reopen a Run and follow its progress</h2>
 
     <p>
-      <code>sf.runs.get(run_id)</code> hands you a snapshot that will not change on its own.
-      <code>run.refresh()</code> goes back to the engine for the latest, and
-      <code>run.progress()</code> tells you how many candidates have finished and what has been spent
-      so far, without waiting. A candidate that did not succeed carries an <code>error_code</code>.
+      <code>sf.runs.get(run_id)</code> returns a snapshot that does not update on its own. Call
+      <code>run.refresh()</code> to fetch the latest state from the engine. <code>run.progress()</code>
+      reports how many candidates have finished and what has been spent so far, without waiting. A
+      candidate that did not succeed carries an <code>error_code</code>.
     </p>
 
     <div class="not-prose">
-      <NbCell :count="5" :code="reopen"><NbTextOut :text="reopenOut" /></NbCell>
+      <NbCell :count="4" :code="reopen"><NbTextOut :text="reopenOut" /></NbCell>
     </div>
 
     <p>
-      <code>run.wait()</code> polls until the Run finishes and returns it, raising
-      <code>TimeoutError</code> if it is still going after <code>timeout</code> seconds. It holds the
-      cell while it waits, so reach for it only when you actually want to wait for the result.
+      <code>run.wait()</code> polls until the Run finishes and returns it. It raises
+      <code>TimeoutError</code> if the Run is still going after <code>timeout</code> seconds. It blocks
+      the cell while it waits, so use it only when you want to wait for the result.
     </p>
 
     <div class="not-prose">
-      <NbCell :count="6" :code="wait"><NbTextOut :text="waitOut" /></NbCell>
+      <NbCell :count="5" :code="wait"><NbTextOut :text="waitOut" /></NbCell>
     </div>
 
     <h2>4 · Open the Run's Report</h2>
@@ -273,7 +222,7 @@ runs = await sf.runs.list_async(state="running")`
     </p>
 
     <div class="not-prose">
-      <NbCell :count="7" :code="report"><NbTextOut :text="reportOut" /></NbCell>
+      <NbCell :count="6" :code="report"><NbTextOut :text="reportOut" /></NbCell>
     </div>
 
     <h2>5 · Cancel a Run</h2>
@@ -282,12 +231,12 @@ runs = await sf.runs.list_async(state="running")`
       Cancelling applies to the whole Run: it stops every candidate still running and refuses the
       Run's later starts (<code>run_canceled</code>). A finished Run is left alone, and calling
       <code>cancel()</code> more than once is harmless. It takes an explicit id on purpose, so pass one
-      only when you mean to stop that Run. Once its candidates have stopped, the Run reads
+      only when you mean to stop that Run. Once its candidates have stopped, the Run's state reads
       <code>"canceled"</code>.
     </p>
 
     <div class="not-prose">
-      <NbCell :count="8" :code="cancel"><NbTextOut :text="cancelOut" /></NbCell>
+      <NbCell :count="7" :code="cancel"><NbTextOut :text="cancelOut" /></NbCell>
     </div>
 
     <h2>6 · When a Run cannot be read</h2>
@@ -300,13 +249,13 @@ runs = await sf.runs.list_async(state="running")`
     </p>
 
     <div class="not-prose">
-      <NbCell :count="9" :code="unknown" />
+      <NbCell :count="8" :code="unknown" />
     </div>
 
     <p>In async code, use the non-blocking twins:</p>
 
     <div class="not-prose">
-      <NbCell :count="10" :code="asyncTwins" />
+      <NbCell :count="9" :code="asyncTwins" />
     </div>
 
     <h2>See also</h2>

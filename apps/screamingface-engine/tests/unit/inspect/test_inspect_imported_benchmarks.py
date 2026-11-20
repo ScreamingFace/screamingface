@@ -100,6 +100,9 @@ _EXPECTED_FAMILIES: dict[str, str] = {
     "hle": "judged",
     # OME-1863: HLE-Diamond, a local Task graded by the same regex_judge as hle.
     "hle_diamond": "judged",
+    # FutureX-Past: a local Task judged on levels 3-4; its study twin is marked by rule.
+    "futurex_past": "judged",
+    "futurex_past_study": "free_text",
     # OME-1733: LABBench2 FigQA2 and TableQA2 image, graded by the authors' exact-match judge.
     "labbench2_figqa2_img": "judged",
     "labbench2_tableqa2_img": "judged",
@@ -109,6 +112,9 @@ _EXPECTED_FAMILIES: dict[str, str] = {
     # OME-1854: MaCBench mixes multiple choice (several right letters) with numbers, graded
     # by the eval's own answer-tag scorer, as chembench.
     "macbench": "mcq",
+    # OME-1874: EnigmaEval, a local Task; free text read from the answer box by the authors'
+    # own normaliser.
+    "enigmaeval": "free_text",
     "frontierscience": "judged",
     # OME-1269: the first question-filter benchmark — the eval's own filter picks the
     # questions; MCQ graded by the choice scorer, no draft-feedback offer.
@@ -230,11 +236,14 @@ def test_every_benchmark_from_this_plugin_names_inspect_evals_as_its_source() ->
     # OME-1513: a LOCAL Task — our own eval in inspect's shape under `local_tasks/`, fed to
     # the same importer — is the one row that says "screamingface": it is ours, not brought
     # in. The origin must match where the task code lives, both ways.
+    # OME-1960: a local Task an outside contributor wrote says "external" instead; it is
+    # still not an inspect_evals import, and only a row that names its contributors may say so.
+    # Assertion change approved by the owner on 2026-11-18 (test-change approval OME-1952).
     expected = {
         imported_benchmark_id(spec.key, spec.origin): (
             "inspect_evals"
             if TASK_REPLAY_CASES[spec.key].task.startswith("inspect_evals.")
-            else "screamingface"
+            else ("external" if spec.contributors is not None else "screamingface")
         )
         for spec in BENCHMARKS
     }

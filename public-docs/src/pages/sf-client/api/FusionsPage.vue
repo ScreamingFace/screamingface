@@ -38,11 +38,12 @@ report = sf.evaluate(fusion, benchmark="ifeval", limit=1)`
   >
     <p>
       A fusion is a <RouterLink to="/sf-client/api/recipes">Recipe</RouterLink> that runs several
-      members in parallel and combines their answers with an explicit synthesizer. You build it as a
-      chain: <code>sf.Fanout(members)</code> sends the question to every member, and
+      members in parallel and combines their answers with a synthesizer. Use it when you want more
+      than one model to answer the same question, then have a single model merge those answers. You
+      build it as a chain. <code>sf.Fanout(members)</code> sends the question to every member, and
       <code>&gt;&gt; sf.Synthesize(model)</code> adds the synthesizer. The chain is an
       <RouterLink to="/sf-client/api/pipelines"><code>sf.Pipeline</code></RouterLink
-      >. Like every recipe it is frozen and holds no Client, so you can build it before connecting.
+      >. Like every recipe it is frozen and holds no Client, so you can build it before you connect.
       The <RouterLink to="/sf-client/guides/fusions">Fusions guide</RouterLink> walks through
       building one.
     </p>
@@ -71,8 +72,8 @@ report = sf.evaluate(fusion, benchmark="ifeval", limit=1)`
           <td><code>tuple</code></td>
           <td>
             The <code>Fanout</code> step, then the <code>Synthesize</code> step. The
-            <code>Fanout</code> step keeps the members that run in parallel (at least one). The
-            <code>Synthesize</code> step keeps the <code>model</code> that combines the members'
+            <code>Fanout</code> step holds the members that run in parallel (at least one). The
+            <code>Synthesize</code> step holds the <code>model</code> that combines the members'
             answers into the single graded answer.
           </td>
         </tr>
@@ -80,8 +81,8 @@ report = sf.evaluate(fusion, benchmark="ifeval", limit=1)`
           <td><code>optional</code></td>
           <td><code>bool</code></td>
           <td>
-            <code>False</code>. Set it on an <code>sf.Pipeline</code> that wraps the chain, for an
-            optional member.
+            <code>False</code>. To make the member optional, set it on an <code>sf.Pipeline</code>
+            that wraps the chain.
           </td>
         </tr>
       </tbody>
@@ -92,7 +93,7 @@ report = sf.evaluate(fusion, benchmark="ifeval", limit=1)`
       <code>Model</code>, another fusion, or a
       <RouterLink to="/sf-client/api/pipelines">Pipeline</RouterLink>, nested in any combination.
       Only the synthesizer's final answer is graded. A reducer such as <code>sf.Vote</code> can
-      close the block in place of <code>sf.Synthesize</code>.
+      close the chain in place of <code>sf.Synthesize</code>.
     </Note>
 
     <div class="not-prose">
@@ -102,12 +103,12 @@ report = sf.evaluate(fusion, benchmark="ifeval", limit=1)`
     <p>
       A member marked <code>optional=True</code> (on a <code>Model</code> or a
       <code>Pipeline</code>, or a fusion wrapped in <code>sf.Pipeline([...], optional=True)</code>)
-      can fail while the run still completes, as long as at least <code>quorum</code> members
-      succeed. A failed optional member appears as an answer with the status <code>fail</code> and
-      the reason <code>missing</code>, and never as a vote. When fewer than <code>quorum</code>
-      members succeed, or a required member fails, the candidate fails and its score is
-      <code>None</code>. <code>optional=True</code> is only valid on a member of
-      <code>sf.Fanout</code>; elsewhere it raises
+      can fail without failing the run, as long as at least <code>quorum</code> members succeed. A
+      failed optional member appears as an answer with the status <code>fail</code> and the reason
+      <code>missing</code>, and never counts as a vote. If fewer than <code>quorum</code> members
+      succeed, or a required member fails, the candidate fails and its score is <code>None</code>.
+      You can only set <code>optional=True</code> on a member of <code>sf.Fanout</code>. Anywhere
+      else it raises
       <code>ValueError: optional=True is only supported on sf.Fanout members</code>.
     </p>
 

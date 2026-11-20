@@ -24,6 +24,7 @@ from screamingface_engine.benchmarks.provenance import (
     FrontierScore,
     HumanBaseline,
     NotPublished,
+    provenance_gaps,
     saturation_verdict,
 )
 
@@ -283,6 +284,59 @@ def test_inspect_contributors_belong_only_to_an_imported_benchmark() -> None:
     # repo has no such people, so a value here is a copy-paste error, not a fact.
     with pytest.raises(ValueError, match="inspect_contributors"):
         _benchmark(origin="screamingface", inspect_contributors=("jjallaire",))
+
+
+# --- a Benchmark from an outside contributor (origin "external") -------------------------------
+
+
+def test_an_external_benchmark_serves_its_origin_and_who_wrote_it() -> None:
+    # FEATURE: the catalogue can show a Benchmark an outside contributor wrote as external
+    # and credit them, the way inspect_evals' own catalogue marks its External shelf.
+    benchmark: Benchmark = _benchmark(origin="external", contributors=("yimingliao-blad",))
+
+    served: dict[str, Any] = benchmark.catalog_entry()
+
+    assert served["origin"] == "external"
+    assert served["contributors"] == ["yimingliao-blad"]
+    assert "inspect_contributors" not in served
+
+
+@pytest.mark.parametrize("origin", ["screamingface", "inspect_evals"])
+def test_contributors_belong_only_to_an_external_benchmark(origin: str) -> None:
+    # WHY: the team decided (2026-10-06) that a row it wrote names no contributor, because git
+    # already holds that; the field is credit owed to someone outside, so a value on any other
+    # origin is a copy-paste error.
+    with pytest.raises(ValueError, match=r"^Benchmark contributors credits"):
+        _benchmark(origin=origin, contributors=("yimingliao-blad",))
+
+
+def test_an_external_benchmark_has_no_inspect_porters_to_credit() -> None:
+    # INVARIANT: the two handle lists never share a row; each origin owns exactly one.
+    with pytest.raises(ValueError, match="inspect_contributors"):
+        _benchmark(origin="external", inspect_contributors=("jjallaire",))
+
+
+@pytest.mark.parametrize("handles", [(), ("-octocat",), ("https://github.com/octocat",), "octocat"])
+def test_a_malformed_contributor_handle_is_refused(handles: object) -> None:
+    # WHY: the pages build the profile link from the handle, so it must be a GitHub username.
+    with pytest.raises(ValueError, match=r"^Benchmark contributors "):
+        _benchmark(origin="external", contributors=handles)
+
+
+def test_an_external_benchmark_that_names_nobody_is_a_provenance_gap() -> None:
+    # WHY a gap, not a refusal at authoring: the same rule inspect_contributors follows, so
+    # the registry-wide conformance test is the one place that asks for required fields.
+    assert "contributors" in provenance_gaps(_benchmark(origin="external"))
+    assert "contributors" not in provenance_gaps(
+        _benchmark(origin="external", contributors=("yimingliao-blad",))
+    )
+    assert "contributors" not in provenance_gaps(_benchmark(origin="screamingface"))
+
+
+def test_an_origin_outside_the_closed_set_is_still_refused() -> None:
+    # INVARIANT: adding "external" widened the set by one word; it did not open it.
+    with pytest.raises(ValueError, match="origin must be one of"):
+        _benchmark(origin="community")
 
 
 @pytest.mark.parametrize(

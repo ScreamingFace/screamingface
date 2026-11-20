@@ -1,0 +1,18 @@
+{
+  "issue": "OME-1977",
+  "branch": "OME-1977-futurex-judge-temperature",
+  "approver": "IonesioJunior (repo owner, in session)",
+  "date": "2026-11-19",
+  "scope": "Two prior test files. test_benchmark_fingerprints.py: the futurex_past fingerprint literal 200cf4f72481ffb0 -> cbf11bdc4466620e, moved into the held-rows group with a comment; the published id is held. test_local_task_futurex_past.py: only the _JUDGE_PARAMS constant, from (temperature 0, max_tokens 4096, web_search false) to (web_search false, max_tokens 4096); no assertion changes.",
+  "reason": "The old values pinned the bug: the FutureX-Past Judge sent temperature 0 to openrouter/openai/gpt-5.4, which no OpenRouter endpoint accepts under the gateway's require_parameters, so every level-3/4 Judge call failed. The owner approved removing the pin, holding the published revision (same Cases, a grading fix), and this test edit on 2026-11-19.",
+  "files": {
+    "apps/screamingface-engine/tests/unit/inspect/test_benchmark_fingerprints.py": {
+      "base_blob": "3eb629c5bd246d39437e83a88862c025b5be0f5a",
+      "approved_blob": "9cd1987f7799e2334ed3e499cf6b54f627b8e06c"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_local_task_futurex_past.py": {
+      "base_blob": "705b77195c337507d930dd8b266976a44668ae47",
+      "approved_blob": "d4e3ff68ea4f9511851818b1d60ea19e86ae73a0"
+    }
+  }
+}

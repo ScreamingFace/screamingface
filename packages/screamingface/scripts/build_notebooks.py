@@ -87,6 +87,7 @@ def notebooks() -> dict[str, NotebookNode]:
         "19_map_select_reduce.ipynb": _map_select_reduce(),
         "20_routers_cascades.ipynb": _routers_cascades(),
         "21_runs.ipynb": _runs(),
+        "22_futurex_past.ipynb": _futurex_past_e2e(),
     }
 
 
@@ -2266,6 +2267,119 @@ ones."""),
     )
 
 
+def _futurex_past_e2e() -> NotebookNode:
+    return _notebook(
+        nbformat.v4.new_markdown_cell("""\
+# FutureX-Past — forecasting questions whose outcomes are known
+
+[FutureX](https://arxiv.org/abs/2508.11987) is a live benchmark of real-world forecasting: every
+week it asks agents about events that have not happened yet. **FutureX-Past** is its archive of
+questions that have since resolved, from January to November 2026: sports results, rankings,
+prices, releases. Each question is the dataset's own prompt, word for word, and asks for a
+boxed answer (`\\boxed{}`) at the end of the reply.
+
+Two Benchmarks read this archive:
+
+- **`futurex_past`** (2,036 questions) is scored by our re-implementation of the FutureX
+  authors' current rules, with our house Judge in place of theirs. A score is on their scale
+  but is not comparable with their leaderboard. Levels 1-2 (pick one option, pick every
+  right option) are marked by rule. Levels 3-4 (a
+  number, a name or a ranked list) go to our house Judge, which first decides whether a list is
+  a ranking or an unordered set and then compares meanings across wording and language. Numbers
+  score by distance: within 5% of the truth earns partial credit. The headline weights the four
+  level means 10/20/30/40, as the paper does.
+- **`futurex_past_study`** (1,118 questions, the 2026-08-02 release) is scored the way the
+  crowd-wisdom study scored it, with the study's own code and no Judge. Answers must equal the
+  key as text after case-folding. It exists to replicate that study's numbers, so it sits below
+  `futurex_past` on levels 3-4 by design.
+
+**Read a score with this in mind.** The events have already happened, and no search is given.
+A model trained after an event may simply know it, so this is a closed-book exam on resolved
+events, not the live FutureX leaderboard."""),
+        nbformat.v4.new_markdown_cell(
+            _before_running(
+                "## 0. Before running",
+                """\
+screamingface prepare futurex_past        # first run only: download the questions
+screamingface prepare futurex_past_study  # the study's release, for section 4
+screamingface up                          # start Gateway :9105, Scoreboard :9106, and Engine :9108
+screamingface status""",
+            )
+        ),
+        nbformat.v4.new_code_cell(f"{_TARGET_SETUP}\n\nsf.connect()"),
+        nbformat.v4.new_markdown_cell("""\
+## 1. Read the Benchmark's card
+
+`futurex_past` was written by a contributor outside the team (origin `external`). The card
+carries the pinned dataset release, the Judge it pins, and the scoring caveats."""),
+        nbformat.v4.new_code_cell("""\
+sf.benchmarks.get("futurex_past")"""),
+        nbformat.v4.new_markdown_cell("""\
+## 2. Run a few questions with one model
+
+The prompt asks for nothing but the boxed answer, so a short reply is enough; a reasoning model
+still needs room to think before it writes the box."""),
+        nbformat.v4.new_code_cell("""\
+# No `temperature` here on purpose: several current reasoning models reject the parameter
+# outright (see 13_contracteval for the provider-by-provider detail).
+PARAMS = {"max_tokens": 4096}
+
+solo = sf.Model(model="openrouter/openai/gpt-5.5", params=PARAMS)
+report = sf.evaluate(solo, benchmark="futurex_past", limit=5)
+report"""),
+        nbformat.v4.new_markdown_cell("""\
+## 3. Read the per-question outcomes
+
+Each case carries its level and, on levels 3-4, the route the Judge chose (`legacy_type_a` for
+option labels, `legacy_type_b` for a number, a name or a ranking, `unordered_set` for a set). A
+reply with no box scores 0; a case whose Judge never gave a readable reply shows as failed."""),
+        nbformat.v4.new_code_cell("""\
+for case in report.candidates.only.cases:
+    grade = case.grade
+    if grade is None or case.failures:
+        print(case.case_id, case.status, [failure.code for failure in case.failures])
+        continue
+    evidence = grade.checks[0].evidence[0]
+    level, route = evidence.metadata.get("level"), evidence.metadata.get("route")
+    print(case.case_id, grade.score, level, route)"""),
+        nbformat.v4.new_markdown_cell("""\
+## 4. Rerun the crowd-wisdom study's 100 questions
+
+The study scored its committees on 100 FutureX-Past questions; its best, the three cluster
+medoids fused by vote, scored 0.302. `STUDY_CASES` are those questions' positions in
+`futurex_past_study`. A run on chosen cases cannot be submitted to the leaderboard. A reply with
+no usable answer (no box, a hedge, every option) leaves the score, as it did for a model in the
+study, and the run metric `excluded` counts those. The study counted a committee's abstain as 0
+instead, so that committee's stored answers score 0.306 here, not 0.302."""),
+        nbformat.v4.new_code_cell("""\
+# fmt: off
+STUDY_CASES = [
+    172, 182, 188, 189, 202, 212, 234, 242, 261, 266, 273, 276, 284, 289, 291, 293, 297,
+    311, 338, 341, 365, 378, 386, 397, 401, 403, 427, 431, 438, 439, 454, 468, 494, 501,
+    507, 515, 518, 527, 543, 560, 578, 600, 603, 609, 615, 622, 630, 663, 664, 707, 713,
+    731, 738, 749, 759, 762, 763, 764, 783, 785, 789, 794, 799, 810, 812, 814, 826, 834,
+    836, 839, 847, 852, 878, 887, 896, 906, 909, 923, 957, 959, 971, 976, 979, 989, 991,
+    993, 1006, 1013, 1021, 1035, 1040, 1045, 1056, 1058, 1065, 1068, 1070, 1075, 1107,
+    1114
+]
+# fmt: on
+
+# The study called every model at temperature 0. OpenRouter rejects that parameter for
+# `openai/gpt-5.5`, so it is left out here; add "temperature": 0.0 for a model that accepts it.
+study_model = sf.Model(model="openrouter/openai/gpt-5.5", params={"max_tokens": 8192})
+study_report = sf.evaluate(study_model, benchmark="futurex_past_study", cases=STUDY_CASES)
+study_report"""),
+        nbformat.v4.new_markdown_cell("""\
+## 5. Before you scale up
+
+A `limit=N` run is a smoke test, not a ranking: the four levels weigh differently, and five
+cases will not sample them evenly. One pass over all 2,036 questions is about 2,036 Candidate
+calls per model, plus up to three short Judge calls for each of the 664 level-3/4 questions (route,
+then match or rank). The study Benchmark calls no Judge. There is no spend cap in this stack, so
+`limit` is the only brake."""),
+    )
+
+
 def _picture_benchmarks_e2e() -> NotebookNode:
     """Run 2 Cases of every picture Benchmark against the local stack or dev, paid runs off."""
 
@@ -2273,18 +2387,18 @@ def _picture_benchmarks_e2e() -> NotebookNode:
         nbformat.v4.new_markdown_cell("""\
 # Picture Benchmarks — two Cases each, on the local stack or dev
 
-Eleven Benchmarks show the Candidate a picture: LAB-Bench FigQA (biology figures), LAB-Bench
+Twelve Benchmarks show the Candidate a picture: LAB-Bench FigQA (biology figures), LAB-Bench
 TableQA (biology tables), MMMU multiple choice and MMMU open (college exam questions about
 charts, diagrams and photos), MathVista (maths over plots and figures), LABBench2's FigQA2
-and TableQA2 image (harder biology figures and tables, free answers), ZeroBench (hard reasoning
-over pictures) and MaCBench (chemistry and materials science: molecules, crystal structures,
-spectra, lab photos) with every question, Humanity's Last Exam (HLE, expert questions across
-100+ subjects) with 342 of its 2,500 questions, and HLE-Diamond (the HLE authors' cleaned 1,000
-questions) with 272 of them. Each picture is saved inside its Case when the Benchmark is
-imported, so nothing is fetched at run time.
+and TableQA2 image (harder biology figures and tables, free answers), MaCBench (chemistry
+and materials science: molecules, crystal structures, spectra, lab photos), ZeroBench (hard
+visual reasoning) and EnigmaEval (puzzle-hunt puzzles) with every question, Humanity's Last
+Exam (HLE, expert questions across 100+ subjects) with 342 of its 2,500 questions, and
+HLE-Diamond (the HLE authors' cleaned 1,000 questions) with 272 of them. Each picture is saved
+inside its Case when the Benchmark is imported, so nothing is fetched at run time.
 
 This notebook is a smoke test for the picture path, not a ranking. It points at **either** the
-local stack **or** dev with one variable, lists which of the eleven that Engine serves, and runs
+local stack **or** dev with one variable, lists which of the twelve that Engine serves, and runs
 two Cases of each with one cheap model that reads pictures. Two Cases are enough to catch a run
 that breaks on pictures, for example one that goes over its memory budget.
 
@@ -2300,10 +2414,11 @@ on `:9108`, Scoreboard on `:9106`) and opens Jupyter on `examples/`. Without a c
 its own environment with the `inspect` extra the imported Benchmarks need (a few minutes,
 once).
 
-**HLE's, HLE-Diamond's and LABBench2's datasets are gated.** cais/hle, cais/hle-diamond and
-EdisonScientific/labbench2 on Hugging Face each ask you to accept their terms once; then set
-`HF_TOKEN` (or run `huggingface-cli login`) before `just local-stack-notebooks`. Without a token
-the local stack skips those four Benchmarks with a warning and serves the rest.
+**HLE's, HLE-Diamond's, LABBench2's, ZeroBench's and EnigmaEval's datasets are gated.**
+cais/hle, cais/hle-diamond, EdisonScientific/labbench2, jonathan-roberts1/zerobench and
+cais/EnigmaEval on Hugging Face each ask you to accept their terms once; then set `HF_TOKEN` (or
+run `huggingface-cli login`) before `just local-stack-notebooks`. Without a token the local stack
+skips those six Benchmarks with a warning and serves the rest.
 
 **Hosted.** fusion.screamingface.ai, behind a Cloudflare Access login. `sf.connect()` opens that
 login in your browser. **Dev** is the team's test deployment, fusion.dev, behind the same login.
@@ -2311,7 +2426,7 @@ login in your browser. **Dev** is the team's test deployment, fusion.dev, behind
 Two things differ between local and the deployed targets:
 
 - **On a Mac, the local stack serves FigQA, TableQA, HLE, HLE-Diamond, the two LABBench2
-  Benchmarks and MaCBench.** MMMU and MathVista have
+  Benchmarks and MaCBench.** MMMU, MathVista, ZeroBench and EnigmaEval have
   their Case Digest (the hash that proves a Case's bytes are the ones reviewed) sealed on Linux:
   Pillow writes different PNG bytes on macOS, so a Mac's own prepared Cases cannot match it, and
   a Mac skips those Benchmarks. Use dev, or a Linux machine, to run them. HLE, HLE-Diamond,
@@ -2359,11 +2474,11 @@ sf.connect()"""),
         nbformat.v4.new_markdown_cell("""\
 ## 2. Which picture Benchmarks this Engine serves
 
-The eleven ids below are the catalogue ids of the eleven picture Benchmarks. The cell lists the
+The twelve ids below are the catalogue ids of the twelve picture Benchmarks. The cell lists the
 ones this Engine serves and names each one it can't run with its likely reason:
 
 - the local stack runs on a Mac, and the Benchmark's Case Digest is sealed on Linux. A local
-  Engine lists every Benchmark it knows, prepared or not, so these three show in the catalogue
+  Engine lists every Benchmark it knows, prepared or not, so these five show in the catalogue
   on a Mac although it has no Cases for them; the cell skips them before it reads the catalogue;
 - the Engine has no `inspect` extra, so it serves no imported Benchmark at all;
 - the Benchmark is not merged into this Engine yet.
@@ -2385,6 +2500,7 @@ PICTURE_BENCHMARKS = {
     "inspect-zerobench": "exact match of the text in the last curly braces, no judge",
     "inspect-macbench": "the eval's own answer-tag parser: letters as a set for multiple "
     "choice, a tolerance window for numbers, no judge",
+    "enigmaeval": "the authors' answer-tag parser and normaliser: exact match, no judge",
 }
 # Their pictures are re-saved by Pillow at preparation, so their Case Digest is sealed on Linux.
 SEALED_ON_LINUX = {
@@ -2392,6 +2508,7 @@ SEALED_ON_LINUX = {
     "inspect-mmmu_open",
     "inspect-mathvista",
     "inspect-zerobench",
+    "enigmaeval",
 }
 
 catalogue = sf.benchmarks.list()
@@ -2402,7 +2519,7 @@ local_mac = TARGET == "local" and platform.system() == "Darwin"
 served = []
 for benchmark_id in PICTURE_BENCHMARKS:
     # The Mac check comes first: a local Engine lists every Benchmark it knows, prepared or
-    # not, so on a Mac these four are in the catalogue with no Cases behind them.
+    # not, so on a Mac these five are in the catalogue with no Cases behind them.
     if local_mac and benchmark_id in SEALED_ON_LINUX:
         print(f"skipped  {benchmark_id}: its Case Digest is sealed on Linux, so a Mac has no Cases")
     elif benchmark_id in served_ids:
@@ -2544,6 +2661,18 @@ inside the question's own tolerance window. The eval's answer-tag parser grades 
 judge tokens are spent: the run costs only the model's own calls."""),
         nbformat.v4.new_code_cell("""\
 run_two_cases("inspect-macbench")"""),
+        nbformat.v4.new_markdown_cell("""\
+### EnigmaEval: puzzle-hunt puzzles, one word or phrase out
+
+Each Case is one puzzle from a puzzle hunt (a crossword with a twist, a cipher grid, a picture
+rebus), given as text and up to 20 pictures with no instructions on how to solve it. The prompt
+is the authors' own (simple-evals): the system text names the answer type, and the model must
+put its answer inside answer tags. The authors' normaliser grades it (lowercase, letters and
+digits only, a comma in the answer compares as a set), so no judge is spent. One Attempt per
+Case. Its Case Digest is sealed on Linux, so a local Mac skips it, and the dataset is gated: the
+cell prints the score, never the expected answer."""),
+        nbformat.v4.new_code_cell("""\
+run_two_cases("enigmaeval")"""),
         nbformat.v4.new_markdown_cell("""\
 ## 6. Inspect the results
 
