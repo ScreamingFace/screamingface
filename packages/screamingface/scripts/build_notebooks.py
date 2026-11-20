@@ -535,9 +535,9 @@ def _runs() -> NotebookNode:
 
 Every `sf.evaluate(...)` creates an Engine-owned Run: an id, a state, and an outcome and cost for
 each Candidate. This notebook starts one, finds it again from its id, follows its progress, opens
-its Report, and cancels a Run.
+its Report, cancels a Run, and starts one detached to pick up later from anywhere.
 
-Listing and inspecting Runs make no model calls. The evaluation is **off by default**, and
+Listing and inspecting Runs make no model calls. Both evaluations are **off by default**, and
 cancellation needs an explicit Run id."""),
         nbformat.v4.new_markdown_cell(
             _before_running(
@@ -564,7 +564,7 @@ Set `RUN_EVALUATION = True` only when you are ready to make model calls. `report
 of the evaluation's Run. Each Candidate also has its own `attempt_id`: one attempt of one
 Candidate, not the Run (`CandidateResult.run_id` is its deprecated old name). With
 `detach=True`, `sf.evaluate` returns the `Run` at once and the Engine runs it to its end without
-this notebook."""),
+this notebook: section 7 shows it."""),
         nbformat.v4.new_code_cell("""\
 MODEL = sf.Model("openrouter/google/gemini-3-flash-preview")
 RUN_EVALUATION = False
@@ -695,6 +695,45 @@ try:
 except KeyError:
     unknown = "KeyError: no such Run for this owner"
 unknown"""),
+        nbformat.v4.new_markdown_cell("""\
+## 7. Detach and come back later (paid, off by default)
+
+`detach=True` hands the evaluation to the Engine and returns its `Run` at once. The Engine runs it
+whether or not this notebook stays open, until its `deadline` (48 h by default, 7 days at most).
+An attached Run is different: it stops about 2 minutes after nobody is following it.
+
+Set `RUN_DETACHED = True` to start one, note its id, then restart the kernel or close this
+notebook."""),
+        nbformat.v4.new_code_cell("""\
+from datetime import timedelta
+
+RUN_DETACHED = False
+
+if RUN_DETACHED:
+    detached = sf.evaluate(
+        MODEL, benchmark="ifeval", limit=1, detach=True, deadline=timedelta(hours=2)
+    )
+    detached_run = {
+        "run_id": detached.id,
+        "detached": detached.detached,
+        "deadline_at": detached.deadline_at,
+    }
+else:
+    detached_run = "No detached Run started. Set RUN_DETACHED = True to opt in."
+detached_run"""),
+        nbformat.v4.new_markdown_cell("""\
+Later, in a fresh kernel or on another machine signed in as you, run the setup cells at the top,
+set `REATTACH_RUN_ID` to the id above, and run the next cell. `wait()` follows the Run to its end,
+or returns at once if it has finished, and gives its Report, built from the records and results
+the Engine keeps for 30 days."""),
+        nbformat.v4.new_code_cell("""\
+REATTACH_RUN_ID = None
+
+if REATTACH_RUN_ID is not None:
+    reattached_report = sf.runs.get(REATTACH_RUN_ID).wait()
+else:
+    reattached_report = "Set REATTACH_RUN_ID to a detached Run's id to pick it up here."
+reattached_report"""),
     )
 
 

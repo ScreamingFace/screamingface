@@ -27,6 +27,7 @@ _STORY_MARKERS = (
     "run.wait(",
     "reopened_run.report()",
     "run_to_cancel.cancel()",
+    "detach=True",
     "published_score.url4.to_python()",
     "client.connections.list()",
     "client.connect(",
