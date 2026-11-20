@@ -5,6 +5,11 @@ Run from packages/screamingface after the revision bump is deployed:
     uv run python scripts/regrade_batch.py --apply --log /path/to/regrade.jsonl
     uv run python scripts/regrade_batch.py --benchmark inspect-mmlu_pro
 
+For dev, select both services explicitly (an apply override requires both):
+    uv run python scripts/regrade_batch.py --apply --log /path/to/dev-regrade.jsonl \
+        --engine-url https://fusion.dev.screamingface.ai \
+        --scoreboard-url https://leaderboard.dev.screamingface.ai
+
 regrade_transitions.json fixes the scope. Every selected board must serve its exact target;
 missing boards, unknown revisions and truncated reads stop the batch. Only the declared
 source revision is discovered, never unrelated historical revisions or boards.
@@ -249,6 +254,7 @@ def _arguments(argv: Sequence[str]) -> argparse.Namespace:
         "--benchmark", action="append", default=[], help="a board id; repeat for several"
     )
     parser.add_argument("--log", type=Path, default=Path("regrade-log.jsonl"))
+    parser.add_argument("--engine-url", default=None, help="default: the SDK's")
     parser.add_argument("--scoreboard-url", default=None, help="default: the SDK's")
     parser.add_argument(
         "--when-revision",
@@ -264,6 +270,9 @@ def _arguments(argv: Sequence[str]) -> argparse.Namespace:
         help="record an owner decision in the log, without re-grading",
     )
     args = parser.parse_args(argv)
+    # INVARIANT: an apply override must not silently leave the other service in production.
+    if args.apply and ((args.engine_url is None) != (args.scoreboard_url is None)):
+        parser.error("--apply overrides require both --engine-url and --scoreboard-url")
     unknown = set(args.benchmark) - TRANSITIONS.keys()
     if unknown:
         parser.error(f"unknown OME-1958 boards: {sorted(unknown)}")
@@ -291,7 +300,9 @@ def main(argv: Sequence[str]) -> int:
     import screamingface as sf
 
     args: argparse.Namespace = _arguments(argv)
-    client = sf.Client(**({"scoreboard_url": args.scoreboard_url} if args.scoreboard_url else {}))
+    endpoints = {"engine_url": args.engine_url, "scoreboard_url": args.scoreboard_url}
+    endpoints = {name: value for name, value in endpoints.items() if value is not None}
+    client = sf.Client(**endpoints)
     if args.resolve:
         counts = regrade_all(
             client,

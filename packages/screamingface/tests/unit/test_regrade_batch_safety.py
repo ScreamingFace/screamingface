@@ -32,7 +32,11 @@ def test_transition_table_matches_exactly_the_47_engine_bumps() -> None:
             continue
         if "OME-1958" not in (ast.get_source_segment(source, node) or ""):
             continue
-        expected["inspect-" + ast.literal_eval(fields["key"])] = {
+        key = ast.literal_eval(fields["key"])
+        origin = ast.literal_eval(fields["origin"]) if "origin" in fields else "inspect_evals"
+        # WHY: local Tasks use bare keys, matching imported_benchmark_id in the Engine.
+        board_id = "inspect-" + key if origin == "inspect_evals" else key
+        expected[board_id] = {
             "source": ast.literal_eval(fields["regradable_from"])[0][0],
             "target": ast.literal_eval(fields["published_revision"]),
         }

@@ -24,6 +24,9 @@ model cost (`Client.regrade`, OME-1909).
   One operator machine and persistent log path serialize scheduled runs; uncached and refused
   entries keep exit status 1 until an owner resolution is recorded. Use the script docstring
   for `--resolve ENTRY_KEY=NOTE`. The log is tied to the Scoreboard URL and target revisions.
-- Pending the owner: merge after #1896 is deployed and right before the batch, then the steps
-  in the Linear issue (seed check, one cyse4 entry first, batch re-grade, the uncached entries).
+- #1926 merged on 2026-11-20. A follow-up fixes explicit dev Engine selection and the `bbh` /
+  `medmcqa` board IDs. Dmitry's post-merge review still requires six batch safety fixes before
+  any production replay; see `docs/work/2026-11-20-regrade-environments.md`.
+- Pending rollout: those safety fixes, dev acceptance, coordinated deployment and seed check,
+  one cyse4 refusal check, batch re-grade, and owner decisions for uncached/refused entries.
 - Ledger: `docs/work/2026-11-18-bump-47-revisions.md`

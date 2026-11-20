@@ -39,7 +39,7 @@
     "source": "f7d6a5325fb0bcff",
     "target": "e74d42010074448c"
   },
-  "inspect-bbh": {
+  "bbh": {
     "source": "467f06b54836a6f8",
     "target": "c4f0aa7d023cbd2a"
   },
@@ -115,7 +115,7 @@
     "source": "ca4cd0f692d18f0e",
     "target": "126be76d042c445b"
   },
-  "inspect-medmcqa": {
+  "medmcqa": {
     "source": "60e9f16fbe7c0227",
     "target": "e9e7ca645e342f81"
   },
