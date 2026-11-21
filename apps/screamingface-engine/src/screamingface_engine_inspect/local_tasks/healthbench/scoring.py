@@ -7,7 +7,8 @@ per-Case value is UNCLAMPED. That half is shared by both HealthBench Benchmarks.
 The whole-run reduction is where the two Benchmarks part:
 
 - ``clipped_mean`` — the OFFICIAL metric (``np.clip(mean, 0, 1)``), used by the full
-  525-case professional Benchmark so its number is comparable to published figures.
+  525-case professional Benchmark. What it averages there is each Case's length-adjusted
+  value (``calculate_length_adjusted_score``, the paper's primary score, OME-1998).
 - the worst-30% Benchmark keeps the plain mean of its Case scores, negatives kept (the plugin
   lane's own tally). It DIVERGES from the reference deliberately: on that subset every serious
   baseline mean is negative, so the official clip would flatten the whole leaderboard to 0.00.
@@ -88,12 +89,13 @@ def clipped_mean(values: Sequence[float]) -> float | None:
         mean    = (0.8 + -1.4) / 2 = -0.3    # the challenge metric would report this
         clipped = max(0.0, -0.3)   =  0.0    # what a published HealthBench number says
 
-    WHY the upper clip is here yet never bites: a Case score is earned/best-possible with
-    earned <= best possible, so no mean can exceed 1.0. It is kept so this function IS the
-    reference's clip rather than half of it.
+    WHY the upper clip is here: a rubric score is earned/best-possible with earned <= best
+    possible, so a mean of rubric scores cannot exceed 1.0. A mean of length-adjusted values
+    can (a short answer that meets every line is worth up to 1.0588), and there the clip
+    bites, as the reference's does.
 
     Args:
-        values: the per-Case scores of every gradeable Case in the run.
+        values: the per-Case values the run averages, one per Case it is handed.
 
     Returns:
         The clipped mean, or ``None`` when nothing was gradeable — "we could not score
@@ -105,4 +107,49 @@ def clipped_mean(values: Sequence[float]) -> float | None:
     return min(1.0, max(0.0, sum(values) / len(values)))
 
 
-__all__ = ["case_score", "clipped_mean"]
+def calculate_length_adjusted_score(
+    score: float,
+    response_text: str,
+    *,
+    center: float,
+    penalty_per_500_chars: float,
+) -> float:
+    """Take points off a long answer and give them to a short one: the paper's primary score.
+
+    HealthBench Professional reports each Case's rubric score adjusted for the length of the
+    Candidate's answer, so a model cannot win by writing more. The rule is a straight line:
+    every 500 characters past the centre cost ``penalty_per_500_chars``, and every 500
+    characters under it earn the same. The paper (https://arxiv.org/abs/2604.27470v1, p.8
+    section 4.1) writes it as ``s - 2.94e-5 * (chars - 2000)``, which is a penalty of 0.0147
+    per 500 characters around a centre of 2,000.
+
+    Worked example, the paper's constants, rubric score 0.60, a 4,000-character answer::
+
+        over the centre = 4000 - 2000        = 2000 characters
+        penalty         = 0.0147 * 2000/500  = 0.0588
+        adjusted        = 0.60 - 0.0588      = 0.5412
+
+    GOTCHA: the result is not bounded by 1. An empty answer that meets every rubric line is
+    worth 1.0 + 0.0147 * 2000/500 = 1.0588. The whole-run ``clipped_mean`` clips the run's
+    mean, never this value.
+
+    Ported from simple-evals, same name, arguments and arithmetic:
+    https://github.com/openai/simple-evals/blob/652c89d0ca9df547706735883097e9537d40dc47/healthbench_eval.py
+    (``calculate_length_adjusted_score``, lines 157-164; called at line 440 with the sampled
+    response).
+
+    Args:
+        score: the Case's rubric score (``case_score``), unclamped.
+        response_text: the Candidate's answer, the text the judge graded. Its length is
+            counted in characters (``len``), as simple-evals counts it.
+        center: the answer length, in characters, at which nothing is added or taken.
+        penalty_per_500_chars: the points one 500-character step away from the centre costs.
+
+    Returns:
+        The length-adjusted Case value (may be negative, may exceed 1).
+    """
+
+    return score - penalty_per_500_chars * ((len(response_text) - center) / 500.0)
+
+
+__all__ = ["calculate_length_adjusted_score", "case_score", "clipped_mean"]

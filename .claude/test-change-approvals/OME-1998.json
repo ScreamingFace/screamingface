@@ -1,0 +1,42 @@
+{
+  "issue": "OME-1998",
+  "branch": "OME-1998-healthbench-professional-paper-score",
+  "approver": "The owner, in plain words on OME-1998 (implementation and the revision bump); to confirm on the PR",
+  "date": "2026-11-21",
+  "scope": "test_published_revisions.py: healthbench-professional d8fb037307f35415 -> 35c7d07e9058f52d, with a comment naming the old id and why. test_benchmark_fingerprints.py: healthbench-professional 44ddda05be338699 -> 35c7d07e9058f52d and healthbench-worst30 f12c3e30661ea9d3 -> 208990ff0106d07a (worst-30's published id held). test_failure_policy_rows.py: healthbench-professional moves from the coverage_declare table to the withhold table (counts 80/19 -> 81/18); four tests added. test_failure_policy_revisions.py: healthbench-professional moves from the kept-revision table to the moved-from table with its old id. test_benchmark_declaration.py: healthbench-professional's declared policy coverage_declare -> withhold. test_local_task_healthbench.py: the professional row's judge params gain reasoning_effort=low (asserted per row, wire order added); the two abstain tests' professional headline 0.125 -> 0.1542 (Case 1's length-adjusted value; worst-30 stays 0.125); docstrings updated; eight tests added. test_local_task_healthbench_scoring.py: the import gains calculate_length_adjusted_score; three tests added. test_whole_run_metric.py: one test added. No assertion is weakened, and every worst-30 number is unchanged.",
+  "reason": "Owner-approved design on OME-1998: HealthBench Professional's score becomes the paper's (length adjustment, judge reasoning_effort=low, a failed Case counts 0) and its published revision moves once. The pinned tables and the professional expectations in the HealthBench tests state the old grading, so they change with it.",
+  "files": {
+    "apps/screamingface-engine/tests/unit/inspect/test_benchmark_declaration.py": {
+      "base_blob": "97265574c93efaefb43009a6e3b78ec7627c89f9",
+      "approved_blob": "f7a14cbaa78e36803bbae065bcef84d206ab5081"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_benchmark_fingerprints.py": {
+      "base_blob": "d7f21dbd69fb828d008b8739a7a4533f78395861",
+      "approved_blob": "6999872d8dbebcbf8c1b3e41a2e3e0f6035b7ca6"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_failure_policy_revisions.py": {
+      "base_blob": "471a458db1582ad2de822125aaeebc963d698494",
+      "approved_blob": "998af17b81a7e62f32914fb14c086ef35fa434c6"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_failure_policy_rows.py": {
+      "base_blob": "503276644c33b4e49c883f663fcba75a60f7fed9",
+      "approved_blob": "52ef2f5aaf8e5c957a636b57b1b892de836fde9a"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_local_task_healthbench.py": {
+      "base_blob": "5a12ff43d4f433e810379aa72fff8fbf2cb1f28b",
+      "approved_blob": "5cc4ec1c1970734427aad4e51f0ee4b60294c369"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_local_task_healthbench_scoring.py": {
+      "base_blob": "145b81f15444ed5867877c14cf942c82db2d4e8c",
+      "approved_blob": "e33e60baecd8dd500b5ee164aeffc466446462c3"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_published_revisions.py": {
+      "base_blob": "a71589c5375c3400864b7602ea3dcf3a13a69da0",
+      "approved_blob": "94599cd9917fdf71254e1499f1ff01589cb20e57"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_whole_run_metric.py": {
+      "base_blob": "5d1ad35eca9d1d9fb785e8af49315f473bee8ce9",
+      "approved_blob": "60596b25255e8e00fea0a8e53a340ee7723a28a3"
+    }
+  }
+}
