@@ -78,26 +78,31 @@ decodable record; a turn-1 binding is always a record, so the route never takes 
 ## Outcome (fill at the end — required before COMMIT)
 
 - **Actual files:** as planned. Also `.claude/test-change-approvals/OME-1786.json`, pinning the
-  five prior test files the revision move edits (owner-approved move).
+  six prior test files the change edits (owner-approved move), and
+  `tests/unit/test_benchmark_stage_installation.py` (the new route's stage).
 - **Revision:** `1e5a3b8a461a52f7` → `490235dc9a53b7d9` (fingerprint equal). Signed off by the
   owner on 2026-11-21 (implementation and the revision move approved in plain words).
 - **Commits:** `fix(screamingface-engine): send only the reasoning text on MedXpertQA's commit turn`,
   `docs(tasks): close the OME-1786 mirror and ledger`.
 - **Gates:** RED on the unchanged code: 3 of 3 executor-level pins failed (turn-2 bodies differ
-  at `input_tokens` 40 vs 0 and `misses` 1 vs `hits` 1). GREEN: 345 passed, 12 skipped across
-  the 46 Engine test files that mention medxpert plus `test_early_grade_compatibility.py`
+  at `input_tokens` 40 vs 0 and `misses` 1 vs `hits` 1). GREEN: 363 passed, 12 skipped across
+  the 46 Engine test files that mention medxpert plus `test_early_grade_compatibility.py`,
+  `test_benchmark_stage_installation.py` and `test_benchmark_stage_activity.py`
   (extra-less venv, as CI); the new file is 10 of those. Mutation check: putting the record
   back on turn 2 fails 4 of the 10. Inspect lane (`uv run --isolated --extra inspect`), the 10
   `tests/unit/inspect` files that mention medxpert: 327 passed, 2 failed, both on the
   `enigmaeval` row's description (`test_answer_formats_every_row.py`,
   `test_draft_feedback_on_page.py`); this branch touches no file of the inspect plugin, so
   they are not from this change (not re-run on `main` here). ruff check, ruff format and
-  pyright clean on the 8 touched Python files.
+  pyright clean on the 9 touched Python files. The first push was refused by the pre-push
+  gate: `test_benchmark_stage_installation.py` requires every installed route to declare an
+  activity stage. Fixed by declaring the route as `answering` (it builds the turn-2 prompt;
+  the inspect plugin's attempt-recording route sets the precedent) and listing it in that test.
 - **Deviations:**
   - The early-grade fixture's two medxpert protocols gained the reasoning-text binding as well
     as the new id. The bump checklist names only the id, but the fixture is compared call for
     call with today's protocol, so the legacy-shaped protocol has to describe the same exam.
-  - Five prior test files changed (revision pins only), approved by blob in
+  - Six prior test files changed (five revision pins, one added stage-map entry), approved by blob in
     `.claude/test-change-approvals/OME-1786.json`.
   - `tests/unit/test_frozen_copy_failed_case.py` keeps an AIDEV-NOTE saying a scored MedXpert
     Case cannot replay. It is now out of date (the new replay test proves the opposite). Left

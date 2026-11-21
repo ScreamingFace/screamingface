@@ -164,6 +164,9 @@ def _check(root: Path):
     return check
 
 
+# WHY "answering": every installed route declares its stage, and this one builds the prompt of
+# the Candidate's second turn; nothing is graded here.
+@observe_phase(ActivityKind.ANSWERING)
 def _turn_one_text(request: Request) -> str:
     """Turn 1's result record in, the text turn 2 may read out: the answer and nothing else.
 
