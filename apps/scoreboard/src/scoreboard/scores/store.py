@@ -189,6 +189,7 @@ def _score_to_schema(model: Score) -> ScoreSchema:
         score=model.score,
         total_questions=model.total_questions,
         correct_questions=model.correct_questions,
+        graded_questions=model.graded_questions,
         ran_with_providers=model.ran_with_providers,
         ran_at_local=model.ran_at_local,
         client_name=model.client_name,
@@ -630,6 +631,9 @@ def _submission_to_kwargs(submission: ScoreSubmission, content_hash: str) -> dic
         "score": submission.score,
         "total_questions": submission.total_questions,
         "correct_questions": submission.correct_questions,
+        # Deliberately absent from _content_hash, like `correct_questions`: how many Cases one
+        # execution managed to grade is not what the recipe is.
+        "graded_questions": submission.graded_questions,
         # INVARIANT: derived from `models` when present, so the two stored fields cannot
         # contradict each other. `_content_hash` below still reads the WIRE value.
         "ran_with_providers": _derived_providers(submission),
@@ -1054,6 +1058,7 @@ def _build_leaderboard_query(
             scores.benchmark_revision,
             scores.score,
             scores.total_questions,
+            scores.graded_questions,
             scores.ran_with_providers,
             scores.submitted_at,
             scores.submitted_by,
@@ -1098,6 +1103,7 @@ def _build_leaderboard_query(
             ranked.benchmark_revision,
             ranked.score,
             ranked.total_questions,
+            ranked.graded_questions,
             ranked.ran_with_providers,
             ranked.submitted_at,
             ranked.submitted_by,
