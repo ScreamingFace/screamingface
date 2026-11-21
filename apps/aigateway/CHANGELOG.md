@@ -4,6 +4,20 @@ All notable changes to the ScreamingFace AI Gateway are documented here.
 This project follows [Semantic Versioning](https://semver.org/) and uses
 release tags of the form `aigateway-v<version>`.
 
+## [1.2.0](https://github.com/ScreamingFace/screamingface/compare/aigateway-v1.1.0...aigateway-v1.2.0) (2026-11-21)
+
+
+### Features
+
+* **aigateway:** add 49 OpenRouter models to the curated list, and a seed check command ([#1914](https://github.com/ScreamingFace/screamingface/issues/1914)) ([e5eb6c6](https://github.com/ScreamingFace/screamingface/commit/e5eb6c6082171d9d579f9e673fb7bec1ad7c4147))
+* **aigateway:** list the newest OpenRouter models first ([#1915](https://github.com/ScreamingFace/screamingface/issues/1915)) ([6f5d053](https://github.com/ScreamingFace/screamingface/commit/6f5d0539c57fd2a596cda530c70c5dc54d0402a3))
+* **aigateway:** serve structured-choice classification, upstream attempts and seal provenance ([#1988](https://github.com/ScreamingFace/screamingface/issues/1988)) ([9ef7c15](https://github.com/ScreamingFace/screamingface/commit/9ef7c150c3eeb9c70cf9c492ea42b6d3d44c0633))
+
+
+### Bug Fixes
+
+* **aigateway:** name the credential, not a retired Profile, in provider errors ([#1874](https://github.com/ScreamingFace/screamingface/issues/1874)) ([d76e6a4](https://github.com/ScreamingFace/screamingface/commit/d76e6a414e0adca05690a1d3022597df8370188b))
+
 ## [1.1.0](https://github.com/ScreamingFace/screamingface/compare/aigateway-v1.0.1...aigateway-v1.1.0) (2026-11-16)
 
 
