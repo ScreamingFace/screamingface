@@ -126,3 +126,8 @@ codes, and how C2/C6 are enabled alongside the #1521 destination guard. Design o
      `dedup_key`, `dedup_horizon` and `replays_response`; reconciliation resumes from the journal.
   4. Operator `completed` needs provider evidence; otherwise `abandoned` (terminal, never purged).
   Also: the 67-byte key is never truncated; §5.9 has one complete state table; new golden vectors.
+- **2026-11-21 seventh round (HupBaHa, CHANGES_REQUESTED 2026-11-20 14:14Z):** owner decision:
+  §5.9 moved to its own spec (`docs/spec/2026-11-21-url4-peer-paid-execution.md`, branch
+  `url4-peer-paid-execution`, own ticket to be filed at its PR-open). This spec keeps the
+  `Idempotency-Key` wire contract and a gate: C6 stays `x.remote_node_unsupported` until that spec is
+  approved, even with peer auth configured. Round-seven findings are the new spec's open list.

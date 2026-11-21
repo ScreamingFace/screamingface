@@ -16,35 +16,17 @@ Revised 2026-11-19 for HupBaHa's review of PR #1647 (six protocol blockers):
 1. Peer authentication is now a route property (§5.5); second round: the `url4://` → wire path
    mapping onto `/url4/peer`.
 2. Share grants put the resource node in `aud` and the reader in `grantee` (§5.4).
-3. Paid C6 calls are deduplicated at the receiver (§5.9); second round: at-most-once with
-   `outcome_unknown` and reconciliation, and a full JCS fingerprint.
+3. Paid C6 calls are deduplicated at the receiver (§5.9); now a separate spec (below).
 4. Nested remote calls under a delegated run are refused (§5.10).
 5. The two grant kinds have separate, exact validation profiles (§5.4).
 6. The RFC 9421 request context behind proxies is fixed (§5.3.1); second round: fields are parsed
    as RFC 8941 dictionaries holding exactly one `url4` member.
 
-Third round (same day): every phase change in §5.9 is a fenced compare-and-set and the effect journal
-is written before any send; the fingerprint has exact field encodings and a golden vector; C6 is
-pinned to `@path=/url4/peer/v1` plus the `q=` query; C2 refusals follow the T9 rule; duplicate
-dictionary keys are refused before parsing collapses them.
-
-Fourth round (2026-11-20): release needs proven quiescence before the negative check; the C6
-examples use the quoted intent (`!%27Describe%27`) that `RemoteFetchNode` actually sends; `op_id` and
-provider keys have a byte-level construction from a stable compiled effect identity; reconciliation
-and release are full fenced phases; duplicate `Signature-Input` parameters are refused.
-
-Fifth round (2026-11-20, owner decision): **manual release is removed.** Every remaining hole was in
-"release, safe to re-run" (delayed in-flight sends, the tombstone lifecycle, cross-generation
-journals), so the design no longer re-runs a key at all. `outcome_unknown` ends only by
-reconciliation or an operator's saved result; a new attempt needs a new `Idempotency-Key`. Effect
-identity gains a dynamic invocation coordinate (`MapNode` rows), and `op_id` gains a persisted
-record incarnation, so a key reused after retention never reuses provider keys.
-
-Sixth round (2026-11-20, owner decision: patch all four): the claim fixes a deterministic
-`child_run_id`; effect keys anchor every dynamic spawn by its site; the journal holds immutable
-request envelopes and response records, with declared provider capabilities; an operator can
-complete a record only with provider evidence, otherwise `abandoned` (never purged). §5.9 now has
-one complete state table.
+Rounds three to seven (2026-11-19 to 11-21) tightened the request profile (raw ASCII path and query, the pinned C6 wire form `@path=/url4/peer/v1` with the quoted `q=` intent, T9-consistent
+C2 errors, duplicate Structured Field keys and parameters refused). They also grew §5.9 into a
+durable-execution design. In round seven (owner decision) §5.9 moved to its own spec,
+`docs/spec/2026-11-21-url4-peer-paid-execution.md`; this spec keeps only the `Idempotency-Key` wire contract and a gate that holds C6 off until
+that spec is approved.
 
 The direction (RFC 9421 plus signed grants) is unchanged, and #1450's fail-closed refusals still stand.
 
@@ -134,7 +116,7 @@ federate with. Model-level prompt injection and a compromised node host are out 
   it by omitting the signature.
 - **R11** Within a retention horizon, a paid C6 call starts its paid work at most once per
   `(caller, Idempotency-Key)`, however often it is retried or duplicated; an unprovable outcome is
-  reported and reconciled, never re-run.
+  reported, never re-run. Met by the separate paid-execution spec (§5.9); C6 stays off until it is.
 - **R12** Delegation never broadens access across hops; until attenuation is specified, a delegated
   run makes no further remote calls.
 
@@ -226,6 +208,8 @@ HTTP/3.
 - The signer refuses to build a peer request whose path has a `.` or `..` segment, or an encoded
   `/` (`%2F`) or `\` (`%5C`). The verifier refuses such a request with `x.peer_auth_failed` before
   routing. A path that routes differently from what was signed cannot verify.
+- Raw path and query bytes must be printable ASCII (0x21–0x7E); any other byte is refused with
+  `x.peer_auth_failed` at step 1, so signer and verifier never choose a decoding.
 - **One field line each.** A request with more than one field line for `Signature-Input`,
   `Signature`, `Content-Digest`, `URL4-Authz-Token`, `URL4-Auth-Token` or `Idempotency-Key` is refused
   with `x.peer_auth_failed`. No combining rules apply.
@@ -375,12 +359,12 @@ For every request on a peer route, in this order:
    covered digest that is missing from the store (step 10). So a reader cannot tell "not granted" from
    "does not exist". No grant at all is `x.peer_auth_required` (step 1). Nested delegation is stopped where the delegated run
    executes (§5.10), not here.
-8. **C6 only: claim the idempotency record** (§5.9) before anything else is created. No child run,
-   execution or spend exists without a claim.
+8. **C6 only: hand over to the paid-execution layer** (§5.9). It must accept the request before
+   anything else is created. No child run, execution or spend exists without that.
 9. **Bind a local run context** (taken from the verified grant, never from the expression):
    - C6 (`delegation`): the operator maps `(peer authority, sub)` to a local tenant (default: one
      local tenant per peer, `peer:<authority>`); the receiver opens the **child run** whose id the
-     claim fixed (`child_run_id`, create-if-absent, §5.9) under it,
+     paid-execution layer fixed (§5.9) under it,
      carrying `trace` and the caller's run id as attribution. `budget`, if present, caps that run's
      spend, and the peer entry's own cap applies regardless.
    - C2 (`share`): tenant = `sub`, run = `run` from the receiver's own share grant.
@@ -429,9 +413,7 @@ the code and a generic message, never the token, signature or which component mi
 | `x.peer_auth_expired` | receiving node | 401 | retryable (re-signed; at most once) | step 5; repeated failure means clock skew |
 | `x.peer_replay` | receiving node | 401 | permanent | step 6 |
 | `x.peer_idempotency_required` | receiving node | 400 | permanent | §5.9: C6 request without exactly one `Idempotency-Key` |
-| `x.peer_request_in_progress` | receiving node | 409 | retryable (with backoff) | §5.9: the same call is still running |
-| `x.peer_outcome_unknown` | receiving node | 409 | permanent for automatic retry; resolved by reconciliation or operator evidence, else `abandoned` | §5.9: paid work may have happened and cannot be proven either way |
-| `x.peer_idempotency_conflict` | receiving node | 422 | permanent | §5.9: same key, different request fingerprint |
+| `x.peer_request_in_progress`, `x.peer_outcome_unknown`, `x.peer_idempotency_conflict` | receiving node | — | — | reserved; defined by the paid-execution spec (§5.9) |
 | `x.peer_nested_call_refused` | the node hosting the delegated run | 422 | permanent | §5.10: a remote call from inside a delegated run; before any I/O |
 | `x.peer_signing_unconfigured` | calling node | 500 | permanent | caller has a configured peer but no signing key; before any I/O |
 | `x.remote_node_unsupported` / `x.remote_blob_unsupported` | calling node resolver | 422 | permanent | unchanged from #1450: the target authority is not a configured outbound peer (or the feature is off); before any I/O |
@@ -439,215 +421,25 @@ the code and a generic message, never the token, signature or which component mi
 
 This closes #1450 §4's "remote-node authentication failure has no v1 owner".
 
-### 5.9 At-most-once paid execution for C6 (R11)
+### 5.9 Paid execution for C6 (R11): a separate spec
 
 Replay protection (step 6) stops a captured request from being resent. It does not stop a legitimate
-retry, which is re-signed with a fresh nonce on purpose (§5.3). Paid execution is made safe by the
-receiver's **idempotency store**, not by the nonce. The url4 server does not deduplicate
-`Idempotency-Key` today; this section is new behaviour that C6 requires.
+retry, which is re-signed with a fresh nonce on purpose (§5.3). Making a paid C6 call safe to retry
+(R11) is a durable-execution problem, not an authentication one, so it is specified separately in
+`docs/spec/2026-11-21-url4-peer-paid-execution.md` (draft, its own ticket and review). Six review rounds on this PR are its starting
+requirements.
 
-**The guarantee.** Within the retention horizon (below), a `(caller, Idempotency-Key)` starts its
-paid work **at most once**. If the receiver cannot prove whether that work happened, the call ends as
-`outcome_unknown` and is reconciled. It is never run again automatically. A local compare-and-set
-cannot fence a provider call that is already in flight, so the store never re-runs work that may
-have reached a provider.
+What this spec fixes, because the auth layer owns it:
+- A C6 request carries exactly one `Idempotency-Key`: an sf-string of 22 base64url characters
+  (128 random bits), generated once per logical call, covered by the signature (§5.3), and the same on
+  every retry. Missing or malformed → `x.peer_idempotency_required` at step 8.
+- Step 8 hands the verified request to the paid-execution layer, which must accept it before any
+  child run, execution or spend exists. Everything after that (the store, fingerprint, retries,
+  reconciliation, the child run's identity) belongs to the separate spec.
 
-- **Key.** The record key is `(caller authority, Idempotency-Key)`. A C6 request must carry exactly one
-  `Idempotency-Key`; a missing or malformed key (not 22 base64url characters) is
-  `x.peer_idempotency_required`.
-- **Request fingerprint.** Lowercase hex sha256 over the UTF-8 bytes of the RFC 8785 (JCS)
-  serialization of this JSON object. Every key is always present, with `null` when absent:
-
-  ```
-  {"v":1, "method":…, "path":…, "query":…,        // §5.3.1 raw forms
-   "content_digest":…,                             // the sha-256 member value, or null
-   "auth_token_sha256":…,                          // sha256 hex of the URL4-Auth-Token bytes, or null
-   "sub":…, "run":…, "trace":…, "scope":…, "budget":…}   // from the verified grant
-  ```
-
-  Exact encodings, so every replica computes the same bytes:
-  - `v`: the integer `1`.
-  - `method`: the request method as an uppercase JSON string.
-  - `path`, `query`: the §5.3.1 `@path` and `@query` values as JSON strings, exactly the raw ASCII
-    bytes received (still percent-encoded; `query` keeps its leading `?`, and is `"?"` when empty).
-    A raw path or query byte outside printable ASCII (0x21–0x7E) is refused with
-    `x.peer_auth_failed` at step 1, so no decoding choice is left.
-  - `content_digest`: the 32 bytes of the `Content-Digest` `sha-256` member (decoded from its sf-binary
-    base64), as 64 lowercase hex characters; `null` when the request has no `Content-Digest`.
-  - `auth_token_sha256`: sha256 of the `URL4-Auth-Token` field value bytes, after removing leading and
-    trailing whitespace (RFC 9110 field value), as 64 lowercase hex; `null` when the field is absent.
-  - `sub`, `run`, `trace`: the grant's JSON strings, unchanged. `scope`: the grant's JSON array of
-    strings, in the grant's order. `budget`: the grant's decimal string, unchanged (never parsed as a
-    number), or `null`.
-
-  Golden vector (normative): `GET`, `@path` `/url4/peer/v1`, `@query` `?q=(ctx)!%27Describe%27`, no body,
-  `URL4-Auth-Token: v1.example-encrypted-credential`, grant `sub` `tenant-a`, `run` `run-42`, `trace`
-  `4bf92f3577b34da6a3ce929d0e0e4736`, `scope` `["eval"]`, `budget` `"0.50"`. The JCS string is
-
-  ```
-  {"auth_token_sha256":"f0959e74a1f77de3a6fefc1df4b165d6e900f48ae9430b6d97c5bf2ebbaddb07","budget":"0.50","content_digest":null,"method":"GET","path":"/url4/peer/v1","query":"?q=(ctx)!%27Describe%27","run":"run-42","scope":["eval"],"sub":"tenant-a","trace":"4bf92f3577b34da6a3ce929d0e0e4736","v":1}
-  ```
-
-  and the fingerprint is `71bbdec257f2da3844aedb9747c522c3d78aa5ec28c6f29ca62511e94cbf8a7c`.
-
-  - `URL4-Auth-Token` is in the fingerprint because the receiver decrypts it and uses the credential.
-    A key reused with a different credential is a conflict, never a replay of the first credential's
-    result. The caller must send the same token bytes on every retry.
-  - `trace` is stable for a logical call, so it is fingerprinted. A retry under a new trace is a
-    conflict.
-  - Left out, because they legitimately change between retries: the signature, its nonce and
-    `created`, and the grant's `iat`, `exp` and `jti`.
-- **Claim (§5.5 step 8).** Before the child run is created and before any spend, one atomic
-  insert-if-absent, shared by every replica serving the authority, creates
-  `{phase: "claimed", fingerprint, incarnation, op_id, child_run_id, epoch: 1, owner, lease_until,
-  journal: []}`. `incarnation` is 128 fresh random bits (22 base64url characters) drawn at insert and
-  persisted; `op_id` and `child_run_id` are derived from it (below) and stored in the same write.
-  Then:
-  - inserted → proceed;
-  - exists, different fingerprint → `x.peer_idempotency_conflict`;
-  - exists, same fingerprint, `completed` → **replay the saved response** (same status, body and
-    `x.` code), with no new execution and no new spend;
-  - exists, same fingerprint, `outcome_unknown` or `abandoned` → `x.peer_outcome_unknown`;
-  - exists, same fingerprint, `claimed`, `dispatched` or `reconciling` with a live lease →
-    `x.peer_request_in_progress`;
-  - exists, same fingerprint, `claimed` with an expired lease → takeover (state table).
-
-  A key is never re-run once anything was sent under it. A caller that wants a fresh attempt after
-  `x.peer_outcome_unknown` uses a **new** `Idempotency-Key`; that is a new logical call, and the
-  caller owns the decision that a double effect is acceptable.
-- **Child run (§5.5 step 9).** The child run's id is the `child_run_id` fixed in the claim, and it is
-  created with create-if-absent on that id. A takeover reuses the same id, so a crash right after
-  the child was created never leads to a second child. A `claimed` record is deleted only after the
-  owner has cancelled that child run by id (fenced on the record), so no child is left orphaned.
-- **Fenced transitions.** Every change to a record is one compare-and-set on the full expected state
-  `(phase, owner, epoch)`. A write whose expected state no longer matches is rejected, and its result
-  is discarded. A transition that takes the record away from an owner **bumps `epoch` and clears or
-  replaces `owner` in the same write**. So a stalled owner that resumes fails every later write,
-  including the one that would complete the record.
-- **Identities (byte level).** Each value below is the lowercase hex sha256 of the UTF-8 bytes of the
-  JCS serialization of a JSON object:
-  - `op_id` = H(`{"v":2,"caller":<caller canonical authority>,"idempotency_key":<key>,"incarnation":<incarnation>}`),
-    where `<key>` is the `Idempotency-Key` sf-string's 22 characters, without the quotes, as received.
-    A key reused after the record's retention gets a new record, a new incarnation and so new
-    provider keys; it can never pick up an old provider result.
-  - `child_run_id` = H(`{"v":1,"op_id":<op_id>,"kind":"child_run"}`).
-  - Effect key = `"u4-"` + H(`{"v":3,"op_id":<op_id>,"spawns":<spawns>,"node":<node>,"call":<call>}`):
-    - `spawns`: the chain of dynamic spawns that leads to the effect, outermost first, as a JSON array
-      of `[site, instance]` pairs. `site` is the spawning node's path **within the body that contains
-      it** (a string of 0-based child indexes joined by `.`, root `"0"`). `instance` is the logical
-      instance at that site: the input row index for a `MapNode`, and for a `LazyExpr` site or an
-      `execute_node` call, the 0-based ordinal of that spawn at that site in program order, assigned
-      before scheduling. `[]` when there is no spawn. Because every pair names its site, two sibling
-      Maps, or two `LazyExpr` sites with identical body text, never share a key: their sites differ
-      even when their compiled bodies are the same.
-    - `node`: the effect's node path within the innermost spawned body (or the root plan when
-      `spawns` is `[]`).
-    - `call`: the integer ordinal of the effect within that one invocation, in the body's program
-      order, never in journal-arrival order.
-    - **Retries keep the key.** A physical retry of an effect, by a `;retry=` guard or after a
-      transport error, is the same logical effect: it looks up its journal entry by
-      `(spawns, node, call)` and resends with the journaled key. The attempt number is never part of
-      the key.
-  - The key is always exactly 67 ASCII bytes (`u4-` plus 64 lowercase hex). A provider is
-    key-capable (below) only if it accepts that string **untruncated and unaltered**; a provider
-    whose key field cannot hold it is treated as having no idempotency key. The key is never
-    truncated or re-hashed.
-  - The final provider key string is stored in the journal verbatim and re-sent from there. It is never
-    recomputed.
-
-  Golden vectors: caller `n1.example`, key `AAECAwQFBgcICQoLDA0ODw`, incarnation
-  `EBESExQVFhcYGRobHB0eHw`:
-  `{"caller":"n1.example","idempotency_key":"AAECAwQFBgcICQoLDA0ODw","incarnation":"EBESExQVFhcYGRobHB0eHw","v":2}`
-  → `op_id` `3887a1dcfe3a0852fe5c259649ade837e37b5d419c02d95c928fb8b45c5aadd2`.
-  - `child_run_id`: `{"kind":"child_run","op_id":"3887a1dc…5aadd2","v":1}` (full `op_id`) →
-    `3f56f4003a5ab4424a1c90f9acd1a5e2c719065e63b881e8e124d6438982d203`.
-  - Effect `node` `"0"`, `call` 0, with `spawns`:
-    - `[]` →
-      `{"call":0,"node":"0","op_id":"3887a1dcfe3a0852fe5c259649ade837e37b5d419c02d95c928fb8b45c5aadd2","spawns":[],"v":3}`
-      → `u4-fedadae4395e2b447af0aef71352cc0a971a32d5cb08629b8248005a7f6d28fa`;
-    - `[["0.1",0]]` (Map at site `0.1`, row 0) → `u4-76db6ca5a982341c21e18e826246247c9a2bdd5ee827e9950b54f88dfdfd5735`;
-    - `[["0.2",0]]` (a sibling Map with the same body, row 0) → `u4-e57f7b4bd188773e7bb08d2722202f8c837a36b0c34677d2f7e733fc278ec616`;
-    - `[["0.1",1]]` (row 1) → `u4-e1530bdae67d2f3bdbee3724f73611e2abcb6f60bcba4d55e22e4912c676d4bc`;
-    - `[["0.1",0],["0.0",1]]` (a nested Map at site `0.0` of that body, row 1) →
-      `u4-998a2a76a84da33b70f07e301956b15955250f65a79c340a504aaf256cdd32ec`.
-- **Effect journal: a replay envelope.** Before each external effect (a paid call, an outbound fetch
-  that costs), the owner appends a journal entry to the record by fenced compare-and-set. The entry
-  is immutable once written and holds:
-  - the identity `(spawns, node, call)` and the final provider key;
-  - the provider and its declared capabilities (below);
-  - the **exact request envelope**: method, URL, body bytes, and every header except credentials.
-    Credential headers are stored only as a reference to the credential, which is resolved again at
-    resend. The envelope is the request as built from its dependency outputs, so resending never
-    recomputes those outputs;
-  - once a response arrives, in a second fenced write: its status, headers and body bytes (the
-    **response record**), before that output is used by any later node.
-
-  Only after the entry is written is the effect sent. An effect not in the journal was never sent; an
-  entry without a response record is **unanswered**. The node outputs a run builds from response
-  records are recomputed deterministically from those records, so the run's result can be rebuilt
-  from the journal alone. An envelope too large for the store (the store's per-record limit) makes
-  that effect ineligible for reconciliation; it is still sent, and if it ends unanswered the record
-  stays `outcome_unknown`.
-- **Provider capabilities.** Each provider adapter declares three, statically:
-  - `dedup_key`: accepts the 67-byte key untruncated and deduplicates on it;
-  - `dedup_horizon`: how long it remembers a key;
-  - `replays_response`: a duplicate request with the same key returns the **original** response
-    (status and body), not an error or a fresh one.
-
-  A provider that does not declare all three is not key-capable.
-- **Phases.**
-  - `claimed`: the journal is empty; nothing external has happened. The child run exists or is being
-    created under `child_run_id`.
-  - `dispatched`: at least one journal entry exists.
-  - `completed`: the result is saved. Purgeable after retention.
-  - `outcome_unknown`: some entry is unanswered and the owner is gone. Never purged.
-  - `reconciling`: a reconciler holds the record.
-  - `abandoned`: an operator closed it without provider evidence. Terminal, never purged, never
-    re-run; retries get `x.peer_outcome_unknown`.
-- **Reconciliation.** Allowed only when every unanswered entry's provider is key-capable
-  (`dedup_key` and `replays_response`), its envelope is stored, and the earliest unanswered entry's
-  journal time is inside the shortest `dedup_horizon` among those providers. The reconciler resumes
-  the run from the journal: answered entries use their response records and are never resent;
-  unanswered entries are resent from their envelopes with their journaled keys, and the provider's
-  replayed response becomes the response record; any later effect the run then needs is journaled
-  and sent as usual. The rebuilt result is saved as `completed`.
-- **Operator resolution.** An operator may move `outcome_unknown` to `completed` only with
-  **authoritative provider evidence** for every unanswered entry: the provider's own record that the
-  request with that key executed, and its response. That evidence becomes the response record, and
-  the result is rebuilt as in reconciliation. Without that evidence the operator may only move the
-  record to `abandoned`. Neither path re-runs anything, and "not executed" from a provider is never
-  enough, because a delayed request may still arrive.
-- **The complete state table.** Each row is one fenced compare-and-set from `(phase, owner, epoch)`;
-  any change not in this table is rejected.
-
-  | From | To | When |
-  |---|---|---|
-  | absent | `(claimed, O, 1)` | claim insert with `incarnation`, `op_id`, `child_run_id` |
-  | `(claimed, O, e)` | `(claimed, O, e)` | O renews its lease |
-  | `(claimed, O, e)` | `(claimed, O′, e+1)` | O's lease expired; the next request with the same fingerprint takes over and reuses `child_run_id` |
-  | `(claimed, O, e)` | absent | retryable failure before any effect; only after O cancelled the child run by id |
-  | `(claimed, O, e)` | `(dispatched, O, e)` | first journal entry written |
-  | `(claimed, O, e)` | `(completed, O, e)` | run finished with no effects; result saved |
-  | `(dispatched, O, e)` | `(dispatched, O, e)` | lease renewal, a new journal entry, or a response record |
-  | `(dispatched, O, e)` | `(completed, O, e)` | result saved; no entry is unanswered |
-  | `(dispatched, O, e)` | `(outcome_unknown, none, e+1)` | O fails, or O's lease expires (any replica may write this) |
-  | `(outcome_unknown, none, e)` | `(reconciling, R, e+1)` | reconciler R starts; reconciliation conditions hold |
-  | `(reconciling, R, e)` | `(reconciling, R, e)` | lease renewal, a new journal entry, or a response record |
-  | `(reconciling, R, e)` | `(completed, R, e)` | rebuilt result saved; no entry is unanswered |
-  | `(reconciling, R, e)` | `(outcome_unknown, none, e+1)` | R fails, or R's lease expires |
-  | `(outcome_unknown, none, e)` | `(completed, operator, e+1)` | authoritative provider evidence for every unanswered entry |
-  | `(outcome_unknown, none, e)` | `(abandoned, operator, e+1)` | operator closes it without evidence |
-  | `(completed, ·, e)` | absent | retention expired |
-
-  A crashed owner or reconciler leaves a lease that expires; the expiry row moves the record on, and
-  the resumed process then fails the fence.
-- The caller surfaces `x.peer_outcome_unknown` and does not retry automatically.
-- **Retention.** At least 24 h after the record reaches `completed`. `outcome_unknown`, `reconciling`
-  and `abandoned` are never purged. Within retention a reused key replays or conflicts; after it, the
-  key starts a new record with a new incarnation, so its provider keys are new too. Callers must not
-  reuse a key for a different logical call; the fingerprint conflict catches it within retention.
-- **Store unavailable** → fail closed with `x.peer_key_unavailable` (retryable) before any execution.
-- The caller treats a replayed response exactly like the original.
+**Gate.** Until that spec is approved and implemented, C6 stays refused with
+`x.remote_node_unsupported` (#1450 F1b), before any I/O, **even on a node with peer auth configured**.
+Peer auth alone never enables C6.
 
 ### 5.10 Nested delegation (R12)
 
@@ -680,8 +472,8 @@ requests are signed". The guard's `trusted_first_hop` (the operator's `base_url`
 
 ## 7. Enabling C2 and C6
 
-- **C6 first.** It needs §5.1–5.10: the delegation grant, the idempotency store (§5.9) and the
-  nested-call refusal (§5.10). The receiver resolves inner sources
+- **C6 first.** It needs §5.1–5.10 (the delegation grant and the nested-call refusal) **and** the
+  approved paid-execution spec (§5.9). The receiver resolves inner sources
   against its own store under the child run (#1450 §3, row C6: "n2 resolves C3 against its own store"); a C3
   bare blob in the inner expression therefore resolves only to blobs ingested into that child run.
 - **C2 second.** It also needs the share-grant delivery (Q2; assumed out of band, so a follow-up) and the rest of F1's remote-blob bar
@@ -766,73 +558,10 @@ Request context (§5.3.1), each as a fixed vector (raw request plus expected sig
   `url4=("@method");keyid="n1#k1";keyid="n3#k9";…`.
   A comma inside `URL4-Authz-Token`, `URL4-Auth-Token` or `Idempotency-Key` → `x.peer_auth_failed`.
 
-At-most-once execution (§5.9). Each test counts provider calls and spend at the receiver, using a
-fake provider that can charge and then drop its response:
-- Lost response after completion: a re-signed retry with the same key returns the saved response.
-  Exactly one provider call is made.
-- Concurrent duplicates: N parallel requests with the same key and fingerprint (across two replicas
-  sharing the store) make one provider call. The others get `x.peer_request_in_progress` or the
-  replayed result.
-- Conflicts, each with zero provider calls → `x.peer_idempotency_conflict`. A conflict arises when the
-  same key comes with a different:
-  - body;
-  - `sub` or `budget`;
-  - `trace`;
-  - `URL4-Auth-Token` (and the first token's saved response is not returned).
-- Fingerprint vectors: the §5.9 golden vector gives exactly its JCS string and
-  `71bbdec2…cbf8a7c`. Variants: no `URL4-Auth-Token` → `null`; a body → its `content_digest` hex; an
-  empty query → `"?"`; a token with surrounding whitespace hashes the same as without. Two replicas
-  compute the same fingerprint for the same request.
-- Retryable failure while `claimed`: the record is deleted, and the retry makes one provider call.
-- Provider charges, then its response is lost (the failure is in `dispatched`): the record becomes
-  `outcome_unknown`, and a retry gets `x.peer_outcome_unknown` with zero further provider calls.
-- Lease expiry in `dispatched` (the owner is paused mid-call, then resumes): no takeover. The record
-  moves to `outcome_unknown` with `epoch + 1` and no owner. The resumed owner's completion is
-  rejected by the fence (phase and epoch both differ), and there is one provider call in total.
-- Identity vectors: the §5.9 `op_id`, `child_run_id` and effect-key golden vectors. Two concurrent
-  branches whose effects journal in either arrival order get the same keys. Each of these runs twice,
-  with the spawns completing in opposite orders, and gives the same distinct keys both times:
-  - a `MapNode` over two rows;
-  - two sibling Maps with identical bodies;
-  - a Map nested in a Map;
-  - two `LazyExpr` sites with identical body text;
-  - two `execute_node` calls of the same node.
-
-  A `;retry=` guard that retries an effect three times sends the same journaled key each time.
-  Reconciliation re-sends the journaled key string byte for byte. A provider fake whose key field is
-  shorter than 67 bytes is treated as not key-capable.
-- Child run: a crash injected right after the child run is created and before the first journal
-  entry; the takeover reuses the same `child_run_id`, and exactly one child run exists. A retryable
-  failure in `claimed` cancels that child before the record is deleted, leaving no orphan.
-- Replay envelope: reconciliation resends the stored envelope byte for byte (credentials resolved
-  again), uses stored response records for answered entries without resending them, and rebuilds the
-  same result as an uninterrupted run. A provider without `replays_response` makes the record
-  ineligible. An over-limit envelope keeps the record `outcome_unknown`.
-- Operator: `completed` is refused without provider evidence for each unanswered entry; `abandoned`
-  is accepted, survives retention, and a retry gets `x.peer_outcome_unknown` with zero provider calls.
-- Key reuse after retention: the record is purged, the same key is sent again, and the new record has
-  a new incarnation, a new `op_id` and new provider keys; a provider fake that still remembers the old
-  keys returns no old result.
-- No re-run: there is no transition out of `outcome_unknown` except the two in the table; a retry with
-  the same key keeps getting `x.peer_outcome_unknown` with zero provider calls, and a new key runs as
-  a new call.
-- State machine: every row of the §5.9 table, and every transition not in it (for example
-  `outcome_unknown → claimed`, `abandoned → completed`, `dispatched → absent`) rejected by the fence.
-  A reconciler killed
-  mid-run leaves `reconciling`; after lease expiry the record is `outcome_unknown` and the old
-  reconciler's completion is rejected.
-- Journal before send: a failure injected between the journal write and the send leaves a journaled
-  effect with no provider call; a send without a journal entry is impossible (asserted on the fake).
-- Automatic reconciliation past the provider's dedup horizon is not attempted; the record stays
-  `outcome_unknown`.
-- Lease expiry in `claimed`: a takeover bumps `epoch`, and the stale owner's writes are rejected. One
-  provider call is made in total.
-- Reconciliation: with an idempotency-key provider fake, re-issuing with the same `op_id` keys
-  completes the record, and the provider sees duplicates it deduplicates (one charge). With a
-  provider that has no idempotency key, the record stays `outcome_unknown` until an operator saves a
-  result.
-- The claim exists before the child run: a failure injected between them leaves no orphan child run.
-- A missing `Idempotency-Key`, and the store being down, refuse before any execution.
+Paid-execution gate (§5.9):
+- A C6 request on a node with peer auth configured but paid execution not enabled →
+  `x.remote_node_unsupported` before any I/O, with zero child runs.
+- A C6 request without exactly one well-formed `Idempotency-Key` → `x.peer_idempotency_required`.
 
 Address mapping (§5.5), end to end over ASGI with the exact #1450 expressions:
 - C6: `(url4://n2.example/v1(…)!'Describe')!'Summarize'`. n1 sends
