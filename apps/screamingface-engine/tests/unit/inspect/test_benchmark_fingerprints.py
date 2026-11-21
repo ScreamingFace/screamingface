@@ -50,8 +50,14 @@ _FINGERPRINTS: dict[str, str] = {
     "aime26": "b289716a32495871",
     # OME-1527: healthbench and ifeval moved from their hand-built folders to local Tasks and
     # kept the hand-built ids; the golden replays proved the exam unchanged.
-    "healthbench-worst30": "f12c3e30661ea9d3",
-    "healthbench-professional": "44ddda05be338699",
+    # OME-1998: worst-30's published id HELD at 39cfd96b068f7230 (fingerprint was
+    # f12c3e30661ea9d3). The Task package's source is hashed and gained professional's length
+    # adjustment, which worst-30 never turns on: its scorer arguments, judge params, failure
+    # policy and every number in test_local_task_healthbench.py are unchanged.
+    "healthbench-worst30": "208990ff0106d07a",
+    # OME-1998: the grading changed (length adjustment, judge reasoning_effort=low, a failed
+    # Case counts 0), so the published id moved to this fingerprint (was 44ddda05be338699).
+    "healthbench-professional": "35c7d07e9058f52d",
     # OME-1853: published id HELD at 1cba769ece27f7ef (fingerprint was ada07458a23c55ab); the
     # row now declares nltk and langdetect as scorer dependencies, so their installed versions
     # (nltk 3.10.4 after the security bump, langdetect 1.0.9) pin into the fingerprint.

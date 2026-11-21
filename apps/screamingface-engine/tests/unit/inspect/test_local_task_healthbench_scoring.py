@@ -24,7 +24,11 @@ from screamingface_engine_inspect.local_tasks.healthbench.prompts import (
     build_grader_prompt,
     render_rubric_item,
 )
-from screamingface_engine_inspect.local_tasks.healthbench.scoring import case_score, clipped_mean
+from screamingface_engine_inspect.local_tasks.healthbench.scoring import (
+    calculate_length_adjusted_score,
+    case_score,
+    clipped_mean,
+)
 
 # WHY: byte-parity with OpenAI simple-evals' GRADER_TEMPLATE (verified against the vendored
 # reference at authoring time; moved from the hand-built ``test_healthbench_definition.py``).
@@ -109,3 +113,46 @@ def test_the_official_aggregate_clips_only_where_the_reference_clips() -> None:
     assert clipped_mean([1.0, 1.0]) == 1.0
     # Unscorable benchmark: "we could not score this" is not "the answer scored zero".
     assert clipped_mean([]) is None
+
+
+def test_the_length_adjustment_is_the_papers_formula_so_a_long_answer_loses_points() -> None:
+    """WHY (OME-1998): HealthBench Professional's published numbers are length-adjusted, so a
+    Case score must move by simple-evals' ``calculate_length_adjusted_score``: 0.0147 per 500
+    characters away from a 2,000-character centre, or a long answer would keep points the
+    paper takes away.
+
+    Worked example: rubric score 0.60, a 4,000-character answer →
+    0.60 - 0.0147 * ((4000 - 2000) / 500) = 0.5412. The other three are Case 1 with every
+    rubric line met, from the Fidelity Record (``docs/benchmarks-fidelity/
+    healthbench-professional.md``, Checks run 11): the empty answer 1.0588, a 6,000-character
+    answer 0.8824, and 0.993679, which is what a 2,215-character answer gives.
+    """
+
+    def adjusted(score: float, chars: int) -> float:
+        return calculate_length_adjusted_score(
+            score, "x" * chars, center=2000.0, penalty_per_500_chars=0.0147
+        )
+
+    assert adjusted(0.60, 4000) == pytest.approx(0.5412)
+    assert adjusted(1.0, 0) == pytest.approx(1.0588)
+    assert adjusted(1.0, 6000) == pytest.approx(0.8824)
+    assert adjusted(1.0, 2215) == pytest.approx(0.993679)
+
+
+def test_an_answer_at_the_centre_length_keeps_its_rubric_score() -> None:
+    """INVARIANT: the adjustment is zero at exactly 2,000 characters and counts characters,
+    as ``len(response_text)`` does in simple-evals, so one non-ASCII character is one, not its
+    byte count (``"é"`` is 2 bytes in UTF-8)."""
+
+    assert calculate_length_adjusted_score(
+        0.25, "é" * 2000, center=2000.0, penalty_per_500_chars=0.0147
+    ) == pytest.approx(0.25)
+
+
+def test_the_upper_clip_bites_once_case_values_are_length_adjusted() -> None:
+    """WHY (OME-1998): a short answer that meets every rubric line is worth more than 1 after
+    the adjustment (the empty answer: 1.0588), so the mean of such values can pass 1 and the
+    reference's ``np.clip(mean, 0, 1)`` brings it back. Two Cases at 1.0588 and 1.03 average
+    1.0444 and publish 1.0."""
+
+    assert clipped_mean([1.0588, 1.03]) == 1.0
