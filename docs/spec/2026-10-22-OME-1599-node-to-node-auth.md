@@ -426,7 +426,7 @@ This closes #1450 §4's "remote-node authentication failure has no v1 owner".
 Replay protection (step 6) stops a captured request from being resent. It does not stop a legitimate
 retry, which is re-signed with a fresh nonce on purpose (§5.3). Making a paid C6 call safe to retry
 (R11) is a durable-execution problem, not an authentication one, so it is specified separately in
-`docs/spec/2026-11-21-url4-peer-paid-execution.md` (draft, its own ticket and review). Six review rounds on this PR are its starting
+`docs/spec/2026-11-21-url4-peer-paid-execution.md` (draft, OME-2000, PR #2005). Six review rounds on this PR are its starting
 requirements.
 
 What this spec fixes, because the auth layer owns it:
