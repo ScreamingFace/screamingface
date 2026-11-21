@@ -53,6 +53,18 @@ _STORY_MARKERS = (
     "report.export()",
     "sf.ScreamingFaceError",
 )
+# Fragments that only the Runs notebook's detach section (section 7) runs, checked against code
+# cells alone: a marker the narrative also says would pass with the section gone.
+_CODE_MARKERS = (
+    "RUN_DETACHED = False",
+    "sf.runs.get(REATTACH_RUN_ID).wait()",
+)
+# Every flag that starts a paid evaluation; each must be False in the published notebooks.
+_PAID_FLAGS = ("RUN_EVALUATION", "RUN_DETACHED", "REPLAY_RESULT")
+# A paid flag switched on however it is written: spacing, a type annotation, a trailing comment.
+_PAID_FLAG_ON = re.compile(
+    rf"^\s*(?:{'|'.join(_PAID_FLAGS)})\s*(?::[^=\n]*)?=\s*True\b", re.MULTILINE
+)
 # The recipe names and parameters that the map/select/reduce surface removed (E4b). A notebook
 # that still writes one would raise on the user's machine; ``sf.Fusion`` stays as a shortcut.
 _RETIRED_MARKERS = (
@@ -118,8 +130,11 @@ def _check_public_story(values: dict[str, NotebookNode]) -> None:
         for cell in notebook.cells
         if cell.cell_type == "code"
     )
-    if any(line.strip() == "RUN_EVALUATION = True" for line in code.splitlines()):
+    if _PAID_FLAG_ON.search(code):
         raise SystemExit("public notebooks must not enable paid evaluation by default")
+    missing_code = [marker for marker in _CODE_MARKERS if marker not in code]
+    if missing_code:
+        raise SystemExit(f"notebook code is missing executable story markers: {missing_code}")
 
 
 if __name__ == "__main__":
