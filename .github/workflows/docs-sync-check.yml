@@ -1,0 +1,44 @@
+name: Docs sync check
+
+# Runs the layer-2 check from OME-898 child 4: a PR that changes a public sf.* export must
+# also touch that export's docs page. See check_docs_sync.py for the full design and its
+# known file-granularity limitation.
+#
+# A SEPARATE workflow from public-docs-tests.yml on purpose. That workflow triggers only on
+# public-docs/** changes, so a PR that changes only the Python side, with zero public-docs
+# touch, would never run it at all. The one case this check exists to catch, a code change
+# with no matching docs change, would then silently never be checked. This workflow triggers
+# on either side of the pair instead.
+#
+# SECURITY: every `run:` below is a static command. The PR's base SHA is passed through an
+# environment variable, never interpolated into a shell string, so there is no injection
+# surface from the PR's branch name, title, or commit messages.
+on:
+  pull_request:
+    paths:
+      - "packages/screamingface/src/screamingface/**"
+      - "public-docs/src/pages/sf-client/api/**"
+      - ".github/workflows/docs-sync-check.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-sync-check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Public surface has a matching docs change
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Full history, not the default shallow clone: the check diffs against the PR's
+          # base commit, which a shallow checkout would not have fetched.
+          fetch-depth: 0
+
+      - name: Check public surface against its docs page
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: python3 packages/screamingface/scripts/check_docs_sync.py "$BASE_SHA"
