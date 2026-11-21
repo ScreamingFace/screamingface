@@ -130,4 +130,8 @@ codes, and how C2/C6 are enabled alongside the #1521 destination guard. Design o
   §5.9 moved to its own spec (`docs/spec/2026-11-21-url4-peer-paid-execution.md`, OME-2000,
   draft PR #2005). This spec keeps the
   `Idempotency-Key` wire contract and a gate: C6 stays `x.remote_node_unsupported` until that spec is
-  approved, even with peer auth configured. Round-seven findings are the new spec's open list.
+  approved and implemented, even with peer auth configured. Round-seven findings are the new spec's open list.
+- **2026-11-21 eighth round (HupBaHa, CHANGES_REQUESTED 2026-11-21 15:56Z):** the gate was missing from
+  the §6 outbound order. Added §6 step 3 (C6 refused before key discovery, signing or I/O until paid
+  execution is approved and implemented), a caller-side gate test, and the same condition in §7, the
+  task mirror and the PR body.

@@ -26,7 +26,7 @@ Rounds three to seven (2026-11-19 to 11-21) tightened the request profile (raw A
 C2 errors, duplicate Structured Field keys and parameters refused). They also grew §5.9 into a
 durable-execution design. In round seven (owner decision) §5.9 moved to its own spec,
 `docs/spec/2026-11-21-url4-peer-paid-execution.md`; this spec keeps only the `Idempotency-Key` wire contract and a gate that holds C6 off until
-that spec is approved.
+that spec is approved and implemented. Round eight put that gate into the §6 outbound order.
 
 The direction (RFC 9421 plus signed grants) is unchanged, and #1450's fail-closed refusals still stand.
 
@@ -439,7 +439,8 @@ What this spec fixes, because the auth layer owns it:
 
 **Gate.** Until that spec is approved and implemented, C6 stays refused with
 `x.remote_node_unsupported` (#1450 F1b), before any I/O, **even on a node with peer auth configured**.
-Peer auth alone never enables C6.
+Peer auth alone never enables C6. Both sides enforce it: the caller at §6 step 3, before key discovery,
+signing or any socket; the receiver at step 8.
 
 ### 5.10 Nested delegation (R12)
 
@@ -461,9 +462,12 @@ for a `url4://` peer target (C6) or blob ref (C2):
 
 1. Classify the ref (unchanged). Authority not a configured outbound peer → v1 code, before I/O (R9).
 2. Feature switch for that kind (C2, C6) off → v1 code, before I/O.
-3. No signing key → `x.peer_signing_unconfigured`, before I/O.
-4. Guard: https, address ranges, IP pinning (as today, with `peer=True`).
-5. Build, attach grant, sign, send with redirects disabled; size cap and deadlines as today.
+3. C6 only: the paid-execution layer (§5.9) not approved and implemented on this node →
+   `x.remote_node_unsupported`, before key discovery, signing or any I/O. Peer auth configured does not
+   pass this step.
+4. No signing key → `x.peer_signing_unconfigured`, before I/O.
+5. Guard: https, address ranges, IP pinning (as today, with `peer=True`).
+6. Build, attach grant, sign, send with redirects disabled; size cap and deadlines as today.
 
 An outbound peer entry is added to `peer_hosts` only together with this signing configuration, so
 "the allowlist stays empty until the auth spec exists" becomes "a peer is listed only when its
@@ -473,7 +477,8 @@ requests are signed". The guard's `trusted_first_hop` (the operator's `base_url`
 ## 7. Enabling C2 and C6
 
 - **C6 first.** It needs §5.1–5.10 (the delegation grant and the nested-call refusal) **and** the
-  approved paid-execution spec (§5.9). The receiver resolves inner sources
+  paid-execution spec (§5.9), approved **and implemented**; until then §6 step 3 refuses every C6
+  call. The receiver resolves inner sources
   against its own store under the child run (#1450 §3, row C6: "n2 resolves C3 against its own store"); a C3
   bare blob in the inner expression therefore resolves only to blobs ingested into that child run.
 - **C2 second.** It also needs the share-grant delivery (Q2; assumed out of band, so a follow-up) and the rest of F1's remote-blob bar
@@ -561,6 +566,8 @@ Request context (§5.3.1), each as a fixed vector (raw request plus expected sig
 Paid-execution gate (§5.9):
 - A C6 request on a node with peer auth configured but paid execution not enabled →
   `x.remote_node_unsupported` before any I/O, with zero child runs.
+- Caller side: a C6 target on a node with a configured peer and a signing key but paid execution not
+  enabled → `x.remote_node_unsupported` at §6 step 3, with zero sockets, no key lookup and no signature.
 - A C6 request without exactly one well-formed `Idempotency-Key` → `x.peer_idempotency_required`.
 
 Address mapping (§5.5), end to end over ASGI with the exact #1450 expressions:

@@ -18,7 +18,7 @@ remote blobs and remote-node calls are refused before any I/O.
 
 Q1 is resolved (owner decision 2026-11-07, on Kevin's review): the authorization grant travels in a new
 `URL4-Authz-Token` header; `URL4-Auth-Token` keeps its url4 meaning (encrypted credential). The title
-keeps the Linear wording. Implementation follows sign-off: C6 on
-`main`, and C2 after #1482.
+keeps the Linear wording. Implementation follows sign-off: C2 after #1482. C6 stays refused
+until the paid-execution spec (OME-2000) is approved and implemented, even with peer auth configured.
 
 Ledger: `docs/work/2026-10-22-node-auth-spec.md`.
