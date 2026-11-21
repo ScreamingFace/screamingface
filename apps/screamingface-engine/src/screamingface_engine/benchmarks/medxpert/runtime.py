@@ -42,6 +42,7 @@ from screamingface_engine.benchmarks.medxpert.case_grade import (
 from screamingface_engine.benchmarks.medxpert.definition import (
     BENCHMARK_ID,
     CASE_COUNT,
+    REASONING_TEXT_ROUTE,
     REVISION,
 )
 from screamingface_engine.benchmarks.phases import observe_phase
@@ -59,6 +60,9 @@ def install(node: Url4Node, root: Path) -> None:
     """Register every route this benchmark's expression references."""
 
     install_benchmark(node, root, BENCHMARK)
+    # WHY the guard: local mode installs one node for many runs (see `install_benchmark`).
+    if REASONING_TEXT_ROUTE not in node.processor_routes():
+        node.endpoint(REASONING_TEXT_ROUTE)(_turn_one_text)
 
 
 def preflight(root: Path, case_ids: tuple[int, ...]) -> None:
@@ -158,6 +162,20 @@ def _check(root: Path):
         return compact_json(record)
 
     return check
+
+
+def _turn_one_text(request: Request) -> str:
+    """Turn 1's result record in, the text turn 2 may read out: the answer and nothing else.
+
+    WHY a route (OME-1786): turn 2's prompt is built inside the expression, where turn 1 exists
+    only as its whole record. The record's accounting differs between a live call and a cache
+    hit, so passing it on made the same Case send different turn-2 bytes on a rerun.
+
+    A turn 1 with no answer text (refused, empty, or a Fusion that abstained) has an empty
+    ``output``, so turn 2 gets an empty reasoning and still commits, as it did before.
+    """
+
+    return _reasoning_text(request.context)
 
 
 def _reasoning_text(value: object) -> str:
