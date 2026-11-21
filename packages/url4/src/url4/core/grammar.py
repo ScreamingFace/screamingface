@@ -76,6 +76,7 @@ from url4.core._struct_values import (
     _parse_budget_value,
     _parse_weight_value,
 )
+from url4.core.at_most_one import checked_form, refuse_mark_as_param
 from url4.core.blob_ref import bare_value
 from url4.core.descriptor_head import classify_head, first_colon, is_value_shaped
 from url4.core.errors import ErrorCode, ParseError
@@ -109,7 +110,7 @@ def parse(text: str) -> Node:
     stripped = text.strip()
     if not stripped:
         raise ParseError("empty url4 expression")
-    return _parse_source(stripped)
+    return checked_form(_parse_source(stripped))
 
 
 def parse_value(text: str) -> Node:
@@ -232,6 +233,7 @@ def _attach_tail(d: _Descriptor, tail: Params) -> Node:
     value = d.value
     if isinstance(value, (RelExpr, RemoteExpr, Expression)):
         expr_params, source_ann = classify_boundary(tail)
+        refuse_mark_as_param(expr_params)  # C19: the mark is never an expression param
         # `expr-param = param-key "=" param-value`: the rule the envelope applies.
         validate_params(expr_params)
         value = _add_expr_params(value, expr_params)
@@ -413,7 +415,7 @@ def parse_group_root(text: str) -> Node:
 def _parse_group_sources(body: str) -> tuple[Node, ...]:
     if not body.strip():
         return ()
-    return tuple(_parse_source(part) for part in split_top_level(body, ","))
+    return tuple(checked_form(_parse_source(part)) for part in split_top_level(body, ","))
 
 
 # --- relative and remote expressions (§5.2 rules 2–3, §3.1.1) --------------------------

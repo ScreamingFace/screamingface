@@ -100,6 +100,11 @@ class ErrorCode(StrEnum):
     ATTACHMENTS_TOO_LARGE = "x.attachments_too_large"
     """The run's ``attachments[]`` would hold more than 8,000,000 decoded bytes in all (#1450
     F1b per-run cap, ``MAX_ATTACHMENT_BYTES``). Permanent, raised before any model call."""
+    EXPANSION_TOO_MANY = "x.expansion_too_many"
+    """An ``expand.at_most_one=true`` source resolved to two or more elements (the package
+    extension of the Router Recipe extension, contract C19). Raised as a
+    :class:`CollectionError`, like ``expansion_not_iterable``. Permanent: the same value
+    always holds the same count."""
     DIRECT_EVAL_REFUSED = "direct_eval_refused"
     """A direct call (one handler, `url4.peer.dispatch_direct`) targeted the eval path, which
     evaluates an expression — the one thing a direct call must never do."""

@@ -167,8 +167,8 @@ separately authorized qualification lane.
 **Landing:** `pkg/url4-sdk`. **Depends on:** approved plan only; prerequisite of Unit 7.
 
 1. Pin `expand.at_most_one=true` as a public package extension using Spec B's existing extensible
-   `exec-key=value` and Spec C's unknown-key fallback; no grammar or design-repo amendment. The leaf
-   spec pins its builder surface and two-plus failure code before implementation.
+   `exec-key=value` and Spec C's unknown-key fallback; no grammar or design-repo amendment. C19 pins its
+   builder surface (`at_most_one=`) and two-plus failure code (`x.expansion_too_many`) before code.
 2. RED: text, broadcast and code-binding tests for zero, one, empty-string, two-plus, non-collection,
    unnamed, missing-expand and annotation-order cases under required/optional and quorum.
 3. Implement C19 in parser, AST/lowering, gather/broadcast/code binding, builder and renderer. The mark

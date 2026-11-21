@@ -51,7 +51,7 @@ final Pipeline stage, set the Case outcome through `final_operation_abstained` (
   (`_compile_fusion`, `_evaluation/candidate.py:492-508`), and its synthesis context lists every
   member's reference as `outputs` (`_fusion_context`, `:1157-1160`). The panel path (`:509-563`) and
   the skip-member panel (`_skip_panel`, `_evaluation/branch.py:314-356`) count every slot that
-  resolved, `""` included (`_gather`, `packages/url4/src/url4/dag/nodes/_shared.py:213-237`). The
+  resolved, `""` included (`_gather`, `packages/url4/src/url4/dag/nodes/_shared.py:214-238`). The
   skip-member `selection` (`combine/spec.py:685-704`) is read only by a reducer or writer, so it
   cannot serve a Model synthesizer.
 - Change: a Fusion with a Router member always compiles through a panel. The Router member's slot
@@ -110,16 +110,16 @@ C18 needs a Fusion member slot that contributes nothing, and no failure, when it
 and contributes `member_i: answer` when it answered. No url4 form does both today:
 
 - A plain source contributes one position, its `$name` binding and the packed entry `name: value`
-  (`_gather`, `packages/url4/src/url4/dag/nodes/_shared.py:213-237`). It contributes nothing only by
+  (`_gather`, `packages/url4/src/url4/dag/nodes/_shared.py:214-238`). It contributes nothing only by
   failing under `;optional`, which is a failure (`SourceFailure`,
   `packages/url4/src/url4/dag/node.py:60`).
 - An `;expand` source contributes nothing for an empty collection, with no failure: an empty body is
   zero elements (`packages/url4/src/url4/dag/semantics/collection.py:57`). Its elements pack bare in
   the text panel, and its name binds the whole array (`_gather_expanded`,
-  `packages/url4/src/url4/dag/nodes/_shared.py:240-250`). They are named `name[j]` in the broadcast
+  `packages/url4/src/url4/dag/nodes/_shared.py:241-251`). They are named `name[j]` in the broadcast
   collection (`packages/url4/src/url4/dag/nodes/broadcast_result.py:51`) and in a code binding,
   which divides the weight among them
-  (`packages/url4/src/url4/dag/semantics/code_binding.py:65-87`).
+  (`packages/url4/src/url4/dag/semantics/code_binding.py:72-94`).
   An answered member would lose its `member_i` label. Those are rules of the url4 language spec
   (§5.3.12.4-6).
 
@@ -136,11 +136,12 @@ Form:
   duplicate is refused. It is an execution key, not a new flag or expression parameter.
 - The mark is valid only on a named source with `;expand` and exactly one of `;required` or
   `;optional`, which the renderer writes with the `*` prefix
-  (`packages/url4/src/url4/core/render.py:279`). A mark without `;expand`, without a guard, with both
-  guards, or on a source with no name is refused at parse, and `url4.src` refuses the same forms
-  (`packages/url4/src/url4/core/builders.py:142`). An unnamed expansion calls its elements `src[i]`
-  (`packages/url4/src/url4/dag/semantics/code_binding.py:65-87`), so an unnamed marked source would
-  have no name to give its element.
+  (`packages/url4/src/url4/core/render.py:285`). A mark without `;expand`, without a guard, with
+  both guards, with a guard that carries a value (`;optional=false`; the runtime reads a guard by
+  its key alone), or on a source with no name is refused at parse, and `url4.src` refuses the same
+  forms (`packages/url4/src/url4/core/builders.py:142`). An unnamed expansion calls its elements
+  `src[i]` (`packages/url4/src/url4/dag/semantics/code_binding.py:72-94`), so an unnamed marked
+  source would have no name to give its element.
 - The mark is a generic execution key, outside the closed `coord.` set, so every reader at or after
   `455166b0d` accepts it (`validate_exec_annotations`,
   `packages/url4/src/url4/core/_annotations.py:98-114`). It joins neither the §8.1.3 exclusive key
@@ -149,10 +150,12 @@ Form:
 - On an expression-valued source the mark follows a source-level key. The parser refuses a raw
   sugar-form chain that puts the mark before every source-level key, or carries none, and never
   reads the mark as an expression parameter. The builder and renderer path matches it: `url4.src`
-  writes `;required` or `;optional` before extension keys
-  (`packages/url4/src/url4/core/builders.py:195-212`), an SDK member slot always carries one of them
+  writes `;required` or `;optional` before extension keys and the mark right after that guard
+  (`exec_annotations`, `packages/url4/src/url4/core/_builder_exec.py:31-34`;
+  `packages/url4/src/url4/core/builders.py:178-180`; `with_mark`,
+  `packages/url4/src/url4/core/at_most_one.py:52-62`), an SDK member slot always carries one of them
   (`_evaluation/candidate.py:523-531`), and the renderer already refuses any other order
-  (`_guard_annotation_boundary`, `packages/url4/src/url4/core/render.py:301-317`).
+  (`_guard_annotation_boundary`, `packages/url4/src/url4/core/render.py:307-323`).
 
 New reader:
 
@@ -161,23 +164,36 @@ New reader:
   (`packages/url4/src/url4/dag/semantics/collection.py:377`).
 - Zero elements: no position, no `$name` binding, no text-panel entry and no broadcast part.
   `quorum` does not count it in either panel (`_check_quorum`,
-  `packages/url4/src/url4/dag/nodes/_shared.py:253-257`; the broadcast gate,
+  `packages/url4/src/url4/dag/nodes/_shared.py:254-258`; the broadcast gate,
   `packages/url4/src/url4/dag/_wiring.py:218`). It is not a failure: nothing is recorded as one, and
   `;optional` and `;required` do not apply.
 - One element: exactly what a plain source holding that element contributes, in every consumer that
   names expansion elements. One position, `$name` bound to the raw element, `name: element` in the
   text panel, `source_name: name` (never `name[0]`) in the broadcast collection, `name` in a code
   binding, and the declared weight undivided.
-- Two or more elements fail the source with a code the url4 leaf pins here before code. A value
-  that is not a collection keeps the expansion's own failure, `expansion_not_iterable`
-  (`packages/url4/src/url4/dag/nodes/iteration.py:36-55`). The guard wraps the expansion
-  (`packages/url4/src/url4/dag/_descriptor.py:53-60`), so `;required` and `;optional` apply to
+- Two or more elements fail the source with `x.expansion_too_many`, a new
+  `ErrorCode.EXPANSION_TOO_MANY` raised as a `CollectionError` (`at_most_one_payload`,
+  `packages/url4/src/url4/dag/nodes/_at_most_one.py:22-26`, which `ExpandNode` calls), as
+  `expansion_not_iterable` is (`packages/url4/src/url4/dag/nodes/iteration.py:49-56`). It is
+  permanent, the `Url4Error` default (`packages/url4/src/url4/core/errors.py:117`): the same value
+  always holds the same count. A node therefore answers it with HTTP 422 (`status_for_code`,
+  `packages/url4/src/url4/peer/_http.py:125-141`). The `x.` prefix marks a package code outside the
+  language spec, as `x.attachments_too_many` does (`packages/url4/src/url4/core/errors.py:97`). A
+  value that is not a collection keeps the expansion's own failure, `expansion_not_iterable`
+  (`packages/url4/src/url4/dag/nodes/iteration.py:49-56`). The guard wraps the expansion
+  (`packages/url4/src/url4/dag/_descriptor.py:54-64`), so `;required` and `;optional` apply to
   either failure as to any other.
 - Unmarked and `;expand` sources keep their behavior and rendered bytes, and every prior url4 test
   runs unchanged.
-- `url4.src` accepts the mark and the renderer writes it
-  (`packages/url4/src/url4/core/builders.py:142`), so the SDK writes it through the builders it uses
-  today (`_evaluation/candidate.py:14`, `:523-531`).
+- `url4.src` gains one keyword, `at_most_one: bool = False`
+  (`packages/url4/src/url4/core/builders.py:142-196`). `src(value, name=..., required=...,
+  expand=True, at_most_one=True)` writes `expand.at_most_one=true` right after `;required` or
+  `;optional`, whichever argument gave the guard (`with_mark`,
+  `packages/url4/src/url4/core/at_most_one.py:52-62`), and the renderer writes it. `src` applies the
+  form rules above to its final annotations whatever their origin and refuses a broken form with
+  `ValueError`, as it refuses a bad name or weight. The same mark passed through `annotations=` is
+  checked the same way, and the keyword plus that annotation is a duplicate. The SDK writes the mark
+  through the builders it uses today (`_evaluation/candidate.py:14`, `:523-531`).
 
 Older reader. url4 Spec C §10.2.1 tells a node to ignore an unknown annotation key silently
 (`kevin-mcdonough/docs/adrs/URL4-Spec-C.md:108-125` in the design repo at `3e903bd`). The reader at
