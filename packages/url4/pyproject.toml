@@ -96,9 +96,9 @@ dev = [
     "hypothesis>=6.170.15",
     "pyright>=1.1.409",
     "pytest>=9.2.0",
-    "pytest-asyncio>=1.4.1.post1,<2",
+    "pytest-asyncio>=1.5.0,<2",
     "pytest-cov>=7.1.0",
-    "ruff>=0.17.4",
+    "ruff>=0.17.5",
     # WHY the extra is in the DEV group: pydantic is deliberately not a runtime dependency of the
     # engine (see [project.optional-dependencies].streaming), but `url4.streaming` ships in this
     # distribution and this package's own pyright/pytest run has to be able to resolve it.
