@@ -76,7 +76,7 @@ from url4.core._struct_values import (
     _parse_budget_value,
     _parse_weight_value,
 )
-from url4.core.at_most_one import check_at_most_one, refuse_mark_as_param
+from url4.core.at_most_one import checked_form, refuse_mark_as_param
 from url4.core.blob_ref import bare_value
 from url4.core.descriptor_head import classify_head, first_colon, is_value_shaped
 from url4.core.errors import ErrorCode, ParseError
@@ -110,7 +110,7 @@ def parse(text: str) -> Node:
     stripped = text.strip()
     if not stripped:
         raise ParseError("empty url4 expression")
-    return _parse_source(stripped)
+    return checked_form(_parse_source(stripped))
 
 
 def parse_value(text: str) -> Node:
@@ -142,22 +142,13 @@ class _Descriptor:
 
 
 def _parse_source(token: str) -> Node:
-    node = _parse_descriptor(token)
-    if isinstance(node, Source):
-        # WHY here, not in `_attach_tail`: the form needs `;expand`, which a '*' prefix
-        # only sets once the whole source is parsed (C19).
-        check_at_most_one(node)
-    return node
-
-
-def _parse_descriptor(token: str) -> Node:
     token = token.strip()
     if not token:
         raise ParseError("empty source")
     if token.startswith("*") and len(token) > 1:
         # §5.2 rule 9 — source-initial '*' is the expansion prefix; the
         # remainder undergoes full source parsing.
-        return _mark_expand(_parse_descriptor(token[1:]))
+        return _mark_expand(_parse_source(token[1:]))
     parts = split_top_level(token, ";")
     if not parts[0]:
         raise ParseError(f"source has no value before ';' in {token!r}")
@@ -424,7 +415,7 @@ def parse_group_root(text: str) -> Node:
 def _parse_group_sources(body: str) -> tuple[Node, ...]:
     if not body.strip():
         return ()
-    return tuple(_parse_source(part) for part in split_top_level(body, ","))
+    return tuple(checked_form(_parse_source(part)) for part in split_top_level(body, ","))
 
 
 # --- relative and remote expressions (§5.2 rules 2–3, §3.1.1) --------------------------

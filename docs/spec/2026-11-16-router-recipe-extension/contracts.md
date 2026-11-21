@@ -254,7 +254,7 @@ parts, and the inline entry (C13) uses it rather than its own:
    classification port's failure and returns `{"failed": {"code": str, "permanent": bool}}`. Every
    model call of the occurrence sits in an OPEN-gated iterate with `iteration.on_error=collect`, so
    its failure becomes one error row `{"error": {"kind", "message", "code"?, "retryable"?}}`
-   (`packages/url4/src/url4/dag/nodes/_shared.py:162-182`). This differs from E4c on purpose: E4c
+   (`packages/url4/src/url4/dag/nodes/_shared.py:163-183`). This differs from E4c on purpose: E4c
    bodies use `iteration.on_error=fail` (`_evaluation/branch.py:608`), and E4c JOIN accepts only
    text rows (`world/branch.py:788-794`).
 2. **The subset path is one row.** For `select="all"`, the selected candidates' calls, the E4c

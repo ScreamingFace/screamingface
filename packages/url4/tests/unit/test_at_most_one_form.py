@@ -14,7 +14,7 @@ from collections.abc import Callable
 
 import pytest
 
-from url4 import StaticIOLayer, Text, expr, render, src
+from url4 import StaticIOLayer, Text, build, expr, render, src
 from url4.core.errors import CollectionError, ErrorCode, ParseError
 from url4.core.grammar import parse
 from url4.core.nodes import Expression, Source, Url
@@ -247,3 +247,147 @@ def test_too_many_elements_is_a_permanent_422() -> None:
     exc = CollectionError("two elements", code=ErrorCode.EXPANSION_TOO_MANY)
     assert exc.permanent is True
     assert status_for(exc) == 422
+
+
+# --- review round: a guard is a flag, the mark is never an expression parameter --------------
+
+
+@pytest.mark.parametrize(
+    "guard", ["optional=false", "required=false", "required=true", "optional=true"]
+)
+def test_a_valued_guard_is_refused_at_parse(guard: str) -> None:
+    # WHY: the runtime reads a guard by its key alone, so `;optional=false` would act as
+    # `;optional` and swallow `x.expansion_too_many`. The form takes the flag only.
+    with pytest.raises(ParseError) as caught:
+        parse(f"(a:https://a, *m:https://two;{guard};{MARK})!'x'")
+    assert caught.value.code == ErrorCode.MALFORMED_SOURCE
+
+
+def test_an_unmarked_source_keeps_its_valued_guard() -> None:
+    # The base language is unchanged: only a marked source needs the flag form.
+    assert _member("*m:https://two;optional=false").annotations == (("optional", "false"),)
+
+
+@pytest.mark.parametrize("guard", [("optional", "false"), ("required", "false")])
+def test_src_refuses_a_valued_guard_with_the_mark(guard: tuple[str, str]) -> None:
+    with pytest.raises(ValueError, match="expand.at_most_one"):
+        src(_ONE, name="m", expand=True, at_most_one=True, annotations=[guard])
+
+
+@pytest.mark.parametrize("check", [True, False])
+def test_render_refuses_a_valued_guard_with_the_mark(check: bool) -> None:
+    member = Source(
+        value=_ONE,
+        name="m",
+        annotations=(("optional", "false"), ("expand.at_most_one", "true")),
+        expand=True,
+    )
+    with pytest.raises(RenderError):
+        render(expr(src(Url("https://a"), name="a"), member, intent=Text("x")), check=check)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        pytest.param(f"(a:https://a)!'go';{MARK}", id="group"),
+        pytest.param(f"(a:https://a)!*'go';{MARK}", id="broadcast-group"),
+        pytest.param(f"(a:https://a)!'go';quorum=1;{MARK}", id="group-after-quorum"),
+        pytest.param(f"(a:https://a);{MARK}!'go'", id="group-source-side"),
+        pytest.param(f"https://list*('x $item')!'go';{MARK}", id="iteration"),
+        pytest.param(
+            f"https://list*('x $item')!'go';iteration.fmt_result=json;{MARK}",
+            id="iteration-after-directive",
+        ),
+        pytest.param(f"(https://list*('x $item')!'p')!'r';{MARK}", id="reduce-over-iteration"),
+    ],
+)
+def test_build_refuses_the_mark_as_a_complete_envelope_param(text: str) -> None:
+    # INVARIANT: the mark is a source execution key, never an expression parameter (C19);
+    # a complete envelope must not carry it as a no-op param.
+    with pytest.raises(ParseError) as caught:
+        build(text)
+    assert caught.value.code == ErrorCode.MALFORMED_SOURCE
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        pytest.param(f"(a:https://a)!'go';{MARK}", id="group"),
+        pytest.param(f"https://list*('x $item')!'go';{MARK}", id="iteration"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_the_text_path_refuses_the_mark_as_a_complete_envelope_param(text: str) -> None:
+    calls: list[str] = []
+
+    async def process(sources: str, intent: str | None, scope: object) -> str:
+        calls.append(sources)
+        return "out"
+
+    io = StaticIOLayer(fetch_map={"https://a": "A", "https://list": '["1"]'})
+    with pytest.raises(ParseError):
+        await run(text, io, process=process)
+    assert calls == []
+
+
+def _with_mark_param() -> Expression:
+    return expr(
+        src(Url("https://a"), name="a"), intent=Text("go"), params=[("expand.at_most_one", "true")]
+    )
+
+
+@pytest.mark.parametrize("check", [True, False])
+def test_render_refuses_the_mark_as_an_expression_param(check: bool) -> None:
+    with pytest.raises(RenderError):
+        render(_with_mark_param(), check=check)
+
+
+@pytest.mark.parametrize("check", [True, False])
+def test_render_refuses_the_mark_as_a_nested_expression_param(check: bool) -> None:
+    nested = src(_with_mark_param(), name="n")
+    with pytest.raises(RenderError):
+        render(expr(src(Url("https://b"), name="b"), nested, intent=Text("x")), check=check)
+
+
+@pytest.mark.parametrize(
+    ("value", "guard", "written"),
+    [
+        pytest.param(_ONE, "required", "https://one;required", id="url-required"),
+        pytest.param(
+            expr(Url("https://b"), intent=Text("q")),
+            "optional",
+            "(https://b)!'q';optional",
+            id="expression-optional",
+        ),
+    ],
+)
+def test_src_writes_the_mark_right_after_a_guard_given_through_annotations(
+    value: Url | Expression, guard: str, written: str
+) -> None:
+    member = src(value, name="m", expand=True, at_most_one=True, annotations=[(guard, None)])
+    assert isinstance(member, Source)
+    assert member.annotations == ((guard, None), ("expand.at_most_one", "true"))
+    by_keyword = src(value, name="m", expand=True, at_most_one=True, required=guard == "required")
+    assert member == by_keyword
+    panel = expr(src(Url("https://a"), name="a"), member, intent=Text("x"))
+    text = render(panel)
+    assert text == f"(a=https://a, *m:{written};{MARK})!'x'"
+    assert parse(text) == panel
+
+
+def test_src_writes_the_mark_after_the_guard_and_before_later_annotations() -> None:
+    member = src(
+        _ONE,
+        name="m",
+        t=5,
+        expand=True,
+        at_most_one=True,
+        annotations=[("required", None), ("retry", "2")],
+    )
+    assert isinstance(member, Source)
+    assert member.annotations == (
+        ("t", "5"),
+        ("required", None),
+        ("expand.at_most_one", "true"),
+        ("retry", "2"),
+    )

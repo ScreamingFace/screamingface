@@ -17,9 +17,9 @@ Router Recipe extension, the C19 URL4 leaf.
 A named `;expand` source can carry `expand.at_most_one=true` after its `;required` or `;optional`
 guard, written by `url4.src(..., at_most_one=True)`. Zero elements contribute nothing and no
 failure. One element contributes exactly what a plain source holding it contributes, under the
-source's own name. Two or more fail the source with `expansion_too_many` before any call. Unmarked
-sources and ordinary `;expand` keep their bytes and behavior, and a reader that does not know the
-key ignores it.
+source's own name. Two or more fail the source with `x.expansion_too_many`, like any other source
+failure: `;required` and `;optional` apply to it as to any other. Unmarked sources and ordinary
+`;expand` keep their bytes and behavior, and a reader that does not know the key ignores it.
 
 No prior test changed. No Router code is part of this landing. No hosted readiness claim.
 

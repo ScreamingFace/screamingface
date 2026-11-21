@@ -36,17 +36,16 @@ from dataclasses import replace
 
 from url4.core._annotations import (
     _VALID_ON_ERROR,
-    checked_retries,
-    checked_timeout,
     directives_from_fields,
 )
+from url4.core._builder_exec import exec_annotations
 from url4.core._lexical import _IDENT_RE, _STRUCT_KEY_RE, chained_bang
 
 # WHY: the renderer owns the canonical text forms; re-deriving quoting/number/
 # intent/source formatting here would let builders and renderer drift.
 from url4.core._render_values import format_number as _format_number
 from url4.core._render_values import quote as _quote
-from url4.core.at_most_one import AT_MOST_ONE_KEY, AT_MOST_ONE_VALUE, check_at_most_one
+from url4.core.at_most_one import check_at_most_one, with_mark
 from url4.core.errors import ParseError
 from url4.core.grammar import intent_atom, parse, parse_value
 from url4.core.nodes import (
@@ -176,7 +175,9 @@ def src(
     """
     node = _coerce_value(value)
     _check_name(name)
-    ann = _exec_annotations(mode, t, retry, accept, required, at_most_one, annotations)
+    ann = exec_annotations(mode, t, retry, accept, required) + _pairs(annotations)
+    if at_most_one:
+        ann = with_mark(ann)  # C19: right after the guard, whichever argument gave it
     norm_weight = _norm_weight(weight)
     norm_budgets = _norm_budgets(budgets)
     if norm_weight is None and not norm_budgets and not ann and not expand:
@@ -209,39 +210,6 @@ def _check_at_most_one(source: Source) -> None:
         check_at_most_one(source)
     except ParseError as exc:
         raise ValueError(str(exc)) from exc
-
-
-def _exec_annotations(
-    mode: str | None,
-    t: float | int | None,
-    retry: int | None,
-    accept: str | None,
-    required: bool | None,
-    at_most_one: bool,
-    extra: ParamsLike,
-) -> Params:
-    typed = (
-        ("mode", mode),
-        ("t", None if t is None else _timeout_text(t)),
-        ("retry", None if retry is None else _retry_text(retry)),
-        ("accept", accept),
-    )
-    pairs: list[tuple[str, str | None]] = [(k, v) for k, v in typed if v is not None]
-    if required is not None:
-        pairs.append(("required" if required else "optional", None))
-    if at_most_one:
-        # WHY after the guard: on an expression-valued source a reader splits the `;`
-        # chain at the first source-level key (§8.1.2); old and new readers agree here.
-        pairs.append((AT_MOST_ONE_KEY, AT_MOST_ONE_VALUE))
-    return tuple(pairs) + _pairs(extra)
-
-
-def _timeout_text(t: float | int) -> str:
-    return _format_number(checked_timeout(t))
-
-
-def _retry_text(retry: int) -> str:
-    return str(checked_retries(retry))
 
 
 def _pairs(extra: ParamsLike) -> Params:

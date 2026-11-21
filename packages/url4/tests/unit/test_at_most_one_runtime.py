@@ -10,6 +10,7 @@ read as an answer, and an answered one keeps its ``member_i`` label.
 
 from __future__ import annotations
 
+import asyncio
 import json
 
 import pytest
@@ -227,3 +228,112 @@ def test_pointer_bindings_give_a_zero_element_source_no_name() -> None:
 def test_pointer_bindings_keep_the_unmarked_expansion_array() -> None:
     slots = (CodeSlot("m", None, True, "expand"),)
     assert pointer_bindings(slots, [[]]) == {"m": "[]"}
+
+
+# --- review round: two elements fail like any other source failure --------------------------
+
+
+class _GatedCalls(_Calls):
+    """Opens ``released`` once the process has made ``after`` calls."""
+
+    def __init__(self, after: int) -> None:
+        super().__init__()
+        self.after = after
+        self.released = asyncio.Event()
+
+    async def __call__(self, sources: str, intent: str | None, scope: Context) -> str:
+        out = await super().__call__(sources, intent, scope)
+        if len(self.calls) >= self.after:
+            self.released.set()
+        return out
+
+
+class _GatedIO(StaticIOLayer):
+    """Holds the fetch of ``gated`` until the sibling calls are under way; records fetches."""
+
+    def __init__(self, gated: str, process: _GatedCalls) -> None:
+        super().__init__(fetch_map=dict(_BODIES))
+        self.gated, self.process, self.fetches = gated, process, []
+
+    async def fetch(self, target: str, *, relative: bool) -> str:
+        self.fetches.append(target)
+        if target == self.gated:
+            # WHY a timeout: if the sibling calls never start, the trace check fails, not hangs.
+            await asyncio.wait_for(self.process.released.wait(), timeout=5)
+        return await super().fetch(target, relative=relative)
+
+
+_FAILING_MEMBERS = {
+    "x.expansion_too_many": ("https://two", f"*m:https://two;required;{MARK}"),
+    ErrorCode.EXPANSION_NOT_ITERABLE: ("https://scalar", "*m:https://scalar;required"),
+    ErrorCode.RESOLUTION_FAILED: ("https://missing", "m:https://missing;required"),
+}
+
+
+@pytest.mark.parametrize(
+    ("intent", "trace"),
+    [
+        pytest.param("'outer'", [("A", "inner")], id="text"),
+        pytest.param("*'outer'", [("A", "inner"), ("inner:A", "outer")], id="broadcast"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_two_elements_fail_the_source_like_any_other_required_failure(
+    intent: str, trace: list[tuple[str, str]]
+) -> None:
+    # WHY: C19 says ;required and ;optional apply to `x.expansion_too_many` as to any other
+    # failure. A sibling call already running when a source fails is not undone, for a
+    # non-iterable expansion or a missing source alike; the mark adds no barrier (owner
+    # decision, 2026-11-21). The failing fetch is held until the sibling calls are made.
+    traces = {}
+    for code, (url, member) in _FAILING_MEMBERS.items():
+        process = _GatedCalls(after=len(trace))
+        io = _GatedIO(url, process)
+        with pytest.raises(Url4Error) as caught:
+            await run(f"(a:('A')!'inner', {member})!{intent}", io, process=process)
+        assert caught.value.code == code
+        assert io.fetches.count(url) == 1
+        traces[code] = [(sources, called) for sources, called, _ in process.calls]
+    assert list(traces.values()) == [trace] * len(_FAILING_MEMBERS)
+
+
+@pytest.mark.asyncio
+async def test_broadcast_one_element_makes_one_call_per_source_and_no_more() -> None:
+    process = _Calls()
+    text = _panel(f"*m:https://one;required;{MARK}", intent="*'go'")
+    out = await run(text, _io(), process=process)
+    assert json.loads(out) == [
+        {"source_position": 1, "source_name": "a", "result": "go:A"},
+        {"source_position": 2, "source_name": "b", "result": "go:B"},
+        {"source_position": 3, "source_name": "m", "result": "go:x"},
+    ]
+    assert sorted((sources, intent) for sources, intent, _ in process.calls) == [
+        ("A", "go"),
+        ("B", "go"),
+        ("x", "go"),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("routed", "expected"),
+    [
+        pytest.param("", "go:a: A", id="zero"),
+        pytest.param('["x"]', "go:a: A\nm: x", id="one"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_an_expression_valued_marked_member_passes_the_envelope_check(
+    routed: str, expected: str
+) -> None:
+    # WHY: the SDK member slot is an expression-valued source; its `;required;<mark>` chain
+    # is a source annotation, so the envelope decoder's refusal of the mark as an
+    # expression param must not reach it.
+    calls: list[tuple[str, str | None]] = []
+
+    async def process(sources: str, intent: str | None, scope: Context) -> str:
+        calls.append((sources, intent))
+        return routed if intent == "route" else f"{intent}:{sources}"
+
+    text = f"(a:https://a, *m:1.0:(https://b)!'route';required;{MARK})!'go'"
+    assert await run(text, _io(), process=process) == expected
+    assert calls == [("B", "route"), (expected.removeprefix("go:"), "go")]

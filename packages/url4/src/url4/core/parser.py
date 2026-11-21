@@ -44,6 +44,7 @@ from url4.core._splitters import (
     split_top_level_commas,
     strip_one_paren_layer,
 )
+from url4.core.at_most_one import refuse_mark_as_param
 from url4.core.errors import ErrorCode, ParseError
 from url4.core.grammar import intent_atom, parse_group_root
 from url4.core.nodes import (
@@ -137,6 +138,7 @@ def decode_envelope(text: str, *, require_intent: bool = True) -> Envelope:
         directives = _merge_directives(directives, tail_directives)
     flag, params = fold_broadcast(params)
     broadcast = broadcast or flag
+    refuse_mark_as_param(params)  # C19: a group or iteration envelope never carries the mark
     # `expr-param = param-key "=" param-value` — the SAME two productions the
     # query sites use, so one validator serves all three (`OME-507`). It runs
     # here, on the resolved expression params, rather than inside

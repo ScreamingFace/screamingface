@@ -10,13 +10,13 @@ from dataclasses import dataclass, field
 from url4.core.context import Context
 from url4.core.errors import CollectionError, ErrorCode
 from url4.core.nodes import IterationDirectives
+from url4.dag.nodes._at_most_one import at_most_one_payload
 from url4.dag.remote_nodes import reraise_remote_refusal
 from url4.dag.semantics.collection import parse_collection
 
 from url4.dag.node import (  # isort: skip
     DagNode,
     ExecutionContext,
-    NoElement,
     Payload,
     gather_or_cancel,
 )
@@ -41,14 +41,10 @@ class ExpandNode:
     ``list[str]`` payload; the enclosing group node flattens the list into
     consecutive source positions (renumbering ``$N``, §5.3.12.4). A resolved
     value that is not a collection fails with ``expansion_not_iterable``.
-
-    ``at_most_one`` (the ``expand.at_most_one=true`` mark, C19) bounds the
-    expansion: zero elements give :class:`NoElement`, one element gives that
-    element as a plain value, two or more fail with ``x.expansion_too_many``.
     """
 
     deps: Mapping[str, DagNode] = field(default_factory=dict)  # {"inner": node}
-    at_most_one: bool = False
+    at_most_one: bool = False  # the C19 mark: see :func:`at_most_one_payload`
 
     async def resolve(self, inputs: Mapping[str, Payload], ctx: ExecutionContext) -> Payload:
         inner = inputs["inner"]
@@ -58,22 +54,7 @@ class ExpandNode:
             raise CollectionError(
                 f"expansion source is not iterable: {exc}", code=ErrorCode.EXPANSION_NOT_ITERABLE
             ) from exc
-        return _at_most_one(elements) if self.at_most_one else elements
-
-
-def _at_most_one(elements: list[str]) -> Payload:
-    """C19: the one element is what a plain source holding it gives; none is absent.
-
-    WHY a plain ``str`` for one element: every consumer (the text gather, the broadcast
-    merge, a code group's record) then treats it as a plain named source — ``name: value``,
-    ``source_name: name``, the declared weight — with no per-consumer special case.
-    """
-    if len(elements) > 1:
-        raise CollectionError(
-            f"an at-most-one expansion resolved to {len(elements)} elements",
-            code=ErrorCode.EXPANSION_TOO_MANY,
-        )
-    return elements[0] if elements else NoElement()
+        return at_most_one_payload(elements) if self.at_most_one else elements
 
 
 @dataclass(eq=False)

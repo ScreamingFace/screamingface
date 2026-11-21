@@ -53,9 +53,8 @@ def _as_text(value: Payload) -> str:
 def _frame(inputs: Mapping[str, Payload], ctx: ExecutionContext) -> Context:
     """Turn ``bind:``/``pos:`` reference-edge inputs into a scope frame.
 
-    A :class:`SourceFailure` dependency contributes no binding — the failed
-    optional source's ``$name`` stays unbound and substitutes verbatim. A
-    :class:`NoElement` (an absent at-most-one source, C19) binds nothing either.
+    A :class:`SourceFailure` or :class:`NoElement` (an absent C19 source) dependency binds
+    nothing — that source's ``$name`` stays unbound and substitutes verbatim.
     """
     bindings: dict[str, str] = {}
     for role, value in inputs.items():
@@ -226,9 +225,7 @@ def _gather(
     g = _Gathered([], {}, [])
     for i, (name, instrumental) in enumerate(slots):
         value = inputs[f"{prefix}:{i}"]
-        # INVARIANT (C19): an absent at-most-one source gives no position, no `$name`
-        # and no packed entry, exactly like a failure, without being one.
-        if isinstance(value, (SourceFailure, NoElement)):
+        if isinstance(value, (SourceFailure, NoElement)):  # INVARIANT (C19): absent, not failed
             continue
         if isinstance(value, list):
             _gather_expanded(g, value, name, instrumental)

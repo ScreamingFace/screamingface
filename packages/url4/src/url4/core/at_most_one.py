@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from url4.core._annotations import is_source_level_key
 from url4.core.errors import ParseError
-from url4.core.nodes import Expression, Params, RelExpr, RemoteExpr, Source
+from url4.core.nodes import Expression, Node, Params, RelExpr, RemoteExpr, Source
 
 AT_MOST_ONE_KEY = "expand.at_most_one"
 """The mark's key. Renaming it after release would be a wire migration."""
@@ -33,24 +33,40 @@ def is_at_most_one(annotations: Params) -> bool:
 
 
 def refuse_mark_as_param(params: Params) -> None:
-    """Refuse the mark on the expression side of a sugar-form ``;`` chain (§8.1.2).
+    """Refuse the mark among an expression's ``;`` params.
+
+    The grammar calls this on the expression side of a sugar-form chain (§8.1.2) and the
+    envelope decoder on a complete group or iteration envelope.
 
     WHY: a chain that puts the mark before every source-level key, or carries none, would
-    make the mark an expression parameter. An older reader reads it so; this reader never
-    does, and refuses the chain instead.
+    make the mark an expression parameter. An older reader reads it so, as a no-op; this
+    reader never does, and refuses the text instead.
     """
     if is_at_most_one(params):
         raise ParseError(
-            f"{AT_MOST_ONE_KEY} on an expression-valued source must follow ;required or "
-            ";optional, never be an expression parameter"
+            f"{AT_MOST_ONE_KEY} is a source execution key, never an expression parameter; "
+            "on an expression-valued source it must follow ;required or ;optional"
         )
+
+
+def with_mark(annotations: Params) -> Params:
+    """The chain with the mark inserted right after its first guard, or appended without one.
+
+    WHY: :func:`url4.src` writes the mark right after the guard whichever argument gave the
+    guard, so on an expression-valued source a source-level key precedes the mark (§8.1.2).
+    A chain with no guard or two still gets the mark; :func:`check_at_most_one` then refuses
+    it with the rule it breaks.
+    """
+    keys = [key for key, _ in annotations]
+    at = next((i + 1 for i, key in enumerate(keys) if key in _GUARDS), len(keys))
+    return (*annotations[:at], (AT_MOST_ONE_KEY, AT_MOST_ONE_VALUE), *annotations[at:])
 
 
 def check_at_most_one(source: Source) -> None:
     """Refuse a marked source whose form breaks a C19 rule; raise ``malformed_source``.
 
     INVARIANT: a marked source is named, carries ``;expand`` and exactly one of
-    ``;required`` / ``;optional``, holds the mark once as ``expand.at_most_one=true`` and,
+    ``;required`` / ``;optional`` as a flag, holds the mark once as ``expand.at_most_one=true`` and,
     on an expression-valued source, has a source-level key before the mark. An unmarked
     source is never checked.
     """
@@ -61,15 +77,30 @@ def check_at_most_one(source: Source) -> None:
         raise ParseError(f"invalid {AT_MOST_ONE_KEY} source: {problem}")
 
 
+def checked_form(node: Node) -> Node:
+    """Return a parsed source once :func:`check_at_most_one` passes; a non-Source passes as is.
+
+    WHY the parser calls this on a whole parsed source, not inside descriptor parsing: the
+    form needs ``;expand``, which a ``*`` prefix sets only once the whole source is parsed.
+    """
+    if isinstance(node, Source):
+        check_at_most_one(node)
+    return node
+
+
 def _first_broken_rule(source: Source) -> str | None:
     keys = [key for key, _ in source.annotations]
     marks = [value for key, value in source.annotations if key == AT_MOST_ONE_KEY]
+    guards = [value for key, value in source.annotations if key in _GUARDS]
     rules = (
         (marks == [AT_MOST_ONE_VALUE], f"write the mark once, as {AT_MOST_ONE_KEY}=true"),
         (source.expand, "the source needs ;expand"),
         # WHY: an unnamed expansion calls its elements `src[i]`; there is no name to give.
         (source.name is not None, "the source needs a name"),
-        (sum(key in _GUARDS for key in keys) == 1, "the source needs one of ;required/;optional"),
+        (len(guards) == 1, "the source needs one of ;required/;optional"),
+        # WHY: the runtime reads a guard by its key alone, so `;optional=false` would act
+        # as `;optional` and swallow the two-plus failure.
+        (guards == [None], "write ;required or ;optional as a flag, without a value"),
         (_after_a_source_key(source, keys), "the mark must follow a source-level key"),
     )
     return next((message for holds, message in rules if not holds), None)
