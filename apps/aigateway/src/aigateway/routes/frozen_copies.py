@@ -22,7 +22,13 @@ from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 from ..call_context import current_call_id, current_trace_id
 from ..core.auth.middleware import CurrentAccount
 from ..core.frozen_copy.headers import STORED_HEADERS_FIELD, MalformedCallKey, parse_call_key
-from ..core.frozen_copy.models import STATUS_OPEN, STATUS_SEALED, FrozenCopy
+from ..core.frozen_copy.models import (
+    STATUS_ABANDONED,
+    STATUS_EXPIRED,
+    STATUS_OPEN,
+    STATUS_SEALED,
+    FrozenCopy,
+)
 from ..core.frozen_copy.store import (
     FrozenCopySealed,
     frozen_copy_store_for,
@@ -257,6 +263,18 @@ def _sealed() -> HTTPException:
     )
 
 
+def _gone(state: str) -> HTTPException:
+    # FEATURE (OME-1947, contracts K2): the sweep made the copy final and deleted its entries.
+    return HTTPException(
+        status_code=410,
+        detail={
+            "code": "frozen_copy_expired",
+            "state": state,
+            "message": "the frozen copy was swept and its entries were deleted",
+        },
+    )
+
+
 @router.post("/v1/frozen-copies/{copy_id}/seal")
 async def seal_frozen_copy(
     copy_id: UUID, request: Request, current: CurrentAccount, body: SealRequest | None = None
@@ -270,6 +288,8 @@ async def seal_frozen_copy(
     copy = await frozen_copy_store_for(request.app).seal(copy_id, current.id, provenance)
     if copy is None:
         raise _not_found()
+    if copy.status in (STATUS_ABANDONED, STATUS_EXPIRED):
+        raise _gone(copy.status)
     return {"id": str(copy.id), "status": copy.status, "entries": copy.entries}
 
 

@@ -146,6 +146,12 @@ config:
   requestCache:
     enabled: true
 
+  # The frozen copy retention sweep (OME-1947). It has no switch: it runs in each gateway.
+  frozenCopySweep:
+    intervalSeconds: 3600
+    openIdleSeconds: 86400     # keep above the engine run deadline (16 hours)
+    maxEntries: 100000         # purge budget of one run
+
 # Only meaningful for the browser-facing OAuth flows, which are unreachable while the gateway is
 # internal-only (see `ingress` below). Kept so a deployment that re-exposes the gateway has it.
 publicUrl: https://gateway.screamingface.ai
