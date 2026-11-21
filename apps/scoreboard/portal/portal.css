@@ -362,7 +362,7 @@ table .btn { white-space: nowrap; }
    takes full --ink-2 instead of the whisper off-state, which misses WCAG AA in the light theme.
    Both rules carry :not(.on) so they out-rank style.css's .status:not(.on) by specificity, not
    by load order. */
-.weights-line { display: block; margin-top: var(--space-1); white-space: nowrap; }
+.weights-line, .graded-line { display: block; margin-top: var(--space-1); white-space: nowrap; }
 .status.status--open:not(.on) { color: var(--ink); }
 .status.status--closed:not(.on) { color: var(--ink-2); }
 .status.status--open .sq { background: var(--ink); }
