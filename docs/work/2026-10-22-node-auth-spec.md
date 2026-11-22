@@ -142,3 +142,8 @@ codes, and how C2/C6 are enabled alongside the #1521 destination guard. Design o
   authorization; permanent interval validity split from step-5 freshness, with the retry refresh rule;
   `Idempotency-Key` faults split between step 1 and step 8; nested-call refusal is §6 step 2; header
   list, R8 wording, step 3/6 failure tests and `x5c` added.
+- **2026-11-22 tenth round (HupBaHa, CHANGES_REQUESTED 2026-11-22 12:43Z):** owner decisions: an
+  expired share grant is the permanent caller-local `x.peer_grant_expired` (§6 step 7); share grants
+  are reusable by their grantee (T3/R4 narrowed); the per-peer C6 switch asserts peer readiness and a
+  404 on `/url4/peer/v1` maps to `x.remote_node_unsupported`. Also: unknown-claim wording, and tests
+  for key discovery, grant reuse, unknown claims, mismatched versions and secret redaction.

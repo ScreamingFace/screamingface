@@ -28,7 +28,9 @@ durable-execution design. In round seven (owner decision) §5.9 moved to its own
 `docs/spec/2026-11-21-url4-peer-paid-execution.md`; this spec keeps only the `Idempotency-Key` wire contract and a gate that holds C6 off until
 that spec is approved and implemented. Round eight put that gate into the §6 outbound order.
 Round nine fixed error precedence (shape before authorization, validity before freshness), left the
-C6 receiver route unmounted until paid execution exists, and defined allowlist scope classes.
+C6 receiver route unmounted until paid execution exists, and defined allowlist scope classes. Round
+ten made an expired share grant permanent, made share grants reusable by their grantee, defined C6
+peer readiness, and added discovery and redaction tests.
 
 The direction (RFC 9421 plus signed grants) is unchanged, and #1450's fail-closed refusals still stand.
 
@@ -90,7 +92,7 @@ federate with. Model-level prompt injection and a compromised node host are out 
 |---|---|---|---|
 | T1 | Impersonation: an arbitrary client calls n2's eval path or blob route claiming to be n1 | Anyone on the internet | Caller authentication bound to n1's identity (R1) |
 | T2 | Confused deputy: tenant A on n1 makes n1 fetch tenant B's blob from n2, or makes n2 run on B's budget | A tenant on an honest node | Authorization names tenant + run + operation, not just the node (R3) |
-| T3 | Replay: a captured request (or its token) is resent to repeat a paid call or re-read a blob | Network observer, log reader, malicious peer | Short validity, single-use nonce, request-bound credential (R4) |
+| T3 | Replay: a captured signed request is resent, by anyone without the sender's key, to repeat a paid call or re-read a blob | Network observer, log reader, malicious peer | Short validity, single-use nonce, request-bound credential (R4). Reuse of a share grant by its own grantee is not replay (§5.4) |
 | T4 | Token forwarding: n2 reuses n1's credential to call n3 as n1 | A malicious peer | Audience binding to the receiving authority (R3) |
 | T5 | Redirect leak: n2 (or a hop) redirects a signed request to another host, which harvests the credential | A malicious peer or a hop | No redirects on peer requests (R6) |
 | T6 | Key-discovery spoofing: an attacker serves a fake public key for n1 | DNS or path attacker | Keys fetched over https through the #1521 guard, from the caller's own authority only (R2) |
@@ -106,7 +108,8 @@ federate with. Model-level prompt injection and a compromised node host are out 
 - **R2** A node's identity is its url4 authority; its public keys are discoverable from that authority.
 - **R3** The receiver authorizes per operation, on behalf of a tenant + run, with the credential bound
   to the receiving authority (audience).
-- **R4** Replay is refused within the validity window and impossible after it.
+- **R4** A captured signed request is refused when resent, within its validity window and after it. A
+  share grant is a reusable capability of its grantee until `exp` (§5.4); that reuse is not replay.
 - **R5** The receiver checks the claimed caller against its inbound peer allowlist before any I/O on
   the caller's behalf.
 - **R6** Peer requests follow no redirects.
@@ -271,14 +274,19 @@ equality rules for `iss`, `aud` and `grantee` are authorization, checked at step
 - The header has exactly `alg`, `typ` and `kid`. `alg` is exactly `EdDSA` and `typ` is exactly the
   route's kind. `kid` names a key of the issuer. Any `crit`, `jku`, `jwk`, `x5u` or `x5c` →
   `x.peer_auth_failed`.
-- Required claims must be present with the types in the table. A claim that is absent in the table
-  must be absent. Unknown claims are ignored.
+- Required claims must be present with the types in the table. Only a claim whose cell for the route's
+  kind says `absent` is forbidden (`grantee` on a delegation grant; `trace` and `budget` on a share
+  grant). A claim the table does not name is ignored.
 - **Interval validity (permanent):** `0 < exp − iat ≤` the kind's lifetime cap. A reversed or empty
   interval, or one over the cap, is `x.peer_auth_failed` whatever the clock says. There is no `nbf`.
 - **Freshness (clock-relative)** is not part of the profile: `iat` not later than `now + 30 s` and
   `exp` later than `now` are checked at step 5 (`x.peer_auth_expired`).
 - `jti` is 128 random bits, base64url. It is recorded for provenance; replay is caught by the
   signature nonce (§5.5 step 6), not by `jti`.
+- **A share grant is reusable by its grantee** until `exp`: the grantee may present it on any number
+  of freshly signed requests, each with its own nonce. Only the grantee's key can sign them (step 2
+  binds the `keyid` authority to `grantee`), so a captured grant is useless to anyone else. Grants are
+  not single-use and there is no grant-use store.
 
 A share grant is self-issued: `iss` and `aud` both name the resource node, and the reader is bound
 through `grantee`. So it verifies only with the **receiving** node's own key, and a node can never
@@ -368,8 +376,10 @@ For every request on a peer route, in this order:
    passed; grant `iat` not later than `now + 30 s`, `exp` not passed. Otherwise `x.peer_auth_expired`.
    A retry refreshes only what the caller owns: it re-signs (fresh `created`, `expires`, `nonce`) and
    re-mints a delegation grant. A share grant is issued by the resource node, so the reader cannot
-   refresh it: the caller checks its `exp` before sending, and an expired share grant fails at the
-   caller with `x.peer_auth_expired` and no request.
+   refresh it: the caller checks its `exp` before sending (§6 step 7), and an expired share grant is
+   the permanent, caller-local `x.peer_grant_expired`, with no request. On `x.peer_auth_expired` for a
+   C2 request the caller re-checks the grant first; if its `exp` has passed it stops with
+   `x.peer_grant_expired` and never resends the same token. Getting a fresh share grant is Q2.
 6. **Replay:** `(keyid, nonce)` must be unseen within `window = 60 s + 2 × 30 s skew`; record it.
    A repeat → `x.peer_replay`. The nonce store is shared by all replicas serving one authority; if it
    is unavailable the receiver fails closed with `x.peer_key_unavailable` (retryable).
@@ -440,13 +450,14 @@ the code and a generic message, never the token, signature or which component mi
 | `x.peer_not_authorized` | receiving node | 403 | permanent | steps 2, 7 |
 | `x.peer_key_unavailable` | receiving node | 503 | retryable | step 3; nonce store down (step 6) |
 | `x.peer_auth_failed` | receiving node | 401 | permanent | step 1 (malformed or duplicate fields; `URL4-Auth-Token` or `Idempotency-Key` present but not covered; wrong-route `typ`; malformed `keyid` or selector); step 4 (signature, `Content-Digest`, grant JWS and profile, interval validity) |
-| `x.peer_auth_expired` | receiving node, or the caller for its own expired share grant | 401 | retryable (re-signed, delegation grant re-minted; at most once) | step 5; repeated failure means clock skew |
+| `x.peer_auth_expired` | receiving node | 401 | retryable (re-signed, delegation grant re-minted; at most once) | step 5; repeated failure means clock skew |
+| `x.peer_grant_expired` | calling node | — (no request) | permanent | §6 step 7: the caller's share grant has passed `exp`; before any I/O, never retried with the same token |
 | `x.peer_replay` | receiving node | 401 | permanent | step 6 |
 | `x.peer_idempotency_required` | receiving node | 400 | permanent | step 8: `Idempotency-Key` absent, or the covered key not exactly 22 base64url characters; other key faults are step 1 |
 | `x.peer_request_in_progress`, `x.peer_outcome_unknown`, `x.peer_idempotency_conflict` | receiving node | — | — | reserved; defined by the paid-execution spec (§5.9) |
 | `x.peer_nested_call_refused` | the node hosting the delegated run | 422 | permanent | §5.10, §6 step 2: a remote call from inside a delegated run; before any I/O and before the generic gates |
 | `x.peer_signing_unconfigured` | calling node | 500 | permanent | caller has a configured peer but no signing key; before any I/O |
-| `x.remote_node_unsupported` / `x.remote_blob_unsupported` | calling node resolver | 422 | permanent | unchanged from #1450: the target authority is not a configured outbound peer (or the feature is off); for C6 also paid execution not implemented (§6 step 5); before any I/O |
+| `x.remote_node_unsupported` / `x.remote_blob_unsupported` | calling node resolver | 422 | permanent | unchanged from #1450: the target authority is not a configured outbound peer (or the feature is off); for C6 also paid execution not implemented (§6 step 5), before any I/O; or a 404 from exactly `/url4/peer/v1` on a sent request (peer not ready, §6), not retried |
 | `x.source_destination_blocked` | #1521 guard | 422 | permanent | unchanged, plus a redirect on a peer request (§5.3) |
 
 This closes #1450 §4's "remote-node authentication failure has no v1 owner".
@@ -503,8 +514,17 @@ for a `url4://` peer target (C6) or blob ref (C2):
    `x.remote_node_unsupported`, before key discovery, signing or any I/O. Peer auth configured does not
    pass this step.
 6. No signing key → `x.peer_signing_unconfigured`, before I/O.
-7. Guard: https, address ranges, IP pinning (as today, with `peer=True`).
-8. Build, attach grant, sign, send with redirects disabled; size cap and deadlines as today.
+7. C2 only: the share grant's `exp` has passed on the caller's clock → `x.peer_grant_expired`
+   (permanent), before I/O.
+8. Guard: https, address ranges, IP pinning (as today, with `peer=True`).
+9. Build, attach grant, sign, send with redirects disabled; size cap and deadlines as today.
+
+**Peer readiness for C6.** Turning C6 on for an outbound peer is the operator's assertion that the
+peer serves paid execution, that is, mounts `/url4/peer/v1` (§5.5). Peers are versioned
+independently, so the assertion can be wrong. A 404 answer to a signed request on exactly
+`/url4/peer/v1` is mapped to `x.remote_node_unsupported` (permanent) and is not retried. That 404
+comes after one request, so the "before any I/O" guarantee holds only for this node's own readiness
+(step 5), not the peer's.
 
 An outbound peer entry is added to `peer_hosts` only together with this signing configuration, so
 "the allowlist stays empty until the auth spec exists" becomes "a peer is listed only when its
@@ -540,6 +560,11 @@ Caller side:
 - Unconfigured peer → v1 code with zero sockets opened; configured peer without a key →
   `x.peer_signing_unconfigured` with zero sockets.
 - Wraps each receiver code preserving permanence; retries only the retryable ones.
+- An expired share grant → `x.peer_grant_expired` with zero sockets. A C2 request answered
+  `x.peer_auth_expired` whose grant has expired by then → `x.peer_grant_expired`, and the same token is
+  not sent again.
+- Mismatched versions: a C6-ready caller and a receiver without `/url4/peer/v1` → one request, the 404
+  maps to `x.remote_node_unsupported`, and no retry.
 
 Receiver side (one test per §5.5 step, in order):
 - Missing signature on a peer-only route → `x.peer_auth_required`.
@@ -561,6 +586,26 @@ Receiver side (one test per §5.5 step, in order):
 - Share grant for digest D, request for D' → `source_not_found`, identical to a missing blob, and no
   cache or frozen-copy read (F3 order).
 - Rotation: overlap period accepts both keys; removed key fails after refetch.
+
+Key discovery (§5.2), each with a fake JWKS server:
+- A 3xx from the JWKS URL is not followed (`Location` gets zero requests) → `x.peer_key_unavailable`.
+- An authority that resolves to a loopback, private or link-local address is refused by the guard
+  with zero connections; the connection uses the pinned IP the guard checked.
+- A JWKS body over 64 KiB is refused → `x.peer_key_unavailable`, and nothing is cached.
+- Cache clamp: `max-age=1` caches for 5 min, `max-age=604800` for 24 h, no header for 1 h.
+- Unknown `kid` twice within 60 s → exactly one refetch. A failed refetch keeps serving the cached
+  keys until their clamped expiry.
+- Pinned kids: a key that is in the JWKS but not pinned does not verify (`x.peer_auth_failed`).
+
+Grant reuse (§5.4, T3/R4):
+- The grantee presents one share grant on two freshly signed requests (different nonces) → both
+  succeed. The same grant signed by another node's key fails step 2. The exact signed request resent
+  → `x.peer_replay`.
+
+Secret redaction (T10, R8):
+- Sentinel values in `URL4-Authz-Token`, `URL4-Auth-Token`, `Signature` and `Idempotency-Key`, sent
+  through every failure code in §5.8. No sentinel appears in the response body, the application,
+  structured or access logs, exception text (`str` and `repr`), or OTel span attributes and events.
 - End to end with two in-process nodes over ASGI: C6 happy path with trace propagation and child-run
   budget; C2 happy path with a share grant.
 
@@ -581,6 +626,8 @@ Grant profiles (§5.4):
   secret), wrong `typ`, `crit` present, `jku`/`jwk`/`x5u`/`x5c` present, a missing required claim, a
   claim that must be absent present, wrong claim types, and a lifetime over the cap (all
   `x.peer_auth_failed`); `iat` in the future beyond skew is `x.peer_auth_expired` (step 5).
+- An unknown extension claim (for example `"x_ext": 1`) on either kind is ignored and the grant
+  verifies. `trace` on a share grant, or `grantee` on a delegation grant, fails.
 
 Request context (§5.3.1), each as a fixed vector (raw request plus expected signature base):
 - An encoded path (`/url4/peer/blob/sha256/ab%20cd`, a UTF-8 `%C3%A9` segment) verifies byte for
@@ -705,7 +752,8 @@ separate node id (for example a key thumbprint) so a node can move hosts?
 **Q5 Codes and statuses.** Adopt the `x.peer_*` codes into Spec C, or keep them `x.`-prefixed? Is 401
 right for `x.peer_auth_expired`, and should it be retryable?
 - *Assumption:* keep them `x.`-prefixed extension codes with the proposed statuses, like every #1450
-  §4 code; `x.peer_auth_expired` is 401 and retryable once after re-signing.
+  §4 code; `x.peer_auth_expired` is 401 and retryable once after re-signing. An expired share grant
+  is the caller-local, permanent `x.peer_grant_expired`, since re-signing cannot renew it.
 - *Consequence:* no Spec C change needed to ship; one retry absorbs a stale signature, and a second
   failure surfaces clock skew.
 - *If Kevin says otherwise:* adopted codes are renamed without the prefix, permanence unchanged. If
