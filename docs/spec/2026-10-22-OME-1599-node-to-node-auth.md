@@ -27,6 +27,8 @@ C2 errors, duplicate Structured Field keys and parameters refused). They also gr
 durable-execution design. In round seven (owner decision) §5.9 moved to its own spec,
 `docs/spec/2026-11-21-url4-peer-paid-execution.md`; this spec keeps only the `Idempotency-Key` wire contract and a gate that holds C6 off until
 that spec is approved and implemented. Round eight put that gate into the §6 outbound order.
+Round nine fixed error precedence (shape before authorization, validity before freshness), left the
+C6 receiver route unmounted until paid execution exists, and defined allowlist scope classes.
 
 The direction (RFC 9421 plus signed grants) is unchanged, and #1450's fail-closed refusals still stand.
 
@@ -109,7 +111,8 @@ federate with. Model-level prompt injection and a compromised node host are out 
   the caller's behalf.
 - **R6** Peer requests follow no redirects.
 - **R7** Keys rotate without downtime; a compromised key's exposure is bounded and revocable.
-- **R8** Every failure is a typed `x.` code with a fixed permanence class; secrets never reach logs.
+- **R8** Every failure is a typed code with a fixed permanence class: an `x.` code, or `source_not_found`
+  where T9 requires it. Secrets never reach logs.
 - **R9** The defaults keep v1 behaviour: with no peer configured, C2 and C6 still refuse before any I/O
   with the v1 codes.
 - **R10** Peer authentication is a property of the route, not of the request: a request cannot avoid
@@ -180,7 +183,8 @@ The caller builds the request, then signs it (RFC 9421) with label `url4`:
 - Parameters: `created` (now), `expires` (`created + 60`), `nonce` (128 random bits, base64url),
   `keyid`, `alg="ed25519"`, `tag="url4-peer"`.
 - Headers sent: `Signature-Input`, `Signature`, `URL4-Authz-Token` (§5.4), `URL4-Auth-Token` (only
-  when the request carries a credential for the destination, §5.4), `Content-Digest` (if body).
+  when the request carries a credential for the destination, §5.4), `Content-Digest` (if body),
+  `Idempotency-Key` (every C6 request, exactly one, §5.9).
 - Every retry is re-signed (fresh `created` and `nonce`); the `Idempotency-Key` stays the same.
   Replay protection (§5.5 step 6) therefore accepts the retry. Running it at most once is the
   receiver's idempotency store (§5.9), not the nonce cache.
@@ -260,14 +264,19 @@ route takes `share`. A grant of the other kind on a route is `x.peer_auth_failed
 | `budget` | optional decimal string, USD, > 0 | absent |
 | `iat`, `exp`, `jti` | required; `exp − iat ≤ 300 s` | required; `exp − iat ≤ 24 h` |
 
-**Validation profile (RFC 8725), the same for both kinds apart from the table above:**
+**Validation profile (RFC 8725), the same for both kinds apart from the table above.** It checks
+signature, header and claim shape only, at step 4; every failure is `x.peer_auth_failed`. The table's
+equality rules for `iss`, `aud` and `grantee` are authorization, checked at steps 2 and 7
+(`x.peer_not_authorized`); step 4 only checks that they are present strings.
 - The header has exactly `alg`, `typ` and `kid`. `alg` is exactly `EdDSA` and `typ` is exactly the
   route's kind. `kid` names a key of the issuer. Any `crit`, `jku`, `jwk`, `x5u` or `x5c` →
   `x.peer_auth_failed`.
 - Required claims must be present with the types in the table. A claim that is absent in the table
   must be absent. Unknown claims are ignored.
-- `iat` may not be later than `now + 30 s` (skew). `exp` must be later than `now`. The lifetime cap
-  holds. There is no `nbf`.
+- **Interval validity (permanent):** `0 < exp − iat ≤` the kind's lifetime cap. A reversed or empty
+  interval, or one over the cap, is `x.peer_auth_failed` whatever the clock says. There is no `nbf`.
+- **Freshness (clock-relative)** is not part of the profile: `iat` not later than `now + 30 s` and
+  `exp` later than `now` are checked at step 5 (`x.peer_auth_expired`).
 - `jti` is 128 random bits, base64url. It is recorded for provenance; replay is caught by the
   signature nonce (§5.5 step 6), not by `jti`.
 
@@ -325,25 +334,42 @@ carry a signature.
   headers are never ignored and never half-honoured.
 - The node's non-peer routes keep the front-door authentication they have today, which is outside
   this spec (§11). In-process SDK calls do not go through HTTP, so they need no peer authentication.
-- A node with C2 and C6 off mounts no peer routes, so the prefix answers 404 (R9).
+- **A peer route is mounted only when it can be served.** `/url4/peer/blob/…` is mounted only when C2
+  is on. `/url4/peer/v1` is mounted only when C6 is on **and** the paid-execution layer (§5.9) is
+  implemented on this node. An unmounted peer route answers 404 before any verifier code runs: no key
+  discovery, no nonce write, no child run (R9). The typed refusal `x.remote_node_unsupported` belongs
+  to the caller (§6 step 5).
 
 For every request on a peer route, in this order:
 
 1. **Parse** `Signature-Input`/`Signature` (label `url4`, §5.3.1) and `URL4-Authz-Token`. If either is
-   missing → `x.peer_auth_required`. A duplicate field or a malformed member → `x.peer_auth_failed`.
-   `URL4-Auth-Token` is not needed for authorization; if present it must be among the covered
-   components, otherwise `x.peer_auth_failed`.
-2. **Allowlist before I/O** (R5, T7): the `keyid` authority must equal the grant's `iss` (delegation)
-   or `grantee` (share), and must be on the receiver's **inbound peer allowlist**. Otherwise
-   `x.peer_not_authorized`. No key fetch happens for an unlisted authority. The grant's payload is read
-   here only to find that authority; nothing in it is trusted until step 4.
+   missing → `x.peer_auth_required`. Everything else wrong in this step → `x.peer_auth_failed`:
+   - a duplicate field or a malformed member (§5.3.1);
+   - `URL4-Auth-Token` or `Idempotency-Key` present but not among the covered components, or
+     `Idempotency-Key` not a valid sf-string;
+   - the grant's protected header without `typ` exactly the route's kind (§5.4), so a grant of the
+     other kind fails here;
+   - a `keyid` whose authority part is not a canonical authority (§5.1);
+   - the grant's selector claim missing or not a string: `iss` for `delegation`, `grantee` for `share`.
+
+   These are shape checks on unverified input; nothing is trusted until step 4.
+2. **Allowlist before I/O** (R5, T7): the `keyid` authority must equal the selector (`iss` for
+   delegation, `grantee` for share) and must be on the receiver's **inbound peer allowlist**. A
+   well-formed mismatch or an unlisted authority → `x.peer_not_authorized`. No key fetch happens for an
+   unlisted authority.
 3. **Resolve the key** from cache or discovery (§5.2). Unreachable discovery with no cached key →
    `x.peer_key_unavailable`.
 4. **Verify** the HTTP signature over the covered components (§5.3.1 inputs), `Content-Digest`
    against the body, and the grant's JWS under the route's validation profile (§5.4; delegation: the
-   caller's key; share: the receiver's own key). Any mismatch → `x.peer_auth_failed`.
-5. **Freshness:** `created` within ±30 s of the receiver's clock, `expires` not passed,
-   `expires - created ≤ 60`; grant `exp` not passed. Otherwise `x.peer_auth_expired`.
+   caller's key; share: the receiver's own key), including interval validity: the signature's
+   `0 < expires − created ≤ 60` and the grant's `0 < exp − iat ≤ cap`. Any failure →
+   `x.peer_auth_failed`.
+5. **Freshness** (clock-relative only): `created` within ±30 s of the receiver's clock, `expires` not
+   passed; grant `iat` not later than `now + 30 s`, `exp` not passed. Otherwise `x.peer_auth_expired`.
+   A retry refreshes only what the caller owns: it re-signs (fresh `created`, `expires`, `nonce`) and
+   re-mints a delegation grant. A share grant is issued by the resource node, so the reader cannot
+   refresh it: the caller checks its `exp` before sending, and an expired share grant fails at the
+   caller with `x.peer_auth_expired` and no request.
 6. **Replay:** `(keyid, nonce)` must be unseen within `window = 60 s + 2 × 30 s skew`; record it.
    A repeat → `x.peer_replay`. The nonce store is shared by all replicas serving one authority; if it
    is unavailable the receiver fails closed with `x.peer_key_unavailable` (retryable).
@@ -352,15 +378,19 @@ For every request on a peer route, in this order:
      grant, `iss` must too, and `grantee` must equal the `keyid` authority.
    - `scope` must cover the operation: `eval` on the eval route, or `blob:read:sha256:<hex>` for
      exactly the requested blob.
-   - The peer's allowlist entry must permit that scope.
+   - The peer's allowlist entry must permit that scope. Allowlist `scopes` are capability classes:
+     `eval` permits the grant scope `eval`; `blob:read` permits any `blob:read:sha256:<hex>`. A grant
+     scope matches a class when it equals the class or starts with the class followed by `:`. There
+     are no other classes and no wildcards; the grant narrows the class to exact digests.
 
    Any failure → `x.peer_not_authorized`, with one exception (T9): on the blob route, a verified share
    grant whose `scope` does not cover the requested digest is `source_not_found`, the same answer as a
    covered digest that is missing from the store (step 10). So a reader cannot tell "not granted" from
    "does not exist". No grant at all is `x.peer_auth_required` (step 1). Nested delegation is stopped where the delegated run
    executes (§5.10), not here.
-8. **C6 only: hand over to the paid-execution layer** (§5.9). It must accept the request before
-   anything else is created. No child run, execution or spend exists without that.
+8. **C6 only: hand over to the paid-execution layer** (§5.9). `Idempotency-Key` absent, or the single
+   covered sf-string not exactly 22 base64url characters → `x.peer_idempotency_required`. The
+   paid-execution layer must accept the request before anything else is created. No child run, execution or spend exists without that.
 9. **Bind a local run context** (taken from the verified grant, never from the expression):
    - C6 (`delegation`): the operator maps `(peer authority, sub)` to a local tenant (default: one
      local tenant per peer, `peer:<authority>`); the receiver opens the **child run** whose id the
@@ -379,7 +409,7 @@ Separate from the outbound `SourceGuard.peer_hosts`:
 ```
 inbound_peers:
   n1.example:
-    scopes: [eval]            # and/or blob:read
+    scopes: [eval]            # and/or blob:read (capability classes, §5.5 step 7)
     tenant: peer:n1.example   # or a sub→tenant map
     pinned_kids: []           # optional §5.2 pinning
     max_cost_usd_per_run: 5
@@ -409,14 +439,14 @@ the code and a generic message, never the token, signature or which component mi
 | `x.peer_auth_required` | receiving node | 401 | permanent | §5.5 step 1: signature or `URL4-Authz-Token` missing |
 | `x.peer_not_authorized` | receiving node | 403 | permanent | steps 2, 7 |
 | `x.peer_key_unavailable` | receiving node | 503 | retryable | step 3; nonce store down (step 6) |
-| `x.peer_auth_failed` | receiving node | 401 | permanent | step 4 (signature, `Content-Digest` or `URL4-Authz-Token` JWS); step 1 (`URL4-Auth-Token` present but not covered) |
-| `x.peer_auth_expired` | receiving node | 401 | retryable (re-signed; at most once) | step 5; repeated failure means clock skew |
+| `x.peer_auth_failed` | receiving node | 401 | permanent | step 1 (malformed or duplicate fields; `URL4-Auth-Token` or `Idempotency-Key` present but not covered; wrong-route `typ`; malformed `keyid` or selector); step 4 (signature, `Content-Digest`, grant JWS and profile, interval validity) |
+| `x.peer_auth_expired` | receiving node, or the caller for its own expired share grant | 401 | retryable (re-signed, delegation grant re-minted; at most once) | step 5; repeated failure means clock skew |
 | `x.peer_replay` | receiving node | 401 | permanent | step 6 |
-| `x.peer_idempotency_required` | receiving node | 400 | permanent | §5.9: C6 request without exactly one `Idempotency-Key` |
+| `x.peer_idempotency_required` | receiving node | 400 | permanent | step 8: `Idempotency-Key` absent, or the covered key not exactly 22 base64url characters; other key faults are step 1 |
 | `x.peer_request_in_progress`, `x.peer_outcome_unknown`, `x.peer_idempotency_conflict` | receiving node | — | — | reserved; defined by the paid-execution spec (§5.9) |
-| `x.peer_nested_call_refused` | the node hosting the delegated run | 422 | permanent | §5.10: a remote call from inside a delegated run; before any I/O |
+| `x.peer_nested_call_refused` | the node hosting the delegated run | 422 | permanent | §5.10, §6 step 2: a remote call from inside a delegated run; before any I/O and before the generic gates |
 | `x.peer_signing_unconfigured` | calling node | 500 | permanent | caller has a configured peer but no signing key; before any I/O |
-| `x.remote_node_unsupported` / `x.remote_blob_unsupported` | calling node resolver | 422 | permanent | unchanged from #1450: the target authority is not a configured outbound peer (or the feature is off); before any I/O |
+| `x.remote_node_unsupported` / `x.remote_blob_unsupported` | calling node resolver | 422 | permanent | unchanged from #1450: the target authority is not a configured outbound peer (or the feature is off); for C6 also paid execution not implemented (§6 step 5); before any I/O |
 | `x.source_destination_blocked` | #1521 guard | 422 | permanent | unchanged, plus a redirect on a peer request (§5.3) |
 
 This closes #1450 §4's "remote-node authentication failure has no v1 owner".
@@ -432,15 +462,18 @@ requirements.
 What this spec fixes, because the auth layer owns it:
 - A C6 request carries exactly one `Idempotency-Key`: an sf-string of 22 base64url characters
   (128 random bits), generated once per logical call, covered by the signature (§5.3), and the same on
-  every retry. Missing or malformed → `x.peer_idempotency_required` at step 8.
+  every retry. Absent, or not exactly 22 base64url characters → `x.peer_idempotency_required` at
+  step 8. A duplicate line, an invalid sf-string or a key outside the signature is `x.peer_auth_failed`
+  at step 1.
 - Step 8 hands the verified request to the paid-execution layer, which must accept it before any
   child run, execution or spend exists. Everything after that (the store, fingerprint, retries,
   reconciliation, the child run's identity) belongs to the separate spec.
 
 **Gate.** Until that spec is approved and implemented, C6 stays refused with
 `x.remote_node_unsupported` (#1450 F1b), before any I/O, **even on a node with peer auth configured**.
-Peer auth alone never enables C6. Both sides enforce it: the caller at §6 step 3, before key discovery,
-signing or any socket; the receiver at step 8.
+Peer auth alone never enables C6. The caller refuses at §6 step 5, before key discovery, signing or any
+socket. The receiver does not mount `/url4/peer/v1` until paid execution is implemented (§5.5), so a
+direct probe gets 404 with no I/O; the typed code is the caller's.
 
 ### 5.10 Nested delegation (R12)
 
@@ -448,7 +481,8 @@ A delegated run gets no enforceable parent scope, budget or expiry at a third no
 slice does not allow chains:
 - A child run opened from a delegation grant (§5.5 step 9) has C2 and C6 **off**, whatever the node's
   own settings. A `url4://` peer target or a remote blob ref inside it fails with
-  `x.peer_nested_call_refused` before any I/O. No socket is opened and no grant is minted.
+  `x.peer_nested_call_refused` before any I/O, ahead of the outbound-peer and feature-switch checks
+  (§6 step 2). No socket is opened and no grant is minted.
 - The refusal happens at the node that hosts the delegated run, because only that node knows the run
   is delegated. The run's provenance (`run` and `trace` from the grant) is recorded with the failure.
 - Allowing chains later needs an attenuation rule: a child grant is the intersection of the parent's
@@ -460,14 +494,17 @@ slice does not allow chains:
 The guard stays the **destination** policy; this spec adds the **caller** policy. Outbound order
 for a `url4://` peer target (C6) or blob ref (C2):
 
-1. Classify the ref (unchanged). Authority not a configured outbound peer → v1 code, before I/O (R9).
-2. Feature switch for that kind (C2, C6) off → v1 code, before I/O.
-3. C6 only: the paid-execution layer (§5.9) not approved and implemented on this node →
+1. Classify the ref (unchanged): a `url4://` remote-node target (C6) or a remote blob ref (C2).
+2. Inside a delegated run (§5.10) → `x.peer_nested_call_refused`, before any I/O and before the
+   generic gates below.
+3. Authority not a configured outbound peer → v1 code, before I/O (R9).
+4. Feature switch for that kind (C2, C6) off → v1 code, before I/O.
+5. C6 only: the paid-execution layer (§5.9) not approved and implemented on this node →
    `x.remote_node_unsupported`, before key discovery, signing or any I/O. Peer auth configured does not
    pass this step.
-4. No signing key → `x.peer_signing_unconfigured`, before I/O.
-5. Guard: https, address ranges, IP pinning (as today, with `peer=True`).
-6. Build, attach grant, sign, send with redirects disabled; size cap and deadlines as today.
+6. No signing key → `x.peer_signing_unconfigured`, before I/O.
+7. Guard: https, address ranges, IP pinning (as today, with `peer=True`).
+8. Build, attach grant, sign, send with redirects disabled; size cap and deadlines as today.
 
 An outbound peer entry is added to `peer_hosts` only together with this signing configuration, so
 "the allowlist stays empty until the auth spec exists" becomes "a peer is listed only when its
@@ -477,7 +514,7 @@ requests are signed". The guard's `trusted_first_hop` (the operator's `base_url`
 ## 7. Enabling C2 and C6
 
 - **C6 first.** It needs §5.1–5.10 (the delegation grant and the nested-call refusal) **and** the
-  paid-execution spec (§5.9), approved **and implemented**; until then §6 step 3 refuses every C6
+  paid-execution spec (§5.9), approved **and implemented**; until then §6 step 5 refuses every C6
   call. The receiver resolves inner sources
   against its own store under the child run (#1450 §3, row C6: "n2 resolves C3 against its own store"); a C3
   bare blob in the inner expression therefore resolves only to blobs ingested into that child run.
@@ -507,9 +544,19 @@ Caller side:
 Receiver side (one test per §5.5 step, in order):
 - Missing signature on a peer-only route → `x.peer_auth_required`.
 - Unlisted authority → `x.peer_not_authorized` and **no** JWKS fetch (assert zero outbound calls).
+- Step 1 shape before step 2: a grant with the other route's `typ`, a malformed `keyid` authority, or a
+  missing or non-string selector (`iss`, `grantee`) → `x.peer_auth_failed`, never
+  `x.peer_not_authorized`, and no JWKS fetch.
+- Step 3: discovery unreachable with no cached key → `x.peer_key_unavailable` (retryable).
 - Bad signature, tampered path/query/body/token, wrong-key grant → `x.peer_auth_failed`.
 - `created` outside skew, expired grant → `x.peer_auth_expired`.
+- Reversed or empty intervals (`expires ≤ created`, `exp ≤ iat`) → `x.peer_auth_failed`, also when the
+  clock would accept them.
 - Same `(keyid, nonce)` twice → second is `x.peer_replay`; two replicas sharing the store agree.
+- Step 6: nonce store unavailable → `x.peer_key_unavailable`, fail closed, and nothing executes.
+- Allowlist scope classes: an entry with `blob:read` permits a share grant for
+  `blob:read:sha256:<hex>`; an entry with only `eval` does not (`x.peer_not_authorized`); `blob:readx`
+  or `blob` do not match.
 - `aud` of another node (forwarded token, T4) → `x.peer_not_authorized`.
 - Share grant for digest D, request for D' → `source_not_found`, identical to a missing blob, and no
   cache or frozen-copy read (F3 order).
@@ -522,6 +569,8 @@ Route property (§5.5, R10):
   to each is `x.peer_auth_required` (this catches a peer route added without the verifier).
 - Peer headers on a non-peer route → `x.peer_auth_failed`, and no peer context is bound.
 - With C2 and C6 off, `/url4/peer/…` is 404 and no verifier code runs.
+- With C6 on but paid execution not implemented, `/url4/peer/v1` is 404: zero JWKS fetches, zero nonce
+  writes, zero child runs.
 
 Grant profiles (§5.4):
 - A share grant with `aud` = the receiver, `iss` = the receiver and `grantee` = the caller verifies.
@@ -529,9 +578,9 @@ Grant profiles (§5.4):
   fails step 7.
 - A delegation grant on the blob route, and a share grant on the eval route → `x.peer_auth_failed`.
 - Each profile rule fails on its own: wrong `alg` (including `none` and `HS256` with the public key as
-  secret), wrong `typ`, `crit` present, `jku`/`jwk`/`x5u` present, a missing required claim, a claim
-  that must be absent present, wrong claim types, `iat` in the future beyond skew, and a lifetime
-  over the cap.
+  secret), wrong `typ`, `crit` present, `jku`/`jwk`/`x5u`/`x5c` present, a missing required claim, a
+  claim that must be absent present, wrong claim types, and a lifetime over the cap (all
+  `x.peer_auth_failed`); `iat` in the future beyond skew is `x.peer_auth_expired` (step 5).
 
 Request context (§5.3.1), each as a fixed vector (raw request plus expected signature base):
 - An encoded path (`/url4/peer/blob/sha256/ab%20cd`, a UTF-8 `%C3%A9` segment) verifies byte for
@@ -564,11 +613,15 @@ Request context (§5.3.1), each as a fixed vector (raw request plus expected sig
   A comma inside `URL4-Authz-Token`, `URL4-Auth-Token` or `Idempotency-Key` → `x.peer_auth_failed`.
 
 Paid-execution gate (§5.9):
-- A C6 request on a node with peer auth configured but paid execution not enabled →
-  `x.remote_node_unsupported` before any I/O, with zero child runs.
+- A C6 request to a node with peer auth configured but paid execution not implemented → 404 (route
+  not mounted), with zero JWKS fetches, nonce writes and child runs.
 - Caller side: a C6 target on a node with a configured peer and a signing key but paid execution not
-  enabled → `x.remote_node_unsupported` at §6 step 3, with zero sockets, no key lookup and no signature.
-- A C6 request without exactly one well-formed `Idempotency-Key` → `x.peer_idempotency_required`.
+  enabled → `x.remote_node_unsupported` at §6 step 5, with zero sockets, no key lookup and no signature.
+- A C6 request with no `Idempotency-Key`, or a covered one that is not 22 base64url characters →
+  `x.peer_idempotency_required`. Two key lines, an invalid sf-string, or a key not covered by the
+  signature → `x.peer_auth_failed` at step 1.
+- Caller inside a delegated run, with the target authority unconfigured or the feature off →
+  `x.peer_nested_call_refused`, not `x.remote_*_unsupported`.
 
 Address mapping (§5.5), end to end over ASGI with the exact #1450 expressions:
 - C6: `(url4://n2.example/v1(…)!'Describe')!'Summarize'`. n1 sends

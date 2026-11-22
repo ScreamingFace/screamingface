@@ -135,3 +135,10 @@ codes, and how C2/C6 are enabled alongside the #1521 destination guard. Design o
   the §6 outbound order. Added §6 step 3 (C6 refused before key discovery, signing or I/O until paid
   execution is approved and implemented), a caller-side gate test, and the same condition in §7, the
   task mirror and the PR body.
+- **2026-11-22 ninth round (HupBaHa, CHANGES_REQUESTED 2026-11-21 18:20Z):** owner decisions: C6
+  receiver route not mounted until paid execution is implemented (404, caller owns the typed code);
+  allowlist scopes are capability classes (`blob:read` permits `blob:read:sha256:<hex>`). Also: step 1
+  shape checks (route `typ`, `keyid`, selector) before step 2; step 4 is shape/validity, steps 2 and 7
+  authorization; permanent interval validity split from step-5 freshness, with the retry refresh rule;
+  `Idempotency-Key` faults split between step 1 and step 8; nested-call refusal is §6 step 2; header
+  list, R8 wording, step 3/6 failure tests and `x5c` added.
