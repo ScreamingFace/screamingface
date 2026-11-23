@@ -202,7 +202,7 @@ function scoreCell(row) {
 }
 
 function gradedLines(cell) {
-  return cell.children.filter((child) => /\bgraded-line\b/.test(child.className));
+  return cell.children.filter((child) => child.className.split(/\s+/).includes("graded-line"));
 }
 
 test("the Score cell of a partly graded entry gains one quiet line under the score", async () => {
