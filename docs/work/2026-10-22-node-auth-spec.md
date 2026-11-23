@@ -147,3 +147,9 @@ codes, and how C2/C6 are enabled alongside the #1521 destination guard. Design o
   are reusable by their grantee (T3/R4 narrowed); the per-peer C6 switch asserts peer readiness and a
   404 on `/url4/peer/v1` maps to `x.remote_node_unsupported`. Also: unknown-claim wording, and tests
   for key discovery, grant reuse, unknown claims, mismatched versions and secret redaction.
+- **2026-11-23 eleventh round (HupBaHa, CHANGES_REQUESTED 2026-11-23 13:03Z):** owner decisions: the
+  envelope rule for peer readiness (a valid url4 envelope passes through; a bare 404 →
+  `x.remote_node_unsupported`); patch all, then ask for one final full pass, with later findings going
+  to follow-up tickets. Changes: `Cache-Control: private, no-store` on all peer responses; tenant
+  resolved at step 7 with no fallback; `nbf` forbidden; `kid` recomputed from key material, duplicate
+  kids rejected; redaction matrix split by stage, including success paths.

@@ -30,7 +30,9 @@ that spec is approved and implemented. Round eight put that gate into the §6 ou
 Round nine fixed error precedence (shape before authorization, validity before freshness), left the
 C6 receiver route unmounted until paid execution exists, and defined allowlist scope classes. Round
 ten made an expired share grant permanent, made share grants reusable by their grantee, defined C6
-peer readiness, and added discovery and redaction tests.
+peer readiness, and added discovery and redaction tests. Round eleven added `no-store` on peer
+responses, the envelope rule for peer readiness, tenant resolution at step 7, a ban on `nbf`, `kid`
+binding to key material, and a staged redaction matrix.
 
 The direction (RFC 9421 plus signed grants) is unchanged, and #1450's fail-closed refusals still stand.
 
@@ -172,6 +174,10 @@ mTLS may be layered on later for private deployments without changing this proto
 - Cache: honour `Cache-Control: max-age`, clamped to [5 min, 24 h]; default 1 h. On an unknown `kid`
   the receiver refetches once, at most once per authority per 60 s. A failed refetch keeps serving
   cached keys until their clamped expiry.
+- **A `kid` is bound to its key material.** Before a discovered key is cached or compared with a pin,
+  the receiver recomputes `base64url(SHA-256(RFC 7638 canonical JWK {crv, kty, x}))` and requires it
+  to equal the declared `kid`. A mismatch drops that key. A JWKS with two entries for one `kid` is
+  rejected whole (`x.peer_key_unavailable` when no cached key remains).
 - Optional operator **key pinning**: an inbound peer entry may list accepted `kid`s; then discovery is
   advisory and only pinned keys verify. Recommended for high-value peers; required where the peer's
   DNS is not trusted.
@@ -278,7 +284,9 @@ equality rules for `iss`, `aud` and `grantee` are authorization, checked at step
   kind says `absent` is forbidden (`grantee` on a delegation grant; `trace` and `budget` on a share
   grant). A claim the table does not name is ignored.
 - **Interval validity (permanent):** `0 < exp − iat ≤` the kind's lifetime cap. A reversed or empty
-  interval, or one over the cap, is `x.peer_auth_failed` whatever the clock says. There is no `nbf`.
+  interval, or one over the cap, is `x.peer_auth_failed` whatever the clock says.
+- **`nbf` is forbidden** on both kinds: a grant carrying `nbf`, with any value or type, is
+  `x.peer_auth_failed`. It is the one claim outside the table that is not ignored.
 - **Freshness (clock-relative)** is not part of the profile: `iat` not later than `now + 30 s` and
   `exp` later than `now` are checked at step 5 (`x.peer_auth_expired`).
 - `jti` is 128 random bits, base64url. It is recorded for provenance; replay is caught by the
@@ -345,8 +353,14 @@ carry a signature.
 - **A peer route is mounted only when it can be served.** `/url4/peer/blob/…` is mounted only when C2
   is on. `/url4/peer/v1` is mounted only when C6 is on **and** the paid-execution layer (§5.9) is
   implemented on this node. An unmounted peer route answers 404 before any verifier code runs: no key
-  discovery, no nonce write, no child run (R9). The typed refusal `x.remote_node_unsupported` belongs
-  to the caller (§6 step 5).
+  discovery, no nonce write, no child run (R9). Its body is the url4 error envelope with
+  `x.remote_node_unsupported` (or `x.remote_blob_unsupported` under `/url4/peer/blob/`), so a caller
+  can tell it from a typed 404 of a mounted route (§6, peer readiness).
+- **No caching.** Every response under `/url4/peer/`, success or error, including the 404 of an
+  unmounted route, carries `Cache-Control: private, no-store`. Peer requests authenticate through
+  custom headers, not `Authorization`, so RFC 9111's protection of authenticated responses does not
+  apply; without this a shared cache could serve a signed response for the same URI to an unsigned
+  caller.
 
 For every request on a peer route, in this order:
 
@@ -392,6 +406,10 @@ For every request on a peer route, in this order:
      `eval` permits the grant scope `eval`; `blob:read` permits any `blob:read:sha256:<hex>`. A grant
      scope matches a class when it equals the class or starts with the class followed by `:`. There
      are no other classes and no wildcards; the grant narrows the class to exact digests.
+   - **The effective tenant is resolved here**, before anything paid exists. C6: `(peer authority,
+     sub)` through the peer entry (§5.6): a single `tenant` maps every `sub`; with a `sub → tenant`
+     map, a `sub` not in it is refused. C2: `sub` must name an existing local tenant. There is no
+     fallback tenant.
 
    Any failure → `x.peer_not_authorized`, with one exception (T9): on the blob route, a verified share
    grant whose `scope` does not cover the requested digest is `source_not_found`, the same answer as a
@@ -402,9 +420,9 @@ For every request on a peer route, in this order:
    covered sf-string not exactly 22 base64url characters → `x.peer_idempotency_required`. The
    paid-execution layer must accept the request before anything else is created. No child run, execution or spend exists without that.
 9. **Bind a local run context** (taken from the verified grant, never from the expression):
-   - C6 (`delegation`): the operator maps `(peer authority, sub)` to a local tenant (default: one
-     local tenant per peer, `peer:<authority>`); the receiver opens the **child run** whose id the
-     paid-execution layer fixed (§5.9) under it,
+   - C6 (`delegation`): under the tenant resolved at step 7 (default entry: one local tenant per
+     peer, `peer:<authority>`), the receiver opens the **child run** whose id the
+     paid-execution layer fixed (§5.9),
      carrying `trace` and the caller's run id as attribution. `budget`, if present, caps that run's
      spend, and the peer entry's own cap applies regardless.
    - C2 (`share`): tenant = `sub`, run = `run` from the receiver's own share grant.
@@ -521,10 +539,16 @@ for a `url4://` peer target (C6) or blob ref (C2):
 
 **Peer readiness for C6.** Turning C6 on for an outbound peer is the operator's assertion that the
 peer serves paid execution, that is, mounts `/url4/peer/v1` (§5.5). Peers are versioned
-independently, so the assertion can be wrong. A 404 answer to a signed request on exactly
-`/url4/peer/v1` is mapped to `x.remote_node_unsupported` (permanent) and is not retried. That 404
-comes after one request, so the "before any I/O" guarantee holds only for this node's own readiness
-(step 5), not the peer's.
+independently, so the assertion can be wrong. The caller decides from the body, never from the
+status alone:
+- a response with a valid url4 error envelope keeps its code, whatever the status (so a mounted
+  route's `endpoint_not_found`, `unknown_identity` or `source_not_found` 404 passes through
+  unchanged), including the `x.remote_node_unsupported` envelope of an unmounted route (§5.5);
+- a 404 without a valid url4 envelope (an older receiver, or a proxy) → `x.remote_node_unsupported`
+  (permanent), not retried.
+
+That answer comes after one request, so the "before any I/O" guarantee holds only for this node's
+own readiness (step 5), not the peer's.
 
 An outbound peer entry is added to `peer_hosts` only together with this signing configuration, so
 "the allowlist stays empty until the auth spec exists" becomes "a peer is listed only when its
@@ -564,7 +588,10 @@ Caller side:
   `x.peer_auth_expired` whose grant has expired by then → `x.peer_grant_expired`, and the same token is
   not sent again.
 - Mismatched versions: a C6-ready caller and a receiver without `/url4/peer/v1` → one request, the 404
-  maps to `x.remote_node_unsupported`, and no retry.
+  maps to `x.remote_node_unsupported`, and no retry. Three vectors: the unmounted route's envelope, a
+  bare 404 with no envelope, and a proxy's HTML 404, all → `x.remote_node_unsupported`.
+- A mounted, ready peer answering a typed 404 (`unknown_identity`, `source_not_found`,
+  `endpoint_not_found`) → that exact code, not `x.remote_node_unsupported`.
 
 Receiver side (one test per §5.5 step, in order):
 - Missing signature on a peer-only route → `x.peer_auth_required`.
@@ -596,6 +623,8 @@ Key discovery (§5.2), each with a fake JWKS server:
 - Unknown `kid` twice within 60 s → exactly one refetch. A failed refetch keeps serving the cached
   keys until their clamped expiry.
 - Pinned kids: a key that is in the JWKS but not pinned does not verify (`x.peer_auth_failed`).
+- `kid` binding: a JWKS entry whose `x` belongs to another key but whose `kid` is pinned is dropped,
+  and a request signed with that key fails. A JWKS with two entries for one `kid` is rejected.
 
 Grant reuse (§5.4, T3/R4):
 - The grantee presents one share grant on two freshly signed requests (different nonces) → both
@@ -603,11 +632,27 @@ Grant reuse (§5.4, T3/R4):
   → `x.peer_replay`.
 
 Secret redaction (T10, R8):
-- Sentinel values in `URL4-Authz-Token`, `URL4-Auth-Token`, `Signature` and `Idempotency-Key`, sent
-  through every failure code in §5.8. No sentinel appears in the response body, the application,
-  structured or access logs, exception text (`str` and `repr`), or OTel span attributes and events.
+- Sentinels: a grant whose claims and signature hold known markers, a `URL4-Auth-Token` and
+  `Signature` with known markers, and an `Idempotency-Key`. "Absent" means neither the raw serialized
+  value, nor any base64url segment of it, nor a decoded marker appears in the response body, the
+  application, structured or access logs, exception text (`str` and `repr`), or OTel span attributes
+  and events.
+- Matrix by reachable stage, each with the headers that exist at that stage:
+  - caller-local, before I/O (`x.peer_nested_call_refused`, `x.peer_signing_unconfigured`,
+    `x.peer_grant_expired`, `x.remote_*_unsupported`): the grant and credential the caller holds;
+  - receiver step 1 (`x.peer_auth_required` with each header missing in turn, `x.peer_auth_failed`);
+  - receiver steps 2–8, one vector per code;
+  - both `source_not_found` branches (out-of-grant digest, missing in-grant digest);
+  - a typed downstream error from the evaluator, wrapped at the caller;
+  - successful C2 and C6, on both nodes.
 - End to end with two in-process nodes over ASGI: C6 happy path with trace propagation and child-run
   budget; C2 happy path with a share grant.
+- Tenant mapping at step 7: a peer entry with a `sub → tenant` map and a grant whose `sub` is not in
+  it → `x.peer_not_authorized`, with zero paid-layer accepts, child runs or spend. A share grant whose
+  `sub` names no local tenant → `x.peer_not_authorized`.
+- Caching: every response under `/url4/peer/` (success, each error, the unmounted-route 404) carries
+  `Cache-Control: private, no-store`. Through a test shared cache, a signed C2 GET followed by an
+  unsigned GET of the same URI → the second gets `x.peer_auth_required`, not the bytes.
 
 Route property (§5.5, R10):
 - Every route the app mounts under `/url4/peer/` is enumerated from the router, and an unsigned request
@@ -626,6 +671,8 @@ Grant profiles (§5.4):
   secret), wrong `typ`, `crit` present, `jku`/`jwk`/`x5u`/`x5c` present, a missing required claim, a
   claim that must be absent present, wrong claim types, and a lifetime over the cap (all
   `x.peer_auth_failed`); `iat` in the future beyond skew is `x.peer_auth_expired` (step 5).
+- `nbf` in the past, in the future, and with a non-numeric type → `x.peer_auth_failed` each, on both
+  kinds.
 - An unknown extension claim (for example `"x_ext": 1`) on either kind is ignored and the grant
   verifies. `trace` on a share grant, or `grantee` on a delegation grant, fails.
 
