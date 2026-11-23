@@ -18,7 +18,10 @@ What these tests pin, and why:
 - the Candidate's prompt bytes: a one-message chat and a conversation, captured and served
   as the hand-built ``cases.json`` input (literals). All 682 real Cases of both Benchmarks
   were compared at import: 0 differ, and 0 of their rubrics;
-- the rows: ids, origin, the judge pinned, the envelope kept, the clip only on professional.
+- the rows: ids, origin, the judge pinned, the envelope kept, the clip only on professional;
+- professional's length adjustment (OME-1998): each Case's length-adjusted value is what the run
+  averages, a failed Case enters that mean as 0, the judge runs at low reasoning effort, and
+  worst-30 keeps every number it had.
 
 Runs only with the `inspect` extra installed.
 """
@@ -67,7 +70,11 @@ from screamingface_engine_inspect.judge_provider import (  # noqa: E402
     bound_judge_transport,
 )
 from screamingface_engine_inspect.local_tasks.healthbench.healthbench import (  # noqa: E402
+    LENGTH_ADJUSTED_SCORE,
+    LENGTH_ADJUSTMENT_CENTER,
+    LENGTH_ADJUSTMENT_PENALTY_PER_500_CHARS,
     healthbench_clipped_mean,
+    healthbench_rubric,
     parse_verdict,
     record_to_sample,
     rubric_items,
@@ -198,6 +205,27 @@ _HAND_BUILT_HEADLINES: dict[str, float] = {
 _JUDGE_ROUTE: str = "/openrouter/openai/gpt-5.4"
 _JUDGE_PARAMS: dict[str, str] = {"web_search": "false", "max_tokens": "4096"}
 
+#: Each row's pinned judge params. Professional's gained the paper's low reasoning effort
+#: (OME-1998, its published revision moved with it); worst-30 keeps the hand-built ones.
+_ROW_JUDGE_PARAMS: dict[str, dict[str, str]] = {
+    "healthbench-worst30": _JUDGE_PARAMS,
+    "healthbench-professional": {
+        "web_search": "false",
+        "reasoning_effort": "low",
+        "max_tokens": "4096",
+    },
+}
+
+#: The headline of a run with Case 1 answered (rubric score 0.25) and one Case abstained (0.0).
+#: worst-30: (0.25 + 0.0) / 2 = 0.125. Professional (OME-1998) averages Case 1's
+#: length-adjusted value instead: its answer "Answer one." is 11 characters, so
+#: 0.25 - 0.0147 * ((11 - 2000) / 500) = 0.3085, and (0.3085 + 0.0) / 2 = 0.1542. The
+#: abstained Case stays a flat 0, with no adjustment.
+_ONE_ANSWERED_ONE_ABSTAINED: dict[str, float] = {
+    "healthbench-worst30": 0.125,
+    "healthbench-professional": 0.1542,
+}
+
 #: sha256 of the grader prompt the hand-built route rendered for Case 2's line 2 (a
 #: conversation Case), printed from the hand-built expression at 1bc092ff6.
 _HAND_BUILT_CONVERSATION_PROMPT_SHA: str = (
@@ -323,8 +351,11 @@ async def test_the_run_headline_is_the_hand_built_one(
 ) -> None:
     """The headline guarantee, per Benchmark: the same replies score −0.1875 on worst-30 (the
     plain mean, negatives kept) and 0.0 on professional (the official clip of that mean, NOT
-    the 0.4375 a per-Case clamp would give) — the hand-built numbers. The Case whose judge
-    never gave a verdict is left out of the mean and counted against coverage, never scored 0.
+    the 0.4375 a per-Case clamp would give) — the hand-built numbers. On worst-30 the Case
+    whose judge never gave a verdict is left out of the mean and counted against coverage,
+    never scored 0. Professional (OME-1998) averages the length-adjusted values and counts that
+    Case as 0: these four 11-to-13-character answers each gain about 0.058, so its mean is
+    (0.3085 + 0.5585 - 2.4415 + 1.0585 + 0) / 5 = -0.1032, and the clip still publishes 0.0.
     """
 
     _write_cases(prepared, tmp_path)
@@ -384,9 +415,10 @@ async def test_an_abstained_case_costs_one_case_at_zero_though_the_judge_still_r
     Case 1 answers (0.25). Case 4 abstains, yet the judge still rates its empty answer and its
     scripted verdicts (met, met) would score 1.0: the lane replaces that with 0.0 and keeps the
     judge's Check, as the hand-built Benchmark did (its end-to-end abstain test went with the
-    folder). Headline (0.25 + 0.0) / 2 = 0.125 on BOTH Benchmarks: professional's whole-run
-    metric (the official clip) must read the 0.0 the Case Result shows, not the judge's 1.0,
-    or it would publish (0.25 + 1.0) / 2 = 0.625 (review finding on #1403)."""
+    folder). Headline (0.25 + 0.0) / 2 = 0.125 on worst-30. Professional's whole-run metric
+    (the official clip) must read the 0.0 the Case Result shows, not the judge's 1.0 and not
+    that 1.0 length-adjusted (review finding on #1403); its headline is 0.1542, Case 1's
+    length-adjusted 0.3085 over the two Cases (``_ONE_ANSWERED_ONE_ABSTAINED``)."""
 
     _write_cases(prepared, tmp_path)
     rows: str = json.dumps([_row(1, _CASES[0][1]), _abstained_row(4)])
@@ -403,7 +435,7 @@ async def test_an_abstained_case_costs_one_case_at_zero_though_the_judge_still_r
         "items"
     ]
     assert [item["met"] for item in items] == [True, True]
-    assert result["score"] == 0.125
+    assert result["score"] == _ONE_ANSWERED_ONE_ABSTAINED[key]
 
 
 @pytest.mark.parametrize("key", _KEYS)
@@ -416,7 +448,8 @@ async def test_an_abstained_case_whose_judge_fails_still_costs_one_case_at_zero(
     its judge never gives line 1 a verdict (the scorer fails, so inspect files no Score for
     it): the Case Result shows 0.0, and professional's whole-run metric must read that 0.0
     too, never stop the run because the Case has no Score (review finding on #1403).
-    Headline (0.25 + 0.0) / 2 = 0.125 on both Benchmarks."""
+    Headline (0.25 + 0.0) / 2 = 0.125 on worst-30 and 0.1542 on professional, which averages
+    Case 1's length-adjusted value (``_ONE_ANSWERED_ONE_ABSTAINED``)."""
 
     _write_cases(prepared, tmp_path)
     rows: str = json.dumps([_row(1, _CASES[0][1]), _abstained_row(5)])
@@ -429,7 +462,7 @@ async def test_an_abstained_case_whose_judge_fails_still_costs_one_case_at_zero(
     assert (answered["status"], answered["grade"]["score"]) == ("scored", 0.25)
     assert (abstained["status"], abstained["grade"]["score"]) == ("scored", 0.0)
     assert abstained.get("abstained") is True
-    assert result["score"] == 0.125
+    assert result["score"] == _ONE_ANSWERED_ONE_ABSTAINED[key]
 
 
 def test_the_official_clip_is_taken_over_the_run_mean() -> None:
@@ -445,6 +478,244 @@ def test_the_official_clip_is_taken_over_the_run_mean() -> None:
     metric = healthbench_clipped_mean()
     assert metric(scored([0.25, 0.5, -2.5, 1.0])) == 0.0
     assert metric(scored([0.8, 0.4])) == pytest.approx(0.6)
+
+
+# ── professional's length adjustment and failed Cases (OME-1998) ──────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_only_professional_adjusts_a_case_for_the_length_of_its_answer(
+    judge: _ScriptedJudge, prepared: list[PreparedCase]
+) -> None:
+    """WHY: the paper's length adjustment takes points off a long answer, and the numbers shown
+    beside professional's headline are length-adjusted. Case 4 meets both rubric lines (rubric
+    score 1.0); with a 4,000-character answer its length-adjusted value is
+    1.0 - 0.0147 * ((4000 - 2000) / 500) = 0.9412. Professional files that value, and the
+    answer's length, in the Case's evidence. worst-30 shares the scorer and must not change:
+    it files neither."""
+
+    answer: str = "a" * 4000
+    evidence: dict[str, dict[str, Any]] = {}
+    for key in _KEYS:
+        # A fresh script per row: the scripted judge hands out a line's replies once.
+        judge.scripts.update(_ScriptedJudge().scripts)
+        outcome: CaseGradeOutcome = (
+            await imported_benchmark(key)
+            .aggregation()
+            .grade_case(
+                GradeRequest(
+                    case_id=4,
+                    input=TextPayload(text=prepared[3]["case"]["input"]),
+                    answer=TextPayload(text=answer),
+                    row={"case": {"status": "answered"}},
+                    material=prepared[3]["grading_material"],
+                )
+            )
+        )
+        assert outcome.failure_code is None, outcome.checks
+        # The Case Result keeps the rubric score on both rows.
+        assert outcome.score == 1.0
+        evidence[key] = outcome.checks[0]["evidence"][0]["metadata"]
+
+    professional: dict[str, Any] = evidence["healthbench-professional"]
+    assert professional[LENGTH_ADJUSTED_SCORE] == pytest.approx(0.9412)
+    assert professional["response_chars"] == 4000
+    assert LENGTH_ADJUSTED_SCORE not in evidence["healthbench-worst30"]
+    assert "response_chars" not in evidence["healthbench-worst30"]
+
+
+@pytest.mark.asyncio
+async def test_a_failed_case_counts_zero_in_professionals_mean_and_leaves_worst30s(
+    tmp_path: Path, judge: _ScriptedJudge, prepared: list[PreparedCase]
+) -> None:
+    """The headline guarantee of OME-1998, on one run: Case 1 (rubric score 0.25) answers in
+    4,000 characters, Case 4 (1.0) in exactly 2,000, Case 2's Candidate call fails, and Case 5's
+    judge never gives line 1 a verdict.
+
+    Professional: Case 1's value is 0.25 - 0.0588 = 0.1912, Case 4's stays 1.0, and both failed
+    Cases enter the mean as a flat 0, so the headline is (0.1912 + 1.0 + 0 + 0) / 4 = 0.2978.
+    Had the failed Cases left the mean it would read 0.5956, and without the adjustment 0.625.
+    Coverage still says 2 of 4 were graded.
+
+    worst-30, the same replies: its plain mean over the two graded Cases, (0.25 + 1.0) / 2 =
+    0.625, exactly as before this change."""
+
+    _write_cases(prepared, tmp_path)
+    rows: str = json.dumps(
+        [
+            _row(1, "a" * 4000),
+            # Stand-in for a Case whose Candidate call failed: the error row the run collects
+            # in that Case's slot.
+            {
+                "case_id": 2,
+                "error": {"kind": "ResolutionError", "message": "cap", "code": "upstream_error"},
+            },
+            _row(4, "b" * 2000),
+            _row(5, _CASES[4][1]),
+        ]
+    )
+    headlines: dict[str, float] = {}
+    for key in _KEYS:
+        # A fresh script per row: the scripted judge hands out a line's replies once.
+        judge.scripts.update(_ScriptedJudge().scripts)
+        result: dict[str, Any] = await benchmark_aggregate_async(
+            imported_benchmark(key), rows, tmp_path, case_ids=(1, 2, 4, 5)
+        )
+        assert result["metrics"]["scored_cases"] == 2
+        assert result["coverage"] == 0.5
+        failures: list[tuple[str, str]] = [
+            (failure["stage"], failure["code"])
+            for case in result["cases"]
+            for failure in case["failures"]
+        ]
+        assert failures == [("candidate", "case_error"), ("grading", "judge_reply_invalid")]
+        headlines[key] = result["score"]
+
+    assert headlines == {"healthbench-worst30": 0.625, "healthbench-professional": 0.2978}
+
+
+@pytest.mark.asyncio
+async def test_a_short_perfect_answer_shows_a_case_score_of_1_and_adds_more_to_the_headline(
+    tmp_path: Path, judge: _ScriptedJudge, prepared: list[PreparedCase]
+) -> None:
+    """WHY: a length-adjusted value can pass 1 (a short answer meeting every line), and a
+    Case Result's score may not (the wire contract caps it at 1). So the Case Result keeps the
+    rubric score and the run averages the adjusted value from the Case's evidence.
+
+    Case 4 meets both lines in 12 characters: Case score 1.0, adjusted value
+    1.0 - 0.0147 * ((12 - 2000) / 500) = 1.0584. Case 1 scores 0.25 in exactly 2,000
+    characters, so its value stays 0.25. Headline (1.0584 + 0.25) / 2 = 0.6542, where the
+    rubric scores alone would give 0.625."""
+
+    _write_cases(prepared, tmp_path)
+    rows: str = json.dumps([_row(1, "a" * 2000), _row(4, _CASES[3][1])])
+
+    result: dict[str, Any] = await benchmark_aggregate_async(
+        imported_benchmark("healthbench-professional"), rows, tmp_path, case_ids=(1, 4)
+    )
+
+    assert [case["grade"]["score"] for case in result["cases"]] == [0.25, 1.0]
+    assert result["score"] == 0.6542
+
+
+@pytest.mark.asyncio
+async def test_a_professional_run_with_no_gradeable_case_publishes_no_score(
+    tmp_path: Path, judge: _ScriptedJudge, prepared: list[PreparedCase]
+) -> None:
+    """INVARIANT (OME-1642, R4): counting a failed Case as 0 never invents a score. A run whose
+    only Case failed has nothing graded, so it publishes no score, not 0.0."""
+
+    _write_cases(prepared, tmp_path)
+    rows: str = json.dumps([_row(5, _CASES[4][1])])
+
+    result: dict[str, Any] = await benchmark_aggregate_async(
+        imported_benchmark("healthbench-professional"), rows, tmp_path, case_ids=(5,)
+    )
+
+    assert result["score"] is None
+    assert result["coverage"] == 0.0
+
+
+def test_the_clipped_mean_reads_adjusted_values_and_zero_for_failed_or_abstained_cases() -> None:
+    """INVARIANT: the run averages one value per Case it is handed. A graded Case gives its
+    length-adjusted value from the Score's metadata (0.5412 here, beside a rubric score of
+    0.60). A failed Case arrives as a bare 0.0. An abstained Case arrives zeroed with its
+    metadata kept, and must stay 0: its kept adjusted value (1.0588, what the judge's view of
+    an empty answer would earn) must not be read, or abstaining would beat answering.
+    (0.5412 + 0 + 0) / 3 = 0.1804."""
+
+    graded = SampleScore(
+        score=Score(value=0.60, metadata={LENGTH_ADJUSTED_SCORE: 0.5412}), sample_id=1
+    )
+    failed = SampleScore(score=Score(value=0.0), sample_id=2)
+    abstained = SampleScore(
+        score=Score(
+            value=0.0, metadata={LENGTH_ADJUSTED_SCORE: 1.0588, "candidate_abstained": True}
+        ),
+        sample_id=3,
+    )
+
+    assert healthbench_clipped_mean()([graded, failed, abstained]) == pytest.approx(0.1804)
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "message"),
+    [
+        ({"length_adjustment_center": 2000.0}, "must be set together"),
+        ({"length_adjustment_penalty_per_500_chars": 0.0147}, "must be set together"),
+        (
+            {"length_adjustment_center": -1.0, "length_adjustment_penalty_per_500_chars": 0.0147},
+            "length_adjustment_center must be non-negative",
+        ),
+        (
+            {"length_adjustment_center": 2000.0, "length_adjustment_penalty_per_500_chars": -0.1},
+            "length_adjustment_penalty_per_500_chars must be non-negative",
+        ),
+    ],
+)
+def test_a_half_set_or_negative_length_adjustment_is_refused(
+    kwargs: dict[str, Any], message: str
+) -> None:
+    """simple-evals' own rule: the centre and the penalty are set together and are never
+    negative, so a row cannot turn on half an adjustment or one that rewards length."""
+
+    with pytest.raises(ValueError, match=message):
+        healthbench_rubric(**kwargs)
+
+
+def test_only_professional_declares_the_length_adjustment_and_a_failed_case_at_zero() -> None:
+    """The rows, side by side: professional turns on the paper's adjustment (the Task's own
+    constants: centre 2,000 characters, 0.0147 per 500), counts a failed Case as 0 over all
+    selected Cases, and tells the guard its whole-run metric reads a failed Case as 0.
+    worst-30 has none of the three."""
+
+    worst30 = next(row for row in BENCHMARKS if row.key == "healthbench-worst30")
+    professional = next(row for row in BENCHMARKS if row.key == "healthbench-professional")
+    judge_model: str = "screamingface/openrouter/openai/gpt-5.4"
+
+    assert (LENGTH_ADJUSTMENT_CENTER, LENGTH_ADJUSTMENT_PENALTY_PER_500_CHARS) == (2000.0, 0.0147)
+    assert dict(professional.scorer_kwargs) == {
+        "judge_model": judge_model,
+        "length_adjustment_center": LENGTH_ADJUSTMENT_CENTER,
+        "length_adjustment_penalty_per_500_chars": LENGTH_ADJUSTMENT_PENALTY_PER_500_CHARS,
+    }
+    assert (professional.failure_policy, professional.whole_run_failed_case_zero) == (
+        "withhold",
+        True,
+    )
+    assert dict(worst30.scorer_kwargs) == {"judge_model": judge_model}
+    assert (worst30.failure_policy, worst30.whole_run_failed_case_zero) == (
+        "coverage_declare",
+        False,
+    )
+
+
+def test_the_description_says_what_is_computed_and_never_calls_it_the_papers_score() -> None:
+    """WHY: the row uses the paper's length-adjustment formula but not its full protocol (one
+    answer per Case where the paper averages 8, another judge snapshot, failed Cases at 0), and
+    the Fidelity Record rates it not-comparable. Beside the published 0.437 and 0.647, the
+    leaderboard page must say what is computed (the formula, all 525 Cases, a failed Case as 0,
+    the mean clipped at both ends) and say plainly that it is not comparable. It must also
+    say that a Case row shows the rubric score before the adjustment (owner decision,
+    2026-11-23), or a reader averaging the rows would not get the run score. It must never
+    call the result the paper's score."""
+
+    description: str = imported_benchmark("healthbench-professional").benchmark.description
+    for claim in ("lines up", "the paper's length-adjusted score", "the paper's score"):
+        assert claim not in description, claim
+    # "floored at 0" named only the lower bound; the upper clip bites on short perfect answers.
+    assert "floored at 0" not in description
+    for phrase in (
+        "the paper's length-adjustment formula",
+        "all 525 cases",
+        "counts as 0",
+        "clipped to 0..1",
+        "rubric score before the adjustment",
+        "the mean of the case scores shown is not the benchmark score",
+        "not the paper's full protocol",
+        "not directly comparable to the published numbers",
+    ):
+        assert phrase in description, phrase
 
 
 # ── the judge's wire ──────────────────────────────────────────────────────────────────────
@@ -665,7 +936,8 @@ def test_the_rows_keep_the_hand_built_ids_judge_and_declaration(key: str) -> Non
     assert benchmark.benchmark.origin == "screamingface"
     assert provenance_gaps(benchmark.benchmark) == []
     assert spec.judge is not None and spec.judge.model == _JUDGE_ROUTE.removeprefix("/")
-    assert dict(spec.judge.params) == _JUDGE_PARAMS
+    assert dict(spec.judge.params) == _ROW_JUDGE_PARAMS[key]
+    assert list(dict(spec.judge.params)) == list(_ROW_JUDGE_PARAMS[key])  # wire order
     assert spec.with_check_surface is False
     assert benchmark.candidate_input_envelope is True
     assert (cases.has_answer_key, cases.keep_sample_metadata) == (False, True)
