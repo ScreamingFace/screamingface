@@ -216,6 +216,7 @@ Test files: `apps/aigateway/tests/unit/test_frozen_copy_replay.py` (add),
 | R-5 | engine: the expired text is the engine's own, also when the gateway sends a different `message` (R8) | unit | `[implied]` | M×M | fixed string |
 | R-6 | engine: a tool lookup that gets 410 `frozen_copy_expired` raises `frozen_copy_unavailable` with the expired text (R1) | unit | `[stated ans:Q8]` | M×M | same mapping in `lookup` |
 | R-7 | engine: a 410 with a different code, or with no JSON body, is still `frozen_copy_unavailable` with the old text | unit | `[implied]` | M×L | no change to the fallback |
+| R-8 | gateway: a provenance read of an `expired` copy answers the same 410 with no `X-AIGW-Replay` header; an `abandoned` copy stays the 404 (R1) | unit | owner decision 2026-11-23 | M×L | the read uses `_sealed_copy` |
 
 Items R2, R3 and R4 are text edits with no automated test: `CachingPage.vue` (the section
 "Reproducing a submission"), `02-frozen-copy-design.md` (rows Q33–Q36, F1, F2),

@@ -39,8 +39,10 @@ Error bodies of the gateway use the shape that the frozen copy routes use today:
 
 ## K3 — Engine → AI Gateway, replay read (existing, changed) — sync, HTTP
 
-- **Routes:** `POST /v1/frozen-copies/{id}/chat/completions` and
-  `POST /v1/frozen-copies/{id}/tool-results/lookup`.
+- **Routes:** `POST /v1/frozen-copies/{id}/chat/completions`,
+  `POST /v1/frozen-copies/{id}/tool-results/lookup` and
+  `GET /v1/frozen-copies/{id}/provenance` (the three share one lookup; owner decision
+  2026-11-23: the provenance read of an `expired` copy is the same 410).
 - **Shape by copy status:**
 
   | Copy | Answer |
@@ -56,7 +58,7 @@ Error bodies of the gateway use the shape that the frozen copy routes use today:
   `frozen_copy_unavailable`, the engine's own expired text. No retry: a retry of a replay call
   reads the next occurrence
   `[existing apps/screamingface-engine/src/screamingface_engine/world/connector.py:1529-1532]`.
-- **Contract tests:** `prd/expired-copy-replay.md` CH-1, CH-3, R-1, R-2, R-3, R-4, R-6.
+- **Contract tests:** `prd/expired-copy-replay.md` CH-1, CH-3, R-1, R-2, R-3, R-4, R-6, R-8.
 
 ## K4 — Scoreboard → AI Gateway, claim (new) — sync, HTTP
 

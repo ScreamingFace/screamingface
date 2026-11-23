@@ -107,3 +107,12 @@ State on 2026-11-17: the code is built, reviewed and committed on the branch
   - CH-1: `tests/unit/test_frozen_copy_replay.py:337` and
     `tests/unit/test_frozen_copy_routes.py:330`. Both green with no edit.
   - **Do not merge until steps 3 and 4 of `00-overview.md` §7.1 are done in production.**
+
+## Review fix (2026-11-23)
+
+A code review of the stack found that `GET /v1/frozen-copies/{id}/provenance` shares
+`_sealed_copy`, so it changes from 404 to 410 for an `expired` copy, and no contract or test said
+so. Owner decision 2026-11-23 (option A): keep the 410, the same answer as a replay. Changed: the
+route docstring, contracts K3 (route list, R-8), `prd/expired-copy-replay.md` (R-8),
+`DEPLOYMENT.md`. New test file `tests/unit/test_frozen_copy_provenance_expired.py` (expired →
+410 with no `X-AIGW-Replay`; abandoned → 404). No code path changed; no existing test changed.

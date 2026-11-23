@@ -834,7 +834,8 @@ copies that no run uses again. No user flow starts it. The spec is in
 - A claimed copy never expires. Under the row lock, the sweep checks again that the copy is
   `sealed`, has no claim, and is past its period. A claim that commits first wins.
 - Then the sweep deletes the entries of the `expired` copy, as for an `abandoned` copy.
-- A replay of an `expired` copy gets `410`:
+- A replay of an `expired` copy, and a read of its provenance
+  (`GET /v1/frozen-copies/{id}/provenance`), get `410`:
 
   ```json
   {"detail": {"code": "frozen_copy_expired", "state": "expired", "message": "the frozen copy expired and its entries were deleted"}}

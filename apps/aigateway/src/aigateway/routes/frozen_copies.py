@@ -321,8 +321,10 @@ async def read_provenance(
     """The provenance a sealed copy was sealed with (C9).
 
     INVARIANT: the chat replay route's lookup and caller auth: any authenticated account that may
-    replay the copy may read this, and an unknown, open or malformed id is the same 404. It returns
-    the provenance alone, never a stored request (design F2).
+    replay the copy may read this, and an unknown, open, abandoned or malformed id is the same 404.
+    An expired copy is the replay route's 410 `frozen_copy_expired` (OME-1947, contracts K3),
+    although the purge keeps the provenance column: the copy can no longer be replayed, so its
+    provenance has no use. It returns the provenance alone, never a stored request (design F2).
     """
     copy = await _sealed_copy(request, copy_id)
     return _read_stored(copy.provenance)
