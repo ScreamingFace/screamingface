@@ -1,9 +1,9 @@
 ---
 ticket: OME-1852
 stack: scoreboard
-status: done
+status: in_review
 started: 2026-11-19
-finished: 2026-11-20
+finished:
 ---
 
 # OME-1852 — Visually distinguish fusions from single models on the Pareto chart
@@ -199,3 +199,97 @@ pre-push hook, full suite including append-only — ALL GREEN.
   including the new `candidate-kind.test.js`).
 - **Owner-verify:** visually confirm circle/square markers and the two new legend entries in
   both themes and at mobile width — not covered by an automated screenshot in this unit.
+
+### Fifth update (2026-11-23): review round 2 — P1 rebase/approval, both P2 fixes, manifest still blocked
+
+HupBaHa reviewed PR #1986 and requested changes (P1 + two P2s). This round, from a fresh
+worktree continuing the same branch (`OME-1852-work` locally, tracking
+`origin/OME-1852-fusion-pareto-markers`; a sibling worktree already held that exact branch
+name, so this session could not check it out under its own name — push still targets the
+right ref):
+
+- **P1 — rebase onto main, regenerate the approval.** Merged current `origin/main`
+  (`c39ac5f07`). Two conflicts: `.claude/sdlc.local.md:66` and
+  `.github/workflows/scoreboard-tests.yml`'s mirrored `node --test` line — both resolved by
+  keeping every test file name from both sides (main's `catalog-search-toggle.test.js` plus
+  its `revision-selector*`/`benchmark-revision-switch`/`benchmark-description` set, and this
+  branch's `candidate-kind.test.js`). The first resolution attempt dropped
+  `catalog-search-toggle.test.js`; `test_portal_ci_wiring.py` caught it immediately and it was
+  fixed in a follow-up commit (`245b6d965`).
+
+  The approval itself is **not regenerated** — see "Still blocked" below. Confirmed by direct
+  blob computation (`git hash-object`, `git merge-base`) exactly what the reviewer described:
+  - `tests/unit/test_leaderboard_routes.py`: merge-base blob `5fba35f392b2c9b6265a3e38bcd90bb403496e86`
+    (what the current manifest's `base_blob` still names) has diverged on `origin/main` to
+    `bf65156273068c639f8d383032178276cf918183` (main added unrelated content to this file since
+    the fork point). The merge resolved cleanly — `git diff origin/main --
+    tests/unit/test_leaderboard_routes.py` shows only the `candidate_kind` addition to
+    `_PUBLIC_BOARD_ENTRY_FIELDS`, nothing of main's own change lost or altered — producing blob
+    `8df5ee75c103e2834e03b2277ed14f2b47165204`.
+  - `tests/portal/pareto-chart-launch-copy.test.js`: untouched by main since the fork point
+    (`origin/main` blob `b15336dc323a5e77f24477498a9f5f3d0dd73590` equals the merge-base blob),
+    so the manifest's existing `base_blob`/`approved_blob` pair for this file
+    (`b15336dc…`/`226a2a46…`) is already correct post-merge and needs no change.
+
+- **P2 — Unknown's own marker shape.** `leaderboard-logic.js` gained `isUnknownCandidate`
+  (true for anything that is not exactly `"model"` or `"fusion"`), exported alongside the
+  existing `isFusionCandidate`. `pareto-chart.js`'s `renderMarker` now draws a triangle
+  (`<polygon>`) for Unknown, never the single-model circle or the fusion square; `renderChart`
+  is now exported so a test can call it directly. `benchmark.html` + `portal.css` gained a
+  third legend entry ("unknown composition") with a border-triangle swatch, including a
+  `forced-colors: active` rule. New rendered-SVG regression in `candidate-kind.test.js`: builds
+  a real chart model, stubs only `document.createElementNS`, calls the real `renderChart`, and
+  asserts the actual marker element's tag name (`circle`/`rect`/`polygon`) per declared kind —
+  not just the predicate or the title string, which the existing tests already covered.
+
+- **P2 — kind in the accessible data source.** `benchmark.js`'s per-row spec-id cell now
+  appends a screen-reader-only `" (single model)"`/`" (fusion)"/" (unknown)"` suffix (via
+  `L.candidateKindLabel(entry).toLowerCase()`), stated unconditionally — including the common
+  single-model case, so its absence never reads as "no information recorded". New full-page
+  regression in `candidate-kind.test.js`, built on the `benchmark-chart-isolation.test.js`
+  `vm`-context approach (loads the real `leaderboard-logic.js`, `pareto-chart.js`, `main.js`,
+  `benchmark.js` behind a fake DOM): renders three rows (model/fusion/unknown) and reads back
+  each row's actual screen-reader-only text, proving the row-to-kind mapping reaches the table,
+  not only the chart's own (`aria-hidden`) SVG `<title>`.
+
+- **Public-asset leak caught and fixed in-round:** the first draft of the two comments above
+  named the ticket id directly in `benchmark.js`/`pareto-chart.js`; `apps/scoreboard`'s own
+  `test_every_served_asset_carries_no_internal_references` gate (these files are served
+  verbatim to the public) failed on it immediately. Reworded both comments to drop the ticket
+  prefix before committing — the served portal tree is a public response surface, including
+  source comments.
+
+- **Gates:** `uv run .claude/scripts/run_gates.py scoreboard --base origin/main
+  --skip-append-only` — ALL GREEN (ruff check/format, pyright, pytest ≥80% coverage, every
+  named `node --test` call site including both new `candidate-kind.test.js` regressions).
+  `--skip-append-only` only because of the one blocked file below; every other gate ran for
+  real, against real `origin/main`.
+
+- **Commits this round:**
+  - `c39ac5f07` — chore(scoreboard): merge current main into OME-1852-fusion-pareto-markers
+  - `245b6d965` — fix(scoreboard): wire catalog-search-toggle.test.js into both gate call sites
+  - `371f6d15d` — fix(scoreboard): give Unknown its own Pareto marker shape and expose kind per row
+  - Pushed to `origin/OME-1852-fusion-pareto-markers`.
+
+- **Still blocked — exactly one piece, same reason as before:**
+  `.claude/test-change-approvals/OME-1852.json` needs its `tests/unit/test_leaderboard_routes.py`
+  entry updated to the pair above (`base_blob: bf65156273068c639f8d383032178276cf918183`,
+  `approved_blob: 8df5ee75c103e2834e03b2277ed14f2b47165204`); the
+  `pareto-chart-launch-copy.test.js` entry is already correct and untouched. This session was
+  explicitly instructed not to write or regenerate that file itself, full stop — not even with
+  the values already verified above — because it is Filip's own direct sign-off record, the
+  same standing rule the third/fourth updates above describe. The append-only gate was run
+  with `--base origin/main` (not the local branch-name-dependent default) to confirm this is
+  the only remaining gap: `tests/portal/pareto-chart-launch-copy.test.js` and
+  `tests/unit/test_leaderboard_routes.py` are the only two offenders, both for the stale-manifest
+  reason above, not a new unapproved edit. (A local artifact: this worktree's branch had to be
+  named `OME-1852-work`, not `OME-1852-fusion-pareto-markers`, because a sibling worktree
+  already held that exact name — the approval manifest's own branch-name check therefore cannot
+  pass from inside this run regardless of blob content; that is a sandboxing artifact of running
+  two worktrees on the same branch, not evidence against the blob analysis above, which was
+  computed directly from git object hashes.)
+
+  Once Filip updates that one entry in `.claude/test-change-approvals/OME-1852.json` (or runs
+  the gate's `--skip-append-only` himself), the remaining diff is zero code — just that one
+  file — and the branch should gate fully green from a worktree actually named
+  `OME-1852-fusion-pareto-markers`.

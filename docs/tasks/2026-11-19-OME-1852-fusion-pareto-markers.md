@@ -30,12 +30,24 @@ existing blue frontier line and gold highest-score ring as-is.
 OME-1972 duplicates part of this scope; OME-1852 is the authoritative ticket being
 implemented here.
 
-## Status (2026-11-20)
+## Status (2026-11-23)
 
-Owner approved the two pinned-test edits directly (`.claude/test-change-approvals/OME-1852.json`).
-Implemented, gates green, committed (`0db73dad0`), pushed, and PR opened:
-https://github.com/ScreamingFace/screamingface/pull/1986. Awaiting review + green CI, then
-squash-merge. Close this mirror and the Linear issue once merged.
+HupBaHa reviewed PR #1986 and requested changes: rebase onto main + regenerate the stale
+test-change approval (P1), give Unknown its own marker shape with a rendered-SVG regression
+(P2), and expose candidate kind per table row for accessibility with a regression (P2).
+
+This round: merged current main (conflicts resolved, keeping every target test on both
+sides), fixed both P2s with new regression tests, reconfirmed every other gate green against
+real `origin/main`. Pushed to `origin/OME-1852-fusion-pareto-markers`.
+
+Still blocked on exactly one thing: `.claude/test-change-approvals/OME-1852.json`'s
+`tests/unit/test_leaderboard_routes.py` entry is stale against the rebased main (its
+`base_blob` no longer matches main's current blob for that file) and needs Filip's own direct
+sign-off to update — no agent may write/regenerate that file. Full detail, including the
+exact base/approved blob hashes the entry needs, in the ledger's "Fifth update".
+
+Close this mirror and the Linear issue once that sign-off lands, CI is green, and the PR is
+squash-merged.
 
 ## Ledger
 
