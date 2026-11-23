@@ -92,6 +92,12 @@ class Settings(BaseSettings):
     db_pool_minsize: int = Field(default=1, ge=0)
     db_pool_maxsize: int = Field(default=5, ge=1)
 
+    # FEATURE: frozen copy claims (OME-1947). An empty URL means no claim: a Score that names a
+    # frozen copy is then stored with no claim, as before this release.
+    gateway_url: str = ""
+    gateway_actor: str = ""
+    gateway_timeout_s: float = Field(default=5.0, gt=0)
+
     @property
     def db_pool(self) -> PoolSize:
         return PoolSize(minsize=self.db_pool_minsize, maxsize=self.db_pool_maxsize)
@@ -107,10 +113,24 @@ class Settings(BaseSettings):
             raise ValueError(msg)
         return self
 
+    @model_validator(mode="after")
+    def _gateway_url_has_an_actor(self) -> Settings:
+        # INVARIANT: the gateway accepts a claim only from a named actor, so a URL with no actor
+        # stops the start of the service (`main.py` builds the app at import), not each submit.
+        if self.gateway_url and not self.gateway_actor.strip():
+            msg = "SCOREBOARD_GATEWAY_URL is set, but SCOREBOARD_GATEWAY_ACTOR is empty"
+            raise ValueError(msg)
+        return self
+
     @field_validator("database_url")
     @classmethod
     def _normalize_database_url(cls, database_url: str) -> str:
         return normalize_database_url(database_url)
+
+    @field_validator("gateway_url")
+    @classmethod
+    def _remove_trailing_slash(cls, gateway_url: str) -> str:
+        return gateway_url.strip().removesuffix("/")
 
     @field_validator("allowed_networks", mode="before")
     @classmethod
