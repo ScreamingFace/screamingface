@@ -270,6 +270,11 @@ Two migrations, because the expiry rule is released after the claim (`00-overvie
 - Operations: three `AddField` on `FrozenCopy` (`claimed_at`, `swept_at`, `purged_at`; nullable
   datetimes, no default) and one `AddIndex`. No data change. All existing rows keep `NULL` in
   the new columns. `[proposed]`
+- Last operation: the invariant `ck_frozen_copies_sealed_not_swept`. No row may have
+  `status = 'sealed'` with a non-null `swept_at`. On Postgres it is a CHECK constraint. On SQLite
+  it is two triggers (insert, update) that raise the same name, because SQLite adds a CHECK only
+  by building the table again. The downgrade drops it first. Each existing row has `swept_at`
+  `NULL`, so the constraint holds at once (§5.1). (PR #1911 review.)
 
 **`0019_frozen_copy_retention_clock.py` (pull request C1).** `[stated ans:Q24]`
 
@@ -322,9 +327,17 @@ Two migrations, because the expiry rule is released after the claim (`00-overvie
 - **Rollback of the gateway image with the new schema kept:** the old code does not know the
   states `abandoned` and `expired`. Its replay code refuses them as "not sealed", which is safe.
   Its seal code seals each copy that is not `sealed`
-  `[existing apps/aigateway/src/aigateway/core/frozen_copy/store.py:135-141]`, so a seal for a
-  swept copy would make an empty copy `sealed`. No run sends a seal 24 hours after its last
-  entry, so this is accepted. The old image has no sweep, so nothing is deleted while it runs.
+  `[existing apps/aigateway/src/aigateway/core/frozen_copy/store.py:135-141]`. The database now
+  refuses that write for a swept copy (`ck_frozen_copies_sealed_not_swept`, §5), so the copy stays
+  `abandoned` or `expired`. The old image has no sweep, so nothing is deleted while it runs.
+- **Old and new images side by side (rolling update or rollback):** the new image can mark a
+  copy `abandoned` and purge it while an old image takes the seal of that copy. The old seal's
+  UPDATE fails on the constraint, also when earlier purge chunks have already committed. The old
+  image does not handle that error, so it answers the seal with 500 `gateway_internal_error` and
+  logs `IntegrityError`. The engine treats a failed seal as it treats the 410 of the new image:
+  it logs `frozen copy seal failed`, the run goes on, and its capture is `partial` (reason
+  `seal`). The copy stays `abandoned`, and the purge then completes it. As a second guard, the
+  purge reads only `abandoned` and `expired` copies.
   The old image has no claim route, so each submit that carries a copy gets 503 until the new
   image is back (`prd/score-claim.md` C7). `[proposed]`
 - **Restore of the gateway database to an earlier time:** claims made after that time are lost

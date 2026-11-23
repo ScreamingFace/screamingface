@@ -308,7 +308,13 @@ class FrozenCopySweep:
         remaining = budget
         recent: deque[float] = deque(maxlen=self._slow_window)
         pending: list[Any] = (
-            await FrozenCopy.filter(swept_at__isnull=False, purged_at__isnull=True)
+            # WHY the status (PR #1911 review): defence in depth beside the 0018 constraint; the
+            # purge never empties a copy whose status is not final.
+            await FrozenCopy.filter(
+                status__in=[STATUS_ABANDONED, STATUS_EXPIRED],
+                swept_at__isnull=False,
+                purged_at__isnull=True,
+            )
             .order_by("swept_at", "id")
             .values_list("id", flat=True)
         )
