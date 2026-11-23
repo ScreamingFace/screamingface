@@ -1,6 +1,6 @@
 ---
 id: OME-1998
-linear_url: https://linear.app/openmined/issue/OME-1998/make-the-healthbench-professional-score-the-papers-score-length
+linear_url: https://linear.app/openmined/issue/OME-1998/apply-the-papers-length-adjustment-and-low-judge-effort-to-healthbench
 status: done
 type: task
 priority: high
@@ -10,7 +10,7 @@ created: 2026-11-21
 closed: 2026-11-21
 ---
 
-# Make the HealthBench Professional score the paper's score: length adjustment, low-effort judge, failed Cases count as 0
+# Apply the paper's length adjustment and low judge effort to HealthBench Professional, and count failed Cases as 0
 
 HealthBench Professional's headline sat beside two published, length-adjusted numbers but was
 computed differently in three ways. Its grading now:
