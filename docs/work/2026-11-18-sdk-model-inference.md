@@ -215,6 +215,16 @@ docs examples run in tests.
   stopped; once more with a plugin that skips the docker check). Gates: SDK green with
   `--skip-append-only` (the snapshot item above); Engine docs tests 8 passed; public-docs
   oxlint, eslint, type-check, build green.
+- **2026-11-23 — Rebased onto PR #1937 head `bc9eb75a9` for a stacked PR (owner: "open a PR").**
+  #1937 was rebased onto a newer `main` today, so the 9 commits moved from `e5f2d173e`
+  (backup tag `backup/variant-before-rebase-20261123`). Conflicts only in `CHANGELOG.md` and
+  `ErrorsPage.vue` (both sides kept). `main` deleted `_engine/trace.py` (9c49b846f), which the
+  chat call uses for its `traceparent` (P8): the helper now lives in `_inference/trace.py`, with
+  a new test file `test_model_inference_trace.py`. Gates vs `bc9eb75a9` with
+  `--skip-append-only`: SDK green, Engine green (after `uv sync --dev --locked`). Append-only
+  vs `bc9eb75a9` lists 5 files, all planned: the SDK surface snapshot (test plan §5) and 4 Engine
+  tests of #1937 that U1 changes (`should_retry`/`retry_after` on the stream error event, P10;
+  `content: null`, P13). One approval record at PR-open covers them.
 
 ## Outcome (fill at the end — required before COMMIT)
 

@@ -18,7 +18,6 @@ from typing import Any, Final
 
 from url4 import Expression, Source, Text, Url4Error, build
 
-from screamingface._engine.trace import new_trace_context
 from screamingface._evaluation.candidate import (
     _children,
     compile_candidate,
@@ -26,6 +25,7 @@ from screamingface._evaluation.candidate import (
     recipes_need_operators,
 )
 from screamingface._evaluation.operators import _OperatorCatalog
+from screamingface._inference.trace import new_trace_context
 from screamingface.client import _use_cache_value
 from screamingface.corrective import CorrectiveLoop, SelfCorrective
 from screamingface.errors import PlanningError
