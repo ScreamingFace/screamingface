@@ -1,0 +1,34 @@
+{
+  "issue": "OME-1786",
+  "branch": "OME-1786-medxpert-turn2-reasoning-text-only",
+  "approver": "the owner",
+  "date": "2026-11-21",
+  "scope": "Revision pins, for MedXpertQA's move 1e5a3b8a461a52f7 -> 490235dc9a53b7d9. test_medxpert_migration_golden.py: the _GOLDEN_REVISION literal and its comment. test_benchmark_fingerprints.py: the medxpert fingerprint literal and a comment naming the old id. test_benchmark_protocol.py: the sha256 of MedXpertQA's canonical url4 and a comment. test_benchmark_bump.py: the published id inside the one expected output line. early_grade_compatibility.json: medxpert's revision, the id in each of its routes, and in its two protocols the reasoning-text binding that turn 2 now reads, so the legacy-shaped protocol still describes the same exam as today's. test_benchmark_stage_installation.py: one added entry in the expected stage map, for the new reasoning-text route (answering). No assertion is removed or loosened.",
+  "reason": "OME-1786 makes MedXpertQA's commit turn carry only the turn-1 answer text, which changes the turn-2 prompt on every Case, so the published revision moves on purpose. The owner approved the implementation and the revision move on 2026-11-21. The Engine guide (docs/adding-an-imported-benchmark.md, Changing a Benchmark's published revision) requires the new id in these pins. The fix adds one MedXpertQA route, and the stage test requires every installed route to be listed with its stage.",
+  "files": {
+    "apps/screamingface-engine/tests/fixtures/early_grade_compatibility.json": {
+      "base_blob": "afe68cfb79bf21833c2c00a991ecd5bbc4651db8",
+      "approved_blob": "d90ffec878be9ad08916d85fab106496a5059dda"
+    },
+    "apps/screamingface-engine/tests/unit/test_medxpert_migration_golden.py": {
+      "base_blob": "bad6587404161c0e1b064f83a3e06c43a21d4039",
+      "approved_blob": "d61ef445c4f2f69c8415a2d68c2c51c0380189f7"
+    },
+    "apps/screamingface-engine/tests/unit/test_benchmark_protocol.py": {
+      "base_blob": "cca09c6d874c2d386ab206bf5976ed20ea6be272",
+      "approved_blob": "df6fb770482a3dc77116e521b969122ce505db2c"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_benchmark_fingerprints.py": {
+      "base_blob": "d7f21dbd69fb828d008b8739a7a4533f78395861",
+      "approved_blob": "c17e98e0cb447943c3819b3a3ff68acfff154ac2"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_benchmark_bump.py": {
+      "base_blob": "c5b12fd0b5932c4470432a82a24e7e29afe75678",
+      "approved_blob": "0742d7f4eb6a9de4bce0983a3d921fa455111cda"
+    },
+    "apps/screamingface-engine/tests/unit/test_benchmark_stage_installation.py": {
+      "base_blob": "f9bdb82c3c2436bb85ba1b0b7067e54e2a47bf1e",
+      "approved_blob": "549d8d5db7872d65927c87b1b9511035e2a39ba0"
+    }
+  }
+}

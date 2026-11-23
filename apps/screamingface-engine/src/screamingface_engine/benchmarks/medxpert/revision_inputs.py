@@ -23,7 +23,9 @@ DATASET_REVISION = "7e7c465a68eb2b866926bfa59c8c9d17a8daba65"
 # WHY: prepare's emission rules are part of the answer key; bump when they change.
 PREPARER_REVISION = "text-test-v1"
 # WHY: the exchange itself — two-turn zero-shot CoT, first-match commit extraction.
-PROTOCOL_REVISION = "two-turn-cot-v1"
+# v2 (OME-1786): turn 2 carries turn 1's answer text. Under v1 it carried turn 1's whole result
+# record, accounting included, so the same Case sent different turn-2 bytes on a rerun.
+PROTOCOL_REVISION = "two-turn-cot-v2"
 
 # WHY 8192 and not the official harness's smaller default: reasoning models exhaust a 2,048
 # budget before committing and return empty content, which does not lower their score — it
