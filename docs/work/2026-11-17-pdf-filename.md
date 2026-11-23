@@ -31,3 +31,10 @@ A url4 `src=` attachment has no filename, so the engine sent the PDF as a file p
 - **Commits:** see PR.
 - **Gates:** engine and repo green vs origin/main (see PR).
 - **Deviations:** the ticket asked for the URL's last path segment as the name. url4 never records the source URL on an attachment, so that needs a url4 change; owner chose the engine default now (`attachment.pdf`). Also not done here: why the gateway returned 200 when the provider answered 400 (left on the ticket as a follow-up).
+- **Review round 1 (HupBaHa, CHANGES_REQUESTED 2026-11-19):** `_default_filename()` now takes the
+  extension from the normalized media type (bare, lowercased, as the `data:` URI), so
+  `Application/PDF; charset=binary` names `attachment.pdf`. New regressions in
+  `tests/unit/test_attachment_filename.py` (RED on the old code), kept out of
+  `test_attachment_parts.py` so its byte-pinned owner approval stays valid. A LiteLLM/OpenRouter
+  transform regression is not added here: the engine does not depend on litellm, so it belongs
+  in the aigateway stack.

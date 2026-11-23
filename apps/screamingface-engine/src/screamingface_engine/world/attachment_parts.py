@@ -199,10 +199,14 @@ def _part(attachment: AttachmentRef, url: str) -> ContentPart:
 
 
 def _default_filename(attachment: AttachmentRef) -> str:
-    """``attachment`` plus the media type's usual extension; bare ``attachment`` when unknown."""
-    extension = _EXTENSIONS.get(attachment.media_type) or mimetypes.guess_extension(
-        attachment.media_type, strict=False
-    )
+    """``attachment`` plus the media type's usual extension; bare ``attachment`` when unknown.
+
+    WHY normalize first (PR #1893 review): the extension follows the same bare, lowercased type
+    the ``data:`` URI carries (F3), so ``Application/PDF; charset=binary`` still names
+    ``attachment.pdf``; an extensionless name brings back the OpenAI PDF detection failure.
+    """
+    bare = attachment.media_type.split(";", 1)[0].strip().lower()
+    extension = _EXTENSIONS.get(bare) or mimetypes.guess_extension(bare, strict=False)
     return "attachment" + (extension or "")
 
 
