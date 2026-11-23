@@ -16,8 +16,9 @@ in a row does, because one 403 can be a single input the provider's moderation f
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
-from collections.abc import Callable, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -28,7 +29,9 @@ from _signal_world import _body
 from frozen_copy_support import CHAT, MODEL, error, run_call
 from frozen_copy_support import Gateway as ScriptedGateway
 
+from screamingface_engine.benchmarks.case_selection import install_cases
 from screamingface_engine.benchmarks.definition import candidate, link_candidate
+from screamingface_engine.benchmarks.protocol import build_evaluation_protocol
 from screamingface_engine.combine.builtins import BUILTIN_OPERATORS
 from screamingface_engine.request_scope import RequestScope, request_scope
 from screamingface_engine.runner.executor import Url4Executor
@@ -44,7 +47,7 @@ from screamingface_engine.world.connector import (
 )
 from url4.core.errors import ResolutionError, Url4Error
 from url4.dag import run as url4_run
-from url4.peer.server import Url4Node
+from url4.peer.server import Request, Url4Node
 from url4.streaming.interfaces import Completed
 
 _DATA = Path(__file__).parent / "data"
@@ -62,7 +65,9 @@ _FALLBACK = (_DATA / "gate_contract" / "fallback_unanswered.url4").read_text("ut
 #: A row policy inside the Candidate: two rows, each row's error collected into the answer.
 _ROWS = '["row-a","row-b"]*(/rows($item)!"Answer the request.";on_error=collect)!"per"'
 
+#: A scripted reply to one model call: built at once, or (for a delayed reply) awaited.
 type Reply = Callable[[dict[str, Any]], httpx.Response]
+type SlowReply = Callable[[dict[str, Any]], Awaitable[httpx.Response]]
 
 
 def live(content: str = "an answer") -> Reply:
@@ -98,7 +103,7 @@ def in_order(*replies: Reply) -> Reply:
 class _Gateway:
     """A fake gateway: one reply script per model, every model call kept in call order."""
 
-    replies: dict[str, Reply]
+    replies: Mapping[str, Reply | SlowReply]
     seen: list[str] = field(default_factory=list)
 
     def calls(self, model: str | None = None) -> int:
@@ -109,7 +114,8 @@ class _Gateway:
         """Answer one model call from its model's script."""
         sent: dict[str, Any] = json.loads(request.content)
         self.seen.append(sent["model"])
-        return self.replies[sent["model"]](sent)
+        reply: httpx.Response | Awaitable[httpx.Response] = self.replies[sent["model"]](sent)
+        return await reply if inspect.isawaitable(reply) else reply
 
 
 def _case(candidate_expression: str, case_id: str) -> str:
@@ -172,7 +178,15 @@ def _cases(count: int) -> list[str]:
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("status", "code", "names"),
-    [(401, "auth_required", "rejected the key"), (402, "insufficient_credits", "out of credits")],
+    [
+        (401, "auth_required", "rejected the key"),
+        (402, "insufficient_credits", "out of credits"),
+        # WHY (review of #2002, P2): the status is the authority. A plugin, string-detail or
+        # fallback answer can carry a generic code, and it must stop the run just the same.
+        (401, "provider_error", "rejected the key"),
+        (402, "provider_error", "out of credits"),
+        (402, "aigateway_http_402", "out of credits"),
+    ],
 )
 async def test_the_first_rejected_or_unfunded_key_stops_the_run(
     status: int, code: str, names: str
@@ -370,6 +384,64 @@ async def test_a_row_policy_that_collected_only_refusals_stops_the_run() -> None
     assert codes[1:] == [stop.STOP_CODE] * 2
     assert run_error is not None and run_error.code == stop.STOP_CODE
     assert gateway.calls() == 2
+
+
+# --- the bound: the Benchmark protocol admits one Case at a time -----------------------------
+
+
+@pytest.mark.asyncio
+async def test_the_benchmark_protocol_bounds_the_stop_to_five_cases() -> None:
+    """The real Benchmark protocol, 8 Cases, every call refused 403 after a delay.
+
+    WHY (review of #2002, P1): the stop is checked when a Case starts and settled when it ends,
+    so it bounds a run's refused calls only because the protocol starts Case N+1 after Case N
+    ended. The delay holds each call open: were Cases admitted in parallel, all 8 would be
+    sent before the first refusal came back, and this test is where that change shows up.
+    """
+
+    async def slow_refusal(sent: dict[str, Any]) -> httpx.Response:
+        await asyncio.sleep(0.01)
+        return error(403, _REFUSED_403)
+
+    gateway = _Gateway({"solo": slow_refusal})
+    client = httpx.AsyncClient(
+        transport=httpx.MockTransport(gateway.handle), base_url="http://aigateway.test"
+    )
+    world = await build_aigateway_world(
+        AigatewayConfig(default_model="solo", models=(ModelSpec(id="solo"),)), client=client
+    )
+    run_error: ResolutionError | None = None
+    try:
+        install_candidate_invocation(world.node)
+        install_cases(
+            world.node,
+            "/example/cases",
+            lambda: json.dumps([{"id": case_id} for case_id in _cases(8)]),
+        )
+
+        @world.node.endpoint("/example/aggregate")
+        def aggregate(request: Request) -> str:
+            return request.context
+
+        protocol = build_evaluation_protocol(
+            cases_route="/example/cases",
+            case_evaluation=candidate("$item.id", case_id="$item.id", web_search=False),
+            selected_case_count=8,
+            available_case_count=8,
+            aggregate_route="/example/aggregate",
+        )
+        with request_scope(_RUN):
+            try:
+                with key_refusal_as_url4_error(), stop.refused_key_scope():
+                    await url4_run(link_candidate(_SOLO, protocol), io=world.node)
+            except ResolutionError as exc:
+                run_error = exc
+    finally:
+        await world.aclose()
+        await client.aclose()
+
+    assert run_error is not None and run_error.code == stop.STOP_CODE
+    assert gateway.calls() == stop.REFUSALS_BEFORE_STOP
 
 
 # --- outside the Candidate, and the run's lifetime --------------------------------------------

@@ -101,3 +101,13 @@ said only `type=APIError`.
     Re-gated: 249 + 72 passed across `test_refused_key_stop.py` (20), `test_url4_executor.py`,
     the connector, retry, error-code, Case-attribution, cascade, quorum and Candidate-adapter
     consumer suites.
+  - 2026-11-23, HupBaHa's review of #2002. P2: a 401/402 stopped the run only when its code
+    was `auth_required`/`insufficient_credits`; a generic code (`provider_error`,
+    `aigateway_http_402`) slipped through. The status is now the authority. P1: a Case
+    already started when the stop is set still runs, so concurrent Cases could each send. The
+    Benchmark protocol admits one Case at a time (`concurrency=1`), so the bound is 5 refused
+    Cases (1 for a 401/402) plus each Case's own Attempts; stated in the rule's docstring and
+    pinned by `test_the_benchmark_protocol_bounds_the_stop_to_five_cases`, which runs the real
+    protocol with delayed refusals (mutation: `concurrency=8` sends 8 calls, test fails).
+    Re-gated: 24 rule tests; 333 across the rule, protocol, adapter, connector, url4-boundary,
+    cascade and quorum suites.

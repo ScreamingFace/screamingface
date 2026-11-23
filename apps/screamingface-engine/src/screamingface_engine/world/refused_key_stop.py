@@ -23,8 +23,11 @@ around each Case's Candidate invocation; the connector records into it what each
    member of a quorum refused, which fails as ``quorum_not_met``; or a row policy collected
    every row's refusal), or the Case failed with the refusal's own code (a refused synthesiser
    or solo model while other calls answered). Then:
-   a. a refusal the gateway names ``auth_required`` (the provider rejected the key) or
-      ``insufficient_credits`` (the key is out of credits) stops the run at once;
+   a. an HTTP 401 (the provider rejected the key) or 402 (the key is out of credits) stops
+      the run at once, whatever code the gateway gave it: the central mapper names them
+      ``auth_required`` and ``insufficient_credits``, but a plugin, string-detail or fallback
+      answer can carry ``provider_error`` or ``aigateway_http_402``, and the status is the
+      authority (review of #2002, P2). Those two codes also stop it on any status;
    b. an HTTP 403 adds the Case to that model's count; the run stops when one model was refused
       with the same code on ``REFUSALS_BEFORE_STOP`` Cases in a row. A different code starts a
       new count.
@@ -45,6 +48,16 @@ Worked example, ``REFUSALS_BEFORE_STOP = 5``, a 100-Case run:
   answered by the other two members and the synthesiser (rule 2), so the run never stops and
   scores all 100 Cases. Had the synthesiser's key been out of credits instead, Case 1 would
   fail ``insufficient_credits`` and stop the run (rule 3a).
+
+BOUND (review of #2002, P1): the stop is checked when a Case starts and the count is settled
+when it ends, so every Case already started when the stop is set still runs to its end. The
+Benchmark protocol admits ONE Case at a time (``iterate(..., concurrency=1)`` in
+``benchmarks/protocol.py``), so a refused key costs at most ``REFUSALS_BEFORE_STOP`` refused
+Cases (one for a 401/402), each with its own Attempts, which run side by side and count once:
+with 3 Attempts per Case, at most 5 x 3 = 15 refused calls. Were Cases ever admitted in
+parallel, every Case in flight when the stop is set would also run, and a slow answer could
+arrive after a stop set by five quick 403s. This test fails first:
+``test_the_benchmark_protocol_bounds_the_stop_to_five_cases``.
 
 WHY the remaining Cases are refused one by one rather than cancelled: url4 collects every
 Case's error (``on_error="collect"``), so nothing raised inside one Case can stop its siblings.
@@ -79,9 +92,12 @@ STOP_CODE: Final[str] = "provider_key_refused"
 #: moderation-flagged inputs in a row do not end a healthy run.
 REFUSALS_BEFORE_STOP: Final[int] = 5
 
+_UNAUTHORIZED: Final[int] = 401
+_PAYMENT_REQUIRED: Final[int] = 402
 _FORBIDDEN: Final[int] = 403
 _KEY_REJECTED: Final[str] = "auth_required"
 _OUT_OF_CREDITS: Final[str] = "insufficient_credits"
+_KEY_STATUSES: Final[frozenset[int]] = frozenset({_UNAUTHORIZED, _PAYMENT_REQUIRED, _FORBIDDEN})
 _KEY_CODES: Final[frozenset[str]] = frozenset({_KEY_REJECTED, _OUT_OF_CREDITS})
 
 
@@ -212,11 +228,12 @@ def note_refusal(model: str, *, status: int, code: str) -> None:
     """Record a key refusal the gateway gave a model call of the current Case.
 
     ``status`` is the gateway's HTTP status and ``code`` the code of its answer. Only a refusal
-    that can mean the key (``auth_required``, ``insufficient_credits``, any 403) is kept; the
-    caller re-raises its own error either way, so the call keeps its own failure.
+    that can mean the key (a 401, 402 or 403, or an ``auth_required`` / ``insufficient_credits``
+    code) is kept; the caller re-raises its own error either way, so the call keeps its own
+    failure.
     """
     calls: _CaseCalls | None = _CASE_CALLS.get()
-    if calls is not None and (code in _KEY_CODES or status == _FORBIDDEN):
+    if calls is not None and (status in _KEY_STATUSES or code in _KEY_CODES):
         calls.refusals.append(_Refusal(model, status, code))
 
 
@@ -281,13 +298,18 @@ def _stop_message(
 
 
 def _key_refusal_message(refusal: _Refusal) -> str | None:
-    """The stop message when ``refusal`` says the key itself cannot work (rule 3a), else None."""
-    if refusal.code == _KEY_REJECTED:
+    """The stop message when ``refusal`` says the key itself cannot work (rule 3a), else None.
+
+    The status decides first; the code only names a key refusal whose status says neither.
+    """
+    if refusal.status == _UNAUTHORIZED or (
+        refusal.status != _PAYMENT_REQUIRED and refusal.code == _KEY_REJECTED
+    ):
         return (
             f"The provider rejected the key for model {refusal.model}. "
             "The run was stopped at the first Case it failed."
         )
-    if refusal.code == _OUT_OF_CREDITS:
+    if refusal.status == _PAYMENT_REQUIRED or refusal.code == _OUT_OF_CREDITS:
         return (
             f"The provider reported that the key for model {refusal.model} is out of credits. "
             "The run was stopped at the first Case it failed."
