@@ -275,7 +275,7 @@ class FrozenCopySweep:
         try:
             at = await database_now()
             await self._mark_all(at, report)
-            await self._purge(at, budget, report)
+            await self._purge(budget, report)
             report.copies_with_entries = await FrozenCopy.filter(
                 swept_at__isnull=False, purged_at__isnull=True
             ).count()
@@ -304,7 +304,7 @@ class FrozenCopySweep:
             report.marked[rule.name] = marked
             report.skipped[rule.name] = skipped
 
-    async def _purge(self, at: datetime, budget: int, report: SweepReport) -> None:
+    async def _purge(self, budget: int, report: SweepReport) -> None:
         remaining = budget
         recent: deque[float] = deque(maxlen=self._slow_window)
         pending: list[Any] = (
@@ -323,7 +323,7 @@ class FrozenCopySweep:
                 if remaining <= 0:
                     # WHY: the last chunk can use the budget exactly and delete the last entries of
                     # this copy; the guarded statement completes such a copy and deletes nothing.
-                    if await self.finish_purge(copy_id, at):
+                    if await self._finish_purge_now(copy_id):
                         report.copies_completed += 1
                         break
                     report.purge_stopped = "budget"
@@ -334,7 +334,7 @@ class FrozenCopySweep:
                 report.entries_purged += deleted
                 remaining -= deleted
                 if deleted == 0:
-                    if await self.finish_purge(copy_id, at):
+                    if await self._finish_purge_now(copy_id):
                         report.copies_completed += 1
                     break
                 if (
@@ -360,6 +360,12 @@ class FrozenCopySweep:
             if not ids:
                 return 0
             return await FrozenCopyEntry.filter(id__in=list(ids)).delete()
+
+    async def _finish_purge_now(self, copy_id: UUID) -> bool:
+        # WHY a fresh read and not the time of the run: erd.md section 2.1 defines purged_at as
+        # the time the last entry was deleted, and the chunks and their pauses can take minutes.
+        # This read comes after the commit of the last chunk.
+        return await self.finish_purge(copy_id, await database_now())
 
     async def finish_purge(self, copy_id: UUID, at: datetime) -> bool:
         """Set `purged_at` if no entry remains; True when this call set it."""
