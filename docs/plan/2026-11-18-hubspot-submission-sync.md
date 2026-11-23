@@ -67,4 +67,8 @@ before the job is switched on, not before the code.
   NetworkPolicy (TCP 443, pods labelled `app.kubernetes.io/component: hubspot-sync`), and
   `hubspotSync` values in prod with the pipeline and stage ids.
 - Before enabling: the `candidate_kind` count on prod (debug Firecall), a `--dry-run` reviewed
-  by Irina or Bennett, and one real run against a dummy contact, deleted after.
+  by Irina or Bennett, and one real run against a dummy contact, deleted after. The dummy run
+  also confirms the card's contact association is saved.
+- After enabling: watch the 😱 SOTA board for duplicate cards of one person (an accepted risk,
+  spec "Accepted risks" 1). The first one seen reopens a stable remote identity for cards.
+- Infra steps are tracked in OME-2002 (Stephen); the infra repo is no longer accessible to Filip.

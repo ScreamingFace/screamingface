@@ -136,3 +136,14 @@ Written in the spec.
   cards, tested); every run honours `next_attempt_at`, so no retry comes sooner than 5 minutes.
   Not verifiable: HubSpot's association read-after-write timing (no official guarantee; forum
   reports only).
+
+### Merge (2026-11-23)
+
+- Dmitry approved #1981 on `18d754e8e`, accepting both risks as v1 limitations, and corrected
+  one claim: a duplicate card is not reliably caught on the next run (a successful retry marks
+  the rows `sent`; it surfaces on the person's next submission or in an audit). Spec and plan
+  corrected in a follow-up docs PR; duplicates are to be watched operationally.
+- Merged as `de16e8e94` with one unrelated red check (Rust CodeQL, GitHub default setup: SARIF
+  upload rate limit; GitHub does not allow re-running that run). Filip chose to merge.
+- Infra handed to Stephen as OME-2002 (blocks OME-1991). Khoa's #2001 also adds a `0026`
+  migration and must renumber.
