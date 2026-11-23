@@ -89,6 +89,52 @@ def test_a_count_that_is_not_a_whole_number_is_refused(bad: object) -> None:
         _submission(graded_questions=bad)
 
 
+@pytest.mark.parametrize("bad", [True, False, "505", 505.0])
+def test_a_count_that_only_looks_like_a_whole_number_is_refused(bad: object) -> None:
+    """INVARIANT: the count is a JSON whole number and nothing is coerced into one.
+
+    Coercion would publish a count nobody sent: `true` stored as "1 / 525 graded", the string
+    "505" stored as 505. A client that sends either has a bug, and the leaderboard must not turn
+    that bug into a claim about the run.
+    """
+    with pytest.raises(ValidationError):
+        _submission(graded_questions=bad)
+
+
+def test_more_correct_cases_than_graded_cases_is_refused() -> None:
+    """INVARIANT: a Case that never got a grade cannot be correct, so correct <= graded.
+
+    Each count alone can sit under the total while the pair is impossible: 510 correct out of
+    505 graded, on a 525-Case run.
+    """
+    with pytest.raises(ValidationError, match="correct_questions cannot exceed graded_questions"):
+        _submission(graded_questions=505, correct_questions=510)
+
+
+def test_every_graded_case_may_be_correct() -> None:
+    """The bound is inclusive: a run can get every Case it graded right."""
+    submission = _submission(graded_questions=505, correct_questions=505)
+
+    assert (submission.correct_questions, submission.graded_questions) == (505, 505)
+
+
+@pytest.mark.parametrize(
+    "counts", [{"correct_questions": 510}, {"graded_questions": 505}, {}], ids=str
+)
+def test_the_correct_and_graded_counts_are_compared_only_when_both_are_sent(
+    counts: dict[str, object],
+) -> None:
+    """INVARIANT: both counts are optional and absent means "not reported".
+
+    An older client sends `correct_questions` alone and the SDK sends `graded_questions` alone;
+    neither may be refused for a comparison against a count it never made.
+    """
+    submission = ScoreSubmission.model_validate(_wire(**counts))
+
+    assert submission.correct_questions == counts.get("correct_questions")
+    assert submission.graded_questions == counts.get("graded_questions")
+
+
 # --- Storage, receipt and export -----------------------------------------------------------------
 
 
@@ -226,3 +272,41 @@ async def test_the_submit_route_refuses_an_impossible_count_and_stores_nothing(
 
     assert response.status_code == 422
     assert await Score.all().count() == 0
+
+
+@pytest.mark.parametrize("bad", [True, "505"])
+@pytest.mark.asyncio
+async def test_the_submit_route_refuses_a_count_it_would_have_to_coerce(
+    api: httpx.AsyncClient, bad: object
+) -> None:
+    """Regression (review of PR 2001): `true` was stored as 1 and "505" as 505, both with a 201."""
+    response = await api.post("/v1/scores", json=_wire(graded_questions=bad))
+
+    assert response.status_code == 422
+    assert await Score.all().count() == 0
+
+
+@pytest.mark.asyncio
+async def test_the_submit_route_refuses_more_correct_cases_than_graded_cases(
+    api: httpx.AsyncClient,
+) -> None:
+    """Regression (review of PR 2001): 510 correct of 505 graded was stored with a 201.
+
+    INVARIANT: correct Cases are a subset of graded Cases, checked at the boundary so the
+    impossible pair never reaches a row.
+    """
+    response = await api.post("/v1/scores", json=_wire(graded_questions=505, correct_questions=510))
+
+    assert response.status_code == 422
+    assert "correct_questions cannot exceed graded_questions" in response.text
+    assert await Score.all().count() == 0
+
+
+@pytest.mark.asyncio
+async def test_the_submit_route_accepts_correct_cases_up_to_the_graded_count(
+    api: httpx.AsyncClient,
+) -> None:
+    response = await api.post("/v1/scores", json=_wire(graded_questions=505, correct_questions=505))
+
+    assert response.status_code == 201
+    assert (response.json()["correct_questions"], response.json()["graded_questions"]) == (505, 505)

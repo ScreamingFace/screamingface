@@ -96,10 +96,19 @@ Out of scope, on purpose: ranking rules, scores, revisions and the Engine do not
     payload-key guard stays unedited.
   - A run with no graded Case cannot be submitted at all (it has no score), so the SDK never
     sends 0; the scoreboard still accepts 0 from other clients.
+- **Review round 1 (2026-11-23, on `e5df6d730`):** two validation gaps, both fixed in
+  `ScoreSubmission` with tests added to `tests/unit/scores/test_graded_questions.py` (34 tests).
+  - `correct_questions` above `graded_questions` was stored with a 201 (510 correct of 505
+    graded). Now refused with 422 when both counts are sent; either one alone is still accepted.
+  - `graded_questions` was a lax integer: JSON `true` was stored as 1 and the string "505" as
+    505. It is now a strict integer, so booleans, numeric strings and floats are refused.
+  - Checked: the SDK never sends `correct_questions`, so no real report can produce the refused
+    pair. Named scoreboard test files after the fix: 407 passed, 2 skipped in 10 files.
 - **Owner-verify:**
   - Deploy the scoreboard (migration `0026`) BEFORE releasing the SDK: an older scoreboard
     answers 422 to a partly graded run from the new SDK.
   - Open PR #1981 also adds a migration numbered `0026` on top of `0025`; whichever merges second
-    must renumber to `0027` and depend on the other.
+    must renumber to `0027` and depend on the other. Still open on 2026-11-23, so nothing was
+    renumbered.
   - Checked on a throwaway local scoreboard (SQLite, migrated to `0026`): the line renders in the
     light and dark themes with no horizontal scroll. Not checked on dev or prod.

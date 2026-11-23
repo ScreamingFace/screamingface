@@ -14,6 +14,7 @@ from pydantic import (
     ConfigDict,
     Field,
     PlainSerializer,
+    StrictInt,
     ValidationError,
     field_serializer,
     field_validator,
@@ -657,9 +658,12 @@ class ScoreSubmission(BaseModel):
     # must accept every client that predates the field. INVARIANT: None is "not reported", never
     # "none failed"; nothing may default it to `total_questions` or to 0.
     #
+    # INVARIANT: a STRICT integer, unlike its lax neighbours. Coercion would publish a count
+    # nobody sent: JSON `true` stored as 1, the string "505" stored as 505.
+    #
     # AIDEV-NOTE: deliberately absent from `_content_hash` and from `_replay_updates`, like
     # `correct_questions`: it describes one execution, it is not what the recipe is.
-    graded_questions: int | None = None
+    graded_questions: StrictInt | None = None
     ran_with_providers: list[str]
     ran_at_local: datetime | None = None
     # Nested client metadata, matching the SF "Publish to Leaderboard" wire shape
@@ -932,6 +936,15 @@ class ScoreSubmission(BaseModel):
         # leaderboard print "530 / 525 graded", which no run can mean.
         if self.graded_questions is not None and self.graded_questions > self.total_questions:
             raise ValueError("graded_questions cannot exceed total_questions")
+        # INVARIANT: a Case that never got a grade cannot be correct, so correct Cases are a
+        # subset of graded ones. Compared only when both were sent: each is optional, and absent
+        # means "not reported", never 0.
+        if (
+            self.correct_questions is not None
+            and self.graded_questions is not None
+            and self.correct_questions > self.graded_questions
+        ):
+            raise ValueError("correct_questions cannot exceed graded_questions")
         return self
 
 
