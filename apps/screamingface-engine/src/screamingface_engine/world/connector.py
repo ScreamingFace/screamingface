@@ -41,6 +41,8 @@ from screamingface_engine.capture_outcomes import (
     CAPTURE_FIELD,
     FROZEN_COPIES_PATH,
     FROZEN_COPY_HEADER,
+    REPLAY_EXPIRED,
+    REPLAY_EXPIRED_TEXT,
     REPLAY_FIELD,
     REPLAY_MISS,
     REPLAY_UNAVAILABLE,
@@ -1543,11 +1545,17 @@ async def _fetch_replay(
     return resp, _REPLAYED
 
 
+_REPLAY_REFUSALS: dict[str, tuple[str, str]] = {
+    REPLAY_MISS: ("the frozen copy holds no answer for this call of the replay", REPLAY_MISS),
+    REPLAY_UNAVAILABLE: ("the frozen copy is not available for replay", REPLAY_UNAVAILABLE),
+    REPLAY_EXPIRED: (REPLAY_EXPIRED_TEXT, REPLAY_UNAVAILABLE),
+}
+
+
 def _replay_unavailable() -> ResolutionError:
     """The engine's own permanent failure for a replay the copy did not serve (design §5.3 2a)."""
-    return ResolutionError(
-        "the frozen copy is not available for replay", code=REPLAY_UNAVAILABLE, permanent=True
-    )
+    message, code = _REPLAY_REFUSALS[REPLAY_UNAVAILABLE]
+    return ResolutionError(message, code=code, permanent=True)
 
 
 def _replay_refusal(resp: httpx.Response) -> ResolutionError | None:
@@ -1561,13 +1569,10 @@ def _replay_refusal(resp: httpx.Response) -> ResolutionError | None:
         payload = resp.json()
     except ValueError:
         return None
-    code = replay_refusal_code(resp.status_code, payload)
-    if code == REPLAY_MISS:
-        message = "the frozen copy holds no answer for this call of the replay"
-    elif code == REPLAY_UNAVAILABLE:
-        message = "the frozen copy is not available for replay"
-    else:
+    refusal = _REPLAY_REFUSALS.get(replay_refusal_code(resp.status_code, payload) or "")
+    if refusal is None:
         return None
+    message, code = refusal
     return ResolutionError(message, code=code, permanent=True)
 
 
