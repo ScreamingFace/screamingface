@@ -93,13 +93,13 @@ Paths: `S/` = `packages/screamingface/src/screamingface/`, `T/` = `packages/scre
 
 - Test: MI-28 with the e2e harness of the SDK (a real local Engine, the fake gateway); it carries
   the `e2e` marker, as the other tests of `T/e2e/`.
-- `public-docs`: a new API page `/sf-client/api/model-inference` (route, navigation entry,
-  snippets in `src/snippets/model-inference/`, each one run by an SDK test against the mock
-  Engine); the OpenAI guide page uses `endpoint().model` to get the Candidate URL4, and the
-  "run an evaluation first" way stays as an alternative; `public-docs/CLAUDE.md` names the new
-  files.
+- `public-docs`: a new API page `/sf-client/api/inference-client` (route, navigation entry, snippets
+  in `src/snippets/inference-client/`, each one run by an SDK test against the mock Engine; names
+  after the 2026-11-23 rename, spec §5.4 D11/D12); the OpenAI guide page uses `endpoint().model` to
+  get the Candidate URL4, and the "run an evaluation first" way stays as an alternative;
+  `public-docs/CLAUDE.md` names the new files.
 - `.github/workflows/screamingface-tests.yml`: both path blocks get
-  `public-docs/src/snippets/model-inference/**`.
+  `public-docs/src/snippets/inference-client/**`.
 
 ## 3. Gates for each unit
 

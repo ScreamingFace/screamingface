@@ -1,0 +1,227 @@
+"""Each Python example of the InferenceClient docs runs against the mock Engine (U8, risk R6).
+
+FEATURE: SDK model inference, unit U8 (spec 00-overview P12). public-docs has no test runner, so
+this SDK test runs each file of public-docs/src/snippets/inference-client/ as the docs pages show
+it. The mock Engine of tests/_chat_engine.py answers, so no request leaves the machine.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
+import httpx
+import openai
+import pytest
+from _chat_engine import (
+    CHAT_PATH,
+    ENGINE_URL,
+    Handler,
+    catalogue_engine,
+    recording_client,
+    sent_body,
+)
+from _chat_frames import TOOL_CALL, engine_stream, plain_reply
+from _chat_stream import async_recording_client, engine_for
+from _endpoint_access import TOKEN_HEADER, hosted_client, signed_in
+
+import screamingface as sf
+from screamingface import _default_client
+from screamingface._evaluation.candidate import compile_candidate
+
+REPO = Path(__file__).resolve().parents[3]
+DOCS = REPO / "public-docs"
+SNIPPETS = DOCS / "src" / "snippets" / "inference-client"
+# WHY: the Engine image and some CI checkouts hold only the app; in the monorepo the directory
+# exists, so a moved snippet fails loudly instead of skipping.
+pytestmark = pytest.mark.skipif(not DOCS.is_dir(), reason="public-docs is not in this checkout")
+RUN = (
+    "plain_call.py",
+    "model_per_call.py",
+    "tools.py",
+    "stream.py",
+    "async_call.py",
+    "endpoint_openai.py",
+    "candidate_url4.py",
+)
+TEXT = engine_stream({"role": "assistant", "content": "Hello"}, "stop")
+TOOL = engine_stream({"role": "assistant"}, "tool_calls", tool_calls=(TOOL_CALL,))
+QUESTION = "What is the capital of France?"
+
+
+def _engine(payloads: list[dict[str, Any]]) -> Handler:
+    answer = engine_for(payloads)
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v1/operators":
+            return catalogue_engine(request)
+        return answer(request)
+
+    return respond
+
+
+def _run(name: str) -> dict[str, Any]:
+    """Run one snippet file as a script and return its global names."""
+
+    path = SNIPPETS / name
+    namespace: dict[str, Any] = {"__name__": "__main__"}
+    exec(compile(path.read_text(encoding="utf-8"), str(path), "exec"), namespace)
+    return namespace
+
+
+def _use(monkeypatch: pytest.MonkeyPatch, client: sf.Client) -> None:
+    # WHY: inference.py calls _default_client.default_client() at each call, so a patch here
+    # reaches the snippet without a global client.
+    monkeypatch.setattr(_default_client, "default_client", lambda: client)
+
+
+def _chat(requests: list[httpx.Request]) -> list[httpx.Request]:
+    return [request for request in requests if request.url.path == CHAT_PATH]
+
+
+def test_each_snippet_file_is_run_here() -> None:
+    assert sorted(path.name for path in SNIPPETS.glob("*.py")) == sorted(RUN)
+
+
+def test_no_snippet_has_an_old_name() -> None:
+    for name in RUN:
+        text = (SNIPPETS / name).read_text(encoding="utf-8")
+        assert "ModelInference" not in text
+        assert "chat.complete(" not in text
+
+
+def test_plain_call(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    requests: list[httpx.Request] = []
+    with recording_client(_engine(TEXT), requests) as client:
+        _use(monkeypatch, client)
+        ns = _run("plain_call.py")
+
+    assert capsys.readouterr().out.splitlines() == ["Hello", "Hello", "5", "0.0012 answered"]
+    chat = _chat(requests)
+    assert len(chat) == 1
+    assert sent_body(chat[0])["model"] == compile_candidate(ns["ensemble"]).url4
+    assert sent_body(chat[0])["messages"] == [{"role": "user", "content": QUESTION}]
+
+
+def test_model_per_call(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    requests: list[httpx.Request] = []
+    models = ["openrouter/deepseek/deepseek-v4-flash", "openrouter/openai/gpt-5.5"]
+    with recording_client(_engine(TEXT), requests) as client:
+        _use(monkeypatch, client)
+        _run("model_per_call.py")
+
+    assert capsys.readouterr().out.splitlines() == [f"{model} Hello" for model in models]
+    assert [sent_body(request)["model"] for request in _chat(requests)] == models
+
+
+def test_tools(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    requests: list[httpx.Request] = []
+    with recording_client(_engine(TOOL), requests) as client:
+        _use(monkeypatch, client)
+        ns = _run("tools.py")
+
+    assert capsys.readouterr().out.splitlines() == ["get_weather {'city': 'Paris'}"]
+    chat = sent_body(_chat(requests)[0])
+    assert chat["messages"] == ns["messages"]
+    assert chat["tools"] == ns["tools"]
+
+
+def test_stream(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    requests: list[httpx.Request] = []
+    with recording_client(_engine(TEXT), requests) as client:
+        _use(monkeypatch, client)
+        _run("stream.py")
+
+    assert capsys.readouterr().out == "Hello\n5\n"
+    assert sent_body(_chat(requests)[0])["stream_options"] == {"include_usage": True}
+
+
+def test_async_call(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    requests: list[httpx.Request] = []
+    # WHY: the client is built before sf.AsyncClient is patched. async_recording_client calls
+    # sf.AsyncClient itself, so a patched lambda that called it would recurse.
+    client = async_recording_client(_engine(TEXT), requests)
+    monkeypatch.setattr(sf, "AsyncClient", lambda *args, **kwargs: client)
+    _run("async_call.py")
+
+    assert capsys.readouterr().out == "Hello\nHello\n"
+    assert len(_chat(requests)) == 2
+
+
+def _openai_in_process(
+    monkeypatch: pytest.MonkeyPatch,
+) -> tuple[list[dict[str, Any]], list[httpx.Request]]:
+    """Patch openai.OpenAI so that its clients answer from a mock transport.
+
+    The first list collects the keyword arguments of each client; the second, its requests.
+    """
+
+    seen: list[dict[str, Any]] = []
+    openai_requests: list[httpx.Request] = []
+    real = openai.OpenAI
+
+    def plain(request: httpx.Request) -> httpx.Response:
+        openai_requests.append(request)
+        return httpx.Response(200, json=plain_reply("Hello"))
+
+    def in_process(**kwargs: Any) -> openai.OpenAI:
+        seen.append(dict(kwargs))
+        transport = httpx.MockTransport(plain)
+        return real(**kwargs, max_retries=0, http_client=httpx.Client(transport=transport))
+
+    monkeypatch.setattr(openai, "OpenAI", in_process)
+    return seen, openai_requests
+
+
+def test_endpoint_openai(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    seen, openai_requests = _openai_in_process(monkeypatch)
+    sdk_requests: list[httpx.Request] = []
+    with recording_client(_engine(TEXT), sdk_requests) as client:
+        _use(monkeypatch, client)
+        ns = _run("endpoint_openai.py")
+
+    assert capsys.readouterr().out == "Hello\n"
+    assert seen[0]["base_url"] == f"{ENGINE_URL}/v1"
+    assert len(openai_requests) == 1
+    assert str(openai_requests[0].url) == f"{ENGINE_URL}{CHAT_PATH}"
+    url4 = compile_candidate(ns["ensemble"]).url4
+    assert sent_body(openai_requests[0])["model"] == ns["endpoint"].model == url4
+    # WHY: endpoint() sends no chat request; the OpenAI client sends the only one.
+    assert _chat(sdk_requests) == []
+
+
+def test_endpoint_openai_gives_the_access_token_to_the_openai_client(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    token = signed_in(monkeypatch)[0]
+    seen, openai_requests = _openai_in_process(monkeypatch)
+    sdk_requests: list[httpx.Request] = []
+    with hosted_client(_engine(TEXT), sdk_requests) as client:
+        _use(monkeypatch, client)
+        _run("endpoint_openai.py")
+
+    out = capsys.readouterr().out
+    assert out == "Hello\n"
+    assert seen[0]["default_headers"][TOKEN_HEADER] == token
+    assert len(openai_requests) == 1
+    # WHY: the token is a credential; the snippet must not print it.
+    assert token not in out
+    assert _chat(sdk_requests) == []
+
+
+def test_candidate_url4(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    requests: list[httpx.Request] = []
+    with recording_client(_engine(TEXT), requests) as client:
+        _use(monkeypatch, client)
+        ns = _run("candidate_url4.py")
+
+    out = capsys.readouterr().out
+    assert out.rstrip("\n") == compile_candidate(ns["recipe"]).url4
+    assert out.startswith("(")
+    assert _chat(requests) == []

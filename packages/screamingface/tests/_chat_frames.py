@@ -118,6 +118,18 @@ def message(
     return {"role": "assistant", "content": content, "tool_calls": tool_calls, "refusal": refusal}
 
 
+def plain_reply(text: str) -> dict[str, Any]:
+    """The plain (not streamed) reply of the Engine."""
+
+    return {
+        **META,
+        "object": "chat.completion",
+        "choices": [{"index": 0, "message": message(text), "finish_reason": "stop"}],
+        "usage": dict(USAGE),
+        "screamingface": info(),
+    }
+
+
 def sse_lines(body: bytes) -> list[str]:
     """The lines of an SSE body, read as the transport reads them (httpx Response.iter_lines)."""
 

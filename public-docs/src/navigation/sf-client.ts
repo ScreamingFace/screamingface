@@ -60,6 +60,7 @@ export const sfClientReferenceNavigation: NavEntry[] = [
     title: 'Classes',
     children: [
       { title: 'Client & session', path: '/sf-client/api/clients' },
+      { title: 'InferenceClient', path: '/sf-client/api/inference-client' },
       {
         title: 'Candidates',
         children: [

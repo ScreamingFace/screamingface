@@ -21,7 +21,14 @@ being built out per section.
 The site has no test runner of its own. Two Engine tests read this site:
 `apps/screamingface-engine/tests/unit/test_chat_docs_page.py` reads
 `src/pages/sf-client/guides/OpenAiApiPage.vue`, and the docs example tests of the Engine run the
-files in `src/snippets/openai-chat/`. When you change these files, run those Engine tests.
+files in `src/snippets/openai-chat/`. When you change these files, run those Engine tests. Two SDK
+tests also read this site. `packages/screamingface/tests/test_model_inference_docs_snippets.py` runs
+each file in `src/snippets/inference-client/` against the mock Engine of the SDK tests.
+`packages/screamingface/tests/test_model_inference_docs_pages.py` reads
+`src/pages/sf-client/api/InferenceClientPage.vue` and
+`src/pages/sf-client/guides/OpenAiApiPage.vue`. When you change these files, run those SDK tests:
+`cd packages/screamingface && uv run pytest tests/test_model_inference_docs_snippets.py
+tests/test_model_inference_docs_pages.py`.
 
 ## Stack
 
@@ -45,7 +52,7 @@ files in `src/snippets/openai-chat/`. When you change these files, run those Eng
 - `src/stores/` — Pinia stores for shared reactive state: `theme` (`isDark` state, `theme` getter, dark/light + localStorage persistence) and `codeLang` (shared code-tab language across `TabbedCodeBlock`s)
 - `src/lib/` — framework-agnostic helpers: `utils.ts` (`cn` class merge), `notebook.ts` (nbformat types + pure helpers for `NotebookViewer`) and `analytics.ts` (`track` wrapper over the Plausible snippet in `index.html`; no-op when the script is absent)
 - `src/pages/` — route components; `src/router/index.ts` — routes
-- `src/snippets/` — code samples that a page imports as raw text (`?raw`); Engine tests run the files in `src/snippets/openai-chat/`, so keep them runnable as they are
+- `src/snippets/` — code samples that a page imports as raw text (`?raw`); Engine tests run the files in `src/snippets/openai-chat/`, and SDK tests run the files in `src/snippets/inference-client/`, so keep them runnable as they are
 - `src/navigation/` — one data file per documentation section (drives the sidebar + prev/next)
 - `src/style.css` — Tailwind import + light/dark theme tokens + prose styling (includes `@tailwindcss/typography` with prose variables mapped to the theme tokens)
 
@@ -79,6 +86,7 @@ files in `src/snippets/openai-chat/`. When you change these files, run those Eng
 | `/sf-client/api/usage`                    | `src/pages/sf-client/api/UsagePage.vue`           |
 | `/sf-client/api/runs`                     | `src/pages/sf-client/api/RunsPage.vue`            |
 | `/sf-client/api/clients`                  | `src/pages/sf-client/api/ClientsPage.vue`         |
+| `/sf-client/api/inference-client`         | `src/pages/sf-client/api/InferenceClientPage.vue` |
 | `/sf-client/api/fusions`                  | `src/pages/sf-client/api/FusionsPage.vue`         |
 | `/sf-client/api/reducers`                 | `src/pages/sf-client/api/ReducersPage.vue`        |
 | `/sf-client/api/cascades-gates`           | `src/pages/sf-client/api/CascadesGatesPage.vue`   |

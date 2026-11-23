@@ -8,6 +8,19 @@
   were graded (`graded_questions`), so the leaderboard can show "505 / 525 graded" beside the
   score. A fully graded run submits exactly what it did before.
 
+* `sf.InferenceClient(model=None, *, client=None)` calls an ensemble as a chat model, with the call
+  path of the OpenAI client: `client.chat.completions.create(...)`. The model is a recipe, a
+  `sf.Url4`, URL4 text or a gateway model id. You can give it on the client or on each call. The
+  reply has the OpenAI field names (`ChatCompletion`) and the short forms `reply.text`,
+  `reply.tool_calls`, `reply.cost_usd` and `reply.trace_id`. `stream=True` gives a `ChatStream`.
+  With an `AsyncClient`, the call returns an awaitable (an `AsyncChatStream` for a stream).
+  `endpoint()` gives the `base_url`, the `model` and the `headers` for another OpenAI client
+  (`InferenceEndpoint`). A sampling parameter gives an `IgnoredParameterWarning` and is not sent.
+  New public names: `InferenceClient`, `InferenceEndpoint`, `ChatCompletion`, `ChatChoice`,
+  `ChatMessage`, `ChatToolCall`, `ChatFunctionCall`, `ChatUsage`, `ChatCompletionChunk`,
+  `ChatChunkChoice`, `ChatDelta`, `ChatDeltaToolCall`, `ChatStream`, `AsyncChatStream`,
+  `InferenceInfo`, `FinalStep`, `IgnoredParameterWarning`.
+
 * Re-grading accepts `expected_target_revision` on sync and async clients. A catalogue or
   replay result on another revision is refused before submission (`regrade_target_mismatch`).
   The batch verifies returned score evidence and preserves unresolved journal state through

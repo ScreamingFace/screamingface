@@ -66,7 +66,7 @@
 ## 6. Docs tests
 
 - The Python examples of the new API page are files in
-  `public-docs/src/snippets/model-inference/`. An SDK test runs each file against the mock
+  `public-docs/src/snippets/inference-client/`. An SDK test runs each file against the mock
   Engine. The SDK test workflow gets those paths in its filter (risk R6).
 - The guide page of PR #1937 keeps its Engine tests.
 - `public-docs/CLAUDE.md` names the new snippet directory, the new page, its route and its

@@ -1710,6 +1710,104 @@ NATS and scheduled workers. Engine execution is selected through `engine_url`; p
 discovery is configured independently through `scoreboard_url`. Generic URL4 execution remains
 benchmark-agnostic; installed Engine definitions own Benchmark semantics.
 
+## Call an ensemble as a chat model
+
+`sf.InferenceClient` sends a chat conversation to an ensemble. The reply has the field names of the OpenAI chat-completion object. The call path is the path of the OpenAI client: `client.chat.completions.create(...)`. The Engine runs the full recipe for each call.
+
+```python
+import screamingface as sf
+
+ensemble = sf.Fanout(["openrouter/a", "openrouter/b"]) >> sf.Synthesize("openrouter/c")
+
+llm = sf.InferenceClient(ensemble)
+reply = llm.chat.completions.create("What is the capital of France?")
+print(reply.text)  # the content of the first choice
+print(reply.choices[0].message.content)  # the OpenAI field names
+print(reply.usage.total_tokens, reply.cost_usd, reply.trace_id)
+```
+
+The model can be a recipe (`sf.Model`, a Fusion, a Pipeline, a Gate or a Cascade), a `sf.Url4`, URL4 text (a string that starts with `(`) or a gateway model id such as `"openrouter/a"`. An evaluation URL4, for example `report.candidates["name"].url4`, also works: the SDK sends its candidate. The constructor sends no request.
+
+### A model for each call
+
+```python
+llm = sf.InferenceClient()
+reply = llm.chat.completions.create("Hello", model="openrouter/a")
+```
+
+A model on the call replaces the model of the client for that call. When the call and the client have no model, the call raises `TypeError` before it sends a request.
+
+### Messages and tools
+
+```python
+reply = llm.chat.completions.create(
+    model="openrouter/a",
+    messages=[{"role": "user", "content": "What is the weather in Paris?"}],
+    tools=[
+        {
+            "type": "function",
+            "function": {
+                "name": "get_weather",
+                "parameters": {"type": "object", "properties": {"city": {"type": "string"}}},
+            },
+        }
+    ],
+)
+print(reply.tool_calls)
+```
+
+Give a prompt or `messages`, not both. The SDK sends `messages` and `tools` with no change.
+
+### Stream the reply
+
+```python
+with sf.InferenceClient(ensemble).chat.completions.create("Hello", stream=True) as stream:
+    for chunk in stream:
+        print(chunk.text, end="")
+```
+
+The stream is buffered: the first chunk comes when the run is complete. `stream_options={"include_usage": True}` adds one last chunk with the usage.
+
+### Async
+
+```python
+async def main() -> None:
+    async with sf.AsyncClient() as client:
+        allm = sf.InferenceClient(ensemble, client=client)
+        reply = await allm.chat.completions.create("Hello")
+        print(reply.text)
+```
+
+With an `AsyncClient`, `create` returns an awaitable. The method name does not change.
+
+### Use another OpenAI client
+
+```python
+from openai import OpenAI
+
+endpoint = sf.InferenceClient(ensemble).endpoint()
+client = OpenAI(
+    base_url=endpoint.base_url, api_key="not-used", default_headers=dict(endpoint.headers)
+)
+client.chat.completions.create(
+    model=endpoint.model, messages=[{"role": "user", "content": "Hello"}]
+)
+```
+
+`endpoint.model` is the Candidate URL4 text of the recipe. On an https Engine, `endpoint()` signs in first. With no usable token, it opens the browser sign-in and can wait up to 300 seconds. In a script with no browser, set `SCREAMINGFACE_ACCESS_TOKEN` or call `client.login()` first. The `headers` hold the access token. The token expires: call `endpoint()` again to get new headers. The text form of an endpoint does not show the header values. The SDK does not need the `openai` package.
+
+### Rules of the call
+
+- `n` above 1, `logprobs=True`, an `audio` value that is not `None`, and `modalities` that include `"audio"` raise `PlanningError` with the code `unsupported_parameter`.
+- Each other known parameter, for example `temperature` or `max_tokens`, gives an `IgnoredParameterWarning` and is not sent. Set it in the recipe with `sf.Model(params=...)`.
+- An unknown keyword raises `TypeError`.
+- The SDK does not send a call again by default. With `max_retries=N`, it sends the call again only when the Engine says that this is safe.
+- `timeout=`: The limit in seconds for the full call, all tries included. For a stream, the limit stops when the first chunk comes. The SDK checks the limit at each line from the Engine, so the error can come up to one keep-alive interval (15 s by default) late.
+- `use_cache=False` sends `Cache-Control: no-store`.
+- The SDK sends no analytics event for an inference call and writes no reply to disk.
+
+See https://docs.screamingface.ai/sf-client/api/inference-client for each parameter, each reply field and each error.
+
 ## Progress and Reports
 
 `evaluate` consumes the Engine's REST and WebSocket lifecycle internally. An optional callback

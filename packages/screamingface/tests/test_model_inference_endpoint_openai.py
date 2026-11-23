@@ -8,7 +8,6 @@ so the test uses no network.
 from __future__ import annotations
 
 import json
-from typing import Any
 
 import httpx
 import openai
@@ -22,23 +21,11 @@ from _chat_engine import (
     sent_body,
     sse,
 )
-from _chat_frames import META, USAGE, info, message
+from _chat_frames import plain_reply
 from _endpoint_access import HOSTED_URL, TOKEN_HEADER, hosted_client, signed_in
 
 import screamingface as sf
 from screamingface.inference import InferenceClient, InferenceEndpoint
-
-
-def _plain_reply(text: str) -> dict[str, Any]:
-    """The plain (not streamed) reply of the Engine."""
-
-    return {
-        **META,
-        "object": "chat.completion",
-        "choices": [{"index": 0, "message": message(text), "finish_reason": "stop"}],
-        "usage": dict(USAGE),
-        "screamingface": info(),
-    }
 
 
 def _engine(requests: list[httpx.Request]) -> Handler:
@@ -46,7 +33,7 @@ def _engine(requests: list[httpx.Request]) -> Handler:
         requests.append(request)
         if json.loads(request.content).get("stream") is True:
             return sse(reply_body("Hello"))
-        return httpx.Response(200, json=_plain_reply("Hello"))
+        return httpx.Response(200, json=plain_reply("Hello"))
 
     return respond
 

@@ -4,6 +4,7 @@
       "Answer",
       "ArgMax",
       "ArgMin",
+      "AsyncChatStream",
       "AsyncClient",
       "AsyncOAuthFlow",
       "AuthenticationError",
@@ -16,6 +17,17 @@
       "CaseGrade",
       "CaseMedia",
       "CaseResult",
+      "ChatChoice",
+      "ChatChunkChoice",
+      "ChatCompletion",
+      "ChatCompletionChunk",
+      "ChatDelta",
+      "ChatDeltaToolCall",
+      "ChatFunctionCall",
+      "ChatMessage",
+      "ChatStream",
+      "ChatToolCall",
+      "ChatUsage",
       "Check",
       "Classification",
       "Client",
@@ -42,10 +54,15 @@
       "FetchedMedia",
       "FieldRule",
       "Filter",
+      "FinalStep",
       "First",
       "FixedSeedSittingWarning",
       "Fusion",
       "Gate",
+      "IgnoredParameterWarning",
+      "InferenceClient",
+      "InferenceEndpoint",
+      "InferenceInfo",
       "Judge",
       "JudgePick",
       "JudgeWriterWarning",
@@ -159,6 +176,13 @@
           "__init__": "method (self, by: 'str | Signal', *, output: 'str | None' = None) -> 'None'",
           "by": "field",
           "output": "field"
+        }
+      },
+      "AsyncChatStream": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, chunks: 'AsyncIterator[ChatCompletionChunk]', aclose: 'Callable[[], Awaitable[None]]') -> 'None'",
+          "aclose": "method (self) -> 'None'"
         }
       },
       "AsyncClient": {
@@ -346,6 +370,130 @@
           "stop_reason": "field",
           "to_dict": "method (self) -> 'dict[str, object]'",
           "trace": "method (self) -> 'tuple[TraceEntry, ...]'"
+        }
+      },
+      "ChatChoice": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, *, index: 'int', message: 'ChatMessage', finish_reason: 'str') -> None",
+          "finish_reason": "field",
+          "index": "field",
+          "message": "field",
+          "to_dict": "method (self) -> 'dict[str, object]'"
+        }
+      },
+      "ChatChunkChoice": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, *, index: 'int', delta: 'ChatDelta', finish_reason: 'str | None') -> None",
+          "delta": "field",
+          "finish_reason": "field",
+          "index": "field",
+          "to_dict": "method (self) -> 'dict[str, object]'"
+        }
+      },
+      "ChatCompletion": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, *, id: 'str', object: 'str', created: 'int', model: 'str', choices: 'tuple[ChatChoice, ...]', usage: 'ChatUsage', screamingface: 'InferenceInfo') -> None",
+          "choices": "field",
+          "cost_usd": "property",
+          "created": "field",
+          "id": "field",
+          "model": "field",
+          "object": "field",
+          "screamingface": "field",
+          "text": "property",
+          "to_dict": "method (self) -> 'dict[str, object]'",
+          "tool_calls": "property",
+          "trace_id": "property",
+          "usage": "field"
+        }
+      },
+      "ChatCompletionChunk": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, *, id: 'str', object: 'str', created: 'int', model: 'str', choices: 'tuple[ChatChunkChoice, ...]', usage: 'ChatUsage | None', screamingface: 'InferenceInfo | None') -> None",
+          "choices": "field",
+          "created": "field",
+          "id": "field",
+          "model": "field",
+          "object": "field",
+          "screamingface": "field",
+          "text": "property",
+          "to_dict": "method (self) -> 'dict[str, object]'",
+          "usage": "field"
+        }
+      },
+      "ChatDelta": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, *, role: 'str | None', content: 'str | None', tool_calls: 'tuple[ChatDeltaToolCall, ...] | None', refusal: 'str | None') -> None",
+          "content": "field",
+          "refusal": "field",
+          "role": "field",
+          "to_dict": "method (self) -> 'dict[str, object]'",
+          "tool_calls": "field"
+        }
+      },
+      "ChatDeltaToolCall": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, *, index: 'int', id: 'str', type: 'str', function: 'ChatFunctionCall') -> None",
+          "function": "field",
+          "id": "field",
+          "index": "field",
+          "to_dict": "method (self) -> 'dict[str, object]'",
+          "type": "field"
+        }
+      },
+      "ChatFunctionCall": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, *, name: 'str', arguments: 'str') -> None",
+          "arguments": "field",
+          "name": "field",
+          "to_dict": "method (self) -> 'dict[str, object]'"
+        }
+      },
+      "ChatMessage": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, *, role: 'str', content: 'str | None', tool_calls: 'tuple[ChatToolCall, ...] | None', refusal: 'str | None') -> None",
+          "content": "field",
+          "refusal": "field",
+          "role": "field",
+          "to_dict": "method (self) -> 'dict[str, object]'",
+          "tool_calls": "field"
+        }
+      },
+      "ChatStream": {
+        "kind": "class",
+        "members": {
+          "__enter__": "method (self) -> 'Self'",
+          "__exit__": "method (self, exc_type: 'type[BaseException] | None', exc: 'BaseException | None', traceback: 'TracebackType | None') -> 'None'",
+          "__init__": "method (self, chunks: 'Iterator[ChatCompletionChunk]', close: 'Callable[[], None]') -> 'None'",
+          "close": "method (self) -> 'None'"
+        }
+      },
+      "ChatToolCall": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, *, id: 'str', type: 'str', function: 'ChatFunctionCall') -> None",
+          "function": "field",
+          "id": "field",
+          "to_dict": "method (self) -> 'dict[str, object]'",
+          "type": "field"
+        }
+      },
+      "ChatUsage": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, *, prompt_tokens: 'int', completion_tokens: 'int', total_tokens: 'int') -> None",
+          "completion_tokens": "field",
+          "prompt_tokens": "field",
+          "to_dict": "method (self) -> 'dict[str, object]'",
+          "total_tokens": "field"
         }
       },
       "Check": {
@@ -642,6 +790,16 @@
           "where": "field"
         }
       },
+      "FinalStep": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, *, binding: 'str', model: 'str', usage: 'ChatUsage | None') -> None",
+          "binding": "field",
+          "model": "field",
+          "to_dict": "method (self) -> 'dict[str, object]'",
+          "usage": "field"
+        }
+      },
       "First": {
         "kind": "class",
         "members": {
@@ -675,6 +833,43 @@
           "otherwise": "field",
           "then": "field",
           "when": "field"
+        }
+      },
+      "IgnoredParameterWarning": {
+        "catches_as": [
+          "UserWarning",
+          "Warning",
+          "Exception"
+        ],
+        "kind": "class",
+        "members": {}
+      },
+      "InferenceClient": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, model: 'Recipe | Url4 | str | None' = None, *, client: 'Client | AsyncClient | None' = None) -> 'None'",
+          "endpoint": "method (self, model: 'Recipe | Url4 | str | None' = None) -> 'InferenceEndpoint | Coroutine[Any, Any, InferenceEndpoint]'"
+        }
+      },
+      "InferenceEndpoint": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, *, base_url: 'str', model: 'str', headers: 'Mapping[str, str]') -> None",
+          "base_url": "field",
+          "headers": "field",
+          "model": "field"
+        }
+      },
+      "InferenceInfo": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, *, status: 'str', abstain_reason: 'str | None', cost_usd: 'Decimal | None', trace_id: 'str | None', final_step: 'FinalStep | None') -> None",
+          "abstain_reason": "field",
+          "cost_usd": "field",
+          "final_step": "field",
+          "status": "field",
+          "to_dict": "method (self) -> 'dict[str, object]'",
+          "trace_id": "field"
         }
       },
       "Judge": {

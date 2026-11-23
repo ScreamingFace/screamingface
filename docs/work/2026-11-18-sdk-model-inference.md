@@ -194,6 +194,27 @@ docs examples run in tests.
   feature slug). Spec, contracts, PRDs, test plan and plan updated; the Q1/Q2 quotes stay
   verbatim. Local playground notebook renamed in place (owner edits kept) plus a new cell 1.6
   (the OpenAI form). Gates: SDK green (`--base` merge base).
+- **2026-11-23 — U7 and U8 done (owner: "orchestrate parallel agents").** Tiered-build run
+  `wf_ccf05047-4dc`: Opus planned 2 waves, 7 tasks; 5 Haiku implementers in parallel in wave 1
+  (U7 exports + snapshot + changelog + MI-27, U7 MI-25, U7 README, U8 MI-28, U8 snippets +
+  snippet tests), 2 in wave 2 (docs pages + page tests, public-docs/CLAUDE.md + CI paths). The
+  run stopped at the gates: the only red check is append-only on
+  `tests/public_surface_snapshot.json` (195 lines added, 0 removed). That file is made to change
+  with the surface (test plan §5); its approval record `.claude/test-change-approvals/OME-N.json`
+  needs the issue id and the final branch name, so it is made at PR-open. I ran the Opus design
+  review by hand: accept with fixes, no STRUCTURAL finding. Findings 1-14 fixed by 3 Haiku
+  implementers in parallel (MI-28 now sends a compiled recipe and checks the cost; docs: the
+  browser sign-in of `endpoint()`, the stream `timeout`, the refused values, the error table,
+  a signature block, `IgnoredParameterWarning` on the errors page, STE wording; tests: one
+  `plain_reply` helper, a hosted case of the `endpoint_openai.py` snippet, the privacy test
+  now goes through the real 403 sign-in challenge). I fixed the errors page intro and the
+  Prettier format of two pages myself (an implementer said that they failed at HEAD; they did
+  not). Not fixed: finding 16 (the surface snapshot does not pin `__iter__`/`__aenter__`;
+  on `main`, out of scope); finding 14 part (`Store`/`Sink` copies in analytics tests on
+  `main`). MI-28 ran against a real local Engine: 3 passed (Colima started for the run, then
+  stopped; once more with a plugin that skips the docker check). Gates: SDK green with
+  `--skip-append-only` (the snapshot item above); Engine docs tests 8 passed; public-docs
+  oxlint, eslint, type-check, build green.
 
 ## Outcome (fill at the end — required before COMMIT)
 

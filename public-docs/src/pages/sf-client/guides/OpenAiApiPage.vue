@@ -10,6 +10,7 @@ import {
 import { SF_ENGINE_URL } from '@/lib/engine'
 import candidateUrl4Example from '@/snippets/openai-chat/candidate_url4.py?raw'
 import openaiSdkExample from '@/snippets/openai-chat/openai_sdk.py?raw'
+import candidateUrl4SdkExample from '@/snippets/inference-client/candidate_url4.py?raw'
 
 const baseUrls = `# the hosted Engine
 ${SF_ENGINE_URL}/v1
@@ -154,8 +155,23 @@ const errorEnvelope = `{
     <h3>Get the Candidate URL4 of a recipe</h3>
 
     <p>
-      The SDK has no direct call that gives the Candidate URL4 of a recipe yet. Thus, an evaluation
-      of the recipe must run first. Do these steps:
+      <code>sf.InferenceClient(recipe).endpoint().model</code> gives the Candidate URL4 of the
+      recipe. No evaluation is necessary. On an https Engine, <code>endpoint()</code> signs in
+      first. With no usable token, it opens the browser sign-in and can wait up to 300 seconds. In a
+      script with no browser, set <code>SCREAMINGFACE_ACCESS_TOKEN</code> or call
+      <code>client.login()</code> first.
+    </p>
+
+    <CodeBlock :code="candidateUrl4SdkExample" language="python" />
+
+    <p>
+      <code>sf.InferenceClient</code> can also send the chat call itself. See
+      <RouterLink to="/sf-client/api/inference-client">InferenceClient</RouterLink>.
+    </p>
+
+    <p>
+      Alternative: get the Candidate URL4 from an evaluation. This way needs an evaluation of the
+      recipe. Do these steps:
     </p>
 
     <ol>
