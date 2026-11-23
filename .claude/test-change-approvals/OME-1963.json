@@ -2,9 +2,9 @@
   "issue": "OME-1963",
   "branch": "OME-1963-engine-openai-chat-endpoint",
   "approver": "IonesioJunior (owner), approved in the chat-endpoint session on 2026-11-17 and 2026-11-18",
-  "date": "2026-11-18",
-  "scope": "Prior-test edits of the OpenAI-compatible chat endpoint on the Engine, and nothing else (40 files). (1) The move of the gateway round trip from world/connector.py to world/gateway_transport.py: tests that patch a moved name now name the new module; no assertion changed. Two tests got one added check each (test_request_scope.py and test_observation_seam.py). (2) The schedule port got the keyword chat_input: six test fakes accept it (tests/unit/_fakes.py, test_answer_seed_threading.py, test_cache_policy_threading.py, test_queue_admission.py, tests/integration/test_e2e_compose_flow.py, test_run_control_resilience.py). (3) test_url4_executor.py: allow-list entries for world/gateway_transport.py, chat/recipe.py, world/chat_turn.py and world/chat_final.py. (4) test_mount_routes.py: two tests use the example mount /v1/benchmarks/data/foo, because /v1/chat/completions is now a real route. (5) test_app_factory.py and test_cli_local_mode.py: three tests replace cli._run_server and not uvicorn.run; no assertion changed.",
-  "reason": "The owner approved the move and its test edits with the spec (proposal P24, spec ledger Q19 to Q21) and the plan (stop point S1, option A: this record at PR-open). The owner approved the allow-list entries during the build, the edits to the three CLI tests on 2026-11-18 (Q34, \"make the edits\"), and the edit to test_mount_routes.py on 2026-11-18 (Q37, \"edit in the tests approved\"). The lists for each unit are in docs/work/2026-11-17-engine-openai-chat-endpoint.md.",
+  "date": "2026-11-23",
+  "scope": "Prior-test edits of the OpenAI-compatible chat endpoint on the Engine, and nothing else (41 files). (1) The move of the gateway round trip from world/connector.py to world/gateway_transport.py: tests that patch a moved name now name the new module; no assertion changed. Two tests got one added check each (test_request_scope.py and test_observation_seam.py). (2) The schedule port got the keyword chat_input: six test fakes accept it (tests/unit/_fakes.py, test_answer_seed_threading.py, test_cache_policy_threading.py, test_queue_admission.py, tests/integration/test_e2e_compose_flow.py, test_run_control_resilience.py). (3) test_url4_executor.py: allow-list entries for world/gateway_transport.py, chat/recipe.py, world/chat_turn.py and world/chat_final.py. (4) test_mount_routes.py: two tests use the example mount /v1/benchmarks/data/foo, because /v1/chat/completions is now a real route. (5) test_app_factory.py and test_cli_local_mode.py: three tests replace cli._run_server and not uvicorn.run; no assertion changed. (6) packages/screamingface/tests/public_surface_snapshot.json: the 17 new public names of sf.InferenceClient (SDK model inference, contracts C1.6); only lines added, no entry removed or changed.",
+  "reason": "The owner approved the move and its test edits with the spec (proposal P24, spec ledger Q19 to Q21) and the plan (stop point S1, option A: this record at PR-open). The owner approved the allow-list entries during the build, the edits to the three CLI tests on 2026-11-18 (Q34, \"make the edits\"), and the edit to test_mount_routes.py on 2026-11-18 (Q37, \"edit in the tests approved\"). The lists for each unit are in docs/work/2026-11-17-engine-openai-chat-endpoint.md. The SDK snapshot change: the owner approved the SDK model inference spec and plan on 2026-11-18 (test plan §5 names this file as made to change with the surface), and on 2026-11-23 told me to add the SDK commits to this PR.",
   "files": {
     "apps/screamingface-engine/tests/integration/test_e2e_compose_flow.py": {
       "base_blob": "ff997a88a5df6d6da3e9bd9d3738237d839e8549",
@@ -165,6 +165,10 @@
     "apps/screamingface-engine/tests/unit/test_url4_executor.py": {
       "base_blob": "4a2ba578bf287b89d721d8329e202774269666a6",
       "approved_blob": "f7531755565da4279ba9885c0c064742c3e689d3"
+    },
+    "packages/screamingface/tests/public_surface_snapshot.json": {
+      "base_blob": "cc6e32c7294c58fe167cd57a9e853b2ab4cb1410",
+      "approved_blob": "6c62530e888b63481a073f09917192e6e807234f"
     }
   }
 }
