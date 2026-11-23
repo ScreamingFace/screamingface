@@ -1,12 +1,13 @@
 ---
 id: OME-1777
 linear_url: https://linear.app/openmined/issue/OME-1777/stop-the-unknown-processor-error-from-listing-a-nodes-routes
-status: in_progress
+status: done
 type: fix
 priority: high
 labels: [url4-engine, agentic, autonomous]
 parent: OME-1306
 created: 2026-10-29
+closed: 2026-11-23
 ---
 
 # Stop the unknown-processor error from listing a node's routes
@@ -28,3 +29,6 @@ called.
   no HTTP response names the private route.
 
 Ledger: `docs/work/2026-10-29-hosted-byom-unit2.md`.
+
+Merged [PR #1606](https://github.com/ScreamingFace/screamingface/pull/1606) as `143d4bcf8`.
+Linear is Done.

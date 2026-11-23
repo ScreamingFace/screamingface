@@ -1,9 +1,9 @@
 ---
 ticket: OME-1996
 stack: url4
-status: in_progress   # planned | in_progress | done | blocked
+status: done
 started: 2026-11-19
-finished:
+finished: 2026-11-23
 ---
 
 # url4-expand-at-most-one — named at-most-one expansion for url4 sources (C19)
@@ -125,6 +125,12 @@ OME-1306. No Router code and no live call.
   `docs(url4): state the C19 deep-text exception and correct the prior-test note`, authorized by
   the owner on 2026-11-23 after the drift check, carries the owner's decisions recorded below:
   the spec exception, the mirror and this ledger.
+  [PR #1995](https://github.com/ScreamingFace/screamingface/pull/1995) (head `163be29e3` on
+  `c3a9bd7cd`) was squash-merged on 2026-11-23 as `d2431eb83`; it holds `709d25e69` (PR-open),
+  `8f353bb84`, `a415fbad1` and `163be29e3`. At that head all 23 CI checks passed; 4
+  path-filtered jobs were skipped. Every run on `main` at `d2431eb83` passed. The Linear close
+  comment is posted and Linear is Done. No hosted readiness claim: the hosted proof is plan
+  Unit 9, and the C19 readers must be released before Unit 7 writes the mark.
 - **Gates:** the url4 gate runner (`run_gates.py url4`) green: append-only check, ruff check, ruff
   format, pyright, pytest 3363 passed and 17 xfailed, coverage 98.81% (floor 95%). The suite also
   passes on Python 3.12.9, 3.13.11 and 3.14.2 with the same counts. The touched execution modules and
