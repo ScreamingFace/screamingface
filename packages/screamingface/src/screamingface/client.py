@@ -39,6 +39,7 @@ if TYPE_CHECKING:
     from screamingface.connections import AsyncOAuthFlow, Connection, OAuthFlow
     from screamingface.credit import CreditStatus
     from screamingface.events import Event
+    from screamingface.inference import AsyncChat, Chat
     from screamingface.leaderboard import LeaderboardScore
     from screamingface.media import CaseMedia, FetchedMedia
     from screamingface.recipe import Recipe
@@ -54,7 +55,7 @@ DEFAULT_SCOREBOARD_URL = "https://leaderboard.screamingface.ai"
 class Client:
     """A reusable synchronous Client configured for one SF Engine origin."""
 
-    def __init__(
+    def __init__(  # noqa: PLR0915 - the surfaces of the client are built in order
         self,
         *,
         engine_url: str = DEFAULT_ENGINE_URL,
@@ -76,6 +77,10 @@ class Client:
         from screamingface._engine.connections import Connections
         from screamingface._engine.transport import Url4CloudTransport
         from screamingface._scoreboard.leaderboards import Leaderboards
+
+        # WHY function-level, as each import above: screamingface._inference.request imports
+        # _use_cache_value from this module, so a module-level import is an import cycle.
+        from screamingface.inference import Chat
 
         _require_run_transport(run_transport)
         self._engine_url = _engine_origin(engine_url)
@@ -115,6 +120,7 @@ class Client:
         )
         self.models: Models = Models(self._http_get, self._engine_url)
         self.benchmarks: Benchmarks = Benchmarks(self._http_get, self._engine_url)
+        self.chat: Chat = Chat(self)
         self._benchmark_resources = BenchmarkResources(self._http)
         self._operator_catalog = OperatorCatalogResource(self._http)
         self.connections: Connections = Connections(self._http_request, self._engine_url)
@@ -833,7 +839,7 @@ class Client:
 class AsyncClient:
     """An asynchronous Client with the same domain interface and result types."""
 
-    def __init__(
+    def __init__(  # noqa: PLR0915 - the surfaces of the client are built in order
         self,
         *,
         engine_url: str = DEFAULT_ENGINE_URL,
@@ -859,6 +865,9 @@ class AsyncClient:
         from screamingface._engine.connections import AsyncConnections
         from screamingface._engine.transport import AsyncUrl4CloudTransport
         from screamingface._scoreboard.leaderboards import AsyncLeaderboards
+
+        # WHY function-level: see Client.__init__.
+        from screamingface.inference import AsyncChat
 
         _require_run_transport(run_transport)
         self._engine_url = _engine_origin(engine_url)
@@ -900,6 +909,7 @@ class AsyncClient:
         )
         self.models: AsyncModels = AsyncModels(self._http_get, self._engine_url)
         self.benchmarks: AsyncBenchmarks = AsyncBenchmarks(self._http_get, self._engine_url)
+        self.chat: AsyncChat = AsyncChat(self)
         self._benchmark_resources = AsyncBenchmarkResources(self._http)
         self._operator_catalog = AsyncOperatorCatalogResource(self._http)
         self.connections: AsyncConnections = AsyncConnections(self._http_request, self._engine_url)

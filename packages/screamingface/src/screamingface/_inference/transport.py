@@ -1,4 +1,4 @@
-"""The chat call of one `InferenceClient` on the wire, with its time limits and its retries.
+"""One chat call on the wire, with its time limits and its retries.
 
 FEATURE: SDK model inference, contracts C1.4, C2.1, C2.4, C2.5, P11, units U4 and U5.
 Stage 1: one try (_try_chunks, _atry_chunks). A new trace, one POST through the client seam, and

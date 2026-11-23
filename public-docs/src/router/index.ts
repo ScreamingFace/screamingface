@@ -144,9 +144,9 @@ const router = createRouter({
       component: () => import('@/pages/sf-client/api/ClientsPage.vue'),
     },
     {
-      path: '/sf-client/api/inference-client',
-      name: 'sf-client-api-inference-client',
-      component: () => import('@/pages/sf-client/api/InferenceClientPage.vue'),
+      path: '/sf-client/api/chat',
+      name: 'sf-client-api-chat',
+      component: () => import('@/pages/sf-client/api/ChatPage.vue'),
     },
     {
       path: '/sf-client/api/fusions',

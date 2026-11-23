@@ -60,7 +60,6 @@
       "Fusion",
       "Gate",
       "IgnoredParameterWarning",
-      "InferenceClient",
       "InferenceEndpoint",
       "InferenceInfo",
       "Judge",
@@ -122,6 +121,7 @@
       "benchmarks",
       "budget",
       "cache",
+      "chat",
       "classify",
       "close",
       "configure",
@@ -590,6 +590,7 @@
         "kind": "class",
         "members": {
           "__init__": "method (self, members: 'Sequence[str | Recipe]', *, judge: 'str | Recipe', max_rounds: 'int' = 3, name: 'str | None' = None) -> 'None'",
+          "chat": "property",
           "judge": "field",
           "max_rounds": "field",
           "members": "field",
@@ -827,6 +828,7 @@
         "members": {
           "__init__": "method (self, *, when: 'Condition', then: 'Branch', otherwise: 'Branch | None' = None, abstain_if: 'GateBand | None' = None) -> 'None'",
           "abstain_if": "field",
+          "chat": "property",
           "estimates": "field",
           "name": "property",
           "optional": "property",
@@ -843,13 +845,6 @@
         ],
         "kind": "class",
         "members": {}
-      },
-      "InferenceClient": {
-        "kind": "class",
-        "members": {
-          "__init__": "method (self, model: 'Recipe | Url4 | str | None' = None, *, client: 'Client | AsyncClient | None' = None) -> 'None'",
-          "endpoint": "method (self, model: 'Recipe | Url4 | str | None' = None) -> 'InferenceEndpoint | Coroutine[Any, Any, InferenceEndpoint]'"
-        }
       },
       "InferenceEndpoint": {
         "kind": "class",
@@ -1088,6 +1083,7 @@
         "kind": "class",
         "members": {
           "__init__": "method (self, model: 'str', *, name: 'str | None' = None, prompt: 'str | None' = None, params: 'Mapping[str, str | int | float | bool] | None' = None, optional: 'bool' = False) -> 'None'",
+          "chat": "property",
           "model": "field",
           "name": "field",
           "optional": "field",
@@ -1221,6 +1217,7 @@
         "kind": "class",
         "members": {
           "__init__": "method (self, steps: 'Sequence[str | Recipe | Step]', *, name: 'str | None' = None, optional: 'bool' = False) -> 'None'",
+          "chat": "property",
           "name": "field",
           "optional": "field",
           "steps": "field"
@@ -1261,7 +1258,9 @@
       },
       "Recipe": {
         "kind": "class",
-        "members": {}
+        "members": {
+          "chat": "property"
+        }
       },
       "RegexClassifier": {
         "kind": "class",
@@ -1391,6 +1390,7 @@
         "kind": "class",
         "members": {
           "__init__": "method (self, model: 'str | Recipe', *, max_rounds: 'int' = 3, name: 'str | None' = None) -> 'None'",
+          "chat": "property",
           "max_rounds": "field",
           "member": "field",
           "name": "field"
@@ -1455,6 +1455,7 @@
         "members": {
           "__init__": "method (self, recipe: 'str | Recipe', *, budget_usd: 'float | None' = None, max_tokens: 'int | None' = None) -> 'None'",
           "budget_usd": "field",
+          "chat": "property",
           "max_tokens": "field",
           "name": "property",
           "optional": "property",
@@ -1493,6 +1494,10 @@
       "cache": {
         "kind": "module",
         "module": "screamingface.cache"
+      },
+      "chat": {
+        "kind": "module",
+        "module": "screamingface.chat"
       },
       "classify": {
         "kind": "function",

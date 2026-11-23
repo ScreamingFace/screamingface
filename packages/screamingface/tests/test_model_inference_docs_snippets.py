@@ -1,7 +1,7 @@
-"""Each Python example of the InferenceClient docs runs against the mock Engine (U8, risk R6).
+"""Each Python example of the chat docs runs against the mock Engine (U8, U9, risk R6).
 
 FEATURE: SDK model inference, unit U8 (spec 00-overview P12). public-docs has no test runner, so
-this SDK test runs each file of public-docs/src/snippets/inference-client/ as the docs pages show
+this SDK test runs each file of public-docs/src/snippets/chat/ as the docs pages show
 it. The mock Engine of tests/_chat_engine.py answers, so no request leaves the machine.
 """
 
@@ -31,12 +31,13 @@ from screamingface._evaluation.candidate import compile_candidate
 
 REPO = Path(__file__).resolve().parents[3]
 DOCS = REPO / "public-docs"
-SNIPPETS = DOCS / "src" / "snippets" / "inference-client"
+SNIPPETS = DOCS / "src" / "snippets" / "chat"
 # WHY: the Engine image and some CI checkouts hold only the app; in the monorepo the directory
 # exists, so a moved snippet fails loudly instead of skipping.
 pytestmark = pytest.mark.skipif(not DOCS.is_dir(), reason="public-docs is not in this checkout")
 RUN = (
     "plain_call.py",
+    "openai_form.py",
     "model_per_call.py",
     "tools.py",
     "stream.py",
@@ -70,8 +71,8 @@ def _run(name: str) -> dict[str, Any]:
 
 
 def _use(monkeypatch: pytest.MonkeyPatch, client: sf.Client) -> None:
-    # WHY: inference.py calls _default_client.default_client() at each call, so a patch here
-    # reaches the snippet without a global client.
+    # WHY: screamingface._inference.calls calls _default_client.default_client() at each call,
+    # so a patch here reaches the snippet without a global client.
     monkeypatch.setattr(_default_client, "default_client", lambda: client)
 
 
@@ -88,6 +89,7 @@ def test_no_snippet_has_an_old_name() -> None:
         text = (SNIPPETS / name).read_text(encoding="utf-8")
         assert "ModelInference" not in text
         assert "chat.complete(" not in text
+        assert "InferenceClient" not in text
 
 
 def test_plain_call(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
@@ -101,6 +103,24 @@ def test_plain_call(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixtu
     assert len(chat) == 1
     assert sent_body(chat[0])["model"] == compile_candidate(ns["ensemble"]).url4
     assert sent_body(chat[0])["messages"] == [{"role": "user", "content": QUESTION}]
+
+
+def test_openai_form(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    requests: list[httpx.Request] = []
+    models = ["openrouter/deepseek/deepseek-v4-flash", "openrouter/openai/gpt-5.5"]
+    with recording_client(_engine(TEXT), requests) as client:
+        # WHY: the client is built before sf.Client is patched. recording_client calls sf.Client
+        # itself, so a patched lambda that called it would recurse.
+        monkeypatch.setattr(sf, "Client", lambda *args, **kwargs: client)
+        _run("openai_form.py")
+
+    assert capsys.readouterr().out.splitlines() == [f"{model} Hello" for model in models]
+    chat = _chat(requests)
+    assert [sent_body(request)["model"] for request in chat] == models
+    assert all(
+        sent_body(request)["messages"] == [{"role": "user", "content": QUESTION}]
+        for request in chat
+    )
 
 
 def test_model_per_call(

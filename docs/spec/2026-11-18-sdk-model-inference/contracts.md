@@ -51,7 +51,8 @@ def endpoint(model: Recipe | Url4 | str) -> InferenceEndpoint: ...
   - A step that is not a recipe (`sf.Fanout([...])` alone, `sf.Synthesize(...)` alone) has no
     `chat`. `sf.Url4` has no `chat` `[stated D17]`.
 - **`sf.chat`** `[stated D15]`. A module, as `sf.models` `[existing S/models.py]`. Each call
-  goes to `default_client().chat`. It is sync only.
+  takes `default_client()` at that time and uses the implementation of `client.chat`. It is
+  sync only.
 - **`model`** `[proposed P1]`. A required keyword of `create` on `client.chat` and `sf.chat`
   (Python raises `TypeError` when it is missing), and the argument of `endpoint`. On
   `recipe.chat` the model is the recipe. The rules, checked at each call before a request and
@@ -108,8 +109,9 @@ The method name is the same on each surface. `AsyncCompletions.create` is a plai
 returns a coroutine, so an argument error is raised by the call itself (the rule below).
 
 The four `create` methods share one implementation of the checks and of the send. The
-`IgnoredParameterWarning` names the line of the caller on each surface (also on `recipe.chat`
-and `sf.chat`, which pass through `client.chat`).
+`IgnoredParameterWarning` names the line of the caller on each surface. `recipe.chat` and
+`sf.chat` call this shared implementation directly with the default client; they do not go
+through the attribute `chat` of that client. So an argument error makes no default client.
 
 Rules:
 

@@ -1,5 +1,5 @@
 """The README section "Call an ensemble as a chat model" shows the names of
-sf.InferenceClient (U7).
+recipe.chat, client.chat and sf.chat (U7, U9).
 
 FEATURE: SDK model inference, unit U7. The code of the section needs an Engine, so this test
 only compiles it and checks its names.
@@ -34,12 +34,13 @@ def test_each_code_block_of_the_section_compiles() -> None:
 def test_the_section_names_the_api() -> None:
     section = _section()
     for phrase in (
-        "sf.InferenceClient(ensemble)",
-        "chat.completions.create(",
+        "ensemble.chat.completions.create(",
+        "client.chat.completions.create(",
+        "sf.chat.completions.create(",
         'model="openrouter/a"',
         "stream=True",
         "sf.AsyncClient()",
-        ".endpoint()",
+        ".chat.endpoint()",
         "IgnoredParameterWarning",
     ):
         assert phrase in section, phrase
@@ -48,3 +49,4 @@ def test_the_section_names_the_api() -> None:
 def test_the_section_has_no_old_name() -> None:
     section = _section()
     assert "ModelInference" not in section and "chat.complete(" not in section
+    assert "InferenceClient" not in section

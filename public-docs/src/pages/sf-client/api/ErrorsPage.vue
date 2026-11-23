@@ -311,7 +311,7 @@ Warning
       A warning usually accompanies a completed run whose quality needs attention. Replay can also
       warn when every case misses an unsubmitted capture, or when an unacknowledged run could not be
       stopped. The Client emits <code>EvaluationWarning</code> for runs, and
-      <code>sf.InferenceClient</code> emits <code>IgnoredParameterWarning</code> for a chat
+      a chat call emits <code>IgnoredParameterWarning</code> for a chat
       parameter that it does not send. Both subclass <code>UserWarning</code>, so they appear in
       normal warning output and <code>warnings.simplefilter</code> controls them.
     </p>
@@ -374,8 +374,8 @@ Warning
         <tr>
           <td><code>IgnoredParameterWarning</code></td>
           <td>
-            A known OpenAI chat parameter that the Engine does not use is given to the chat call of
-            <code>sf.InferenceClient</code>. The SDK does not send it. Set model parameters on the
+            A known OpenAI chat parameter that the Engine does not use is given to a chat call
+            (<code>recipe.chat</code>, <code>client.chat</code> or <code>sf.chat</code>). The SDK does not send it. Set model parameters on the
             recipe with <code>sf.Model(..., params=...)</code>.
           </td>
         </tr>

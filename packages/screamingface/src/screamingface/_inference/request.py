@@ -1,4 +1,4 @@
-"""Call a recipe, a URL4 or a gateway model as an OpenAI-style chat model (sf.InferenceClient).
+"""Call a recipe, a URL4 or a gateway model as an OpenAI-style chat model (the chat calls).
 
 FEATURE: SDK model inference (docs/spec/2026-11-18-sdk-model-inference, contracts C1.1, C1.2 and
 C2.1), unit U4. The module holds the model rule, the compile step, the argument checks, the
@@ -251,7 +251,7 @@ def check_options(
     """Check the typed options of one chat call (C1.2)."""
 
     _require_bool(stream, "stream")
-    # WHY: one check and one message for use_cache in sf.evaluate and InferenceClient.
+    # WHY: one check and one message for use_cache in sf.evaluate and the chat calls.
     _use_cache_value(use_cache)
     if stream_options is not None and not isinstance(stream_options, Mapping):
         raise TypeError("stream_options must be a dict or None")
@@ -286,13 +286,15 @@ def _check_timeout(value: object) -> None:
         raise ValueError("timeout must be a finite number of seconds above 0")
 
 
-def check_other(other: Mapping[str, Any]) -> None:
+def check_other(other: Mapping[str, Any], *, stacklevel: int = 3) -> None:
     """Apply the parameter policy to the other keywords of one chat call (P4).
 
     Order: an unknown name raises TypeError first, then a refused value raises PlanningError,
     then each known name gives one warning. So a call that raises gives no warning.
-    AIDEV-NOTE: Completions.create calls this function directly, so stacklevel=3 names the line of
-    the caller. Do not call it through another helper.
+    AIDEV-NOTE: stacklevel counts from this function (2 is the caller of check_other). The
+    default 3 names the caller of that caller. create_call in _inference/calls.py passes 4, so
+    the warning names the line of the user on each chat surface. Do not call it through another
+    helper.
     """
 
     unknown = [name for name in other if name not in KNOWN_PARAMETERS]
@@ -312,7 +314,7 @@ def check_other(other: Mapping[str, Any]) -> None:
             f"The SF Engine ignores the chat parameter {name!r}, so the call does not send it. "
             "Set model parameters on the recipe with sf.Model(..., params=...).",
             IgnoredParameterWarning,
-            stacklevel=3,
+            stacklevel=stacklevel,
         )
 
 

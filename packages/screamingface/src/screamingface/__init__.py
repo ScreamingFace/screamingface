@@ -5,6 +5,7 @@ from screamingface import (
     benchmarks,
     budget,
     cache,
+    chat,
     connections,
     events,
     leaderboards,
@@ -94,7 +95,7 @@ from screamingface.errors import (
 )
 from screamingface.events import Event
 from screamingface.fields import FieldRule
-from screamingface.inference import InferenceClient, InferenceEndpoint
+from screamingface.inference import InferenceEndpoint
 from screamingface.leaderboard import (
     Leaderboard,
     LeaderboardBaseline,
@@ -264,6 +265,7 @@ __all__ = [
     "benchmarks",
     "budget",
     "cache",
+    "chat",
     "escalate_if",
     "events",
     "fail",
@@ -273,7 +275,6 @@ __all__ = [
     "leaderboards",
     "models",
     "unanswered",
-    "InferenceClient",
     "InferenceEndpoint",
     "ChatCompletion",
     "ChatChoice",

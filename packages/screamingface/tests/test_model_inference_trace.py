@@ -7,7 +7,6 @@ import re
 import httpx
 from _chat_engine import ok, recording_client
 
-import screamingface as sf
 from screamingface._inference.trace import new_trace_context
 
 TRACEPARENT = re.compile(r"^00-([0-9a-f]{32})-([0-9a-f]{16})-01$")
@@ -32,6 +31,6 @@ def test_two_contexts_differ() -> None:
 def test_the_chat_request_carries_a_w3c_traceparent() -> None:
     requests: list[httpx.Request] = []
     with recording_client(ok, requests) as client:
-        sf.InferenceClient("openrouter/a", client=client).chat.completions.create("Hello")
+        client.chat.completions.create("Hello", model="openrouter/a")
 
     assert TRACEPARENT.match(requests[0].headers["traceparent"]) is not None

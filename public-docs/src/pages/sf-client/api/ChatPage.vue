@@ -6,19 +6,18 @@ import {
   sfClientReferenceNavigation as navigation,
   sfClientVersion as version,
 } from '@/navigation/sf-client'
-import plainCallExample from '@/snippets/inference-client/plain_call.py?raw'
-import modelPerCallExample from '@/snippets/inference-client/model_per_call.py?raw'
-import toolsExample from '@/snippets/inference-client/tools.py?raw'
-import streamExample from '@/snippets/inference-client/stream.py?raw'
-import asyncCallExample from '@/snippets/inference-client/async_call.py?raw'
-import endpointOpenaiExample from '@/snippets/inference-client/endpoint_openai.py?raw'
+import plainCallExample from '@/snippets/chat/plain_call.py?raw'
+import openaiFormExample from '@/snippets/chat/openai_form.py?raw'
+import modelPerCallExample from '@/snippets/chat/model_per_call.py?raw'
+import toolsExample from '@/snippets/chat/tools.py?raw'
+import streamExample from '@/snippets/chat/stream.py?raw'
+import asyncCallExample from '@/snippets/chat/async_call.py?raw'
+import endpointOpenaiExample from '@/snippets/chat/endpoint_openai.py?raw'
 
-const inferenceSig = `sf.InferenceClient(model=None, *, client=None)
-
-client.chat.completions.create(
+const chatSig = `# On each recipe: sync, with the default client
+recipe.chat.completions.create(
     prompt=None,
     *,
-    model=None,
     messages=None,
     tools=None,
     stream=False,
@@ -28,33 +27,63 @@ client.chat.completions.create(
     timeout=None,
     **other,
 )
+recipe.chat.endpoint()
 
-endpoint(model=None)`
+# On a client (sf.Client or sf.AsyncClient), and on the module sf.chat
+client.chat.completions.create(prompt=None, *, model, messages=None, ...)
+client.chat.endpoint(model)
+sf.chat.completions.create(prompt=None, *, model, messages=None, ...)
+sf.chat.endpoint(model)`
 </script>
 
 <template>
   <DocLayout
-    title="InferenceClient"
-    description="Send a chat call to an ensemble with the OpenAI call path and get a reply with the OpenAI field names."
+    title="Chat"
+    description="Send a chat call to an ensemble with the call path of the OpenAI client and get a reply with the OpenAI field names."
     :navigation="navigation"
     :version="version"
   >
     <p>
-      You can use an ensemble as one chat model with
-      <code>sf.InferenceClient(model=None, *, client=None)</code>. The call path is the path of the
-      OpenAI SDK: <code>chat.completions.create(...)</code>. The SDK sends the call to the chat
-      route of the Engine, <code>POST /v1/chat/completions</code>. The reply has the field names of
-      the OpenAI chat-completion object. For the route itself and its limits, see
-      <RouterLink to="/sf-client/guides/openai-api">Use an OpenAI client</RouterLink>.
+      Each recipe has <code>chat</code>, so you can use an ensemble as one chat model with
+      <code>recipe.chat.completions.create(...)</code>. You do not make a new object. The call path is
+      the path of the OpenAI SDK. <code>sf.Client().chat</code>, <code>sf.AsyncClient().chat</code> and
+      the module <code>sf.chat</code> have the same path with a <code>model</code> argument. The SDK
+      sends the call to the chat route of the Engine, <code>POST /v1/chat/completions</code>. The reply
+      has the field names of the OpenAI chat-completion object. For the route itself and its limits,
+      see <RouterLink to="/sf-client/guides/openai-api">Use an OpenAI client</RouterLink>.
     </p>
 
     <h2>Signature</h2>
 
-    <CodeBlock :code="inferenceSig" language="python" />
+    <CodeBlock :code="chatSig" language="python" />
 
-    <h2>Make the client</h2>
+    <h2>The three surfaces</h2>
 
-    <p>The constructor sends no request. The <code>model</code> argument accepts these values:</p>
+    <ul>
+      <li>
+        <code>recipe.chat</code>: each recipe has it: <code>sf.Model</code>, a Fusion, a Pipeline, a
+        Gate, a Cascade and <code>sf.WithBudget</code>. The access sends no request. Each call uses the
+        default client at that time, so <code>sf.configure()</code> and <code>sf.close()</code> apply.
+        It is sync only. <code>create</code> has no <code>model</code> argument: the recipe is the model.
+      </li>
+      <li>
+        <code>client.chat</code>: on <code>sf.Client</code> and on <code>sf.AsyncClient</code>.
+        <code>model</code> is a required keyword of <code>create</code> and the argument of
+        <code>endpoint</code>. With an <code>AsyncClient</code>, each call returns an awaitable.
+      </li>
+      <li>
+        <code>sf.chat</code>: a module. It is the same as <code>client.chat</code> with the default
+        client. It is sync only.
+      </li>
+    </ul>
+
+    <p>
+      A step that is not a recipe, for example <code>sf.Fanout([...])</code> alone, has no
+      <code>chat</code>. <code>sf.Url4</code> has no <code>chat</code>: give a URL4 as
+      <code>model</code> to <code>client.chat</code> or <code>sf.chat</code>.
+    </p>
+
+    <p>The <code>model</code> argument accepts these values:</p>
 
     <table>
       <thead>
@@ -83,32 +112,19 @@ endpoint(model=None)`
           <td>Any other text, for example <code>openrouter/openai/gpt-5.5</code></td>
           <td>A gateway model id with no change.</td>
         </tr>
-        <tr>
-          <td><code>None</code> (the default)</td>
-          <td>No model. Each call must give a model.</td>
-        </tr>
       </tbody>
     </table>
 
     <p>
       Any other type raises <code>TypeError</code>. An empty or blank text raises
-      <code>ValueError</code>. A recipe with a corrective loop raises
-      <code>PlanningError</code> with the code <code>recipe_not_supported</code>.
+      <code>ValueError</code>. A recipe with a corrective loop raises <code>PlanningError</code> with
+      the code <code>recipe_not_supported</code> when you call <code>create</code> or
+      <code>endpoint</code>.
     </p>
 
-    <p>The <code>client</code> argument selects the mode:</p>
-
-    <ul>
-      <li>
-        <code>None</code> (the default): sync. The SDK takes the default client at each call. Thus,
-        <code>sf.configure()</code> and <code>sf.close()</code> apply.
-      </li>
-      <li>A <code>Client</code>: sync, with this client.</li>
-      <li>An <code>AsyncClient</code>: async. Each call returns an awaitable.</li>
-    </ul>
-
     <p>
-      The object keeps no conversation. More than one thread or task can use it at the same time.
+      No surface keeps a conversation. More than one thread or task can use one client at the same
+      time.
     </p>
 
     <h2>Send a prompt</h2>
@@ -120,14 +136,23 @@ endpoint(model=None)`
       <code>messages=[{"role": "user", "content": prompt}]</code>.
     </p>
 
-    <h2>A model for each call</h2>
+    <h2>The OpenAI form</h2>
+
+    <CodeBlock :code="openaiFormExample" language="python" />
+
+    <p>
+      <code>client.chat.completions.create(model=..., messages=...)</code> is the call of the OpenAI
+      client. Code written for the OpenAI client needs a change only in the line that makes the
+      client. A call with no <code>model</code> raises <code>TypeError</code> before a request.
+    </p>
+
+    <h2>The default client: sf.chat</h2>
 
     <CodeBlock :code="modelPerCallExample" language="python" />
 
     <p>
-      A <code>model</code> on the call replaces the model of the client for that call only. It
-      accepts the same values as the constructor. A call with no model, on a client with no model,
-      raises <code>TypeError</code> before a request.
+      <code>sf.chat</code> is the same as <code>client.chat</code> with the default client. Each call
+      can give a different model.
     </p>
 
     <h2>Messages and tools</h2>
@@ -165,47 +190,49 @@ endpoint(model=None)`
     <CodeBlock :code="asyncCallExample" language="python" />
 
     <p>
-      With an <code>AsyncClient</code>, await the call. An async stream has <code>async for</code>,
-      <code>aclose()</code> and <code>async with</code>. The result type follows the client and the
-      value of <code>stream</code>:
+      With an <code>AsyncClient</code>, use <code>client.chat</code> and await the call.
+      <code>recipe.chat</code> and <code>sf.chat</code> are sync only: give the recipe as
+      <code>model</code>. An async stream has <code>async for</code>, <code>aclose()</code> and
+      <code>async with</code>. The result type follows the surface and the value of
+      <code>stream</code>:value of <code>stream</code>:
     </p>
 
     <table>
       <thead>
         <tr>
-          <th>Client</th>
+          <th>Surface</th>
           <th><code>stream</code></th>
           <th>Result</th>
         </tr>
       </thead>
       <tbody>
         <tr>
-          <td><code>Client</code></td>
+          <td><code>recipe.chat</code>, <code>sf.Client().chat</code>, <code>sf.chat</code></td>
           <td><code>False</code> (the default)</td>
           <td><code>ChatCompletion</code></td>
         </tr>
         <tr>
-          <td><code>Client</code></td>
+          <td><code>recipe.chat</code>, <code>sf.Client().chat</code>, <code>sf.chat</code></td>
           <td><code>True</code></td>
           <td><code>ChatStream</code> of <code>ChatCompletionChunk</code></td>
         </tr>
         <tr>
-          <td><code>Client</code></td>
+          <td><code>recipe.chat</code>, <code>sf.Client().chat</code>, <code>sf.chat</code></td>
           <td>a <code>bool</code> variable</td>
           <td><code>ChatCompletion | ChatStream</code></td>
         </tr>
         <tr>
-          <td><code>AsyncClient</code></td>
+          <td><code>sf.AsyncClient().chat</code></td>
           <td><code>False</code> (the default)</td>
           <td>an awaitable of <code>ChatCompletion</code></td>
         </tr>
         <tr>
-          <td><code>AsyncClient</code></td>
+          <td><code>sf.AsyncClient().chat</code></td>
           <td><code>True</code></td>
           <td>an awaitable of <code>AsyncChatStream</code></td>
         </tr>
         <tr>
-          <td><code>AsyncClient</code></td>
+          <td><code>sf.AsyncClient().chat</code></td>
           <td>a <code>bool</code> variable</td>
           <td>an awaitable of <code>ChatCompletion | AsyncChatStream</code></td>
         </tr>
@@ -217,7 +244,7 @@ endpoint(model=None)`
     <CodeBlock :code="endpointOpenaiExample" language="python" />
 
     <p>
-      <code>endpoint(model=None)</code> returns an <code>InferenceEndpoint</code> with
+      <code>recipe.chat.endpoint()</code>, <code>client.chat.endpoint(model)</code> and <code>sf.chat.endpoint(model)</code> return an <code>InferenceEndpoint</code> with
       <code>base_url</code> (the Engine URL with <code>/v1</code>), <code>model</code> (the
       Candidate URL4 or the model id) and <code>headers</code>. With an <code>AsyncClient</code>,
       await it.
@@ -256,7 +283,10 @@ endpoint(model=None)`
         </tr>
         <tr>
           <td><code>model</code></td>
-          <td>The model for this call only. It replaces the model of the client.</td>
+          <td>
+            The model of the call. It is required on <code>client.chat</code> and <code>sf.chat</code>.
+            <code>recipe.chat</code> has no <code>model</code> argument.
+          </td>
         </tr>
         <tr>
           <td><code>messages</code>, <code>tools</code></td>

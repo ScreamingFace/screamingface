@@ -12,14 +12,22 @@
   path of the OpenAI client: `client.chat.completions.create(...)`. The model is a recipe, a
   `sf.Url4`, URL4 text or a gateway model id. You can give it on the client or on each call. The
   reply has the OpenAI field names (`ChatCompletion`) and the short forms `reply.text`,
+
+* Each recipe has `chat`, so you can call an ensemble as a chat model with the call path of the
+  OpenAI client: `recipe.chat.completions.create(...)`. `sf.Client().chat` and
+  `sf.AsyncClient().chat` have the same path with `model` as a required keyword
+  (`client.chat.completions.create(model=..., messages=...)`), and the module `sf.chat` is the
+  same for the default client. The model is a recipe, a `sf.Url4`, URL4 text or a gateway model
+  id. The reply has the OpenAI field names (`ChatCompletion`) and the short forms `reply.text`,
   `reply.tool_calls`, `reply.cost_usd` and `reply.trace_id`. `stream=True` gives a `ChatStream`.
   With an `AsyncClient`, the call returns an awaitable (an `AsyncChatStream` for a stream).
-  `endpoint()` gives the `base_url`, the `model` and the `headers` for another OpenAI client
-  (`InferenceEndpoint`). A sampling parameter gives an `IgnoredParameterWarning` and is not sent.
-  New public names: `InferenceClient`, `InferenceEndpoint`, `ChatCompletion`, `ChatChoice`,
-  `ChatMessage`, `ChatToolCall`, `ChatFunctionCall`, `ChatUsage`, `ChatCompletionChunk`,
-  `ChatChunkChoice`, `ChatDelta`, `ChatDeltaToolCall`, `ChatStream`, `AsyncChatStream`,
-  `InferenceInfo`, `FinalStep`, `IgnoredParameterWarning`.
+  `recipe.chat.endpoint()` and `client.chat.endpoint(model)` give the `base_url`, the `model`
+  and the `headers` for another OpenAI client (`InferenceEndpoint`). A sampling parameter gives
+  an `IgnoredParameterWarning` and is not sent. New public names: `InferenceEndpoint`,
+  `ChatCompletion`, `ChatChoice`, `ChatMessage`, `ChatToolCall`, `ChatFunctionCall`,
+  `ChatUsage`, `ChatCompletionChunk`, `ChatChunkChoice`, `ChatDelta`, `ChatDeltaToolCall`,
+  `ChatStream`, `AsyncChatStream`, `InferenceInfo`, `FinalStep`, `IgnoredParameterWarning`, and
+  the module `chat`. New member: `chat` on each recipe class, on `Client` and on `AsyncClient`.
 
 * Re-grading accepts `expected_target_revision` on sync and async clients. A catalogue or
   replay result on another revision is refused before submission (`regrade_target_mismatch`).

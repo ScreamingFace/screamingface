@@ -1,4 +1,4 @@
-"""MI-24: calls at one time on one InferenceClient object (MI-S20), with threads and with tasks."""
+"""MI-24: calls at one time on one client.chat namespace (MI-S20), with threads and with tasks."""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ from _chat_engine import (
 )
 from _chat_stream import async_recording_client
 
-from screamingface.inference import InferenceClient
+from screamingface.chat_completion import ChatCompletion
 
 
 def echo(request: httpx.Request) -> httpx.Response:
@@ -38,11 +38,13 @@ def test_two_calls_at_one_time_on_one_object_with_threads() -> None:
 
     requests: list[httpx.Request] = []
     with recording_client(handler, requests) as client:
-        llm = InferenceClient(vote(), client=client)
+        recipe = vote()
+
+        def call(prompt: str) -> ChatCompletion:
+            return client.chat.completions.create(prompt, model=recipe)
+
         with ThreadPoolExecutor(max_workers=2) as pool:
-            futures = [
-                pool.submit(llm.chat.completions.create, prompt) for prompt in ("one", "two")
-            ]
+            futures = [pool.submit(call, prompt) for prompt in ("one", "two")]
             texts = [future.result(timeout=10).text for future in futures]
 
     assert texts == ["one", "two"]
@@ -67,18 +69,21 @@ async def test_n_tasks_at_one_time_on_one_object() -> None:
 
     requests: list[httpx.Request] = []
     async with async_recording_client(handler, requests) as aclient:
-        llm = InferenceClient(vote(), client=aclient)
-        tasks = [asyncio.create_task(llm.chat.completions.create(f"q{i}")) for i in range(count)]
+        recipe = vote()
+        tasks = [
+            asyncio.create_task(aclient.chat.completions.create(f"q{i}", model=recipe))
+            for i in range(count)
+        ]
         replies = await asyncio.gather(*tasks)
 
     assert [reply.text for reply in replies] == [f"q{i}" for i in range(count)]
 
 
-def test_the_object_keeps_no_state_of_a_call() -> None:
+def test_the_namespace_keeps_no_state_of_a_call() -> None:
     requests: list[httpx.Request] = []
     with recording_client(echo, requests) as client:
-        llm = InferenceClient("openrouter/a", client=client)
-        before = (llm._source, llm._client)
-        llm.chat.completions.create("one")
-        llm.chat.completions.create("two")
-        assert (llm._source, llm._client) == before
+        before = (dict(vars(client.chat)), dict(vars(client.chat.completions)))
+        client.chat.completions.create("one", model="openrouter/a")
+        client.chat.completions.create("two", model="openrouter/a")
+        assert (dict(vars(client.chat)), dict(vars(client.chat.completions))) == before
+        assert vars(client.chat.completions) == {"_client": client}

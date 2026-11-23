@@ -1,8 +1,8 @@
-"""MI-28: sf.InferenceClient against the real local Engine and the FakeGateway (SDK unit U8).
+"""MI-28: client.chat against the real local Engine and the FakeGateway (SDK unit U8).
 
 FEATURE: SDK model inference, unit U8 (docs/spec/2026-11-18-sdk-model-inference,
 prd/model-inference.md row MI-28; scenarios MI-S1, MI-S3, MI-S5). One plain call, one tool call
-and one stream go through ``sf.InferenceClient(...).chat.completions.create`` to
+and one stream go through ``client.chat.completions.create`` to
 POST /v1/chat/completions of a REAL local Engine (``EngineProcess``, the ``create_local_app``
 subprocess). The Engine runs each call as a one-model recipe, and its gateway is the FakeGateway
 with an authored in-memory tape. No paid call: the fake has no HTTP client and binds loopback only.
@@ -183,10 +183,10 @@ def local_engine(tmp_path_factory: pytest.TempPathFactory) -> Iterator[_LocalEng
 
 
 def test_model_inference_with_the_real_local_engine_plain_call(local_engine: _LocalEngine) -> None:
-    # MI-S1: the model on the client, one prompt, one answer with its usage and trace.
+    # MI-S1: a recipe as the model, one prompt, one answer with its usage and trace.
     with sf.Client(engine_url=local_engine.engine_url) as client:
-        reply = sf.InferenceClient(sf.Model(TEXT_MODEL), client=client).chat.completions.create(
-            "What is the capital of France?"
+        reply = client.chat.completions.create(
+            "What is the capital of France?", model=sf.Model(TEXT_MODEL)
         )
 
     assert reply.text == ANSWER
@@ -203,7 +203,7 @@ def test_model_inference_with_the_real_local_engine_plain_call(local_engine: _Lo
 def test_model_inference_with_the_real_local_engine_tool_call(local_engine: _LocalEngine) -> None:
     # MI-S3: the model per call, with one client tool; the answer is the tool call.
     with sf.Client(engine_url=local_engine.engine_url) as client:
-        reply = sf.InferenceClient(client=client).chat.completions.create(
+        reply = client.chat.completions.create(
             model=TOOL_MODEL,
             messages=[{"role": "user", "content": "What is the weather in Paris?"}],
             tools=[TOOL],
@@ -222,8 +222,9 @@ def test_model_inference_with_the_real_local_engine_stream(local_engine: _LocalE
     # MI-S5: the stream with its usage chunk; the text of the chunks is the answer.
     with (
         sf.Client(engine_url=local_engine.engine_url) as client,
-        sf.InferenceClient(TEXT_MODEL, client=client).chat.completions.create(
+        client.chat.completions.create(
             "What is the capital of France?",
+            model=TEXT_MODEL,
             stream=True,
             stream_options={"include_usage": True},
         ) as stream,

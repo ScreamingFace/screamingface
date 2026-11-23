@@ -1712,36 +1712,39 @@ benchmark-agnostic; installed Engine definitions own Benchmark semantics.
 
 ## Call an ensemble as a chat model
 
-`sf.InferenceClient` sends a chat conversation to an ensemble. The reply has the field names of the OpenAI chat-completion object. The call path is the path of the OpenAI client: `client.chat.completions.create(...)`. The Engine runs the full recipe for each call.
+Each recipe has `chat`. `recipe.chat.completions.create(...)` sends a chat conversation to the recipe. You do not make a new object. The reply has the field names of the OpenAI chat-completion object. The Engine runs the full recipe for each call.
 
 ```python
 import screamingface as sf
 
 ensemble = sf.Fanout(["openrouter/a", "openrouter/b"]) >> sf.Synthesize("openrouter/c")
 
-llm = sf.InferenceClient(ensemble)
-reply = llm.chat.completions.create("What is the capital of France?")
+reply = ensemble.chat.completions.create("What is the capital of France?")
 print(reply.text)  # the content of the first choice
 print(reply.choices[0].message.content)  # the OpenAI field names
 print(reply.usage.total_tokens, reply.cost_usd, reply.trace_id)
 ```
 
-The model can be a recipe (`sf.Model`, a Fusion, a Pipeline, a Gate or a Cascade), a `sf.Url4`, URL4 text (a string that starts with `(`) or a gateway model id such as `"openrouter/a"`. An evaluation URL4, for example `report.candidates["name"].url4`, also works: the SDK sends its candidate. The constructor sends no request.
+Each recipe has `chat`: `sf.Model`, a Fusion, a Pipeline, a Gate, a Cascade and `sf.WithBudget`. The access to `recipe.chat` sends no request. Each call uses the default client at that time, so `sf.configure()` and `sf.close()` apply. A recipe with a corrective loop raises `PlanningError` (`recipe_not_supported`) when you call `create`. A step that is not a recipe, for example `sf.Fanout([...])` alone, has no `chat`.
 
-### A model for each call
+### The OpenAI form: `client.chat` and `sf.chat`
 
 ```python
-llm = sf.InferenceClient()
-reply = llm.chat.completions.create("Hello", model="openrouter/a")
+client = sf.Client()
+reply = client.chat.completions.create(
+    model="openrouter/a",
+    messages=[{"role": "user", "content": "Hello"}],
+)
+
+reply = sf.chat.completions.create("Hello", model=ensemble)  # the default client
 ```
 
-A model on the call replaces the model of the client for that call. When the call and the client have no model, the call raises `TypeError` before it sends a request.
+`client.chat` has the call path of the OpenAI client, so code written for the OpenAI client needs a change only in the line that makes the client. `model` is a required keyword. It can be a recipe, a `sf.Url4`, URL4 text (a string that starts with `(`) or a gateway model id such as `"openrouter/a"`. An evaluation URL4, for example `report.candidates["name"].url4`, also works: the SDK sends its candidate. The module `sf.chat` is the same as `client.chat` with the default client.
 
 ### Messages and tools
 
 ```python
-reply = llm.chat.completions.create(
-    model="openrouter/a",
+reply = ensemble.chat.completions.create(
     messages=[{"role": "user", "content": "What is the weather in Paris?"}],
     tools=[
         {
@@ -1761,7 +1764,7 @@ Give a prompt or `messages`, not both. The SDK sends `messages` and `tools` with
 ### Stream the reply
 
 ```python
-with sf.InferenceClient(ensemble).chat.completions.create("Hello", stream=True) as stream:
+with ensemble.chat.completions.create("Hello", stream=True) as stream:
     for chunk in stream:
         print(chunk.text, end="")
 ```
@@ -1773,19 +1776,18 @@ The stream is buffered: the first chunk comes when the run is complete. `stream_
 ```python
 async def main() -> None:
     async with sf.AsyncClient() as client:
-        allm = sf.InferenceClient(ensemble, client=client)
-        reply = await allm.chat.completions.create("Hello")
+        reply = await client.chat.completions.create("Hello", model=ensemble)
         print(reply.text)
 ```
 
-With an `AsyncClient`, `create` returns an awaitable. The method name does not change.
+`recipe.chat` and `sf.chat` are sync only. With an `AsyncClient`, use `client.chat`: `create` returns an awaitable. The method name does not change.
 
 ### Use another OpenAI client
 
 ```python
 from openai import OpenAI
 
-endpoint = sf.InferenceClient(ensemble).endpoint()
+endpoint = ensemble.chat.endpoint()  # or client.chat.endpoint(ensemble)
 client = OpenAI(
     base_url=endpoint.base_url, api_key="not-used", default_headers=dict(endpoint.headers)
 )
@@ -1806,7 +1808,7 @@ client.chat.completions.create(
 - `use_cache=False` sends `Cache-Control: no-store`.
 - The SDK sends no analytics event for an inference call and writes no reply to disk.
 
-See https://docs.screamingface.ai/sf-client/api/inference-client for each parameter, each reply field and each error.
+See https://docs.screamingface.ai/sf-client/api/chat for each parameter, each reply field and each error.
 
 ## Progress and Reports
 

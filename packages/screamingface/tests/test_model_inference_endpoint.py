@@ -1,4 +1,4 @@
-"""EB-1 to EB-4 and EB-6: InferenceClient.endpoint() with a sync Client (contracts C1.5, C5)."""
+"""EB-1 to EB-4 and EB-6: client.chat.endpoint(model) with a sync Client (contracts C1.5, C5)."""
 
 from __future__ import annotations
 
@@ -34,7 +34,7 @@ import screamingface as sf
 from screamingface import _default_client
 from screamingface._evaluation.candidate import compile_candidate
 from screamingface.errors import AuthenticationError, EngineCapabilityError
-from screamingface.inference import InferenceClient, InferenceEndpoint
+from screamingface.inference import InferenceEndpoint
 
 
 def _no_login(*_args: object, **_kwargs: object) -> None:
@@ -68,7 +68,7 @@ def test_hosted_endpoint_shows_no_token_in_text_or_logs(
     requests: list[httpx.Request] = []
     with hosted_client(ok, requests) as client:
         with caplog.at_level(logging.DEBUG):
-            e = InferenceClient("openrouter/a", client=client).endpoint()
+            e = client.chat.endpoint("openrouter/a")
 
     assert TOKEN_HEADER in repr(e)
     assert token not in repr(e)
@@ -91,7 +91,7 @@ def test_endpoint_values_for_a_local_client(
     monkeypatch.setattr(sf.Client, "login", _no_login)
     requests: list[httpx.Request] = []
     with recording_client(ok, requests) as client:
-        e = InferenceClient(source, client=client).endpoint()
+        e = client.chat.endpoint(source)
 
     assert e.base_url == f"{ENGINE_URL}/v1"
     assert e.model == expected
@@ -104,7 +104,7 @@ def test_endpoint_values_for_a_hosted_client(monkeypatch: pytest.MonkeyPatch) ->
     token, browser = signed_in(monkeypatch)
     requests: list[httpx.Request] = []
     with hosted_client(ok, requests) as client:
-        e = InferenceClient("openrouter/a", client=client).endpoint()
+        e = client.chat.endpoint("openrouter/a")
 
     assert e.base_url == f"{HOSTED_URL}/v1"
     assert e.model == "openrouter/a"
@@ -127,7 +127,7 @@ def test_endpoint_values_work_with_a_plain_http_post(
         client = recording_client(ok, sink)
 
     with client:
-        e = InferenceClient("openrouter/a", client=client).endpoint()
+        e = client.chat.endpoint("openrouter/a")
         engine_requests: list[httpx.Request] = []
 
         def engine(request: httpx.Request) -> httpx.Response:
@@ -155,7 +155,7 @@ def test_endpoint_values_work_with_a_plain_http_post(
 def test_endpoint_loads_the_catalogue_for_a_reducer_recipe() -> None:
     requests: list[httpx.Request] = []
     with recording_client(catalogue_engine, requests) as client:
-        e = InferenceClient(vote(), client=client).endpoint()
+        e = client.chat.endpoint(vote())
 
     assert e.model == compile_candidate(vote(), operators=CATALOG).url4
     assert [r.url.path for r in requests] == ["/v1/operators"]
@@ -164,7 +164,7 @@ def test_endpoint_loads_the_catalogue_for_a_reducer_recipe() -> None:
 def test_endpoint_of_a_recipe_without_a_reducer_loads_no_catalogue() -> None:
     requests: list[httpx.Request] = []
     with recording_client(ok, requests) as client:
-        e = InferenceClient(fusion(), client=client).endpoint()
+        e = client.chat.endpoint(fusion())
 
     assert e.model == compile_candidate(fusion()).url4
     assert requests == []
@@ -174,9 +174,8 @@ def test_endpoint_failure_gives_no_partial_value(monkeypatch: pytest.MonkeyPatch
     browser = fake_access(monkeypatch, no_access)
     requests: list[httpx.Request] = []
     with hosted_client(catalogue_engine, requests) as client:
-        llm = InferenceClient(vote(), client=client)
         with pytest.raises(AuthenticationError) as raised:
-            llm.endpoint()
+            client.chat.endpoint(vote())
 
     assert raised.value.code == "access_not_advertised"
     # WHY: the sign-in comes before the catalogue load, so no request reaches the Engine.
@@ -191,7 +190,7 @@ def test_endpoint_raises_the_catalogue_error() -> None:
     requests: list[httpx.Request] = []
     with recording_client(not_found, requests) as client:
         with pytest.raises(EngineCapabilityError):
-            InferenceClient(vote(), client=client).endpoint()
+            client.chat.endpoint(vote())
 
     assert [r.url.path for r in requests] == ["/v1/operators"]
 
@@ -199,11 +198,8 @@ def test_endpoint_raises_the_catalogue_error() -> None:
 def test_endpoint_raises_the_compiler_error() -> None:
     requests: list[httpx.Request] = []
     with recording_client(catalogue_engine, requests) as client:
-        llm = InferenceClient(
-            sf.Fanout(["prov/a", "prov/b"]) >> sf.Vote(over="benchmark"), client=client
-        )
         with pytest.raises(ValueError, match="over='benchmark' needs a benchmark"):
-            llm.endpoint()
+            client.chat.endpoint(sf.Fanout(["prov/a", "prov/b"]) >> sf.Vote(over="benchmark"))
 
     assert [r.url.path for r in requests] == ["/v1/operators"]
 
@@ -213,7 +209,7 @@ def test_endpoint_of_a_closed_client_sends_no_request() -> None:
     client = recording_client(catalogue_engine, requests)
     client.close()
     with pytest.raises(RuntimeError, match="Client is closed"):
-        InferenceClient(vote(), client=client).endpoint()
+        client.chat.endpoint(vote())
 
     assert requests == []
 
@@ -230,13 +226,12 @@ def test_endpoint_takes_the_default_client_at_each_call(monkeypatch: pytest.Monk
         save_results=False,
     )
     monkeypatch.setattr(_default_client, "_client", first)
-    llm = InferenceClient("openrouter/a")
     try:
-        first_endpoint = llm.endpoint()
+        first_endpoint = sf.chat.endpoint("openrouter/a")
         # WHY sf.close(): it closes the first client and forgets it, as the next call needs.
         sf.close()
         monkeypatch.setattr(_default_client, "_client", second)
-        second_endpoint = llm.endpoint()
+        second_endpoint = sf.chat.endpoint("openrouter/a")
     finally:
         second.close()
 
@@ -249,9 +244,8 @@ def test_endpoint_takes_the_default_client_at_each_call(monkeypatch: pytest.Monk
 def test_endpoint_is_hashable() -> None:
     requests: list[httpx.Request] = []
     with recording_client(ok, requests) as client:
-        llm = InferenceClient("openrouter/a", client=client)
-        first = llm.endpoint()
-        second = llm.endpoint()
+        first = client.chat.endpoint("openrouter/a")
+        second = client.chat.endpoint("openrouter/a")
 
     assert first == second
     assert hash(first) == hash(second)

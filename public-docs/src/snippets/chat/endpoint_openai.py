@@ -6,7 +6,7 @@ ensemble = sf.Fanout(
     ["openrouter/deepseek/deepseek-v4-flash", "openrouter/openai/gpt-5.5"]
 ) >> sf.Synthesize("openrouter/google/gemini-3.1-pro-preview")
 
-endpoint = sf.InferenceClient(ensemble).endpoint()
+endpoint = ensemble.chat.endpoint()
 client = OpenAI(
     base_url=endpoint.base_url,
     api_key="not-used",

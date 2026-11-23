@@ -12,6 +12,7 @@ from screamingface.reducer import Reducer
 if TYPE_CHECKING:
     from screamingface._surface.chain import Pipeline as Chain
     from screamingface._surface.chain import Step
+    from screamingface.inference import RecipeChat
 
 
 class _Chainable:
@@ -42,6 +43,21 @@ class Recipe(_Chainable, ABC):
     @abstractmethod
     def _recipe_marker(self) -> None:
         """Keep Recipe non-constructible without adding public behavior."""
+
+    @property
+    def chat(self) -> RecipeChat:
+        """The chat calls of this recipe: ``recipe.chat.completions.create(...)`` (D14).
+
+        Each access gives a new small object that keeps only this recipe. The access compiles
+        nothing, sends no request and raises nothing. Each call uses the default client at that
+        time. For async, use ``aclient.chat.completions.create(model=recipe, ...)``.
+        """
+
+        # WHY lazy: screamingface.inference loads the client and the compiler, which build on
+        # this module. WHY no cache: recipes are frozen dataclasses with slots.
+        from screamingface.inference import RecipeChat
+
+        return RecipeChat(self)
 
 
 def _optional(value: object) -> bool:

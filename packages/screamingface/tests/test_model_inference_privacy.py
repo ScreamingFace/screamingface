@@ -63,17 +63,15 @@ def events(monkeypatch: pytest.MonkeyPatch) -> list[Any]:
 
 
 def _calls(client: sf.Client) -> None:
-    llm = sf.InferenceClient("openrouter/a", client=client)
-    llm.chat.completions.create(PROMPT)
-    list(llm.chat.completions.create(PROMPT, stream=True))
-    llm.chat.completions.create(PROMPT, use_cache=False)
-    llm.endpoint()
+    client.chat.completions.create(PROMPT, model="openrouter/a")
+    list(client.chat.completions.create(PROMPT, model="openrouter/a", stream=True))
+    client.chat.completions.create(PROMPT, model="openrouter/a", use_cache=False)
+    client.chat.endpoint("openrouter/a")
 
 
 async def _async_calls(client: sf.AsyncClient) -> None:
-    llm = sf.InferenceClient("openrouter/a", client=client)
-    await llm.chat.completions.create(PROMPT)
-    stream = await llm.chat.completions.create(PROMPT, stream=True)
+    await client.chat.completions.create(PROMPT, model="openrouter/a")
+    stream = await client.chat.completions.create(PROMPT, model="openrouter/a", stream=True)
     async for _ in stream:
         pass
 
@@ -166,7 +164,7 @@ def test_nothing_is_written_to_disk(tmp_path: Path, monkeypatch: pytest.MonkeyPa
             http_transport=httpx.MockTransport(_refuse),
         ) as refusing:
             with pytest.raises(PlanningError):
-                sf.InferenceClient("openrouter/a", client=refusing).chat.completions.create(PROMPT)
+                refusing.chat.completions.create(PROMPT, model="openrouter/a")
         after = _files(home, work, tmp, data_dir)
 
     assert requests
@@ -183,7 +181,7 @@ def test_log_lines_have_no_content(
         _calls(client)
     with hosted_client(_refuse, []) as refusing:
         with pytest.raises(PlanningError):
-            sf.InferenceClient("openrouter/a", client=refusing).chat.completions.create(PROMPT)
+            refusing.chat.completions.create(PROMPT, model="openrouter/a")
 
     records = [
         r

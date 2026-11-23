@@ -1,4 +1,4 @@
-"""MI-6, MI-16, MI-17, MI-18, MI-19, MI-23 and MI-29 through InferenceClient with a sync client
+"""MI-6, MI-16, MI-17, MI-18, MI-19, MI-23 and MI-29 through client.chat with a sync client
 (contracts C1.2, C2.1)."""
 
 from __future__ import annotations
@@ -35,7 +35,6 @@ from screamingface.chat_completion import (
 )
 from screamingface.client import Client
 from screamingface.errors import ExecutionError, PlanningError
-from screamingface.inference import InferenceClient
 from screamingface.recipe import Recipe
 from screamingface.warnings import IgnoredParameterWarning
 
@@ -43,9 +42,7 @@ from screamingface.warnings import IgnoredParameterWarning
 def test_one_prompt_sends_one_streamed_request_and_gives_a_reply() -> None:
     requests: list[httpx.Request] = []
     with recording_client(ok, requests) as client:
-        reply = InferenceClient(sf.Model("openrouter/a"), client=client).chat.completions.create(
-            "Hello"
-        )
+        reply = client.chat.completions.create("Hello", model=sf.Model("openrouter/a"))
 
     [request] = requests
     assert request.url.path == CHAT_PATH
@@ -69,7 +66,7 @@ def test_one_prompt_sends_one_streamed_request_and_gives_a_reply() -> None:
 def test_a_model_id_is_sent_unchanged() -> None:
     requests: list[httpx.Request] = []
     with recording_client(ok, requests) as client:
-        InferenceClient("openrouter/a", client=client).chat.completions.create("Hello")
+        client.chat.completions.create("Hello", model="openrouter/a")
 
     assert sent_body(requests[0])["model"] == "openrouter/a"
 
@@ -77,9 +74,7 @@ def test_a_model_id_is_sent_unchanged() -> None:
 def test_use_cache_false_sends_no_store() -> None:
     requests: list[httpx.Request] = []
     with recording_client(ok, requests) as client:
-        InferenceClient("openrouter/a", client=client).chat.completions.create(
-            "Hello", use_cache=False
-        )
+        client.chat.completions.create("Hello", model="openrouter/a", use_cache=False)
 
     assert requests[0].headers["cache-control"] == "no-store"
 
@@ -87,9 +82,8 @@ def test_use_cache_false_sends_no_store() -> None:
 def test_each_call_has_a_new_traceparent() -> None:
     requests: list[httpx.Request] = []
     with recording_client(ok, requests) as client:
-        llm = InferenceClient("openrouter/a", client=client)
-        llm.chat.completions.create("one")
-        llm.chat.completions.create("two")
+        client.chat.completions.create("one", model="openrouter/a")
+        client.chat.completions.create("two", model="openrouter/a")
 
     assert len(requests) == 2
     assert trace_id_of(requests[0]) != trace_id_of(requests[1])
@@ -105,9 +99,7 @@ def test_messages_and_tools_are_sent_unchanged() -> None:
     ]
     requests: list[httpx.Request] = []
     with recording_client(ok, requests) as client:
-        InferenceClient("openrouter/a", client=client).chat.completions.create(
-            messages=messages, tools=tools
-        )
+        client.chat.completions.create(messages=messages, tools=tools, model="openrouter/a")
 
     body = sent_body(requests[0])
     assert body["messages"] == messages
@@ -117,7 +109,7 @@ def test_messages_and_tools_are_sent_unchanged() -> None:
 def test_complete_does_not_send_empty_tools() -> None:
     requests: list[httpx.Request] = []
     with recording_client(ok, requests) as client:
-        InferenceClient("openrouter/a", client=client).chat.completions.create("Hello", tools=[])
+        client.chat.completions.create("Hello", model="openrouter/a", tools=[])
 
     assert "tools" not in sent_body(requests[0])
 
@@ -127,7 +119,7 @@ def test_tool_calls_are_on_the_reply() -> None:
         sse(wire(engine_stream({"role": "assistant"}, "tool_calls", tool_calls=(TOOL_CALL,))))
     )
     with recording_client(handler, []) as client:
-        reply = InferenceClient("openrouter/a", client=client).chat.completions.create("Hello")
+        reply = client.chat.completions.create("Hello", model="openrouter/a")
 
     assert reply.text is None
     assert reply.choices[0].finish_reason == "tool_calls"
@@ -171,7 +163,7 @@ def test_abstained_and_refused_are_replies(
     payload: list[dict[str, Any]], status: str, text: str | None, refusal: str | None
 ) -> None:
     with recording_client(answers(sse(wire(payload))), []) as client:
-        reply = InferenceClient("openrouter/a", client=client).chat.completions.create("Hello")
+        reply = client.chat.completions.create("Hello", model="openrouter/a")
 
     assert reply.screamingface.status == status
     assert reply.text == text
@@ -181,9 +173,10 @@ def test_abstained_and_refused_are_replies(
 def test_complete_warns_for_known_parameters_and_does_not_send_them() -> None:
     requests: list[httpx.Request] = []
     with recording_client(ok, requests) as client:
-        llm = InferenceClient("openrouter/a", client=client)
         with pytest.warns(IgnoredParameterWarning) as record:
-            llm.chat.completions.create("Hello", temperature=0.2, max_tokens=50)
+            client.chat.completions.create(
+                "Hello", model="openrouter/a", temperature=0.2, max_tokens=50
+            )
 
     assert len(record) == 2
     # WHY __file__: the warning names the line of the caller, which is this file.
@@ -194,49 +187,57 @@ def test_complete_warns_for_known_parameters_and_does_not_send_them() -> None:
 def test_refused_and_unknown_parameters_send_nothing() -> None:
     requests: list[httpx.Request] = []
     with recording_client(ok, requests) as client:
-        llm = InferenceClient("openrouter/a", client=client)
         with pytest.raises(PlanningError) as refused:
-            llm.chat.completions.create("Hello", n=2)
+            client.chat.completions.create("Hello", model="openrouter/a", n=2)
         assert refused.value.code == "unsupported_parameter"
         with pytest.raises(TypeError):
-            llm.chat.completions.create("Hello", tool=[{}])
+            client.chat.completions.create("Hello", model="openrouter/a", tool=[{}])
 
     assert requests == []
 
 
-ARGUMENT_ERRORS: list[tuple[Callable[[InferenceClient[Client]], object], type[Exception]]] = [
-    (lambda llm: llm.chat.completions.create(), TypeError),
+ARGUMENT_ERRORS: list[tuple[Callable[[Client], object], type[Exception]]] = [
+    (lambda c: c.chat.completions.create(model="openrouter/a"), TypeError),
     (
-        lambda llm: llm.chat.completions.create("hi", messages=[{"role": "user", "content": "x"}]),
+        lambda c: c.chat.completions.create(
+            "hi", model="openrouter/a", messages=[{"role": "user", "content": "x"}]
+        ),
         TypeError,
     ),
-    (lambda llm: llm.chat.completions.create(messages=[]), ValueError),
-    (lambda llm: llm.chat.completions.create("hi", timeout=0), ValueError),
-    (lambda llm: llm.chat.completions.create("hi", max_retries=-1), ValueError),
-    (lambda llm: llm.chat.completions.create("hi", stream=cast(Any, "yes")), TypeError),
+    (lambda c: c.chat.completions.create(messages=[], model="openrouter/a"), ValueError),
+    (lambda c: c.chat.completions.create("hi", model="openrouter/a", timeout=0), ValueError),
+    (
+        lambda c: c.chat.completions.create("hi", model="openrouter/a", max_retries=-1),
+        ValueError,
+    ),
+    (
+        lambda c: c.chat.completions.create("hi", model="openrouter/a", stream=cast(Any, "yes")),
+        TypeError,
+    ),
 ]
 
 
 @pytest.mark.parametrize(("call", "error"), ARGUMENT_ERRORS)
 def test_argument_errors_send_no_request(
-    call: Callable[[InferenceClient[Client]], object], error: type[Exception]
+    call: Callable[[Client], object], error: type[Exception]
 ) -> None:
     requests: list[httpx.Request] = []
     with recording_client(ok, requests) as client:
-        llm = InferenceClient("openrouter/a", client=client)
         with pytest.raises(error):
-            call(llm)
+            call(client)
 
     assert requests == []
 
 
-def test_constructor_argument_errors() -> None:
-    with pytest.raises(TypeError):
-        InferenceClient(cast(Any, 5))
-    with pytest.raises(ValueError):
-        InferenceClient("  ")
-    with pytest.raises(TypeError):
-        InferenceClient("openrouter/a", client=cast(Any, object()))
+def test_model_argument_errors_send_no_request() -> None:
+    requests: list[httpx.Request] = []
+    with recording_client(ok, requests) as client:
+        with pytest.raises(TypeError):
+            client.chat.completions.create("Hello", model=cast(Any, 5))
+        with pytest.raises(ValueError):
+            client.chat.completions.create("Hello", model="  ")
+
+    assert requests == []
 
 
 def test_engine_errors_reach_the_caller() -> None:
@@ -246,7 +247,7 @@ def test_engine_errors_reach_the_caller() -> None:
     )
     with recording_client(handler, requests) as client:
         with pytest.raises(ExecutionError) as raised:
-            InferenceClient("openrouter/a", client=client).chat.completions.create("Hello")
+            client.chat.completions.create("Hello", model="openrouter/a")
 
     assert raised.value.permanent is False
     assert raised.value.details == {"retry_after": 3}
@@ -261,8 +262,8 @@ def test_max_retries_and_timeout_reach_the_transport(monkeypatch: pytest.MonkeyP
         sse(reply_body()),
     )
     with recording_client(handler, requests) as client:
-        reply = InferenceClient("openrouter/a", client=client).chat.completions.create(
-            "Hello", max_retries=1, timeout=50.0
+        reply = client.chat.completions.create(
+            "Hello", model="openrouter/a", max_retries=1, timeout=50.0
         )
 
     assert reply.text == "Hello"
@@ -277,13 +278,12 @@ def test_default_client_is_taken_at_each_call(monkeypatch: pytest.MonkeyPatch) -
     first = recording_client(ok, first_requests)
     second = recording_client(ok, second_requests)
     monkeypatch.setattr(_default_client, "_client", first)
-    llm = InferenceClient("openrouter/a")
     try:
-        llm.chat.completions.create("one")
+        sf.chat.completions.create("one", model="openrouter/a")
         # WHY sf.close(): it closes the first client and forgets it, as the next call needs.
         sf.close()
         monkeypatch.setattr(_default_client, "_client", second)
-        llm.chat.completions.create("two")
+        sf.chat.completions.create("two", model="openrouter/a")
     finally:
         second.close()
 
@@ -301,6 +301,6 @@ def test_closed_client_raises_before_a_request(model: Recipe | str) -> None:
     client.close()
 
     with pytest.raises(RuntimeError, match="Client is closed"):
-        InferenceClient(model, client=client).chat.completions.create("Hello")
+        client.chat.completions.create("Hello", model=model)
 
     assert requests == []

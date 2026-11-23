@@ -1,47 +1,24 @@
-"""Call a recipe, a URL4 or a gateway model with the OpenAI client shape (sf.InferenceClient).
+"""Call a recipe, a URL4 or a gateway model with the call path of the OpenAI client.
 
 FEATURE: SDK model inference (docs/spec/2026-11-18-sdk-model-inference, contracts C1.1, C1.2 and
-C1.5). The path ``client.chat.completions.create(model=..., messages=...)`` is the path of the
-OpenAI SDK, so code written for it needs only a new client line (D11, D12). One class and one method
-name serve the sync and the async client. Typed overloads on the client type and on the value of
-``stream`` give the result type (ans:Q7).
+C1.5; overview §5.5, D13 to D17). There is no client class for chat. ``client.chat`` (Chat,
+AsyncChat) is a namespace of sf.Client and sf.AsyncClient, ``recipe.chat`` (RecipeChat) is a
+property of each recipe, and the module ``sf.chat`` is the twin of ``client.chat`` for the
+default client. Each create method and each endpoint method calls one shared function of
+screamingface._inference.calls, so the checks and the send are the same on each surface.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable, Coroutine, Mapping, Sequence
+from collections.abc import Coroutine, Mapping, Sequence
 from dataclasses import dataclass, field
-from functools import partial
-from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Literal, overload
-from urllib.parse import urlsplit
 
-from screamingface import _default_client
-from screamingface._inference.request import (
-    ChatCall,
-    ModelSource,
-    chat_call,
-    chat_messages,
-    chat_tools,
-    check_options,
-    check_other,
-    model_source,
-    model_text,
-    model_text_async,
-)
-from screamingface._inference.transport import (
-    open_chat_stream,
-    open_chat_stream_async,
-    send_chat,
-    send_chat_async,
-)
+from screamingface._inference.calls import create_async, create_sync, endpoint_async, endpoint_sync
 from screamingface.chat_completion import AsyncChatStream, ChatCompletion, ChatStream
 
-# WHY a run-time import: U4 checks the client type with isinstance, and reading
-# ClientT.__constraints__ needs the names.
-from screamingface.client import AsyncClient, Client
-
 if TYPE_CHECKING:
+    from screamingface.client import AsyncClient, Client
     from screamingface.recipe import Recipe
     from screamingface.url4 import Url4
 
@@ -70,18 +47,18 @@ class InferenceEndpoint:
         )
 
 
-class Completions[ClientT: (Client, AsyncClient)]:
-    """The ``chat.completions`` namespace of an InferenceClient, as in the OpenAI SDK (C1.2)."""
+class Completions:
+    """``sf.Client().chat.completions``: the OpenAI call path on one sync client (C1.2, D13)."""
 
-    def __init__(self, owner: InferenceClient[ClientT]) -> None:
-        self._owner = owner
+    def __init__(self, client: Client) -> None:
+        self._client = client
 
     @overload
     def create(
-        self: Completions[Client],
+        self,
         prompt: str | None = None,
         *,
-        model: Recipe | Url4 | str | None = None,
+        model: Recipe | Url4 | str,
         messages: Sequence[Mapping[str, Any]] | None = None,
         tools: Sequence[Mapping[str, Any]] | None = None,
         stream: Literal[False] = False,
@@ -93,10 +70,10 @@ class Completions[ClientT: (Client, AsyncClient)]:
     ) -> ChatCompletion: ...
     @overload
     def create(
-        self: Completions[Client],
+        self,
         prompt: str | None = None,
         *,
-        model: Recipe | Url4 | str | None = None,
+        model: Recipe | Url4 | str,
         messages: Sequence[Mapping[str, Any]] | None = None,
         tools: Sequence[Mapping[str, Any]] | None = None,
         stream: Literal[True],
@@ -108,10 +85,10 @@ class Completions[ClientT: (Client, AsyncClient)]:
     ) -> ChatStream: ...
     @overload
     def create(
-        self: Completions[Client],
+        self,
         prompt: str | None = None,
         *,
-        model: Recipe | Url4 | str | None = None,
+        model: Recipe | Url4 | str,
         messages: Sequence[Mapping[str, Any]] | None = None,
         tools: Sequence[Mapping[str, Any]] | None = None,
         stream: bool,
@@ -121,12 +98,66 @@ class Completions[ClientT: (Client, AsyncClient)]:
         timeout: float | None = None,
         **other: Any,
     ) -> ChatCompletion | ChatStream: ...
-    @overload
     def create(
-        self: Completions[AsyncClient],
+        self,
         prompt: str | None = None,
         *,
-        model: Recipe | Url4 | str | None = None,
+        model: Recipe | Url4 | str,
+        messages: Sequence[Mapping[str, Any]] | None = None,
+        tools: Sequence[Mapping[str, Any]] | None = None,
+        stream: bool = False,
+        stream_options: Mapping[str, Any] | None = None,
+        use_cache: bool = True,
+        max_retries: int = 0,
+        timeout: float | None = None,
+        **other: Any,
+    ) -> ChatCompletion | ChatStream:
+        """Send one chat call and give its reply (contracts C1.2).
+
+        ``model`` is a recipe, a sf.Url4, URL4 text or a gateway model id. It is a required
+        keyword, as in the OpenAI client. ``prompt`` is a short form of one user message; it is
+        not in the OpenAI SDK, which takes ``messages`` only. With stream=True the call returns
+        a ChatStream that is open at its first chunk.
+
+        Raises:
+            TypeError: an argument has the wrong type, or a keyword is unknown.
+            ValueError: an argument has a wrong value.
+            PlanningError: the model or a parameter is refused.
+            AuthenticationError: the Engine rejects the caller.
+            EngineCapabilityError: the Engine lacks the chat route.
+            ExecutionError: the run fails, times out or gives a wrong answer.
+            EngineUnavailableError: the Engine cannot be reached.
+        """
+
+        # AIDEV-NOTE: call the shared function directly (no helper between): the warning names the
+        # line of the caller.
+        return create_sync(
+            self._client,
+            model,
+            prompt,
+            messages=messages,
+            tools=tools,
+            stream=stream,
+            stream_options=stream_options,
+            use_cache=use_cache,
+            max_retries=max_retries,
+            timeout=timeout,
+            other=other,
+        )
+
+
+class AsyncCompletions:
+    """``sf.AsyncClient().chat.completions``: the OpenAI call path on one async client (C1.2)."""
+
+    def __init__(self, client: AsyncClient) -> None:
+        self._client = client
+
+    @overload
+    def create(
+        self,
+        prompt: str | None = None,
+        *,
+        model: Recipe | Url4 | str,
         messages: Sequence[Mapping[str, Any]] | None = None,
         tools: Sequence[Mapping[str, Any]] | None = None,
         stream: Literal[False] = False,
@@ -138,10 +169,10 @@ class Completions[ClientT: (Client, AsyncClient)]:
     ) -> Coroutine[Any, Any, ChatCompletion]: ...
     @overload
     def create(
-        self: Completions[AsyncClient],
+        self,
         prompt: str | None = None,
         *,
-        model: Recipe | Url4 | str | None = None,
+        model: Recipe | Url4 | str,
         messages: Sequence[Mapping[str, Any]] | None = None,
         tools: Sequence[Mapping[str, Any]] | None = None,
         stream: Literal[True],
@@ -153,10 +184,10 @@ class Completions[ClientT: (Client, AsyncClient)]:
     ) -> Coroutine[Any, Any, AsyncChatStream]: ...
     @overload
     def create(
-        self: Completions[AsyncClient],
+        self,
         prompt: str | None = None,
         *,
-        model: Recipe | Url4 | str | None = None,
+        model: Recipe | Url4 | str,
         messages: Sequence[Mapping[str, Any]] | None = None,
         tools: Sequence[Mapping[str, Any]] | None = None,
         stream: bool,
@@ -170,7 +201,7 @@ class Completions[ClientT: (Client, AsyncClient)]:
         self,
         prompt: str | None = None,
         *,
-        model: Recipe | Url4 | str | None = None,
+        model: Recipe | Url4 | str,
         messages: Sequence[Mapping[str, Any]] | None = None,
         tools: Sequence[Mapping[str, Any]] | None = None,
         stream: bool = False,
@@ -179,23 +210,15 @@ class Completions[ClientT: (Client, AsyncClient)]:
         max_retries: int = 0,
         timeout: float | None = None,
         **other: Any,
-    ) -> ChatCompletion | ChatStream | Coroutine[Any, Any, ChatCompletion | AsyncChatStream]:
-        """Send one chat call and give its reply (contracts C1.2).
+    ) -> Coroutine[Any, Any, ChatCompletion | AsyncChatStream]:
+        """Send one chat call and give a coroutine of its reply (contracts C1.2).
 
-        ``model`` is a recipe, a URL4 or a gateway model id, as for the constructor. It replaces
-        the model of the client for this call only. With no model here and no model on the client,
-        the call raises TypeError. ``prompt`` is a short form of one user message; it is not in
-        the OpenAI SDK, which takes ``messages`` only.
-
-        With a sync Client the call blocks and returns the reply, or a ChatStream when
-        ``stream`` is True. With an AsyncClient the call returns a coroutine.
-
-        With stream=True and a sync Client, the call returns a ChatStream that is open at its first
-        chunk. With an AsyncClient, this call raises each argument error before a coroutine exists;
-        the await raises the network and Engine errors.
+        This is a plain def: each argument error is raised by this call, before a coroutine
+        exists (MI-24). The await raises the network and Engine errors. The rules of
+        ``model`` are those of Completions.create.
 
         Raises:
-            TypeError: an argument has the wrong type, or there is no model.
+            TypeError: an argument has the wrong type, or a keyword is unknown.
             ValueError: an argument has a wrong value.
             PlanningError: the model or a parameter is refused.
             AuthenticationError: the Engine rejects the caller.
@@ -204,149 +227,43 @@ class Completions[ClientT: (Client, AsyncClient)]:
             EngineUnavailableError: the Engine cannot be reached.
         """
 
-        source = self._owner._source_for(model)
-        messages_list = chat_messages(prompt, messages)
-        tools_list = chat_tools(tools)
-        check_options(
+        # AIDEV-NOTE: call the shared function directly (no helper between): the warning names the
+        # line of the caller.
+        return create_async(
+            self._client,
+            model,
+            prompt,
+            messages=messages,
+            tools=tools,
             stream=stream,
             stream_options=stream_options,
             use_cache=use_cache,
             max_retries=max_retries,
             timeout=timeout,
+            other=other,
         )
-        # WHY directly here: check_other warns with stacklevel=3, so the warning names the line
-        # of the caller.
-        check_other(other)
-        client = self._owner._call_client()
-        # INVARIANT: a closed client raises its RuntimeError before a request, before the catalogue
-        # load and before a coroutine exists.
-        client._require_open()
-        build = partial(
-            chat_call,
-            messages=messages_list,
-            tools=tools_list,
-            stream=stream,
-            stream_options=stream_options,
-            use_cache=use_cache,
-            max_retries=max_retries,
-            timeout=timeout,
-        )
-        if isinstance(client, AsyncClient):
-            # WHY a coroutine from a plain def (C1.2, MI-24): each argument error above is raised
-            # by this call; only the catalogue, network and Engine errors come at the await.
-            return _create_async(client, source, build, stream=stream)
-        call = build(model_text(source, client._operator_catalog.load))
-        if stream:
-            return open_chat_stream(client._engine_post_stream, client.engine_url, call)
-        return send_chat(client._engine_post_stream, client.engine_url, call)
 
 
-class Chat[ClientT: (Client, AsyncClient)]:
-    """The ``chat`` namespace of an InferenceClient (contracts C1.2)."""
+class Chat:
+    """``sf.Client().chat`` (contracts C1.1, D13). It keeps its client and no other state."""
 
-    completions: Completions[ClientT]
+    completions: Completions
 
-    def __init__(self, owner: InferenceClient[ClientT]) -> None:
-        self.completions = Completions(owner)
-
-
-async def _create_async(
-    client: AsyncClient,
-    source: ModelSource,
-    build: Callable[[str], ChatCall],
-    *,
-    stream: bool,
-) -> ChatCompletion | AsyncChatStream:
-    """The async half of Completions.create: the catalogue load, the compile and the send (C1.2)."""
-
-    call = build(await model_text_async(source, client._operator_catalog.load))
-    if stream:
-        return await open_chat_stream_async(client._engine_post_stream, client.engine_url, call)
-    return await send_chat_async(client._engine_post_stream, client.engine_url, call)
-
-
-class InferenceClient[ClientT: (Client, AsyncClient)]:
-    """A chat client for recipes, URL4 and gateway model ids, with the shape of the OpenAI client.
-
-    ``model`` is optional. A model given here is the default of each call; a call can give its
-    own with ``create(model=...)``, as with the OpenAI client. With no client, or with a sync
-    Client, each call blocks and returns its result. With an AsyncClient, each call returns a
-    coroutine. The object keeps no conversation.
-    """
-
-    chat: Chat[ClientT]
-
-    @overload
-    def __init__(
-        self: InferenceClient[Client],
-        model: Recipe | Url4 | str | None = None,
-        *,
-        client: Client | None = None,
-    ) -> None: ...
-    @overload
-    def __init__(
-        self: InferenceClient[AsyncClient],
-        model: Recipe | Url4 | str | None = None,
-        *,
-        client: AsyncClient,
-    ) -> None: ...
-    def __init__(
-        self,
-        model: Recipe | Url4 | str | None = None,
-        *,
-        client: Client | AsyncClient | None = None,
-    ) -> None:
-        # INVARIANT: the constructor sends no request (P2); a recipe with a reducer compiles at
-        # each call.
-        if client is not None and not isinstance(client, Client | AsyncClient):
-            raise TypeError("client must be a sf.Client, a sf.AsyncClient or None")
-        # WHY None (D12): as the OpenAI client, the object can have no model; each call then gives
-        # one with create(model=...).
-        self._source: ModelSource | None = None if model is None else model_source(model)
+    def __init__(self, client: Client) -> None:
         self._client = client
-        self.chat = Chat(self)
+        self.completions = Completions(client)
 
-    def _source_for(self, model: object) -> ModelSource:
-        """The model of one call: the model of the call, else the model of the client (D12)."""
-
-        if model is not None:
-            return model_source(model)
-        if self._source is None:
-            raise TypeError("give a model: sf.InferenceClient(model) or create(model=...)")
-        return self._source
-
-    def _call_client(self) -> Client | AsyncClient:
-        """The client of one call: the client of the object, or the default client at this time."""
-
-        if self._client is not None:
-            return self._client
-        # WHY at each call (MI-S20b): sf.configure() and sf.close() change the default client, as
-        # for sf.classify.
-        return _default_client.default_client()
-
-    @overload
-    def endpoint(
-        self: InferenceClient[Client], model: Recipe | Url4 | str | None = None
-    ) -> InferenceEndpoint: ...
-    @overload
-    def endpoint(
-        self: InferenceClient[AsyncClient], model: Recipe | Url4 | str | None = None
-    ) -> Coroutine[Any, Any, InferenceEndpoint]: ...
-    def endpoint(
-        self, model: Recipe | Url4 | str | None = None
-    ) -> InferenceEndpoint | Coroutine[Any, Any, InferenceEndpoint]:
+    def endpoint(self, model: Recipe | Url4 | str) -> InferenceEndpoint:
         """Give the URL, the model text and the headers for another OpenAI client (C1.5).
-
-        ``model`` follows the rule of ``create(model=...)``: it replaces the model of the client.
 
         On an https Engine this call signs in first with ``Client.login()``. That call returns at
         once when a usable token exists. With no usable token, it starts the browser sign-in and
         can wait up to 300 seconds. In a script with no browser, set SCREAMINGFACE_ACCESS_TOKEN or
         call client.login() first. The values are a snapshot: when the Access token expires, call
-        ``endpoint()`` again. With an AsyncClient the call returns a coroutine.
+        ``endpoint()`` again.
 
         Raises:
-            TypeError: there is no model.
+            TypeError: the model has the wrong type.
             RuntimeError: the client is closed.
             AuthenticationError: the sign-in fails.
             ValueError: the recipe does not compile.
@@ -355,49 +272,164 @@ class InferenceClient[ClientT: (Client, AsyncClient)]:
             EngineUnavailableError: the Engine cannot be reached.
         """
 
-        source = self._source_for(model)
-        client = self._call_client()
-        # INVARIANT: a closed client raises its RuntimeError before a request and before a
-        # coroutine exists.
-        client._require_open()
-        if isinstance(client, AsyncClient):
-            # WHY a coroutine from a plain def (EB-S7): the same form as Completions.create.
-            return _endpoint_async(client, source)
-        hosted = _hosted(client.engine_url)
-        if hosted:
-            # WHY first (C1.5): the sign-in learns the audience of the token, so the catalogue
-            # load and the headers below carry the token.
-            client.login()
-        text = model_text(source, client._operator_catalog.load)
-        headers = client._engine_auth.websocket_headers() if hosted else {}
-        return _endpoint(client.engine_url, text, headers)
+        return endpoint_sync(self._client, model)
 
 
-async def _endpoint_async(client: AsyncClient, source: ModelSource) -> InferenceEndpoint:
-    """The async half of InferenceClient.endpoint: the sign-in, the compile and the headers."""
+class AsyncChat:
+    """``sf.AsyncClient().chat`` (contracts C1.1, D13). It keeps its client and no other state."""
 
-    hosted = _hosted(client.engine_url)
-    if hosted:
-        await client.login()
-    model = await model_text_async(source, client._operator_catalog.load)
-    headers = await client._engine_auth.websocket_headers_async() if hosted else {}
-    return _endpoint(client.engine_url, model, headers)
+    completions: AsyncCompletions
+
+    def __init__(self, client: AsyncClient) -> None:
+        self._client = client
+        self.completions = AsyncCompletions(client)
+
+    def endpoint(self, model: Recipe | Url4 | str) -> Coroutine[Any, Any, InferenceEndpoint]:
+        """Give a coroutine of the endpoint values for another OpenAI client (C1.5).
+
+        This is a plain def: a model error and a closed client are raised by this call, before
+        a coroutine exists (EB-S7). See Chat.endpoint for the sign-in and the snapshot rule.
+        """
+
+        return endpoint_async(self._client, model)
 
 
-def _hosted(engine_url: str) -> bool:
-    """True for an https Engine, which is behind Cloudflare Access (C1.5).
+class RecipeCompletions:
+    """``recipe.chat.completions``: the OpenAI call path for one recipe (contracts C1.1, D14).
 
-    A local http Engine needs no sign-in and no auth header (EB-S2).
+    Each call takes the default client at that time, so sf.configure() and sf.close() apply. It
+    is sync only; an async caller uses ``aclient.chat.completions.create(model=recipe, ...)``.
     """
 
-    return urlsplit(engine_url).scheme == "https"
+    def __init__(self, recipe: Recipe) -> None:
+        self._recipe = recipe
+
+    @overload
+    def create(
+        self,
+        prompt: str | None = None,
+        *,
+        messages: Sequence[Mapping[str, Any]] | None = None,
+        tools: Sequence[Mapping[str, Any]] | None = None,
+        stream: Literal[False] = False,
+        stream_options: Mapping[str, Any] | None = None,
+        use_cache: bool = True,
+        max_retries: int = 0,
+        timeout: float | None = None,
+        **other: Any,
+    ) -> ChatCompletion: ...
+    @overload
+    def create(
+        self,
+        prompt: str | None = None,
+        *,
+        messages: Sequence[Mapping[str, Any]] | None = None,
+        tools: Sequence[Mapping[str, Any]] | None = None,
+        stream: Literal[True],
+        stream_options: Mapping[str, Any] | None = None,
+        use_cache: bool = True,
+        max_retries: int = 0,
+        timeout: float | None = None,
+        **other: Any,
+    ) -> ChatStream: ...
+    @overload
+    def create(
+        self,
+        prompt: str | None = None,
+        *,
+        messages: Sequence[Mapping[str, Any]] | None = None,
+        tools: Sequence[Mapping[str, Any]] | None = None,
+        stream: bool,
+        stream_options: Mapping[str, Any] | None = None,
+        use_cache: bool = True,
+        max_retries: int = 0,
+        timeout: float | None = None,
+        **other: Any,
+    ) -> ChatCompletion | ChatStream: ...
+    def create(
+        self,
+        prompt: str | None = None,
+        *,
+        messages: Sequence[Mapping[str, Any]] | None = None,
+        tools: Sequence[Mapping[str, Any]] | None = None,
+        stream: bool = False,
+        stream_options: Mapping[str, Any] | None = None,
+        use_cache: bool = True,
+        max_retries: int = 0,
+        timeout: float | None = None,
+        **other: Any,
+    ) -> ChatCompletion | ChatStream:
+        """Send one chat call to the recipe through the default client (contracts C1.2).
+
+        The recipe is the model, so this method has no ``model`` parameter: a ``model=``
+        keyword raises TypeError. A recipe with a corrective loop raises PlanningError
+        (recipe_not_supported) here, before a request.
+
+        Raises:
+            TypeError: an argument has the wrong type, or a keyword is unknown.
+            ValueError: an argument has a wrong value.
+            PlanningError: the model or a parameter is refused.
+            AuthenticationError: the Engine rejects the caller.
+            EngineCapabilityError: the Engine lacks the chat route.
+            ExecutionError: the run fails, times out or gives a wrong answer.
+            EngineUnavailableError: the Engine cannot be reached.
+        """
+
+        # WHY None: create_sync takes the default client after the argument checks (D14).
+        # AIDEV-NOTE: call the shared function directly (no helper between): the warning names the
+        # line of the caller.
+        return create_sync(
+            None,
+            self._recipe,
+            prompt,
+            messages=messages,
+            tools=tools,
+            stream=stream,
+            stream_options=stream_options,
+            use_cache=use_cache,
+            max_retries=max_retries,
+            timeout=timeout,
+            other=other,
+        )
 
 
-def _endpoint(engine_url: str, model: str, headers: Mapping[str, str]) -> InferenceEndpoint:
-    """One InferenceEndpoint with a read-only copy of the headers (a snapshot, EB-S6)."""
+class RecipeChat:
+    """``recipe.chat`` (contracts C1.1, D14): a small object that keeps only its recipe.
 
-    # WHY /v1: the OpenAI client adds /chat/completions to its base_url, and the Engine route
-    # is POST /v1/chat/completions (C2.1).
-    return InferenceEndpoint(
-        base_url=f"{engine_url}/v1", model=model, headers=MappingProxyType(dict(headers))
-    )
+    The property Recipe.chat makes a new one at each access. The access compiles nothing, sends
+    no request and raises nothing.
+    """
+
+    completions: RecipeCompletions
+
+    def __init__(self, recipe: Recipe) -> None:
+        self._recipe = recipe
+        self.completions = RecipeCompletions(recipe)
+
+    def endpoint(self) -> InferenceEndpoint:
+        """Give the endpoint values of the recipe through the default client (C1.5).
+
+        See Chat.endpoint for the sign-in and the snapshot rule.
+
+        Raises:
+            TypeError: the model has the wrong type.
+            RuntimeError: the client is closed.
+            AuthenticationError: the sign-in fails.
+            ValueError: the recipe does not compile.
+            PlanningError: the recipe does not compile.
+            EngineCapabilityError: the operator catalogue cannot load.
+            EngineUnavailableError: the Engine cannot be reached.
+        """
+
+        return endpoint_sync(None, self._recipe)
+
+
+__all__ = [
+    "AsyncChat",
+    "AsyncCompletions",
+    "Chat",
+    "Completions",
+    "InferenceEndpoint",
+    "RecipeChat",
+    "RecipeCompletions",
+]

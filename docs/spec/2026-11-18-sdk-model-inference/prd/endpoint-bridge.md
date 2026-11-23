@@ -20,8 +20,8 @@ auth headers of my ensemble from the SDK, and I give them to my library
 ## 3. Scenarios
 
 **EB-S1 The values.** `[proposed P7]`
-- Given `llm = sf.InferenceClient(ensemble)`
-- When `e = llm.endpoint()`
+- Given an ensemble `ensemble`
+- When `e = ensemble.chat.endpoint()` (or `client.chat.endpoint(ensemble)`)
 - Then `e.base_url` is the Engine URL of the client with `/v1`; `e.model` is the Candidate URL4
   text (or the model id); `e.headers` has the auth headers that the client sends now.
 

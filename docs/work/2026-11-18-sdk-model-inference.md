@@ -236,6 +236,37 @@ docs examples run in tests.
   makes calls) gave the design; the owner said "let`s do exactly as you recommend". Spec
   overview §1 and §5.5, contracts C1 (rewritten), test plan MI-36 to MI-39 and plan U9 written
   before the build.
+- **2026-11-23 — U9 done: `chat` on the recipe, on the client and as `sf.chat`;
+  `sf.InferenceClient` removed.** Tiered-build run `wf_c5a75e00-f35`: Opus planned 3 waves and
+  14 tasks, all with Haiku implementers (wave 1: the core and the new tests MI-36 to MI-38;
+  wave 2: 6 parallel test conversions, the docs site, README and changelog, the spec examples;
+  wave 3: the docs tests and a final check). Gates green; Opus review: accept with fixes. Code:
+  `inference.py` has `Completions`, `Chat`, `AsyncCompletions`, `AsyncChat`,
+  `RecipeCompletions`, `RecipeChat` and `InferenceEndpoint`; `_inference/calls.py` has the
+  shared checks and send; `chat.py` is the module twin; `Recipe.chat` is a property;
+  `Client.chat` and `AsyncClient.chat` are attributes; `check_other` has a `stacklevel`
+  argument. Review fixes: F1 and F2 by me (typed entry points `create_sync`, `create_async`,
+  `endpoint_sync`, `endpoint_async`, so no `cast`; `InferenceEndpoint` is defined in
+  `screamingface.inference` again); F3 (contracts say that `recipe.chat` and `sf.chat` call
+  the shared implementation directly); F5 (the warning tests assert the line number, each
+  surface called directly); F6 (PRD rows and names); F7 (the import comment). Not changed: F4
+  (the `create` signature is written for each surface, because the spec asks for typed
+  overloads on each); F8 (no `__repr__` on the namespaces; optional). F9: an implementer ran
+  Prettier on `public-docs/CLAUDE.md` and re-aligned 51 table rows; `main` fails Prettier on
+  that table, so I put the rows back and kept the 4 changed lines. Tests replaced because their
+  subject is gone (each has the equal test of the new surface; no assertion on the wire, the
+  reply, a stream, a retry or an error is weaker): the constructor and `client=` type checks
+  (`test_constructor_argument_errors`, the two constructor tests of the typing file, the
+  refused snippet `a-client-of-another-type`), `test_the_object_keeps_no_state_of_a_call`,
+  the three constructor tests of `test_model_inference_recipes.py` (now the access, `create`
+  and `endpoint` forms), and the five client-model tests of
+  `test_model_inference_openai_shape.py` (now the MI-37 tests). Two lines
+  `# noqa: PLR0915` on `Client.__init__` and `AsyncClient.__init__` (one statement over the
+  limit after the new attribute; the repo uses this form). The approval record has the new
+  snapshot blob; against `main` the snapshot has new lines and one changed entry (`Recipe`
+  members: empty, now `chat`). Gates with no skip: SDK green (append-only with the approval
+  record); Engine docs tests 8 passed; public-docs oxlint, eslint, type-check, build green;
+  MI-28 against a real local Engine: 3 passed. Not pushed.
 
 ## Outcome (fill at the end — required before COMMIT)
 

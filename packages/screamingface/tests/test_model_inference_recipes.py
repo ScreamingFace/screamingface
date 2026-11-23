@@ -1,4 +1,4 @@
-"""MI-7, MI-9, MI-10 and MI-30 through InferenceClient (contracts C1.1, C3; P2, P14, P17)."""
+"""MI-7, MI-9, MI-10 and MI-30 through client.chat (contracts C1.1, C3; P2, P14, P17)."""
 
 from __future__ import annotations
 
@@ -30,7 +30,6 @@ from _chat_engine import (
 import screamingface as sf
 from screamingface._evaluation.candidate import compile_candidate
 from screamingface.errors import PlanningError
-from screamingface.inference import InferenceClient
 from screamingface.recipe import Recipe
 
 BUILDERS: list[Callable[[], Recipe]] = [model, fusion, pipeline, vote, gate, cascade]
@@ -53,7 +52,7 @@ def test_complete_sends_the_compiled_candidate_text(
 ) -> None:
     requests: list[httpx.Request] = []
     with recording_client(catalogue_engine, requests) as client:
-        InferenceClient(recipe(), client=client).chat.completions.create("Hello")
+        client.chat.completions.create("Hello", model=recipe())
 
     expected = (
         compile_candidate(recipe(), operators=CATALOG).url4
@@ -65,10 +64,11 @@ def test_complete_sends_the_compiled_candidate_text(
 
 
 @pytest.mark.parametrize("recipe", BUILDERS, ids=[build.__name__ for build in BUILDERS])
-def test_constructor_uses_no_network(recipe: Callable[[], Recipe]) -> None:
+def test_the_chat_access_uses_no_network(recipe: Callable[[], Recipe]) -> None:
     requests: list[httpx.Request] = []
     with recording_client(catalogue_engine, requests) as client:
-        InferenceClient(recipe(), client=client)
+        _ = client.chat.completions
+        _ = recipe().chat.completions
 
     assert requests == []
 
@@ -76,9 +76,9 @@ def test_constructor_uses_no_network(recipe: Callable[[], Recipe]) -> None:
 def test_reducer_recipe_loads_the_catalogue_once_at_first_call() -> None:
     requests: list[httpx.Request] = []
     with recording_client(catalogue_engine, requests) as client:
-        llm = InferenceClient(vote(), client=client)
-        llm.chat.completions.create("one")
-        llm.chat.completions.create("two")
+        recipe = vote()
+        client.chat.completions.create("one", model=recipe)
+        client.chat.completions.create("two", model=recipe)
 
     assert [request.url.path for request in requests] == ["/v1/operators", CHAT_PATH, CHAT_PATH]
 
@@ -86,34 +86,36 @@ def test_reducer_recipe_loads_the_catalogue_once_at_first_call() -> None:
 def test_recipe_without_a_reducer_never_loads_the_catalogue() -> None:
     requests: list[httpx.Request] = []
     with recording_client(catalogue_engine, requests) as client:
-        llm = InferenceClient(fusion(), client=client)
-        llm.chat.completions.create("one")
-        llm.chat.completions.create("two")
+        recipe = fusion()
+        client.chat.completions.create("one", model=recipe)
+        client.chat.completions.create("two", model=recipe)
 
     assert [request.url.path for request in requests] == [CHAT_PATH, CHAT_PATH]
 
 
 @pytest.mark.parametrize("recipe", CORRECTIVE, ids=[build.__name__ for build in CORRECTIVE])
-def test_corrective_loop_is_recipe_not_supported_from_the_constructor(
+def test_corrective_loop_is_recipe_not_supported_from_create(
     recipe: Callable[[], Recipe],
 ) -> None:
     requests: list[httpx.Request] = []
     with recording_client(catalogue_engine, requests) as client:
         with pytest.raises(PlanningError) as raised:
-            InferenceClient(recipe(), client=client)
+            client.chat.completions.create("Hello", model=recipe())
+        with pytest.raises(PlanningError) as raised_endpoint:
+            client.chat.endpoint(recipe())
 
     assert raised.value.code == "recipe_not_supported"
+    assert raised_endpoint.value.code == "recipe_not_supported"
     assert requests == []
 
 
 def test_complete_raises_the_compiler_error_before_the_chat_request() -> None:
     requests: list[httpx.Request] = []
     with recording_client(catalogue_engine, requests) as client:
-        llm = InferenceClient(
-            sf.Fanout(["prov/a", "prov/b"]) >> sf.Vote(over="benchmark"), client=client
-        )
         with pytest.raises(ValueError, match="over='benchmark' needs a benchmark"):
-            llm.chat.completions.create("Hello")
+            client.chat.completions.create(
+                "Hello", model=sf.Fanout(["prov/a", "prov/b"]) >> sf.Vote(over="benchmark")
+            )
 
     assert [request.url.path for request in requests] == ["/v1/operators"]
 
@@ -121,7 +123,7 @@ def test_complete_raises_the_compiler_error_before_the_chat_request() -> None:
 def test_complete_sends_a_candidate_binding_that_is_not_text_unchanged() -> None:
     requests: list[httpx.Request] = []
     with recording_client(ok, requests) as client:
-        InferenceClient(NOT_TEXT, client=client).chat.completions.create("Hello")
+        client.chat.completions.create("Hello", model=NOT_TEXT)
 
     assert sent_body(requests[0])["model"] == NOT_TEXT
 
@@ -129,17 +131,17 @@ def test_complete_sends_a_candidate_binding_that_is_not_text_unchanged() -> None
 def test_complete_sends_the_candidate_source_of_an_evaluation_url4() -> None:
     requests: list[httpx.Request] = []
     with recording_client(ok, requests) as client:
-        InferenceClient(sf.Url4(EVAL), client=client).chat.completions.create("Hello")
+        client.chat.completions.create("Hello", model=sf.Url4(EVAL))
 
     assert sent_body(requests[0])["model"] == CAND
 
 
 @pytest.mark.parametrize("text", [BENCH_ROUTE])
-def test_constructor_refuses_an_evaluation_url4_with_no_candidate(text: str) -> None:
+def test_create_refuses_an_evaluation_url4_with_no_candidate(text: str) -> None:
     requests: list[httpx.Request] = []
     with recording_client(ok, requests) as client:
         with pytest.raises(PlanningError) as raised:
-            InferenceClient(text, client=client)
+            client.chat.completions.create("Hello", model=text)
 
     assert raised.value.code == "recipe_invalid"
     assert requests == []

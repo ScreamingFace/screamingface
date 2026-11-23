@@ -1,8 +1,8 @@
 import screamingface as sf
 
-llm = sf.InferenceClient("openrouter/deepseek/deepseek-v4-flash")
+model = sf.Model("openrouter/deepseek/deepseek-v4-flash")
 
-with llm.chat.completions.create(
+with model.chat.completions.create(
     "Write one sentence about Paris.",
     stream=True,
     stream_options={"include_usage": True},

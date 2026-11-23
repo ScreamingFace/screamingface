@@ -1,4 +1,4 @@
-"""The reply types of sf.InferenceClient: a chat reply, its chunks and the two streams.
+"""The reply types of the chat calls: a chat reply, its chunks and the two streams.
 
 FEATURE: SDK model inference (docs/spec/2026-11-18-sdk-model-inference, contracts C1.3 and C1.4).
 The field names are those of the OpenAI objects (ans:Q2).

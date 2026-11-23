@@ -1,4 +1,4 @@
-# PRD — `sf.InferenceClient` and `chat.completions.create`
+# PRD — `recipe.chat`, `client.chat`, `sf.chat` and `chat.completions.create`
 
 Tags as in `00-overview.md` §2. Contract references (C1, C2, ...) are sections of
 `contracts.md`. Risk is given as likelihood × impact (H, M, L).
@@ -28,8 +28,8 @@ know `[stated ans:Q1]`.
 ### 3.1 Happy path
 
 **MI-S1 One prompt, one reply.** `[stated ans:Q1]`
-- Given `llm = sf.InferenceClient(sf.Model("openrouter/a"))` and a reachable Engine
-- When `reply = llm.chat.completions.create("Hello")`
+- Given `recipe = sf.Model("openrouter/a")` and a reachable Engine
+- When `reply = recipe.chat.completions.create("Hello")`
 - Then the SDK sends one streamed request (C2.1) with the compiled recipe as `model` and one
   user message
 - And `reply` is a `ChatCompletion`; `reply.text == reply.choices[0].message.content`
@@ -37,33 +37,33 @@ know `[stated ans:Q1]`.
 
 **MI-S2 An ensemble.** `[stated ans:Q1]`
 - Given a Fusion, a Pipeline, a Gate or a Cascade made with the SDK
-- Then `InferenceClient` compiles it to the same Candidate URL4 text that an evaluation of the
+- Then `recipe.chat` compiles it to the same Candidate URL4 text that an evaluation of the
   same recipe uses as its candidate `[implied]`.
 
 **MI-S3 Messages and tools.** `[stated ans:Q2]`
-- When `llm.chat.completions.create(messages=[...], tools=[...])`
+- When `recipe.chat.completions.create(messages=[...], tools=[...])`
 - Then the SDK sends both lists with no change, and `reply.tool_calls` has the calls of the
   final step, each with its full `arguments` text.
 
 **MI-S4 Async.** `[stated ans:Q7]`
-- Given `allm = sf.InferenceClient(ensemble, client=sf.AsyncClient())`
-- When `reply = await allm.chat.completions.create("Hello")`
+- Given `aclient = sf.AsyncClient()`
+- When `reply = await aclient.chat.completions.create("Hello", model=ensemble)`
 - Then the result is the same `ChatCompletion`, and no thread blocks.
 
 **MI-S5 Chunks.** `[stated ans:Q2]`
-- When `for chunk in llm.chat.completions.create("Hello", stream=True)`
+- When `for chunk in recipe.chat.completions.create("Hello", stream=True)`
 - Then the caller gets the chunks of the Engine in order, with no keep-alive line; the last chunk
   with a choice has the `finish_reason`
 - And with `stream_options={"include_usage": True}` one more chunk follows, with empty `choices`,
   `usage` and `screamingface` `[proposed P6]`.
 
 **MI-S6 A model id or URL4 text.** `[proposed P1]`
-- `sf.InferenceClient("openrouter/a")` sends the string as a gateway model id.
-- `sf.InferenceClient("(model_1:0.0:...)!...")` or a `sf.Url4` with Candidate URL4 text sends the
+- `client.chat.completions.create("Hello", model="openrouter/a")` sends the string as a gateway model id.
+- `model="(model_1:0.0:...)!..."` or a `sf.Url4` with Candidate URL4 text sends the
   text with no change.
 
 **MI-S6b An evaluation URL4.** `[proposed P14]`
-- Given `sf.InferenceClient(report.candidates["x"].url4)` (the URL4 of an evaluation)
+- Given `model=report.candidates["x"].url4` (the URL4 of an evaluation) on `client.chat` or `sf.chat`
 - Then the SDK takes the `candidate` source of the expression and sends that text
 - And an evaluation URL4 with no `candidate` source gives `PlanningError` before a request.
 
@@ -71,13 +71,13 @@ know `[stated ans:Q1]`.
 
 **MI-S7 A recipe with a reducer.** `[existing S/_evaluation/candidate.py:808]`
 - Given a recipe with `sf.Vote()` (or another reducer)
-- Then the constructor sends no request; it does the shape checks that need no catalogue
+- Then the access to `recipe.chat` compiles nothing and does no check
 - And each `create` (or `endpoint`) compiles the recipe with the operator catalogue that the
   client keeps; in the max-age of the catalogue, only the first call sends the catalogue request
   `[proposed P2]`.
 
 **MI-S8 An ignored parameter.** `[stated ans:Q3]`
-- When `llm.chat.completions.create("Hello", temperature=0.2, max_tokens=50)`
+- When `recipe.chat.completions.create("Hello", temperature=0.2, max_tokens=50)`
 - Then the call works, the request has neither parameter, and the SDK gives one
   `IgnoredParameterWarning` for each name; the text points to `sf.Model(params=...)`.
 - And a keyword that is not a known OpenAI chat parameter (for example the typo `tool=[...]`)
@@ -100,11 +100,11 @@ know `[stated ans:Q1]`.
 
 **MI-S12 A wrong argument.** `[proposed P3]`
 - No prompt and no messages, or both: `TypeError`. Empty messages or a blank model string:
-  `ValueError`. A `model` or `client` of a wrong type: `TypeError`. No request is sent.
+  `ValueError`. A model of a wrong type, checked by `create` and `endpoint`: `TypeError`. No request is sent.
 
 **MI-S13 A recipe that the route cannot run.** `[existing E/chat/recipe.py:167]`
-- A recipe with a corrective loop gives `PlanningError`, code `recipe_not_supported`, from the
-  constructor, with a text about the chat route and not about a benchmark `[proposed P17]`.
+- A recipe with a corrective loop gives `PlanningError`, code `recipe_not_supported`, from `create`
+  and `endpoint`, with a text about the chat route and not about a benchmark `[proposed P17]`.
 - A step with `over='benchmark'` gives the `ValueError` of the compiler; no chat request is sent
   `[existing S/_evaluation/answer_rule.py:84]` `[proposed P17]`.
 - `n=2`, `logprobs=True`, `audio`: `PlanningError`, code `unsupported_parameter`, before a
@@ -151,11 +151,11 @@ know `[stated ans:Q1]`.
 
 **MI-S20 Two calls at one time.** `[proposed]`
 - Two threads (or two tasks) call `create` on one object with a reducer recipe at the same
-  time. Each gets its reply. The object has no state that a call changes.
+  time. Each gets its reply. The chat namespace keeps its client or its recipe and no state of a call.
 
 **MI-S20b The default client changes.** `[existing S/_default_client.py:173]`
-- Given `llm = sf.InferenceClient(ensemble)` with no `client`
-- When the user calls `sf.close()` or `sf.configure(...)` and then `llm.chat.completions.create(...)`
+- Given `chat = ensemble.chat` (it uses the default client)
+- When the user calls `sf.close()` or `sf.configure(...)` and then `chat.completions.create(...)`
 - Then the call uses the default client of that moment, as `sf.classify` does.
 - An explicit client that is closed gives the `RuntimeError` of the client, before a request.
 
@@ -177,7 +177,7 @@ Each test is written first and must fail for the reason in the last column. Test
 
 | # | Test | Level | Scenario | Risk | RED reason / GREEN note |
 |---|---|---|---|---|---|
-| MI-1 | `typed_overloads_give_exact_results_for_each_client_and_stream_value` (the six rows of C1.2, and the two constructor forms) | typing (pyright, `assert_type`) | MI-S4, C1.2 | H×H | the class does not exist; proves risk R3 before other work |
+| MI-1 | `typed_overloads_give_exact_results_for_each_client_and_stream_value` (the six rows of C1.2, and the typed results of the four surfaces) | typing (pyright, `assert_type`) | MI-S4, C1.2 | H×H | the class does not exist; proves risk R3 before other work |
 | MI-2 | `chat_post_is_not_sent_again_after_408_429_5xx` | unit | MI-S19 | M×H | pins the rule on the new POST seam |
 | MI-3 | `chat_post_is_sent_once_more_after_a_sign_in_challenge` | unit | MI-S19 | M×H | RED: the seam has no replay-safe mark |
 | MI-4 | `frames_build_the_reply_of_the_plain_route` (text, refusal, tool calls, no usage frame, abstained) | unit, pure | C2.3 | H×H | the frame reader does not exist; table of cases |
@@ -185,8 +185,8 @@ Each test is written first and must fail for the reason in the last column. Test
 | MI-6 | `one_prompt_sends_one_streamed_request_and_gives_a_reply` | unit | MI-S1 | H×H | checks method, path, headers, body |
 | MI-7 | `recipe_compiles_to_the_candidate_text_of_an_evaluation` (Model, Fusion, Pipeline, Gate, Cascade) | unit | MI-S2 | M×H | compare with `compile_candidate` |
 | MI-8 | `model_string_rule_matches_the_engine` (`(` prefix, white space, id, `Url4`, blank) | unit | MI-S6, MI-S12 | M×M | |
-| MI-9 | `constructor_uses_no_network`, `reducer_recipe_loads_the_catalogue_once_at_first_call` | unit | MI-S7 | M×M | count the requests |
-| MI-10 | `corrective_loop_is_recipe_not_supported_from_the_constructor` (also inside `WithBudget`); `compiler_errors_keep_their_type` (`over='benchmark'`) | unit | MI-S13 | M×M | no chat request in each case |
+| MI-9 | `test_the_chat_access_uses_no_network`, `reducer_recipe_loads_the_catalogue_once_at_first_call` | unit | MI-S7 | M×M | count the requests |
+| MI-10 | `test_corrective_loop_is_recipe_not_supported_from_create` (also inside `WithBudget`); `compiler_errors_keep_their_type` (`over='benchmark'`) | unit | MI-S13 | M×M | no chat request in each case |
 | MI-11 | `error_map_before_the_stream` (each row of C2.4, table) | unit | MI-S14 | H×M | |
 | MI-12 | `error_event_maps_should_retry_and_retry_after` | unit | MI-S15 | H×M | |
 | MI-13 | `broken_or_silent_connection_is_outcome_unknown_and_is_not_retried` | unit | MI-S16 | M×H | |
