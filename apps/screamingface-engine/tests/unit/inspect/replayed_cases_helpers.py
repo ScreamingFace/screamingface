@@ -143,4 +143,6 @@ STAND_IN_METADATA: dict[str, dict[str, object]] = {
     # so the stand-in lane grades it with no judge.
     "futurex_past": {"level": 1, "ground_truth": ["A"]},
     "futurex_past_study": {"level": 1, "ground_truth": ["A"]},
+    # BTF-3: the scorer reads the resolution (1 = Yes) from the metadata, not the target.
+    "btf3": {"outcome": 1},
 }

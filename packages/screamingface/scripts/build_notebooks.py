@@ -88,6 +88,7 @@ def notebooks() -> dict[str, NotebookNode]:
         "20_routers_cascades.ipynb": _routers_cascades(),
         "21_runs.ipynb": _runs(),
         "22_futurex_past.ipynb": _futurex_past_e2e(),
+        "23_btf3.ipynb": _btf3_e2e(),
     }
 
 
@@ -2428,6 +2429,85 @@ cases will not sample them evenly. One pass over all 2,036 questions is about 2,
 calls per model, plus up to three short Judge calls for each of the 664 level-3/4 questions (route,
 then match or rank). The study Benchmark calls no Judge. There is no spend cap in this stack, so
 `limit` is the only brake."""),
+    )
+
+
+def _btf3_e2e() -> NotebookNode:
+    return _notebook(
+        nbformat.v4.new_markdown_cell("""\
+# BTF-3 — yes/no forecasts, scored by accuracy with Brier beside it
+
+[BTF-3](https://huggingface.co/datasets/futuresearch-ai/BTF-3) (Bench to the Future 3, by
+FutureSearch) holds real forecasting questions asked in late April to late May 2026 and resolved
+by early July 2026. The `btf3` Benchmark serves its 1,515 **yes/no** questions from the release
+that [Diverse by Reasoning](https://arxiv.org/abs/2608.24001) used, with that paper's prompt and
+grading rule, so its BTF-3 results can be rerun here. Each question comes with background,
+resolution criteria and a date; the model reasons, then ends with one line
+`Final answer: <probability between 0 and 1>`, the probability that the answer is Yes.
+
+**The headline is accuracy**: a probability of 0.5 or more counts as Yes. The **Brier score**
+(the squared gap between the probability and what happened; lower is better, 0.25 for always
+answering 0.5) is published beside it as the run metric `brier`. Read both: about two in three
+questions resolved No, so always answering No already scores 0.67 on accuracy. A reply with no
+readable probability is a miss and costs Brier 0.25; the run metric `no_forecast` counts them.
+
+**Read a score with this in mind.** The model gets no research or web search, as in the paper,
+so scores are not comparable with the FutureSearch leaderboard's research agents. The paper ran
+every model at temperature 0; this Benchmark does not set it. The events have already happened:
+a model trained after about April 2026 may simply know them. The questions are CC-BY-NC-4.0."""),
+        nbformat.v4.new_markdown_cell(
+            _before_running(
+                "## 0. Before running",
+                """\
+screamingface prepare btf3   # first run only: download the questions
+screamingface up             # start Gateway :9105, Scoreboard :9106, and Engine :9108
+screamingface status""",
+            )
+        ),
+        nbformat.v4.new_code_cell(f"{_TARGET_SETUP}\n\nsf.connect()"),
+        nbformat.v4.new_markdown_cell("""\
+## 1. Read the Benchmark's card
+
+`btf3` is a Benchmark we author ourselves (origin `screamingface`). The card carries the pinned
+release, the licence and the scoring caveats."""),
+        nbformat.v4.new_code_cell("""\
+sf.benchmarks.get("btf3")"""),
+        nbformat.v4.new_markdown_cell("""\
+## 2. Run a few questions with one model
+
+The prompt asks for five reasoning steps before the probability, so leave room for them. To
+match the paper, add `"temperature": 0` for a model that accepts it."""),
+        nbformat.v4.new_code_cell("""\
+# No `temperature` here on purpose: several current reasoning models reject the parameter
+# outright (see 13_contracteval for the provider-by-provider detail).
+PARAMS = {"max_tokens": 4096}
+
+solo = sf.Model(model="openrouter/openai/gpt-5.5", params=PARAMS)
+report = sf.evaluate(solo, benchmark="btf3", limit=5)
+report"""),
+        nbformat.v4.new_markdown_cell("""\
+## 3. Read each forecast
+
+Each case carries the probability read from the reply, the outcome (1 = Yes), its Brier and
+whether the reply ended on the probability as asked (`compliant`). A reply with no probability
+shows `forecast` as None, scores 0 and costs Brier 0.25; the run's metrics count those cases as
+`no_forecast`, beside `brier`."""),
+        nbformat.v4.new_code_cell("""\
+for case in report.candidates.only.cases:
+    grade = case.grade
+    if grade is None or case.failures:
+        print(case.case_id, case.status, [failure.code for failure in case.failures])
+        continue
+    meta = grade.checks[0].evidence[0].metadata
+    fields = [meta.get(key) for key in ("forecast", "outcome", "brier", "compliant")]
+    print(case.case_id, *fields)"""),
+        nbformat.v4.new_markdown_cell("""\
+## 4. Before you scale up
+
+A `limit=N` run is a smoke test, not a ranking: about two in three questions resolved No, and
+five questions will not sample that evenly. One pass over all 1,515 questions is 1,515
+Candidate calls per model, with no Judge. There is no spend cap in this stack, so `limit` is the
+only brake."""),
     )
 
 

@@ -8659,6 +8659,96 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         ),
         notebook="22_futurex_past",
     ),
+    BenchmarkSpec(
+        key="btf3",
+        published_revision="1c1d7973a6094bf4",
+        title="BTF-3 (yes/no forecasting)",
+        description=(
+            "Bench to the Future 3 (FutureSearch): 1,515 real yes/no forecasting questions, "
+            "asked as of late April to late May 2026 and resolving between May and early July "
+            "2026, pinned to the 2026-07-16 release that the paper Diverse by Reasoning "
+            "(arXiv 2608.24001) used, so its BTF-3 results can be rerun here. Each Case is that "
+            "paper's prompt: a shortened copy of the Bench to the Future forecaster prompt with "
+            "the question, background, resolution criteria and date, ending with one 'Final "
+            "answer: <probability between 0 and 1>' line (the paper's answer line, reworded to "
+            "name the answer a probability). Closed-book: no research or web "
+            "search, as in the paper, so scores are not comparable with the FutureSearch "
+            "leaderboard's research agents. Scored as the paper scored it: the headline is "
+            "accuracy, where a probability of 0.5 or more counts as Yes; the Brier score (the "
+            "squared gap between the probability and what happened, lower is better, 0.25 for "
+            "always 0.5) is published beside it as the run metric brier, because always "
+            "answering No already scores 0.67 on accuracy (1,014 No, 501 Yes). A reply with no "
+            "readable probability counts as a miss and costs Brier 0.25, and the run metric "
+            "no_forecast counts those Cases. One run per question; the paper ran at temperature "
+            "0, which the Benchmark does not set, so set it on the Candidate to compare. Models "
+            "trained after about April 2026 may have seen the outcomes."
+        ),
+        focus="Probabilistic forecasting of real events, accuracy and Brier score",
+        dataset_url="https://huggingface.co/datasets/futuresearch-ai/BTF-3",
+        difficulty="hard",
+        # WHY coverage_declare: a whole-run metric admits no other policy yet (OME-1642); a
+        # failed Candidate call leaves the denominator (as the paper's committee_kit drops a
+        # NO_RESPONSE), while a reply with no forecast stays in it as a miss.
+        failure_policy="coverage_declare",
+        # Provenance: this scorer is declared by the Task of
+        #   screamingface_engine_inspect.local_tasks.btf3.btf3:btf3 — a LOCAL Task built to
+        #   ScreamingFace/screamingface#1868 (OME-1938): "a replication runs the paper's
+        #   questions, prompt and grading rule". The prompt is the contributor's study prompt as
+        #   sent (bench_formats.btf_render(forecast_prompts.BTF, "tight")) with only its answer
+        #   line reworded to name a probability (sha256 pinned; the study's line put back gives
+        #   the prompt as sent, from which all 100 study prompts re-render); the reply reader is
+        #   the study's btf_parse, vendored verbatim; accuracy at 0.5 and Brier with 0.25 for no
+        #   forecast are the study's committee_kit/metrics.py rules. FutureSearch publishes no
+        #   scoring code.
+        # NAMED DEVIATIONS (spec docs/spec/2026-11-17-btf3-local-task.md §5, §12): all 1,515
+        #   questions, not the paper's 100-question sample; temperature 0 is not set (the Engine
+        #   applies no Task config; the Candidate's own settings stand); a cut-off reply is
+        #   not re-asked with a larger token cap; the answer line is reworded to name a
+        #   probability (contributor's decision, 2026-11-18); binary questions only;
+        #   closed-book against the FutureSearch leaderboard (as the paper ran).
+        scorer="screamingface_engine_inspect.local_tasks.btf3.btf3:btf3_accuracy",
+        # A dict: accuracy is the headline; brier, forecasts, no_forecast (replies with no
+        # readable probability, scored as misses) and compliant are published as run metrics.
+        whole_run_metric="screamingface_engine_inspect.local_tasks.btf3.btf3:btf3_headline",
+        whole_run_headline="accuracy",
+        # No judge and no Draft Feedback: feedback on a forecast would leak the outcome.
+        with_check_surface=False,
+        origin="screamingface",
+        # The paper whose BTF-3 runs this Benchmark replicates (issue #1868). BTF-3 itself has
+        # no paper yet ("Paper to follow", evals.futuresearch.ai), so the citation is the
+        # dataset's own.
+        paper_url="https://arxiv.org/abs/2608.24001",
+        authors="FutureSearch, 2026",
+        citation=(
+            "@misc{futuresearch2026btf3,\n"
+            "  title        = {Bench to the Future 3 (BTF-3)},\n"
+            "  author       = {{FutureSearch}},\n"
+            "  year         = {2026},\n"
+            "  howpublished = {\\url{https://huggingface.co/datasets/futuresearch-ai/BTF-3}}\n"
+            "}"
+        ),
+        # FutureSearch publishes no harness or scoring code; as for FRAMES, the harness link is
+        # the questions at the pinned commit.
+        harness_url=(
+            "https://huggingface.co/datasets/futuresearch-ai/BTF-3/tree/ad5a2165eea26a8a43592ba36ff15765199ddc71"
+        ),
+        # Owner decision requested on the PR: CC-BY-NC-4.0 (the worldsense precedent,
+        # 2026-10-01); the card asks commercial users to write to benchmarks@futuresearch.ai.
+        license="CC-BY-NC-4.0",
+        license_note=(
+            "The BTF-3 questions are CC-BY-NC-4.0 (futuresearch-ai/BTF-3): non-commercial use; "
+            "commercial use needs FutureSearch's permission. The prompt and reply reader are the "
+            "crowd-wisdom study's, contributed under Apache-2.0."
+        ),
+        human_baseline=NotPublished(reason="FutureSearch publishes no human score for BTF-3"),
+        frontier_score=NotPublished(
+            reason=(
+                "the BTF-3 leaderboard scores research agents over a frozen web snapshot, not "
+                "closed-book models, on its own 2,015 binary questions, not this release's 1,515"
+            )
+        ),
+        notebook="23_btf3",
+    ),
     # --- importer: generated BenchmarkSpec rows land above this line ---
 )
 

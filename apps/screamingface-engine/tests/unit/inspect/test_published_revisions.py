@@ -165,6 +165,9 @@ _PUBLISHED_REVISIONS: dict[str, str] = {
     # study's, two local Tasks over one loader; first ids, set the day they were added.
     "futurex_past": "200cf4f72481ffb0",
     "futurex_past_study": "3c66e638e04516ed",
+    # OME-1938: BTF-3, an outside contribution: the binary questions at accuracy with Brier;
+    # first id, set the day it was added.
+    "btf3": "1c1d7973a6094bf4",
     # OME-1733: LABBench2 FigQA2 and TableQA2 image, a local Task judged by Sonnet 4.5.
     "labbench2_figqa2_img": "770667413b4b1e51",
     "labbench2_tableqa2_img": "742c148e87b15f69",

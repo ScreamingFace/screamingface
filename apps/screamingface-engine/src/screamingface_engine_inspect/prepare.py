@@ -2384,6 +2384,24 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         },
         license="apache-2.0",
     ),
+    # btf3 — imported by Task replay on 2026-11-17 from
+    #   screamingface_engine_inspect.local_tasks.btf3.btf3:btf3.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   hugging-face futuresearch-ai/BTF-3/btf3_binary_questions_and_forecasts.parquet
+    #     pin revision ad5a2165eea26a8a43592ba36ff15765199ddc71
+    "btf3": TaskReplayCasesSpec(
+        task="screamingface_engine_inspect.local_tasks.btf3.btf3:btf3",
+        case_count=1515,
+        case_digest="3381b20d572a01ef74f6b41cbc9289300058932bff643d89161af042e08f5767",
+        case_set_digest="06ad754d3008ea8a9f6ccc5dadea02e4d91553f1dace1422abaa8c13a01ef71b",
+        keep_sample_metadata=True,
+        source_pins={
+            "futuresearch-ai/BTF-3": "ad5a2165eea26a8a43592ba36ff15765199ddc71",
+        },
+        # License: CC-BY-NC-4.0 (futuresearch-ai/BTF-3 card); non-commercial use only. Owner
+        #  decision requested on the PR, as for worldsense (2026-10-01).
+        license="cc-by-nc-4.0",
+    ),
     # --- importer: generated TaskReplayCasesSpec rows land above this line ---
 }
 
