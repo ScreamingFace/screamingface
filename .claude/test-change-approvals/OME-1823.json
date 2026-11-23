@@ -1,0 +1,14 @@
+{
+  "issue": "OME-1823",
+  "branch": "OME-1822-routing-pilot-landing",
+  "approver": "owner",
+  "date": "2026-11-23",
+  "scope": "BYOM routing pilot landing on main. The public-surface snapshot, regenerated with its own command on main's snapshot, only adds entries: the RoutedAnswer class with its __init__ member, RoutedAnswer in __all__, and the route_answer method among the Client members. Every existing entry is unchanged. No other prior test changes.",
+  "reason": "Approved in chat on 2026-11-23 for the landing branch: the 2026-11-04 OME-1823 transition re-pinned to main's base blob, with the same three-entry scope.",
+  "files": {
+    "packages/screamingface/tests/public_surface_snapshot.json": {
+      "base_blob": "cc6e32c7294c58fe167cd57a9e853b2ab4cb1410",
+      "approved_blob": "e5b423b7e322f7c164b2bcadf6d173c12c871c63"
+    }
+  }
+}

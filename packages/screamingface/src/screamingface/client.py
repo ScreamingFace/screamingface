@@ -42,6 +42,7 @@ if TYPE_CHECKING:
     from screamingface.leaderboard import LeaderboardScore
     from screamingface.media import CaseMedia, FetchedMedia
     from screamingface.recipe import Recipe
+    from screamingface.routing import RoutedAnswer
     from screamingface.runs import Run
 from screamingface._evaluation.model import _answer_seed_value
 from screamingface.report import Report
@@ -737,6 +738,28 @@ class Client:
 
         self._require_open()
         return classify(self._engine_get, self._engine_url, model, input)
+
+    def route_answer(self, profile: str, input: str) -> RoutedAnswer:
+        """Answer one question with the model a routing profile on this engine selects.
+
+        FEATURE (OME-1823): the engine classifies the question with the profile's classifier and
+        asks the one model bound to the highest label. e.g.
+        ``client.route_answer("expert_router_v1", "Sort a list in Python").answer``.
+
+        Raises:
+            PlanningError: the request is too long or holds a character UTF-8 cannot encode, or
+                the engine refused it (for example ``routing_profile_not_found``).
+            EngineCapabilityError: this engine does not serve ``/route-answer``.
+            ExecutionError: the call did not finish. ``retryable`` is True only when nothing
+                ran; otherwise asking again may bill the classifier and the selected model again.
+            AuthenticationError: the engine refused the caller.
+            EngineUnavailableError: the engine could not be reached.
+        """
+
+        from screamingface._engine.routed_answer import route_answer
+
+        self._require_open()
+        return route_answer(self._engine_get, self._engine_url, profile, input)
 
     def _require_open(self) -> None:
         if self._closed:
