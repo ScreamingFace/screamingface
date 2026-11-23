@@ -78,3 +78,14 @@ merged.
   - The comment in `charts/aigateway/templates/networkpolicy.yaml` has the same wrong words as
     the README had (F1). It is older than this work and not changed here.
   - No existing test is changed. No schema change.
+
+## Review fix (2026-11-23)
+
+A code review of the whole stack found that the deploy step widened header trust: it told
+operators to add the scoreboard pod range to `AIGW_ALLOWED_NETWORKS`, and a peer on that list may
+name any user on every authenticated route. Fix: a new setting `AIGW_FROZEN_COPY_CLAIM_NETWORKS`
+(`config.frozenCopyClaimNetworks`), read only by `require_copy_claimer`. The guard trusts a peer in
+`allowed_networks` or in the new list; `current_account` never reads it. Chart, chart README,
+DEPLOYMENT.md, contracts K4, 00-overview §7.3 and prd/score-claim.md updated. New test file
+`tests/unit/test_frozen_copy_claim_networks.py`; no existing test changed. The plan for stack B
+still names `AIGW_ALLOWED_NETWORKS` for the handoff (§7.3 of the plan); the spec is the record.

@@ -12,6 +12,10 @@ not write to the database.
 
 INVARIANT: the guard checks the peer network before it reads the identity header, as
 `require_admin` does.
+
+INVARIANT: a peer on `AIGW_FROZEN_COPY_CLAIM_NETWORKS` is trusted here and nowhere else. The
+scoreboard pods go on that list, not on `AIGW_ALLOWED_NETWORKS`: a peer on the second list may name
+any user on every authenticated route.
 """
 
 from __future__ import annotations
@@ -45,6 +49,9 @@ async def require_copy_claimer(request: Request) -> None:
     The order of the checks is the order of contracts K4: `jwt` mode (503), `disabled` mode
     (accept), an empty claim list (503), an untrusted peer (403), no identity (401), an address
     that is not in the claim list (403). The messages do not name the caller or the networks.
+
+    A trusted peer is in `allowed_networks` (the mesh gateway) or in `frozen_copy_claim_networks`
+    (the scoreboard pods).
     """
     settings = request.app.state.settings
     if settings.auth_mode == "jwt":
@@ -55,7 +62,8 @@ async def require_copy_claimer(request: Request) -> None:
     if not settings.frozen_copy_claim_emails:
         raise HTTPException(status_code=503, detail=_NO_CLAIMERS)
     peer = request.client.host if request.client is not None else None
-    if not peer_in_networks(peer, settings.allowed_networks):
+    trusted = (*settings.allowed_networks, *settings.frozen_copy_claim_networks)
+    if not peer_in_networks(peer, trusted):
         raise HTTPException(status_code=403, detail=_UNTRUSTED_PEER)
     identity = identity_from_headers(request.headers)
     if identity is None:

@@ -102,6 +102,17 @@ class Settings(BaseSettings):
         default=frozenset(), validation_alias="AIGW_FROZEN_COPY_CLAIM_EMAILS"
     )
 
+    frozen_copy_claim_networks: Annotated[tuple[IPv4Network | IPv6Network, ...], NoDecode] = Field(
+        default=(), validation_alias="AIGW_FROZEN_COPY_CLAIM_NETWORKS"
+    )
+    """Peers that may call the frozen copy claim route, and no other route (OME-1947).
+
+    WHY a separate list: a peer on `allowed_networks` may name any user in `X-User-Email` on every
+    authenticated route. The scoreboard is outside the mesh and must reach the claim route; with its
+    pods on `allowed_networks`, a fault in the scoreboard could act as any user. A peer on this list
+    is trusted by `require_copy_claimer` only, and `current_account` never reads it.
+    """
+
     jwt_ttl_seconds: int = Field(default=86_400, validation_alias="AIGATEWAY_JWT_TTL_SECONDS")
     public_url: str | None = Field(default=None, validation_alias="AIGATEWAY_PUBLIC_URL")
 
@@ -352,7 +363,7 @@ class Settings(BaseSettings):
             )
         return self
 
-    @field_validator("allowed_networks", mode="before")
+    @field_validator("allowed_networks", "frozen_copy_claim_networks", mode="before")
     @classmethod
     def _parse_allowed_networks(cls, value: object) -> object:
         """Parse the comma-separated CIDR list.

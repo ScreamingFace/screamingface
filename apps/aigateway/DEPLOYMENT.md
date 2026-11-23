@@ -1000,6 +1000,7 @@ is `docs/spec/2026-11-16-frozen-copy-retention/prd/score-claim.md` and `contract
 | Environment variable | Chart key | Default | Meaning |
 | --- | --- | --- | --- |
 | `AIGW_FROZEN_COPY_CLAIM_EMAILS` | `config.frozenCopyClaimEmails` | empty | The addresses that may claim, separated by commas. Set it to the actor address of the scoreboard (`SCOREBOARD_GATEWAY_ACTOR`). |
+| `AIGW_FROZEN_COPY_CLAIM_NETWORKS` | `config.frozenCopyClaimNetworks` | empty | The address range of the scoreboard pods, as CIDR networks separated by commas. A peer in this list may call the claim route and no other route. |
 
 - This list is not the admin list (`AIGATEWAY_ADMIN_EMAILS`). An address on the admin list
   cannot claim. An address on the claim list cannot use `/v1/admin`.
@@ -1017,7 +1018,7 @@ The answers of the route:
 | `abandoned` or `expired` copy | `410`, `detail.code` is `frozen_copy_expired`, `detail.state` is the status |
 | unknown or malformed copy id | `404`, `detail.code` is `frozen_copy_not_found` |
 | `cloudflare_headers` mode, empty claim list | `503` |
-| `cloudflare_headers` mode, peer not in `AIGW_ALLOWED_NETWORKS`, or address not in the list | `403` |
+| `cloudflare_headers` mode, peer in neither `AIGW_ALLOWED_NETWORKS` nor `AIGW_FROZEN_COPY_CLAIM_NETWORKS`, or address not in the list | `403` |
 | `cloudflare_headers` mode, no `X-User-Email` header | `401` |
 | `jwt` mode | `503` |
 | `disabled` mode (loopback only) | the call is accepted with no list |
@@ -1032,8 +1033,10 @@ frozen copy claimed copy=<copy id>
 **The network.** The scoreboard is in a different namespace. Add one element to
 `networkPolicy.allowFrom` that has the namespace selector and the pod selector of the scoreboard
 together (see "Who may connect" in `charts/aigateway/README.md`). Do not use
-`networkPolicy.clientPodNames`: that list is for one namespace only. Also add the address range
-of the scoreboard pods to `config.allowedNetworks` (`AIGW_ALLOWED_NETWORKS`).
+`networkPolicy.clientPodNames`: that list is for one namespace only. Also set
+`config.frozenCopyClaimNetworks` (`AIGW_FROZEN_COPY_CLAIM_NETWORKS`) to the address range of the
+scoreboard pods. Do not add that range to `config.allowedNetworks` (`AIGW_ALLOWED_NETWORKS`): a
+peer in that list may name any user in `X-User-Email` on every authenticated route.
 
 ```yaml
 networkPolicy:

@@ -62,8 +62,11 @@ Error bodies of the gateway use the shape that the frozen copy routes use today:
 
 - **Route:** `POST /v1/frozen-copies/{copy_id}/claim`. No request body.
 - **Caller identity:** header `X-User-Email: <SCOREBOARD_GATEWAY_ACTOR>`. In
-  `cloudflare_headers` mode the gateway accepts the call only from a peer in its trusted
-  networks, and only when the email is in `AIGW_FROZEN_COPY_CLAIM_EMAILS`. The guard follows
+  `cloudflare_headers` mode the gateway accepts the call only from a peer in
+  `AIGW_ALLOWED_NETWORKS` or in `AIGW_FROZEN_COPY_CLAIM_NETWORKS`, and only when the email is in
+  `AIGW_FROZEN_COPY_CLAIM_EMAILS`. The scoreboard pods go in `AIGW_FROZEN_COPY_CLAIM_NETWORKS`,
+  which trusts a peer on the claim route only; `AIGW_ALLOWED_NETWORKS` trusts a peer on every
+  route. The guard follows
   `require_admin` `[existing apps/aigateway/src/aigateway/core/auth/admin.py:79-129]` and makes
   no account row. `[proposed]`
 - **Shape:**
