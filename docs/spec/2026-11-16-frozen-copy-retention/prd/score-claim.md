@@ -195,7 +195,8 @@ does the same pass by hand.
     call for each submit. `[stated ans:Q10]`
 - **C13. The caller of the claim route is not allowed.** `[stated ans:Q14]` H×L Must
   - Given the gateway runs in `cloudflare_headers` mode
-  - When a call comes from a peer outside the trusted networks, or with an email that is not in
+  - When a call comes from a peer in neither `AIGW_ALLOWED_NETWORKS` nor
+    `AIGW_FROZEN_COPY_CLAIM_NETWORKS`, or with an email that is not in
     `AIGW_FROZEN_COPY_CLAIM_EMAILS`
   - Then the gateway answers 403 and changes nothing. With an empty list it answers 503. With
     no identity header it answers 401.
@@ -291,6 +292,7 @@ The value of `capture_status` in the submit does not change this table. `[stated
 | Setting | Service | Type | Default | Source |
 |---|---|---|---|---|
 | `AIGW_FROZEN_COPY_CLAIM_EMAILS` | gateway | comma list of emails | empty | `[stated ans:Q14]` |
+| `AIGW_FROZEN_COPY_CLAIM_NETWORKS` | gateway | comma list of CIDR networks; peers trusted on the claim route only | empty | `[proposed]` (review fix 2026-11-23) |
 | `SCOREBOARD_GATEWAY_URL` | scoreboard | string | empty (claims off) | `[proposed]` |
 | `SCOREBOARD_GATEWAY_ACTOR` | scoreboard | email | none; necessary when the URL is set | `[proposed]` |
 | `SCOREBOARD_GATEWAY_TIMEOUT_S` | scoreboard | float | `5.0` | `[proposed]` |

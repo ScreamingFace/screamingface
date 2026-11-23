@@ -104,6 +104,28 @@ degrade — it is denied at the CNI, and the symptom is a connect timeout in the
 in this gateway's logs, because the packet never arrives. Drop it only if you do not deploy the
 console.
 
+The scoreboard calls the frozen copy claim route (OME-1947). It is in a different namespace, so
+`clientPodNames` cannot admit it: that list is for one namespace only. Add one element to
+`networkPolicy.allowFrom` that has the namespace selector and the pod selector together. Two
+separate elements admit each pod of the scoreboard namespace, or
+each pod with the label in the gateway namespace. Also set `config.frozenCopyClaimEmails` to the
+actor address of the scoreboard, and set `config.frozenCopyClaimNetworks` to the address range of
+the scoreboard pods. Do not add that range to `config.allowedNetworks`: a peer on that list may
+name any user in `X-User-Email` on every route, and a peer on `frozenCopyClaimNetworks` may call
+the claim route only. With an empty claim list, the claim route answers 503 in
+`cloudflare_headers` mode.
+
+```yaml
+networkPolicy:
+  allowFrom:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: scoreboard
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/name: scoreboard
+```
+
 ## Configured endpoints (hosted BYOM)
 
 Off by default. The gateway reads its configured-endpoints TOML once at startup from

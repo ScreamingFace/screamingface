@@ -260,14 +260,15 @@ code enforces the two rules.
 ### 7.3 Handoff to the infrastructure repo
 
 - Gateway values: the four sweep settings (`prd/copy-sweep.md` §4.1; the defaults are
-  correct for production) and `AIGW_FROZEN_COPY_CLAIM_EMAILS`. Three settings come with stack
+  correct for production), `AIGW_FROZEN_COPY_CLAIM_EMAILS` and `AIGW_FROZEN_COPY_CLAIM_NETWORKS`. Three settings come with stack
   A, and `AIGW_FROZEN_COPY_UNCLAIMED_TTL_SECONDS` comes with C1. No switch and no date.
   `[stated ans:Q22]` In a chart template, a number goes through `int64` before `quote`: Helm
   renders a number of 1 000 000 or more from a values file as `1e+06`, and the gateway refuses
   that text. The default period (7 776 000) is such a number.
 - Gateway NetworkPolicy: one `allowFrom` element for the scoreboard pods (`contracts.md` K4).
-- Gateway trusted networks: confirm that the address range of the scoreboard pods is in
-  `AIGW_ALLOWED_NETWORKS`.
+- Gateway claim networks: set `AIGW_FROZEN_COPY_CLAIM_NETWORKS` to the address range of the
+  scoreboard pods. Do not add that range to `AIGW_ALLOWED_NETWORKS`: a peer there may name any
+  user on every route.
 - Scoreboard values: `SCOREBOARD_GATEWAY_URL` (the gateway Service address across namespaces),
   `SCOREBOARD_GATEWAY_ACTOR` (an address that cannot log in through Cloudflare Access),
   `SCOREBOARD_GATEWAY_TIMEOUT_S`.
