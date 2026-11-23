@@ -1,12 +1,13 @@
 ---
 id: OME-1773
 linear_url: https://linear.app/openmined/issue/OME-1773/check-hosted-byom-preflight-per-account-in-the-sdk-against-a-fake
-status: in_progress
+status: done
 type: feature
 priority: high
 labels: [client-sf, agentic, autonomous]
 parent: OME-1306
 created: 2026-10-29
+closed: 2026-11-23
 ---
 
 # Check hosted BYOM preflight per account in the SDK against a fake Engine
@@ -28,3 +29,6 @@ Each case covers a plain Model and a Fusion mixing the endpoint with a subsidize
 async. No refusal dispatches a Candidate or emits an event.
 
 Ledger: `docs/work/2026-10-29-hosted-byom-unit2.md`.
+
+Merged [PR #1606](https://github.com/ScreamingFace/screamingface/pull/1606) as `143d4bcf8`.
+Linear is Done.

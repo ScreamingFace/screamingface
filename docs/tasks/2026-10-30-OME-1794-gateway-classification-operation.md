@@ -1,12 +1,13 @@
 ---
 id: OME-1794
 linear_url: https://linear.app/openmined/issue/OME-1794/classify-text-with-configured-endpoint-classifiers-through-a-typed
-status: in_progress
+status: done
 type: feature
 priority: high
 labels: [aigateway, agentic, autonomous]
 parent: OME-1306
 created: 2026-10-30
+closed: 2026-11-23
 ---
 
 # Classify text with configured endpoint classifiers through a typed Gateway operation
@@ -39,3 +40,6 @@ test changes in `test_definitions.py` (spec decisions 1 and 1a: one task value, 
 
 Spec: `docs/spec/2026-10-30-hosted-byom-unit3-classification.md`. Ledger:
 `docs/work/2026-10-30-hosted-byom-unit3.md`.
+
+Merged [PR #1638](https://github.com/ScreamingFace/screamingface/pull/1638) as `0a4aa1bef`.
+Linear is Done. The hosted check moved to OME-1770 on 2026-11-23, at the owner's decision.

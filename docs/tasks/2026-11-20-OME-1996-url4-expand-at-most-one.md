@@ -1,13 +1,13 @@
 ---
 id: OME-1996
 linear_url: https://linear.app/openmined/issue/OME-1996/let-a-named-url4-expand-source-take-at-most-one-element
-status: In Progress
+status: Done
 type: task
 priority: high
 labels: [url4-sdk, agentic, autonomous]
 parent: OME-1306
 created: 2026-11-20
-closed:
+closed: 2026-11-23
 ---
 
 # Let a named url4 expand source take at most one element
@@ -29,3 +29,6 @@ Spec: `docs/spec/2026-11-16-router-recipe-extension/contracts-placement.md` (C19
 Plan: `docs/plan/2026-11-16-router-recipe-extension.md` §7.
 Ledger: `docs/work/2026-11-19-url4-expand-at-most-one.md`.
 Branch: `OME-1996-url4-expand-at-most-one`.
+
+Merged [PR #1995](https://github.com/ScreamingFace/screamingface/pull/1995) as `d2431eb83`.
+Linear is Done.

@@ -1,12 +1,13 @@
 ---
 id: OME-1796
 linear_url: https://linear.app/openmined/issue/OME-1796/add-clientclassify-and-sfclassify-for-the-engine-classification
-status: in_progress
+status: done
 type: feature
 priority: high
 labels: [client-sf, agentic, autonomous]
 parent: OME-1306
 created: 2026-10-30
+closed: 2026-11-23
 ---
 
 # Add Client.classify and sf.classify for the Engine classification endpoint
@@ -43,3 +44,6 @@ entry; `run_gates.py screamingface` green.
 
 Spec: `docs/spec/2026-10-30-hosted-byom-unit3-classification.md`. Ledger:
 `docs/work/2026-10-30-hosted-byom-unit3.md`.
+
+Merged [PR #1638](https://github.com/ScreamingFace/screamingface/pull/1638) as `0a4aa1bef`.
+Linear is Done. The hosted check moved to OME-1770 on 2026-11-23, at the owner's decision.
