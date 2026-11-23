@@ -1,6 +1,6 @@
 """A Benchmark may say, beside its published revision, what changed (OME-2001).
 
-FEATURE: the revision note, one plain-text line of at most 120 characters written where the
+FEATURE: the revision note, one short plain-text line (about 120 characters) written where the
 revision id is written, and served with the Benchmark's catalogue entry.
 STORY: as a researcher who sees that a leaderboard's revision changed, I read on the same page
 what changed and whether my old scores still compare, without asking the team.
@@ -22,7 +22,6 @@ from screamingface_engine.benchmarks import (
     BenchmarkRegistry,
     candidate,
 )
-from screamingface_engine.benchmarks.definition import REVISION_NOTE_LIMIT
 from screamingface_engine.config import Settings
 from screamingface_engine.testing import InMemoryEventStream
 
@@ -94,13 +93,17 @@ async def test_a_benchmark_without_a_note_serves_no_note_key() -> None:
     assert "revision_note" not in entry
 
 
-async def test_a_note_at_the_limit_is_accepted() -> None:
-    """The limit is inclusive: exactly 120 characters is a valid note."""
+@pytest.mark.parametrize("length", [120, 121, 300])
+async def test_a_note_longer_than_the_target_is_accepted_and_served_whole(length: int) -> None:
+    """WHY: about 120 characters is what the author aims for, never a rule (owner decision,
+    2026-11-23). A reason that needs a second sentence must not be cut to fit, so a 121- and a
+    300-character note declare and reach the catalogue unchanged."""
 
-    note: str = "x" * REVISION_NOTE_LIMIT
+    note: str = "x" * length
 
-    assert REVISION_NOTE_LIMIT == 120
-    assert _benchmark(note).revision_note == note
+    entry: dict[str, object] = await _listed_entry(_benchmark(note))
+
+    assert entry["revision_note"] == note
 
 
 @pytest.mark.parametrize(
@@ -108,7 +111,6 @@ async def test_a_note_at_the_limit_is_accepted() -> None:
     [
         pytest.param("", id="empty"),
         pytest.param("   ", id="whitespace"),
-        pytest.param("x" * (REVISION_NOTE_LIMIT + 1), id="over-the-limit"),
         pytest.param("Judge changed.\nNot comparable.", id="two-lines"),
         pytest.param(" Judge changed.", id="leading-space"),
     ],
@@ -117,8 +119,9 @@ async def test_a_note_the_leaderboard_could_not_show_as_one_line_is_refused_at_a
     note: str,
 ) -> None:
     """WHY the Engine refuses it: the note is written here and only read on the Scoreboard, which
-    drops an unusable note rather than lose the Benchmark's row. Without this refusal a note that
-    is too long would pass every Engine test and simply never appear on the page."""
+    drops an unusable note rather than lose the Benchmark's row. Without this refusal a blank or
+    multi-line note would pass every Engine test and simply never appear on the page. Length is
+    deliberately not on this list."""
 
     with pytest.raises(ValueError, match="revision_note"):
         _benchmark(note)

@@ -4,9 +4,9 @@
 """A published revision that moves says why, in a note a leaderboard reader can see (OME-2001).
 
 FEATURE: the revision note. A Benchmark's published revision moves when its Cases or its
-grading change; from this file on, the new id ships with one plain-text line (at most 120
-characters) saying what changed and whether scores still compare. The Scoreboard seed carries
-the line to the Benchmark's page.
+grading change; from this file on, the new id ships with one short plain-text line saying what
+changed and whether scores still compare (about 120 characters is the target, not a limit).
+The Scoreboard seed carries the line to the Benchmark's page.
 STORY: as a researcher holding runs under the old id, I read on the leaderboard what changed,
 without asking the team.
 
@@ -23,6 +23,10 @@ two places below:
   until someone writes one.
 
 An id in neither place fails: that is a move (or a new Benchmark) without a note.
+
+What this file does NOT check is the note's length. About 120 characters is the target the
+author aims for, never a rule (owner decision, 2026-11-23); a longer note passes here and
+wraps on the page.
 
 WHY this file lives in tests/unit/inspect/: the imported Benchmarks join the registry only
 with the inspect extra, and CI's extra-installed lane runs this directory. The hand-built
@@ -205,14 +209,37 @@ def test_a_revision_published_after_notes_existed_carries_its_pinned_note(
 
     assert identity in _NOTED_REVISIONS, (
         f"{identity} is a revision published after notes existed, and no note is pinned for "
-        "it. Declare revision_note= beside the id (at most 120 characters: what changed, and "
-        "whether scores still compare), then add this id and that exact text to "
-        "_NOTED_REVISIONS."
+        "it. Declare revision_note= beside the id (one short line of plain text, aim for about "
+        "120 characters: what changed, and whether scores still compare), then add this id and "
+        "that exact text to _NOTED_REVISIONS."
     )
     assert benchmark.revision_note == _NOTED_REVISIONS[identity], (
         f"{identity} serves a note that is not the one pinned here. A Benchmark that moved "
         "again needs a note for the new id, never the previous move's text by accident."
     )
+
+
+def test_a_moved_revision_with_a_note_longer_than_the_target_passes_the_check(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The check asks for a note, never for a short one: a moved id whose pinned note runs to
+    300 characters passes, and the same moved id with no note still fails."""
+
+    old: Benchmark = next(b for b in BUILTIN_BENCHMARKS if b.id == "medxpert")
+    long_note: str = "Two-turn reasoning is sent as text only. " + "x" * 259
+    moved: Benchmark = dataclasses.replace(
+        old, revision="fedcba9876543210", revision_note=long_note
+    )
+    silent: Benchmark = dataclasses.replace(old, revision="fedcba9876543210")
+    monkeypatch.setitem(_NOTED_REVISIONS, _identity(moved), long_note)
+
+    assert len(long_note) == 300
+    test_a_revision_published_after_notes_existed_carries_its_pinned_note(moved)
+    with pytest.raises(AssertionError, match="not the one pinned"):
+        test_a_revision_published_after_notes_existed_carries_its_pinned_note(silent)
+    monkeypatch.delitem(_NOTED_REVISIONS, _identity(moved))
+    with pytest.raises(AssertionError, match="no note is pinned"):
+        test_a_revision_published_after_notes_existed_carries_its_pinned_note(silent)
 
 
 def test_a_revision_is_never_both_old_and_noted() -> None:

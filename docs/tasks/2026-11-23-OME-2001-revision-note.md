@@ -16,8 +16,8 @@ A Benchmark's published revision moves when its Cases or its grading change, and
 leaderboard showed the new revision as a date, a hash and a result count. A reader could not
 tell what changed or whether old scores still compare.
 
-A Benchmark can now declare a **revision note** beside its revision id: one plain-text line of
-at most 120 characters. The Engine serves it in the public catalogue, the Scoreboard seed job
+A Benchmark can now declare a **revision note** beside its revision id: one short plain-text
+line. About 120 characters is the target the author aims for, not a limit. The Engine serves it in the public catalogue, the Scoreboard seed job
 stores it on the revision's record, the revisions list returns it, and the Benchmark page shows
 the selected revision's note under the revision selector, after the date the leaderboard first
 saw that revision. A revision without a note shows what it showed before.

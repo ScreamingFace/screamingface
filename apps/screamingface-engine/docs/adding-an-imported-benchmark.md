@@ -432,7 +432,7 @@ move ships with:
 3. A line in the Engine's `CHANGELOG.md` naming the Benchmark, the old and new id, and why.
 4. A post to the team, so the people using the Benchmark hear it from us first.
 5. A revision note beside the new id: `revision_note=` on the row (medxpert: `revision_note=` on
-   its `Benchmark(...)`), one plain-text line of at most 120 characters saying what changed and
+   its `Benchmark(...)`), one short plain-text line (aim for about 120 characters; a target, not a limit) saying what changed and
    whether scores still compare, and the same text against the new id in `_NOTED_REVISIONS` in
    `tests/unit/inspect/test_revision_notes.py`. The leaderboard shows it under the revision
    selector, so write it for a researcher, not for a developer (OME-2001).

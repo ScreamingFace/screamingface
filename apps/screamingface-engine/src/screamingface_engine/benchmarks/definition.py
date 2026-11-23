@@ -106,9 +106,6 @@ _WEB_URL = re.compile(r"https?://\S+")
 # the next deploy, where the benchmark can do no better than skip that benchmark and keep its old
 # text. Fail where the text is written instead.
 _DISPLAY_LIMITS = {"title": 255, "revision": 64, "focus": 120}
-#: The longest revision note a Benchmark may declare (OME-2001): one line under the
-#: leaderboard's revision selector. The Scoreboard stores at most this many characters.
-REVISION_NOTE_LIMIT = 120
 
 
 def _no_routes(_node: Url4Node, _assets_root: Path) -> None:
@@ -341,7 +338,10 @@ class Benchmark:
     # FEATURE: the revision note (OME-2001). One plain-text line saying what changed in this
     # published revision and whether scores still compare, e.g. "Judge now runs at low effort.
     # Not comparable with earlier results." Written beside the id by whoever moves it, served
-    # in the catalogue, and shown under the leaderboard's revision selector.
+    # in the catalogue, and shown under the leaderboard's revision selector. Aim for one short
+    # line, about 120 characters: that is guidance for the author, and nothing fails on length.
+    # The Scoreboard keeps a safety bound of its own on what it stores (500 characters) and
+    # shows no note past it.
     # INVARIANT: like `description`, never enters `revision`: it is prose about the id.
     # WHY a default: revisions published before notes existed have none, and
     # `tests/unit/inspect/test_revision_notes.py` is what requires one on a new or moved id.
@@ -376,7 +376,11 @@ class Benchmark:
             raise TypeError("Benchmark answer_rule must be an AnswerRule")
 
     def _validate_revision_note(self) -> None:
-        """Refuse a note the leaderboard could not show as one short line (OME-2001)."""
+        """Refuse a note that is blank or not one line of plain text (OME-2001).
+
+        Length is not checked: about 120 characters is the target the author aims for, never a
+        rule (owner decision, 2026-11-23). A longer note wraps on the page.
+        """
 
         note: str | None = self.revision_note
         if note is None:
@@ -386,11 +390,6 @@ class Benchmark:
             raise ValueError(
                 "Benchmark revision_note must be one line of non-empty text with no "
                 "leading or trailing space when declared"
-            )
-        if len(note) > REVISION_NOTE_LIMIT:
-            raise ValueError(
-                f"Benchmark revision_note must be at most {REVISION_NOTE_LIMIT} characters "
-                "so the leaderboard can store it"
             )
 
     def _validate_display_metadata(self) -> None:

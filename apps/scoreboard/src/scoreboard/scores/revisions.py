@@ -19,12 +19,14 @@ from .models import BenchmarkRevision
 if TYPE_CHECKING:
     from .store import ScoreStore
 
-#: The longest revision note the board stores (OME-2001), the Engine's own authoring limit.
-REVISION_NOTE_LIMIT = 120
+#: A safety bound on the revision note text the board stores (OME-2001). NOT the style target:
+#: an author aims for about 120 characters and nothing fails on that. This only stops another
+#: service's catalogue from putting unbounded text into the database and onto the page.
+REVISION_NOTE_STORAGE_BOUND = 500
 
 
 def usable_revision_note(value: object) -> str | None:
-    """The note when it is one non-empty line the page can show whole, else None.
+    """The note when it is one non-empty line within the storage bound, else None.
 
     One rule for both boundaries: the catalogue reader drops what this refuses, and
     `record_revision` raises on it.
@@ -33,7 +35,7 @@ def usable_revision_note(value: object) -> str | None:
     if not isinstance(value, str):
         return None
     note: str = value.strip()
-    if not note or len(note) > REVISION_NOTE_LIMIT or not note.isprintable():
+    if not note or len(note) > REVISION_NOTE_STORAGE_BOUND or not note.isprintable():
         return None
     return note
 
@@ -75,13 +77,14 @@ async def record_revision(
       that serves no note never erases a reason readers already see.
 
     Raises:
-        ValueError: `note` is given but is not one non-empty line of at most
-            `REVISION_NOTE_LIMIT` characters. Nothing is written.
+        ValueError: `note` is given but is not one non-empty line within
+            `REVISION_NOTE_STORAGE_BOUND` characters. Nothing is written.
     """
 
     if note is not None and usable_revision_note(note) != note:
         raise ValueError(
-            f"revision note must be one non-empty line of at most {REVISION_NOTE_LIMIT} characters"
+            "revision note must be one non-empty line of at most "
+            f"{REVISION_NOTE_STORAGE_BOUND} characters"
         )
     existing = await BenchmarkRevision.get_or_none(benchmark_id=benchmark_id, revision=revision)
     if existing is None:

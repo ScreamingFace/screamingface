@@ -16,12 +16,15 @@ class Migration(migrations.Migration):
     # written reason, and NULL means "no note", which the page shows as nothing. A backfill would
     # put words nobody wrote in front of readers.
     #
+    # WHY 500 characters: a safety bound on stored text. The author's target is about 120, and
+    # that is guidance, so the column must hold a note that runs longer.
+    #
     # AIDEV-NOTE: SAFE for a rolling multi-replica rollout: an in-place ADD COLUMN on SQLite and
     # PostgreSQL, old pods ignore the new column, and every existing value is NULL.
     operations = [
         ops.AddField(
             model_name="BenchmarkRevision",
             name="note",
-            field=fields.CharField(null=True, max_length=120),
+            field=fields.CharField(null=True, max_length=500),
         ),
     ]

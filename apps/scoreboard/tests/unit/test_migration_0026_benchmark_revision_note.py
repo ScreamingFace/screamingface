@@ -43,14 +43,18 @@ def test_note_migration_adds_a_column_a_revision_can_be_given_a_note_in(tmp_path
     database: Path = tmp_path / "note.sqlite3"
     _seed_revision(database)
     _migrate(database, "0026_benchmark_revision_note")
+    # WHY 300 characters: about 120 is the author's target, not a limit, so the column must hold
+    # a note that runs well past it.
+    long_note: str = "x" * 300
 
     with sqlite3.connect(database) as connection:
         connection.execute(
             "INSERT INTO benchmark_revisions (benchmark_id, revision, first_seen_at, "
             "first_seen_inferred, case_count, case_count_inferred, note) "
-            "VALUES ('demo', 'rev-2', '2026-11-23 12:00:00', 0, 100, 0, 'Judge changed.')"
+            "VALUES ('demo', 'rev-2', '2026-11-23 12:00:00', 0, 100, 0, ?)",
+            (long_note,),
         )
         notes: list[tuple[object, ...]] = connection.execute(
             "SELECT revision, note FROM benchmark_revisions ORDER BY revision"
         ).fetchall()
-    assert notes == [("rev-1", None), ("rev-2", "Judge changed.")]
+    assert notes == [("rev-1", None), ("rev-2", long_note)]

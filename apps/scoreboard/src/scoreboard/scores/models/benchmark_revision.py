@@ -37,9 +37,10 @@ class BaseBenchmarkRevision(BaseScoreboardModel):
     # FEATURE: OME-2001 — the revision note. One plain-text line the Engine publishes beside this
     # revision: what changed and whether scores still compare. NULL means no note was published
     # (every revision recorded before notes existed), and the page then shows nothing.
-    # INVARIANT: at most 120 characters, the Engine's own limit (`REVISION_NOTE_LIMIT` in
+    # INVARIANT: at most 500 characters, a safety bound on stored text and not the style
+    # target of about 120 the author aims for (`REVISION_NOTE_STORAGE_BOUND` in
     # `scores/revisions.py`); `record_revision` is the only writer.
-    note = fields.CharField(max_length=120, null=True)
+    note = fields.CharField(max_length=500, null=True)
 
 
 class BenchmarkRevision(BaseBenchmarkRevision):

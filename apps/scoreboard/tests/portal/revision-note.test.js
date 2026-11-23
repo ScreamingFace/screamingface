@@ -320,6 +320,22 @@ test("when the revision list cannot be read, the line stays hidden", async () =>
   assert.equal(page.ids["revision-note"].hidden, true);
 });
 
+test("a note longer than the author's target is shown whole, never cut", async () => {
+  // WHY: about 120 characters is guidance for whoever writes the note, not a limit. A cut note
+  // can lose the sentence saying whether scores compare, so the page prints all of it and lets
+  // the line wrap.
+  const long = "Judge now runs at low reasoning effort. " + "x".repeat(260);
+  assert.equal(long.length, 300);
+  assert.equal(R.noteLine(row({ note: long })), "23 Nov 2026 · " + long);
+
+  const page = openPage();
+  await page.answer(LIST, revisions(long));
+  await page.answer(LATEST_BOARD, board(LATEST));
+
+  assert.equal(page.ids["revision-note"].hidden, false);
+  assert.equal(page.ids["revision-note"].textContent, "23 Nov 2026 · " + long);
+});
+
 test("a note is written as text, so markup in it is shown and never run", async () => {
   // INVARIANT: the note is another service's free text. It reaches the page through textContent
   // only; the fake DOM counts any innerHTML write on the line and this refuses one.

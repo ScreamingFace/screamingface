@@ -1,6 +1,6 @@
 """A revision's note travels from the Engine catalogue to the revisions list (OME-2001).
 
-FEATURE: the revision note, one plain-text line of at most 120 characters that the Engine
+FEATURE: the revision note, one short plain-text line (about 120 characters) that the Engine
 publishes beside a Benchmark's revision, saying what changed and whether scores still compare.
 STORY: as a researcher who sees that a leaderboard's revision changed, I read on the same page
 what changed, without asking the team.
@@ -26,7 +26,7 @@ import pytest_asyncio
 from scoreboard.config import Settings
 from scoreboard.main import create_app
 from scoreboard.scores.models import Benchmark, BenchmarkRevision
-from scoreboard.scores.revisions import REVISION_NOTE_LIMIT, record_revision
+from scoreboard.scores.revisions import REVISION_NOTE_STORAGE_BOUND, record_revision
 from scoreboard.scores.store import ScoreStore
 from scoreboard.seed import (
     CatalogRead,
@@ -124,7 +124,7 @@ async def test_an_engine_that_serves_no_notes_still_seeds_every_benchmark() -> N
 @pytest.mark.parametrize(
     "served",
     [
-        pytest.param("x" * (REVISION_NOTE_LIMIT + 1), id="over-the-limit"),
+        pytest.param("x" * (REVISION_NOTE_STORAGE_BOUND + 1), id="over-the-storage-bound"),
         pytest.param("", id="empty"),
         pytest.param("   ", id="whitespace"),
         pytest.param(None, id="null"),
@@ -135,10 +135,10 @@ async def test_an_engine_that_serves_no_notes_still_seeds_every_benchmark() -> N
 async def test_an_unusable_note_costs_the_note_and_never_the_benchmarks_row(
     served: object,
 ) -> None:
-    """WHY dropped, not cut to 120: a note ends with whether scores compare, so a cut note can
-    lose exactly that sentence and read as the opposite claim. No note is honest; half a note is
-    not. And never the row (the `case_count` rule): a Benchmark must not leave the board because
-    another service wrote a long line."""
+    """WHY dropped, not cut: a note ends with whether scores compare, so a cut note can lose
+    exactly that sentence and read as the opposite claim. No note is honest; half a note is not.
+    And never the row (the `case_count` rule): a Benchmark must not leave the board because
+    another service wrote 501 characters, past the board's safety bound on stored text."""
 
     with _serving(_catalog(_NEW, revision_note=served)) as client:
         read: CatalogRead = fetch_engine_benchmarks(ENGINE_URL, client=client)
@@ -149,16 +149,36 @@ async def test_an_unusable_note_costs_the_note_and_never_the_benchmarks_row(
     assert read.rejected == []
 
 
-async def test_a_note_at_the_limit_is_kept_whole() -> None:
-    """The limit is inclusive, matching the Engine's own check: 120 characters is a note."""
+@pytest.mark.parametrize("length", [121, 300, 500])
+async def test_a_note_longer_than_the_authors_target_travels_whole_to_the_revisions_list(
+    async_client: httpx.AsyncClient, length: int
+) -> None:
+    """WHY: about 120 characters is guidance for the author, never a rule (owner decision,
+    2026-11-23). A 121- or 300-character note is read, stored and returned unchanged; the only
+    length the board enforces is its 500-character safety bound, and that one is inclusive."""
 
-    note: str = "x" * REVISION_NOTE_LIMIT
+    note: str = "x" * length
 
     with _serving(_catalog(_NEW, revision_note=note)) as client:
         read: CatalogRead = fetch_engine_benchmarks(ENGINE_URL, client=client)
+    await _seed(_catalog(_NEW, revision_note=note))
+    response: httpx.Response = await async_client.get(
+        "/v1/leaderboard/healthbench-professional/revisions"
+    )
 
-    assert REVISION_NOTE_LIMIT == 120
+    assert REVISION_NOTE_STORAGE_BOUND == 500
     assert read.rows[0].revision_note == note
+    assert (await _stored(_NEW)).note == note
+    assert [r["note"] for r in response.json()["revisions"]] == [note]
+
+
+async def test_a_note_past_the_storage_bound_is_not_stored(tortoise_db: None) -> None:
+    """The board never stores unbounded text from another service: a 501-character note leaves
+    the revision recorded, with no note."""
+
+    await _seed(_catalog(_NEW, revision_note="x" * (REVISION_NOTE_STORAGE_BOUND + 1)))
+
+    assert (await _stored(_NEW)).note is None
 
 
 async def test_deployment_configuration_cannot_write_a_note(tortoise_db: None) -> None:
@@ -209,7 +229,7 @@ async def test_a_deploy_that_serves_no_note_keeps_the_stored_one(tortoise_db: No
     await _seed(_catalog(_NEW, revision_note=_NOTE))
 
     await _seed(_catalog(_NEW))
-    await _seed(_catalog(_NEW, revision_note="x" * (REVISION_NOTE_LIMIT + 1)))
+    await _seed(_catalog(_NEW, revision_note="x" * (REVISION_NOTE_STORAGE_BOUND + 1)))
 
     assert (await _stored(_NEW)).note == _NOTE
 
@@ -229,13 +249,16 @@ async def test_a_note_arriving_after_the_revision_was_first_seen_is_filled_in(
     assert (after.note, after.first_seen_at) == (_NOTE, first_seen)
 
 
-@pytest.mark.parametrize("note", ["x" * (REVISION_NOTE_LIMIT + 1), "", "  "])
+@pytest.mark.parametrize(
+    "note", ["x" * (REVISION_NOTE_STORAGE_BOUND + 1), "", "  ", "Judge changed.\nNot comparable."]
+)
 async def test_recording_a_revision_refuses_a_note_it_could_not_show(
     tortoise_db: None, note: str
 ) -> None:
     """WHY refuse here while the catalogue reader drops: that reader faces another service's
-    data; this is a code boundary, and a caller passing an unbounded note is a bug to surface
-    (the `saturation` rule in `register_benchmark`). Nothing is ever stored unbounded."""
+    data; this is a code boundary, and a caller passing a blank, multi-line or unbounded note is
+    a bug to surface (the `saturation` rule in `register_benchmark`). The bound is the same
+    500-character safety bound, never the author's target of about 120."""
 
     await ScoreStore().register_benchmark("mmlu_pro", "MMLU-Pro", revision=_OLD)
 

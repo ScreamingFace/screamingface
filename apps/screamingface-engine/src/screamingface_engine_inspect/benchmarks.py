@@ -250,8 +250,9 @@ class BenchmarkSpec:
     #: of the revision.
     published_revision: str | None = None
     #: What changed in ``published_revision`` and whether scores still compare (OME-2001): one
-    #: plain-text line of at most 120 characters, shown under the leaderboard's revision
-    #: selector. Written in the same edit that moves the id;
+    #: short plain-text line, shown under the leaderboard's revision selector. Aim for about 120
+    #: characters; that is a target for the author, and nothing fails on length. Written in the
+    #: same edit that moves the id;
     #: ``tests/unit/inspect/test_revision_notes.py`` refuses a moved id without one. NOT part of
     #: the revision.
     revision_note: str | None = None

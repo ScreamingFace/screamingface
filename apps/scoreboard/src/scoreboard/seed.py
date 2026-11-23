@@ -23,7 +23,7 @@ from pydantic import (
 from .config import Settings
 from .db import close_db, init_db
 from .logs import configure as configure_logging
-from .scores.revisions import REVISION_NOTE_LIMIT, usable_revision_note
+from .scores.revisions import REVISION_NOTE_STORAGE_BOUND, usable_revision_note
 from .scores.schemas import SATURATION_VERDICTS, BenchmarkSchema, ProvenanceSchema, Visibility
 from .scores.store import ScoreStore
 
@@ -92,7 +92,9 @@ class SeedBenchmark(BaseModel):
     # OME-2001: the revision note, what changed in `revision` and whether scores still compare.
     # INVARIANT: Engine-owned, exactly like `revision` — refused from deployment configuration
     # by `_classify_configured`; it reaches this model only via `_CatalogEntry.as_seed`.
-    revision_note: str | None = Field(default=None, min_length=1, max_length=REVISION_NOTE_LIMIT)
+    revision_note: str | None = Field(
+        default=None, min_length=1, max_length=REVISION_NOTE_STORAGE_BOUND
+    )
 
 
 class _CatalogEntry(BaseModel):
@@ -147,12 +149,13 @@ class _CatalogEntry(BaseModel):
     @field_validator("revision_note", mode="before")
     @classmethod
     def _unusable_note_is_absent(cls, value: object) -> str | None:
-        """Anything but one short line of text costs the note, never the row.
+        """Anything but one line of text within the storage bound costs the note, never the row.
 
-        WHY dropped and not cut to the limit: a note ends by saying whether scores still
-        compare, so a cut note can lose that sentence and read as the opposite claim. The
-        Engine already refuses to declare such a note; this only guards another service's data
-        (the `case_count` rule).
+        A note longer than the author's target of about 120 characters is kept whole: that
+        target is guidance. Only a note past the 500-character safety bound is dropped.
+        WHY dropped and not cut: a note ends by saying whether scores still compare, so a cut
+        note can lose that sentence and read as the opposite claim. This only guards another
+        service's data (the `case_count` rule).
         """
 
         return usable_revision_note(value)
