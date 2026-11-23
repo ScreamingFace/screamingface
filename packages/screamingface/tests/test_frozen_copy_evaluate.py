@@ -18,6 +18,7 @@ from typing import Any
 
 import httpx
 import pytest
+from _run_transport import AsyncPlaying
 from test_answer_seed_report import _CandidateRecordingTransport
 from test_client_run import REPLAY_URL4, _AsyncReplayTransport, _engine, _ReplayTransport
 from test_draco_vertical_slice import _AsyncFakeTransport
@@ -47,13 +48,9 @@ class _Honouring(_ReplayTransport):
         return replace(super().run(candidate, on_event), **self._fields)  # type: ignore[arg-type]
 
 
-class _AsyncHonouring(_AsyncReplayTransport):
+class _AsyncHonouring(AsyncPlaying):
     def __init__(self, **fields: object) -> None:
-        super().__init__()
-        self._fields = fields
-
-    async def run(self, candidate: object, on_event: object) -> _RunOutcome:
-        return replace(await super().run(candidate, on_event), **self._fields)  # type: ignore[arg-type]
+        super().__init__(_Honouring(**fields))
 
 
 # --- capture=True ---------------------------------------------------------------------------------

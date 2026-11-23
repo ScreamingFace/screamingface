@@ -357,6 +357,8 @@ class QueueJobRunner(IdentityAwareJobRunner):
         capture: bool = False,
         replay_frozen_copy: str | None = None,
         enqueued_at: datetime | None = None,
+        result_prefix: str | None = None,
+        exclusive: bool = False,
     ) -> str:
         """Publish the run to the queue and return its job name.
 
@@ -413,6 +415,8 @@ class QueueJobRunner(IdentityAwareJobRunner):
                     capture=capture,
                     replay_frozen_copy=replay_frozen_copy,
                     world_digest=self._world_digest,
+                    result_prefix=result_prefix,
+                    exclusive=exclusive,
                 )
                 await self._queue.publish(message, identity=identity, enqueued_at=enqueued_at)
                 # AFTER the publish: a line claiming a run was scheduled when the publish then
@@ -508,6 +512,20 @@ class QueueJobRunner(IdentityAwareJobRunner):
 
     async def stop(self, topic: str) -> None:
         await self._stop(topic, bound=False)
+
+    async def stop_landed(self, topic: str) -> bool:
+        """Whether the topic's stream ends in a terminal frame.
+
+        WHY (#1759 review): a worker that took the stop over the control subject may die
+        before it publishes its stopped frame, and another worker would then run the message's
+        redelivery. Until a terminal frame is on the stream the stop stays owed: the next one
+        reaches whichever worker holds the topic, or, with none answering, writes the
+        tombstone every copy is acked away by. An unreadable tail is no answer.
+        """
+        frame = await self._read_tail(topic)
+        if frame is _UNREADABLE_TAIL:
+            raise QueueReadError(f"stream tail unreadable for {topic}: run state unknown")
+        return isinstance(frame, TerminatedEvent)
 
     async def stop_bound(self, topic: str) -> None:
         """As `stop`, but a topic with no frame is tombstoned even when this process has no
@@ -662,6 +680,11 @@ class QueueJobRunner(IdentityAwareJobRunner):
         if frame is not None:
             return "running"
         return "scheduled" if self._capability_valid(topic) else "not_found"
+
+    async def last_frame(self, topic: str) -> OutboundFrame | None:
+        """The topic's newest frame on the events stream (E5 P2 spec R7). An unreadable tail
+        raises `QueueReadError`, as for the worker's own reads."""
+        return await self._publisher.last_frame(topic)
 
     async def queue_depth(self) -> int:
         """How many runs wait for a worker (unclaimed): a read that bypasses this runner's own

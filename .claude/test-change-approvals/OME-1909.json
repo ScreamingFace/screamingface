@@ -1,0 +1,26 @@
+{
+  "issue": "OME-1909",
+  "branch": "OME-1909-regrade-from-pinned-cache",
+  "approver": "owner, who on 2026-11-17 changed the revision rule so a grading change moves the published revision, and on 2026-11-18 moved the bump of OME-1907's 47 revisions to OME-1958",
+  "date": "2026-11-18",
+  "scope": "Prior-test edits in four files and nothing else, pinned against main at 9e8a56f4c (this branch's merge base with main on 2026-11-20). (1) test_benchmark_fingerprints.py: the docstring and failure message state the 2026-11-17 rule; no fingerprint literal moves. (2) test_benchmark_foundation.py: the exact catalogue entry gains \"regradable_from\": [], with a comment. (3) test_leaderboard_routes.py: regraded_from_id and regraded_by join the internal set of test_every_score_field_reaches_at_least_one_read_dto. (4) public_surface_snapshot.json: regenerated with UPDATE_SURFACE_SNAPSHOT=1; only Client.regrade, AsyncClient.regrade, LeaderboardError's existing_score_id and LeaderboardScore's regraded_from move.",
+  "reason": "(1) The fingerprint pins state the rule a red literal points to, and that rule changed. (2) Every catalogue entry now carries regradable_from (empty when a Benchmark declares none), so the exact-equality entry must name it. (3) The Score table gains the re-grade link, published as regraded_from, and the re-grader's email, stored for audit and deliberately on no read schema. (4) The SDK's public surface gains the re-grade call, the 409's existing re-grade id and a score's re-grade link, and the snapshot exists to record exactly such a change.",
+  "files": {
+    "apps/screamingface-engine/tests/unit/inspect/test_benchmark_fingerprints.py": {
+      "base_blob": "9cd1987f7799e2334ed3e499cf6b54f627b8e06c",
+      "approved_blob": "13afdcf4f6581ba48199dc5faee27ae3e1d9bf2e"
+    },
+    "apps/screamingface-engine/tests/unit/test_benchmark_foundation.py": {
+      "base_blob": "07b10789f2fdfb383b6de10b600ecf8a4a1a73a0",
+      "approved_blob": "fd48122df5401d9ee5ea069323128c0ea4050ec9"
+    },
+    "apps/scoreboard/tests/unit/test_leaderboard_routes.py": {
+      "base_blob": "5fba35f392b2c9b6265a3e38bcd90bb403496e86",
+      "approved_blob": "bf65156273068c639f8d383032178276cf918183"
+    },
+    "packages/screamingface/tests/public_surface_snapshot.json": {
+      "base_blob": "c6a68a3ccc4bf2c160bd3a26744eaee8a616b650",
+      "approved_blob": "88adf9d373c7311b1cd43500a4efb83c76de6b35"
+    }
+  }
+}

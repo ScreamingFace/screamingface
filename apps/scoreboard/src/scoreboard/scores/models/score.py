@@ -216,7 +216,15 @@ class Score(BaseScore):
         # WHY `unique_together` and not `unique=True` on the field: the migration then adds an
         # index (SQLite) or a constraint (PostgreSQL). Altering the field instead makes Tortoise
         # REBUILD `scores` on SQLite, which drops it under the tables whose foreign keys point here.
-        unique_together = (("frozen_copy_id",),)
+        # INVARIANT (OME-1909): one source score has at most one re-grade PER REVISION. The second
+        # request for the same source at the same revision trips this index; the route maps the
+        # clash to 409 `already_regraded` instead of pre-reading, so two concurrent re-grades
+        # cannot both win. NULL may repeat.
+        # WHY the revision in the key: a re-grade row has no pinned cache of its own, so after the
+        # next grading change only the ROOT source can be replayed again; it must be re-gradable
+        # once under each later revision, or every re-graded entry is stranded.
+        # WHY a constraint and not `unique=True`: the same SQLite rebuild hazard as above.
+        unique_together = (("frozen_copy_id",), ("regraded_from", "benchmark_revision"))
         indexes = (
             ("benchmark_id", "score"),
             ("benchmark_id", "spec_id", "submitted_at"),
@@ -227,3 +235,22 @@ class Score(BaseScore):
         related_name="scores",
         on_delete=fields.OnDelete.RESTRICT,
     )
+    # FEATURE: OME-1909 — a re-grade moves an old entry onto a Benchmark's bumped revision by
+    # replaying its pinned cache. The new row names the score it was re-graded from; the source
+    # row itself is never changed, it simply stops ranking once the board's revision moves on.
+    #
+    # WHY SET_NULL and not RESTRICT or CASCADE: deleting a source (the delete CLI, a purge) must
+    # not be blocked by its re-grade, and must not silently take the re-graded entry with it. The
+    # re-grade keeps standing as an entry of its own; only the link is lost.
+    # WHY `related_name=False`: nothing reads the reverse side, and it would add an attribute to
+    # every score.
+    regraded_from = fields.ForeignKeyField(
+        "models.Score",
+        related_name=False,
+        null=True,
+        on_delete=fields.OnDelete.SET_NULL,
+    )
+    # FEATURE: OME-1909 — the verified identity of the team member who re-graded the row. Credit
+    # (`submitted_by`, `authors`) stays the source's; this records who did the work.
+    # INVARIANT: an email, so it is on NO read schema; it is stored for the board's own audit.
+    regraded_by = fields.CharField(max_length=255, null=True)

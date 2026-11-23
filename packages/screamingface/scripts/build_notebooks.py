@@ -535,9 +535,9 @@ def _runs() -> NotebookNode:
 
 Every `sf.evaluate(...)` creates an Engine-owned Run: an id, a state, and an outcome and cost for
 each Candidate. This notebook starts one, finds it again from its id, follows its progress, opens
-its Report, and cancels a Run.
+its Report, cancels a Run, and starts one detached to pick up later, here or on another machine.
 
-Listing and inspecting Runs make no model calls. The evaluation is **off by default**, and
+Listing and inspecting Runs make no model calls. Both evaluations are **off by default**, and
 cancellation needs an explicit Run id."""),
         nbformat.v4.new_markdown_cell(
             _before_running(
@@ -551,9 +551,8 @@ screamingface status""",
         nbformat.v4.new_code_cell(_TARGET_SETUP),
         nbformat.v4.new_markdown_cell("""\
 Local mode uses the local Engine's Run database. `TARGET = "hosted"` uses
-`fusion.screamingface.ai` and needs your Cloudflare Access login. Run metadata is visible on any
-machine signed in as the same owner, but `Run.report()` opens only a Report saved on this
-machine.
+`fusion.screamingface.ai` and needs your Cloudflare Access login. A Run, and its Report, open on
+any machine signed in as the same owner.
 
 `sf.connect()` shows the provider panel: on hosted it first asks you to log in, then on either
 target connect the provider of the Model in section 1 (OpenRouter) before evaluating."""),
@@ -563,8 +562,9 @@ target connect the provider of the Model in section 1 (OpenRouter) before evalua
 
 Set `RUN_EVALUATION = True` only when you are ready to make model calls. `report.run_id` is the id
 of the evaluation's Run. Each Candidate also has its own `attempt_id`: one attempt of one
-Candidate, not the Run (`CandidateResult.run_id` is its deprecated old name). An Engine without
-Runs still evaluates, but `report.run_id` is `None`."""),
+Candidate, not the Run (`CandidateResult.run_id` is its deprecated old name). With
+`detach=True`, `sf.evaluate` returns the `Run` at once and the Engine runs it to its end without
+this notebook: section 7 shows it."""),
         nbformat.v4.new_code_cell("""\
 MODEL = sf.Model("openrouter/google/gemini-3-flash-preview")
 RUN_EVALUATION = False
@@ -639,18 +639,18 @@ else:
     }
 snapshot"""),
         nbformat.v4.new_markdown_cell("""\
-`run.wait()` polls until the Run finishes and returns it; it raises `TimeoutError` past
-`timeout`. It blocks the cell, so it is off by default."""),
+`run.wait()` follows the Run until it ends and returns its Report. It blocks the cell, so it is
+off by default."""),
         nbformat.v4.new_code_cell("""\
 WAIT_FOR_COMPLETION = False
-finished_run = run.wait(timeout=300) if WAIT_FOR_COMPLETION and run is not None else None
-finished_run.state if finished_run is not None else "Not waiting.\""""),
+waited_report = run.wait() if WAIT_FOR_COMPLETION and run is not None else None
+waited_report if waited_report is not None else "Not waiting.\""""),
         nbformat.v4.new_markdown_cell("""\
 ## 4. Open the Run's Report
 
-`Run.report()` reads the results saved on this machine; the Engine does not keep model output.
-It raises `ExecutionError` with `code="run_not_finished"` while the Run is running, and
-`code="results_not_local"` when another machine ran it."""),
+`Run.report()` opens the Run's Report on any machine: the one saved here, else built from the
+records and results the Engine keeps for 30 days. It raises `ExecutionError` with
+`code="run_not_finished"` while the Run is running."""),
         nbformat.v4.new_code_cell("""\
 if run is None:
     recovered_report = "No Run to open yet."
@@ -695,6 +695,57 @@ try:
 except KeyError:
     unknown = "KeyError: no such Run for this owner"
 unknown"""),
+        nbformat.v4.new_markdown_cell("""\
+## 7. Detach and come back later (paid, off by default)
+
+`detach=True` hands the evaluation to the Engine and returns its `Run` at once. The Engine runs it
+whether or not this notebook stays open, until its `deadline` (48 h by default, 7 days at most).
+An attached Run is different: it stops about 2 minutes after nobody is following it.
+
+Set `RUN_DETACHED = True` and run the next cell to start one. Note its id, then restart the kernel
+or close this notebook. To pick it up on another machine, use `TARGET = "hosted"`: a local
+Engine's Runs live on the machine that runs it."""),
+        nbformat.v4.new_code_cell("""\
+from datetime import timedelta
+
+MODEL = sf.Model("openrouter/google/gemini-3-flash-preview")
+RUN_DETACHED = False
+REATTACH_RUN_ID = None
+
+if REATTACH_RUN_ID is not None:
+    detached_run = f"Picking up {REATTACH_RUN_ID} below; no new Run started."
+elif RUN_DETACHED:
+    detached = sf.evaluate(
+        MODEL, benchmark="ifeval", limit=1, detach=True, deadline=timedelta(hours=2)
+    )
+    detached_run = {
+        "run_id": detached.id,
+        "detached": detached.detached,
+        "deadline_at": detached.deadline_at,
+    }
+else:
+    detached_run = "No detached Run started. Set RUN_DETACHED = True to opt in."
+detached_run"""),
+        nbformat.v4.new_markdown_cell("""\
+Later, in a fresh kernel or on another machine signed in as you, run the setup cells at the top,
+set `REATTACH_RUN_ID` in the cell above to the id, and run it and the next cell. With an id set,
+the cell above starts nothing, even if `RUN_DETACHED` is still `True`. `wait()` follows the Run to
+its end, or returns at once if it has finished, and gives its Report, built from the records and
+results the Engine keeps for 30 days."""),
+        nbformat.v4.new_code_cell("""\
+if REATTACH_RUN_ID is None:
+    reattached_report = "Set REATTACH_RUN_ID above to a detached Run's id to pick it up here."
+else:
+    try:
+        reattached_report = sf.runs.get(REATTACH_RUN_ID).wait()
+    except KeyError:
+        reattached_report = f"No Run {REATTACH_RUN_ID} for this owner."
+    except sf.ExecutionError as exc:
+        if exc.partial_report is not None:
+            reattached_report = exc.partial_report
+        else:
+            reattached_report = f"{exc.code}: {exc.hint}"
+reattached_report"""),
     )
 
 

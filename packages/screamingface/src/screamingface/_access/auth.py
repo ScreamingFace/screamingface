@@ -32,7 +32,7 @@ from screamingface._access.contract import (
     _token_claims,
     _token_from_claims,
 )
-from screamingface._core.wire import _REPLAY_SAFE
+from screamingface._core.wire import _NO_LOGIN, _REPLAY_SAFE, LOGIN_NOT_STARTED
 from screamingface.errors import AuthenticationError
 
 _ACCESS_TRANSFER_STORE = "https://login.cloudflareaccess.org"
@@ -378,6 +378,7 @@ class _CloudflareAccessAuth(_ClientAuth):
             authorization,
             _DEFAULT_LOGIN_TIMEOUT,
             _challenged_path(request.url),
+            not request.extensions.get(_NO_LOGIN, False),
         )
         _require_replay_safe(request, response)
         self._set_access_token(request)
@@ -401,6 +402,7 @@ class _CloudflareAccessAuth(_ClientAuth):
             authorization,
             _DEFAULT_LOGIN_TIMEOUT,
             _challenged_path(request.url),
+            not request.extensions.get(_NO_LOGIN, False),
         )
         _require_replay_safe(request, response)
         self._set_access_token(request)
@@ -436,9 +438,17 @@ class _CloudflareAccessAuth(_ClientAuth):
         authorization: _RequestAuthorization,
         timeout: float,
         redirect_path: str,
+        login: bool = True,
     ) -> None:
         if self._adopt_cached_challenge(audience, authorization):
             return
+        if not login:
+            # INVARIANT (E5 P2 spec D15): a request marked `_NO_LOGIN` adopts a sign-in another
+            # request made, and never presents one of its own.
+            raise _auth_error(
+                "Cloudflare Access asks for a sign-in, which this request may not start",
+                code=LOGIN_NOT_STARTED,
+            )
         self._login_after_challenge(audience, timeout, redirect_path)
 
     def _adopt_cached_challenge(

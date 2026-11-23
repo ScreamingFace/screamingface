@@ -31,44 +31,33 @@ from test_client_run import REPLAY_URL4, _AsyncReplayTransport, _engine, _Replay
 from test_draco_vertical_slice import _engine as _draco_engine
 from test_draco_vertical_slice import _FakeTransport
 from test_report import benchmark, case_results, report
+from test_transport_artifact_fetch import _candidate as _compiled
 
 import screamingface as sf
-from screamingface._engine.transport import _start_async, _start_sync
-from screamingface._evaluation.model import _compiled_operation
+from screamingface._engine.run_request import start_request
+from screamingface._evaluation.model import _compiled_operation, _with_answer_seed
 
-TOKEN = "cap-token"
 URL4 = "(@)!'go'"
 
 
-# --- the wire: the run-start request carries the header ---------------------------------------
+# --- the wire: the Candidate's start carries the seed (E5 P2 spec D8) ------------------------
+#
+# WHY the start and not a header: the Engine starts every Candidate itself, from the start the
+# Run keeps, so the seed travels in `POST /runs`. The Engine sends it on as the header it was.
 
 
-def _recording_http(seen: list[httpx.Request]) -> httpx.Client:
-    def handle(request: httpx.Request) -> httpx.Response:
-        seen.append(request)
-        return httpx.Response(
-            202,
-            headers={"Preference-Applied": "respond-async", "Location": "/runs/1"},
-        )
-
-    return httpx.Client(transport=httpx.MockTransport(handle), base_url="https://engine.test")
+def _seeded(seed: int | None):
+    selected = _compiled()
+    return selected if seed is None else _with_answer_seed(selected, seed)
 
 
 def test_a_declared_seed_is_sent_as_the_answer_seed_header() -> None:
-    seen: list[httpx.Request] = []
-
-    _start_sync(_recording_http(seen), TOKEN, URL4, answer_seed=7)
-
-    assert seen[0].headers["X-Answer-Seed"] == "7"
+    assert start_request(_seeded(7)).body()["answer_seed"] == 7
 
 
 def test_an_undeclared_seed_sends_no_header_at_all() -> None:
     """The engine reads absence as 'unseeded run'; a default here would seed every run."""
-    seen: list[httpx.Request] = []
-
-    _start_sync(_recording_http(seen), TOKEN, URL4)
-
-    assert "X-Answer-Seed" not in seen[0].headers
+    assert start_request(_seeded(None)).body()["answer_seed"] is None
 
 
 # --- the record: CandidateResult carries and serializes the sitting ---------------------------
@@ -183,26 +172,9 @@ def test_evaluate_rejects_a_non_integer_seed_before_any_call(bad: object) -> Non
 # --- the untested twins: async starts, async evaluate, and the Recipe path --------------------
 
 
-@pytest.mark.asyncio
-async def test_start_async_sends_the_header_only_when_declared() -> None:
-    """The async twin of the two sync header tests — same absence rule, same wire word."""
-    seen: list[httpx.Request] = []
-
-    def handle(request: httpx.Request) -> httpx.Response:
-        seen.append(request)
-        return httpx.Response(
-            202,
-            headers={"Preference-Applied": "respond-async", "Location": "/runs/1"},
-        )
-
-    async with httpx.AsyncClient(
-        transport=httpx.MockTransport(handle), base_url="https://engine.test"
-    ) as http:
-        await _start_async(http, TOKEN, URL4, answer_seed=7)
-        await _start_async(http, TOKEN, URL4)
-
-    assert seen[0].headers["X-Answer-Seed"] == "7"
-    assert "X-Answer-Seed" not in seen[1].headers
+def test_start_async_sends_the_header_only_when_declared() -> None:
+    """A negative seed is a legal sitting, and reaches the start as it is."""
+    assert start_request(_seeded(-3)).body()["answer_seed"] == -3
 
 
 @pytest.mark.asyncio

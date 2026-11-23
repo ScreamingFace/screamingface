@@ -82,6 +82,7 @@ def compute_revision(
     cot_template: str = COT_PROMPT_TEMPLATE,
     trigger_template: str = COT_TRIGGER_TEMPLATE,
     failure_policy: FailurePolicy = FAILURE_POLICY,
+    protocol_revision: str = PROTOCOL_REVISION,
 ) -> str:
     """Fingerprint this benchmark into the 16 hex characters its routes carry.
 
@@ -89,7 +90,9 @@ def compute_revision(
     thing between a model and its score. A changed template is a changed benchmark and must
     re-address every route — otherwise already-recorded submissions would silently become
     incomparable. The failure policy is hashed for the same reason (OME-1642): a ``withhold``
-    score is a different number from the same answers, so it gets its own revision.
+    score is a different number from the same answers, so it gets its own revision. The
+    protocol constant stands for the prompt bytes no template holds: what turn 2's input is
+    built from (OME-1786).
     """
 
     return compute_benchmark_revision(
@@ -98,7 +101,7 @@ def compute_revision(
         DATASET_SPLIT,
         dataset_revision,
         PREPARER_REVISION,
-        PROTOCOL_REVISION,
+        protocol_revision,
         EVALUATION_PROTOCOL_REVISION,
         CANDIDATE_RESULT_SCHEMA,
         cot_template,
@@ -117,7 +120,7 @@ FINGERPRINT = compute_revision()
 #: edited to make a red fingerprint test green; it moves only on a fundamental change, after
 #: ``just engine benchmark-bump medxpert`` and with the owner's sign-off
 #: (``docs/adding-an-imported-benchmark.md``, "Changing a Benchmark's published revision").
-REVISION = "1e5a3b8a461a52f7"
+REVISION = "490235dc9a53b7d9"
 
 _ROUTES = benchmark_routes(BENCHMARK_ID, REVISION)
 ROUTE_PREFIX = _ROUTES.prefix
@@ -125,6 +128,9 @@ CASES_ROUTE = _ROUTES.cases
 CHECK_ROUTE = _ROUTES.check
 CASE_GRADE_ROUTE = _ROUTES.case_evaluation
 AGGREGATE_ROUTE = _ROUTES.aggregate
+#: Turns turn 1's result record into the text turn 2 carries (OME-1786). MedXpertQA's own route:
+#: the shared layout has no such address, because no other hand-built Benchmark has a turn 2.
+REASONING_TEXT_ROUTE = f"{ROUTE_PREFIX}/reasoning-text"
 
 
 def _build(selection: int | CaseSelection) -> Node:
@@ -152,13 +158,24 @@ def _build(selection: int | CaseSelection) -> Node:
         web_search=CANDIDATE_WEB_SEARCH,
         binding="$candidate",
     )
-    # Turn 2 — the commit. Its input carries the question and turn 1's reasoning, and ends on the
-    # trigger; the model finishes that sentence, so the letter leads.
+    # Between the turns — turn 1 resolves to the Candidate's whole result record: its answer
+    # text plus the Engine's notes on the call (status, finish reason, and the accounting:
+    # tokens, cost, latency, attempts, cache hit or miss). This route keeps the answer text only.
+    # INVARIANT (OME-1786): turn 2 reads `$reasoning_text`, never `$reasoning`. The accounting
+    # differs between a live call and a cache hit, so a record in the prompt changed turn 2's
+    # bytes on every rerun: the AI Gateway's request cache missed and the commit was billed again.
+    reasoning_text = RelExpr(
+        path=REASONING_TEXT_ROUTE,
+        context="$reasoning",
+        intent=Text("$item.id"),
+    )
+    # Turn 2 — the commit. Its input carries the question and turn 1's reasoning text, and ends
+    # on the trigger; the model finishes that sentence, so the letter leads.
     # WHY `candidate_call` (the bare call) and not `candidate()`: `$reasoning` resolves only as
     # a DIRECT sibling of the binding — inside `candidate()`'s wrapper group the reference ships
     # to the model verbatim, and the commit loses the turn-1 essay (OME-1126).
     commit = candidate_call(
-        {"question": "$item.input", "reasoning": "$reasoning", "trigger": "$item.trigger"},
+        {"question": "$item.input", "reasoning": "$reasoning_text", "trigger": "$item.trigger"},
         case_id="$item.id",
         case_index="$index",
         case_count=str(selected.count),
@@ -199,8 +216,12 @@ def _build(selection: int | CaseSelection) -> Node:
                 grading=checked,
                 case_id="$item.id",
                 # Turn 1 lives here so both the commit envelope and the check read the SAME
-                # real reasoning (see the INVARIANT on `reasoning` above).
-                bindings=(src(reasoning, name="reasoning", weight=0.0),),
+                # real reasoning (see the INVARIANT on `reasoning` above). The text route
+                # follows it as a direct sibling, the only place `$reasoning` resolves.
+                bindings=(
+                    src(reasoning, name="reasoning", weight=0.0),
+                    src(reasoning_text, name="reasoning_text", weight=0.0),
+                ),
             ),
             aggregate_route=AGGREGATE_ROUTE,
             selected_case_count=selected,
@@ -219,16 +240,24 @@ def install_medxpert(node: Url4Node, assets: Path) -> None:
     install(node, assets / ASSET_BUNDLE_ID)
 
 
-#: FEATURE: answer format on the Benchmark page (OME-1906). What `grading.extract_letter` reads,
-#: in the words a submitter sees; every quoted reply is graded by `grading.grade` in
-#: tests/unit/test_medxpert_answer_format.py. WHY here and not in the inspect plugin's
-#: `answer_formats` package: medxpert is hand-built core code, and core never imports a plugin.
+#: FEATURE: answer format on the Benchmark page (OME-1906). What the SCORING parser,
+#: `answering.extract_choice_letter`, reads from the turn-2 reply, in the words a submitter
+#: sees; every quoted reply is graded through it in
+#: tests/unit/test_medxpert_answer_format_scoring_path.py. WHY here and not in the inspect
+#: plugin's `answer_formats` package: medxpert is hand-built core code, and core never imports
+#: a plugin.
+#: AIDEV-NOTE: not `grading.extract_letter` (last letter wins) — that parser is not on the
+#: scoring path, and describing it here cost a user ~11 points on a prose commit.
 ANSWER_FORMAT: str = (
-    "Answer format: after its reasoning, the model is asked to finish 'the answer is' with one "
-    "option letter. The grader reads that phrase first, so 'the answer is D. B would be "
-    "wrong.' counts as D; without it, it takes the last bracketed letter, then the last option "
-    "letter on its own, so 'D', '(D)', '**D**' and 'the answer is D' all count; a reply with no "
-    "option letter, such as 'not sure', scores 0."
+    "Answer format: after its reasoning, the model gets a second turn asking it to finish "
+    "'Therefore, among A through J, the answer is' with one option letter. The grader reads "
+    "that reply the way the official MedXpertQA harness does: it keeps the text after 'the "
+    "answer is' if the reply repeats it, then takes the first capital option letter standing "
+    "on its own. So 'D', '(D)', '**D**', 'the answer is D' and 'the answer is D. B would be "
+    "wrong.' all count as D, and a reply with no option letter, such as 'not sure', scores 0. "
+    "A reply that opens in prose commits its first stray capital: 'A humeral shaft fracture, "
+    "so D' counts as A, and a standalone 'I' counts as I. Recipe authors: make the commit "
+    "reply the letter alone."
 )
 
 MEDXPERT = Benchmark(
@@ -310,6 +339,7 @@ __all__ = [
     "CASE_GRADE_ROUTE",
     "CHECK_ROUTE",
     "MEDXPERT",
+    "REASONING_TEXT_ROUTE",
     "REVISION",
     "compute_revision",
     "install_medxpert",

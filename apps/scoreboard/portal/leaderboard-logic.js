@@ -236,6 +236,24 @@
     return text.slice(0, max).trimEnd() + "…";
   }
 
+  // What the benchmark page's description fold should look like, given two facts the page measures.
+  //
+  // The page shows a long description folded to three lines with a "Show more" button. `overflows`
+  // is whether the text is taller than those three lines (measured while folded); `expanded` is
+  // whether the reader has opened it. Worked example, the 2,515-character EnigmaEval description:
+  //   on load        (overflows true,  expanded false) -> folded, button "Show more"
+  //   after a click  (any,             expanded true)  -> open,   button "Show less"
+  // and a one-line description (overflows false, expanded false) -> open, no button at all, so a
+  // short text never carries a control that does nothing.
+  //
+  // `expanded` wins over `overflows` because an open text is not clamped, so the page cannot
+  // measure overflow then; dropping the button there would strand the reader with no way back.
+  function descriptionFoldState(overflows, expanded) {
+    if (expanded) return { clamped: false, buttonHidden: false, label: "Show less", expanded: true };
+    if (overflows) return { clamped: true, buttonHidden: false, label: "Show more", expanded: false };
+    return { clamped: false, buttonHidden: true, label: "Show more", expanded: false };
+  }
+
   // Case-insensitive substring filter over a benchmark list, for the tab strip's "More benchmarks"
   // search box. Matches on display_name (falling back to id), and also on id, so a reader can type
   // either the name or the slug. An empty or whitespace-only query returns the list unchanged (a
@@ -358,6 +376,7 @@
     FEATURED_BENCHMARK_IDS: FEATURED_BENCHMARK_IDS,
     partitionFeatured: partitionFeatured,
     truncate: truncate,
+    descriptionFoldState: descriptionFoldState,
     filterBenchmarks: filterBenchmarks,
     frontierSummary: frontierSummary,
     opennessLabel: opennessLabel,

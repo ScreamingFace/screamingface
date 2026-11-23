@@ -31,6 +31,9 @@ from screamingface_engine_inspect.benchmarks import imported_benchmark  # noqa: 
 #: turned off — the offer is a per-Benchmark owner decision, never a family default.
 #: OME-1642 (2026-10-19): every withhold row here moved once when its score became the mean over
 #: all selected Cases — the failure policy is Benchmark identity (spec R6).
+#: OME-1958 (2026-11-18): the 47 rows whose grading OME-1907 changed (a wrapped answer letter
+#: such as `ANSWER: $B` is now read; every Case kept) moved once, here and in the list below;
+#: each line names its old id, and the old leaderboard entries move with a re-grade.
 _PUBLISHED_REVISIONS: dict[str, str] = {
     # OME-1860: 075954bfd63059e0 → 7eebba58799a2f22, every Case now opens with inspect_evals'
     # default 10 worked examples (was fewshot=0); owner-approved, no leaderboard scores yet.
@@ -57,7 +60,12 @@ _PUBLISHED_REVISIONS: dict[str, str] = {
     # folder to one local Task package and publish their old revisions (published_revision),
     # so their leaderboard results stay visible.
     "healthbench-worst30": "39cfd96b068f7230",
-    "healthbench-professional": "d8fb037307f35415",
+    # OME-1998: d8fb037307f35415 → 35c7d07e9058f52d, the grading changed in three ways: the
+    # run averages each Case's value after the paper's length adjustment, the judge runs at low
+    # reasoning effort, and a failed Case counts as 0 over all 525 Cases. The revision move is
+    # owner-approved on OME-1998; every Case kept. Old entries need fresh judge calls to return
+    # (the judge request changed, so no re-grade can replay them).
+    "healthbench-professional": "35c7d07e9058f52d",
     # OME-1527: ifeval moved from its hand-built folder to a local Task, its Case ids
     # renumbered 1..541 (owner decision 2), and publishes its old revision (published_revision),
     # so its leaderboard results stay visible.
@@ -66,30 +74,44 @@ _PUBLISHED_REVISIONS: dict[str, str] = {
     "frames_oracle": "6541f5df078dfabd",
     # OME-1696: BIG-Bench Hard, a local Task asked and graded the paper's way (two Named
     # Deviations from inspect_evals' bbh); its source is hashed, so a scorer edit moves this.
-    "bbh": "467f06b54836a6f8",
+    # was 467f06b54836a6f8: OME-1907 grading change (OME-1958).
+    "bbh": "c4f0aa7d023cbd2a",
     # OME-1696: MedMCQA, a local Task we wrote in inspect's shape (validation split).
-    "medmcqa": "60e9f16fbe7c0227",
+    # was 60e9f16fbe7c0227: OME-1907 grading change (OME-1958).
+    "medmcqa": "e9e7ca645e342f81",
     # OME-1476: the first published Benchmark with Attempts and an honoured whole-run metric.
     "arc_agi_2": "4f831492ca42fdf4",
     "math": "0fb750cf19e00c11",
-    "mmlu": "9d4c0946ae71f6fa",
-    "arc_easy": "f7d6a5325fb0bcff",
-    "arc_challenge": "810d45748fde3b18",
-    "commonsense_qa": "203aa920ad7ad52b",
+    # was 9d4c0946ae71f6fa: OME-1907 grading change (OME-1958).
+    "mmlu": "e6a95e4c1f1ced71",
+    # was f7d6a5325fb0bcff: OME-1907 grading change (OME-1958).
+    "arc_easy": "e74d42010074448c",
+    # was 810d45748fde3b18: OME-1907 grading change (OME-1958).
+    "arc_challenge": "0e623d0bf152297f",
+    # was 203aa920ad7ad52b: OME-1907 grading change (OME-1958).
+    "commonsense_qa": "5b968b3e1fd93280",
     "paws": "8f4e0e9c0864a6e7",
     "boolq": "00d4443ca7e66d43",
-    "mmlu_pro": "145edec84bfc2324",
+    # was 145edec84bfc2324: OME-1907 grading change (OME-1958).
+    "mmlu_pro": "4efebd6cc74c2dca",
     # OME-1860: 4eb60a70db7518d6 → 3f2af135ba8bad37, every Case now opens with inspect_evals'
     # default 5 worked examples (was fewshot=0); owner-approved, no leaderboard scores yet.
-    "winogrande": "3f2af135ba8bad37",
-    "race_h": "8c5ebb4a9d38cc6f",
+    # was 3f2af135ba8bad37: OME-1907 grading change (OME-1958).
+    "winogrande": "539a9c0be94c8087",
+    # was 8c5ebb4a9d38cc6f: OME-1907 grading change (OME-1958).
+    "race_h": "9879ac1a4c9097e9",
     "aime24": "2e4ce70a8953233a",
     "aime25": "b207e9fe34ea7517",
-    "musr": "a527e0f0db79d923",
-    "wmdp_bio": "557c21ed4fcf926e",
-    "wmdp_chem": "08989c0d94e03c70",
-    "wmdp_cyber": "d8310da16b5e9e1c",
-    "hellaswag": "9190ec85b43791e0",
+    # was a527e0f0db79d923: OME-1907 grading change (OME-1958).
+    "musr": "1b618ffed7ec9c4d",
+    # was 557c21ed4fcf926e: OME-1907 grading change (OME-1958).
+    "wmdp_bio": "009f4d3e7163867c",
+    # was 08989c0d94e03c70: OME-1907 grading change (OME-1958).
+    "wmdp_chem": "deaa83e0dbf8837f",
+    # was d8310da16b5e9e1c: OME-1907 grading change (OME-1958).
+    "wmdp_cyber": "a3b56fe1a4d3355d",
+    # was 9190ec85b43791e0: OME-1907 grading change (OME-1958).
+    "hellaswag": "90eca5ef70f243e7",
     # Verified against main 2026-09-30: the inverted-grade pin (OME-1400) exists only
     # when a row sets the flag, so its uninverted sibling keeps this revision.
     "xstest_safe": "1044036b2049e623",
@@ -104,24 +126,35 @@ _PUBLISHED_REVISIONS: dict[str, str] = {
     # 18 questions v0.20.0 builds wrongly (the questions where inspect_evals PR #2590's parse
     # differs are excluded; its parser is not adopted) and 1 whose source repeats its key's
     # text under another letter (391 → 372 Cases; onet_m6 fefdc98fb53b0777 before it).
-    "onet_m6": "cfc5f0da9f9418bd",
+    # was cfc5f0da9f9418bd: OME-1907 grading change (OME-1958).
+    "onet_m6": "f0abec484f0d9a59",
     # OME-1701 PR 7: first frozen here, at the revision main serves, which the row holds.
     "aime26": "c3ccaa828160f661",
     # OME-1610 (2026-10-22): every row now hand-sets its published id, so the rows not yet
     # frozen here join at the id main serves; none of them moves.
-    "lab_bench_litqa": "109142a4408d3f4b",
-    "lab_bench_suppqa": "3aae3cdf14efeab8",
-    "lab_bench_dbqa": "21ff94a2ef9982c5",
-    "lab_bench_protocolqa": "236b15e7b2c90e9b",
-    "lab_bench_seqqa": "48e1368633436c5a",
-    "lab_bench_cloning_scenarios": "9c6f66d6acae7f05",
+    # was 109142a4408d3f4b: OME-1907 grading change (OME-1958).
+    "lab_bench_litqa": "201c79a3f2b025ca",
+    # was 3aae3cdf14efeab8: OME-1907 grading change (OME-1958).
+    "lab_bench_suppqa": "3f47298ee2dc3156",
+    # was 21ff94a2ef9982c5: OME-1907 grading change (OME-1958).
+    "lab_bench_dbqa": "1f9e60915b569740",
+    # was 236b15e7b2c90e9b: OME-1907 grading change (OME-1958).
+    "lab_bench_protocolqa": "3314dda27de855f8",
+    # was 48e1368633436c5a: OME-1907 grading change (OME-1958).
+    "lab_bench_seqqa": "49f7f64cf6065dc0",
+    # was 9c6f66d6acae7f05: OME-1907 grading change (OME-1958).
+    "lab_bench_cloning_scenarios": "723a3f5a988ee349",
     # OME-1327: the two LAB-Bench picture subsets, imported once a Case could carry a picture.
-    "lab_bench_figqa": "7376109d25378310",
-    "lab_bench_tableqa": "9990079555f06a35",
+    # was 7376109d25378310: OME-1907 grading change (OME-1958).
+    "lab_bench_figqa": "f826e8ceb03ad596",
+    # was 9990079555f06a35: OME-1907 grading change (OME-1958).
+    "lab_bench_tableqa": "fbace884de2f6ef5",
     # OME-1477: MMMU's multiple-choice task, the first picture Benchmark from a whole exam.
-    "mmmu_multiple_choice": "5b008891134ef4c1",
+    # was 5b008891134ef4c1: OME-1907 grading change (OME-1958).
+    "mmmu_multiple_choice": "c537e4e84ccb4d32",
     # OME-1479: MathVista, maths over pictures, the last of the four picture Benchmarks.
-    "mathvista": "ca4cd0f692d18f0e",
+    # was ca4cd0f692d18f0e: OME-1907 grading change (OME-1958).
+    "mathvista": "126be76d042c445b",
     # OME-1477 PR 2: MMMU's open-answer task, judged once the judge read inspect's question.
     "mmmu_open": "8ce88e420239ae4d",
     # OME-1478: Humanity's Last Exam, the full set with its pictures, judged by glm-5.3-flash.
@@ -145,14 +178,19 @@ _PUBLISHED_REVISIONS: dict[str, str] = {
     # by the authors' exact match; sealed on linux/amd64.
     "enigmaeval": "863b8c98762520a2",
     "frontierscience": "826050de44778515",
-    "pubmedqa": "15e20f21d0a78fd9",
+    # was 15e20f21d0a78fd9: OME-1907 grading change (OME-1958).
+    "pubmedqa": "a1f2388c0f271b91",
     "xstest_unsafe": "fad9dd3ebabd84a5",
-    "medqa": "0d4c53de5fd83ec4",
-    "bbq": "cb1baddfb5da6950",
-    "piqa": "b51564ee7754bc92",
+    # was 0d4c53de5fd83ec4: OME-1907 grading change (OME-1958).
+    "medqa": "5524f2e397688fce",
+    # was cb1baddfb5da6950: OME-1907 grading change (OME-1958).
+    "bbq": "bc9d396d0bb436fc",
+    # was b51564ee7754bc92: OME-1907 grading change (OME-1958).
+    "piqa": "4bafb8f015b6c626",
     "coconot_original": "0c4d77a9254ebc29",
     "coconot_contrast": "0eff77619697954b",
-    "pre_flight": "11c8a1de849b8f0b",
+    # was 11c8a1de849b8f0b: OME-1907 grading change (OME-1958).
+    "pre_flight": "41d7f23b10379ca8",
     "bbeh": "4e98fa90e309b145",
     "simpleqa": "ffd3e901b78f9d0e",
     "simpleqa_verified": "f2b42ba095cade8e",
@@ -160,10 +198,13 @@ _PUBLISHED_REVISIONS: dict[str, str] = {
     "strong_reject": "6794ed308fafe0a6",
     "uccb": "022fa23a5e823aa7",
     "air_bench": "b5d90afe0f368dab",
-    "truthfulqa_mc1": "a4ea7f621bf1640c",
-    "cyse4_malware_analysis": "0a1c3a7364512973",
+    # was a4ea7f621bf1640c: OME-1907 grading change (OME-1958).
+    "truthfulqa_mc1": "60edf776837600e2",
+    # was 0a1c3a7364512973: OME-1907 grading change (OME-1958).
+    "cyse4_malware_analysis": "960b3cd5577db0fc",
     "drop": "9be2d9ed4b5f1a67",
-    "cyse4_threat_intelligence": "92558cfb773e64d2",
+    # was 92558cfb773e64d2: OME-1907 grading change (OME-1958).
+    "cyse4_threat_intelligence": "80aa663a5187f5bd",
 }
 
 
@@ -179,18 +220,30 @@ def test_published_benchmark_revision_is_byte_identical(key: str, revision: str)
 #: OME-1642 (2026-10-19): all of these declare withhold, so each moved once for the failure
 #: policy pin; the fetch-pin rule above still holds (no Hub pin was added).
 _URL_ONLY_TASK_REPLAY_REVISIONS: dict[str, str] = {
-    "agieval_aqua_rat": "2550038f01d739fb",
-    "agieval_logiqa_en": "884951da7ad9e2e1",
-    "agieval_lsat_ar": "13fe1a6267102769",
-    "agieval_lsat_lr": "dbaf28cfdc818528",
-    "agieval_lsat_rc": "7e36f14f4aec1e60",
-    "agieval_sat_en": "092ea478f523193d",
-    "agieval_sat_en_without_passage": "7a4baa0259c5a3b7",
-    "agieval_sat_math": "098022e0b1e81f81",
-    "cybermetric_10000": "9cc0058e566bc9e5",
-    "cybermetric_2000": "c745e4876131fee2",
-    "cybermetric_500": "c558ca68a995b0e8",
-    "cybermetric_80": "8f8705617be73c5b",
+    # was 2550038f01d739fb: OME-1907 grading change (OME-1958).
+    "agieval_aqua_rat": "f5aff58fd7757744",
+    # was 884951da7ad9e2e1: OME-1907 grading change (OME-1958).
+    "agieval_logiqa_en": "4603329f711a8441",
+    # was 13fe1a6267102769: OME-1907 grading change (OME-1958).
+    "agieval_lsat_ar": "e24c40ff7eb00ad1",
+    # was dbaf28cfdc818528: OME-1907 grading change (OME-1958).
+    "agieval_lsat_lr": "0c55782670053db8",
+    # was 7e36f14f4aec1e60: OME-1907 grading change (OME-1958).
+    "agieval_lsat_rc": "7414b6f2cd38efed",
+    # was 092ea478f523193d: OME-1907 grading change (OME-1958).
+    "agieval_sat_en": "b54aa3324c5cf8e5",
+    # was 7a4baa0259c5a3b7: OME-1907 grading change (OME-1958).
+    "agieval_sat_en_without_passage": "67e7fac7146a8c4e",
+    # was 098022e0b1e81f81: OME-1907 grading change (OME-1958).
+    "agieval_sat_math": "8fbe35b30bf21a7e",
+    # was 9cc0058e566bc9e5: OME-1907 grading change (OME-1958).
+    "cybermetric_10000": "08174a6273d9ab85",
+    # was c745e4876131fee2: OME-1907 grading change (OME-1958).
+    "cybermetric_2000": "9623777235b23ab1",
+    # was c558ca68a995b0e8: OME-1907 grading change (OME-1958).
+    "cybermetric_500": "ad094e56d367042a",
+    # was 8f8705617be73c5b: OME-1907 grading change (OME-1958).
+    "cybermetric_80": "a2b31b18a28e9eaf",
     "cyse4_mitre_frr": "0d6a53f259f81eff",
     "mgsm_en": "eba62e86a8d689a1",
     "sad_facts_human_defaults": "8c6160f7390d08df",
@@ -198,8 +251,10 @@ _URL_ONLY_TASK_REPLAY_REVISIONS: dict[str, str] = {
     "sad_influence": "429f77793f3a10ca",
     "sad_stages_full": "0dcca947db2e64de",
     "sad_stages_oversight": "2d5f56c1f30ee5dd",
-    "sevenllm_mcq_en": "e0332fcbf2cfbded",
-    "sevenllm_mcq_zh": "bf67d1707f236386",
+    # was e0332fcbf2cfbded: OME-1907 grading change (OME-1958).
+    "sevenllm_mcq_en": "c00f2228bd58360b",
+    # was bf67d1707f236386: OME-1907 grading change (OME-1958).
+    "sevenllm_mcq_zh": "bf74fa7fb8723e89",
     # OME-1701 PR 4 (2026-10-21): a2f8699ca22f49e5 → ad49b23d305a87dd, served by
     # a local Task that keeps every trial (inspect_evals PR #2507 adopted; 40,176 → 87,048
     # Cases). Still no Hub pin: the fetch-pin rule above holds.

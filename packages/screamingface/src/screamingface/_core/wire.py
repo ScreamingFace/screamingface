@@ -15,6 +15,11 @@ type _Invalid = Callable[[str], NoReturn]
 # WHY here: this module has no dependencies, so marking a call site never drags the Access
 # stack (and its native crypto) into an import path that must stay cheap.
 _REPLAY_SAFE = "screamingface_replay_safe"
+# httpx request-extension key marking a request that may not start an interactive Cloudflare
+# Access login (E5 P2 spec D15): a follow's result fetch. A challenge then raises
+# `LOGIN_NOT_STARTED` instead of opening a browser, and the follow ends with how to resume.
+_NO_LOGIN = "screamingface_no_login"
+LOGIN_NOT_STARTED = "access_login_not_started"
 
 
 def mapping(value: object, label: str, invalid: _Invalid) -> Mapping[str, object]:
@@ -31,6 +36,14 @@ def text(value: object, label: str, invalid: _Invalid) -> str:
     if not isinstance(value, str) or not value.strip():
         invalid(f"{label} must be non-blank text")
     return cast(str, value).strip()
+
+
+def text_tuple(value: object, label: str, invalid: _Invalid) -> tuple[str, ...]:
+    """Return a JSON array of non-blank texts as a tuple, or delegate failure policy."""
+
+    if not isinstance(value, list):
+        invalid(f"{label} must be an array")
+    return tuple(text(item, label, invalid) for item in cast(list[object], value))
 
 
 __all__: list[str] = []

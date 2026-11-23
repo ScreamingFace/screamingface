@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from url4.core.at_most_one import is_at_most_one
 from url4.core.nodes import Binding, Node, Source
 
 from url4.dag.node import DagNode  # isort: skip
@@ -51,7 +52,10 @@ def _lower_source(node: Node, edges: Edges, registry: LoweringRegistry) -> DagNo
     if isinstance(inner, WebFetchNode):
         inner.attachment = identity_of(node)  # None for every text source (F1b round 7)
     if node.expand:
-        inner = ExpandNode(deps={"inner": as_collection(inner)})  # a blob ref is text (D4)
+        inner = ExpandNode(
+            deps={"inner": as_collection(inner)},  # a blob ref is text (D4)
+            at_most_one=is_at_most_one(node.annotations),  # C19, wrapped by the guard below
+        )
     if guard is not None:
         optional, timeout, retries = guard
         inner = GuardNode(

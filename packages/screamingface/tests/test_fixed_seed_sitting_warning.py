@@ -21,6 +21,7 @@ from _model_parameter_fixtures import DETAILS as _DETAILS
 from _model_parameter_fixtures import SUMMARY as _SUMMARY
 from _nodes import fusion_node
 from _reducer_fixtures import FixtureVote, operators_response
+from _run_transport import AsyncScriptedRun, ScriptedRun
 from url4 import RelExpr, expr, render, src, text
 
 import screamingface as sf
@@ -104,32 +105,20 @@ def _handler(request: httpx.Request) -> httpx.Response:
     return response
 
 
-class _ReachedTransport:
+class _ReachedTransport(ScriptedRun):
     called = False
 
     def run(self, candidate: object, on_event: object) -> NoReturn:
         self.called = True
         raise RuntimeError("execution reached")
 
-    def cancel_active(self) -> None:
-        pass
 
-    def close(self) -> None:
-        pass
-
-
-class _AsyncReachedTransport:
+class _AsyncReachedTransport(AsyncScriptedRun):
     called = False
 
     async def run(self, candidate: object, on_event: object) -> NoReturn:
         self.called = True
         raise RuntimeError("execution reached")
-
-    async def cancel_active(self) -> None:
-        pass
-
-    async def close(self) -> None:
-        pass
 
 
 def _samples_fusion() -> sf.Recipe:

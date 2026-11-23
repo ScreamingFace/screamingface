@@ -7,7 +7,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
-from screamingface._core.ports import _ResultArtifact, _RunOutcome
+from screamingface._core.ports import _ResultArtifact, _RunOutcome, _RunResult
 from screamingface._evaluation.model import (
     Candidate,
     _compiled_candidate,
@@ -67,12 +67,20 @@ def outcome_value(data: dict[str, Any]) -> _RunOutcome:
         if usage.get("cost_usd") is not None:
             usage["cost_usd"] = Decimal(usage["cost_usd"])
         values["root_usage"] = Usage(**usage)
-    if values["artifact"] is not None:
-        values["artifact"] = _ResultArtifact(**values["artifact"])
+    _tickets(values)
     # INVARIANT: JSON reads the tuple back as a list; the outcome keeps the tuple the run stated.
     if "capture_partial_reasons" in values:
         values["capture_partial_reasons"] = tuple(values["capture_partial_reasons"])
     return _RunOutcome(**values, result_body=None)
+
+
+def _tickets(values: dict[str, Any]) -> None:
+    """Decode where the result is redeemed: an artifact ticket, or (FEATURE OME-1837) the
+    Run's result route; a manifest from before P2 has no `run_result` key."""
+    if values["artifact"] is not None:
+        values["artifact"] = _ResultArtifact(**values["artifact"])
+    if values.get("run_result") is not None:
+        values["run_result"] = _RunResult(**values["run_result"])
 
 
 def json_default(value: object) -> object:
@@ -80,6 +88,6 @@ def json_default(value: object) -> object:
         return value.isoformat()
     if isinstance(value, Decimal):
         return str(value)
-    if isinstance(value, Usage | _ResultArtifact):
+    if isinstance(value, Usage | _ResultArtifact | _RunResult):
         return asdict(value)
     raise TypeError(f"Unsupported recovery metadata: {type(value).__name__}")

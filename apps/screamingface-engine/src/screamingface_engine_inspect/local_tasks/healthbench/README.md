@@ -12,7 +12,7 @@ importer that imports inspect_evals. Both Benchmarks keep their ids and are ours
 | Benchmark | Cases | Headline |
 |---|---|---|
 | `healthbench-worst30` | the frozen hardest 157 (`subset.py`), hardest first | plain mean of the Case scores, negatives kept |
-| `healthbench-professional` | all 525, in file order | the official metric: that mean clipped to 0..1 |
+| `healthbench-professional` | all 525, in file order | the mean of each Case's value after the paper's length adjustment, over all 525 Cases, a failed Case as 0, clipped to 0..1 |
 
 inspect_evals' `healthbench` is not used: it reads a different dataset (the original
 HealthBench, not Professional), returns a dict Score value, and its judge sends temperature 0.0
@@ -51,6 +51,41 @@ byte) once per rubric line, as one user message with no system message:
   `healthbench_clipped_mean`, the reference's `np.clip(mean, 0, 1)` over the run (clipping the
   mean is not the mean of clipped Case scores).
 
+**Professional applies the paper's length adjustment and low judge effort, and counts a failed
+Case as 0 (OME-1998).** Three things differ from worst-30, all on the professional row only:
+
+- **Length adjustment.** The scorer also files each Case's length-adjusted value,
+  rubric score − 0.0147 × (answer characters − 2,000) / 500
+  (`scoring.calculate_length_adjusted_score`, simple-evals' function of the same name, with the
+  paper's constants: p.8 §4.1 writes it as s − 2.94×10⁻⁵ × (chars − 2,000)). The length is the
+  Candidate's answer's, in characters. Example: rubric score 0.60, a 4,000-character answer →
+  0.5412. The clipped mean averages that value. **The score shown on a Case stays its rubric
+  score before the adjustment, so the mean of the Case scores shown is not the run score**
+  (owner decision, 2026-11-23). The reason: an adjusted value can pass 1 (a short answer that
+  meets every line is worth up to 1.0588), and a Case score may not, in the Engine or the SDK.
+  That cap stays. The adjusted value and the answer's length are in the Case's evidence
+  (`overall_score_length_adjusted`, `response_chars`).
+- **Failed Cases count as 0.** The row's failure policy is `withhold`: a Case whose Candidate
+  call or judging failed enters the clipped mean as a flat 0 (no length adjustment), over all
+  selected Cases. So does an abstained Case. Coverage still reads graded / selected, and a run
+  with no gradeable Case publishes no score. simple-evals never drops a Case either: it retries
+  without end and grades an empty answer.
+- **The judge runs at low reasoning effort**, as the paper's does (below).
+
+worst-30 has none of the three: no adjustment, a failed Case leaves its mean, and its judge
+params are the hand-built ones.
+
+**This is not the paper's full protocol, so a score here is not directly comparable to the
+published numbers.** What still differs:
+
+- the paper averages 8 samples per example for its main results; a run here asks each Case once;
+- the paper's judge is a dated GPT-5.4 snapshot; ours is OpenRouter's floating `openai/gpt-5.4`;
+- simple-evals retries without end and grades whatever comes back; a failed or abstained Case
+  here is a flat 0;
+- the published numbers came from OpenAI's internal implementation, not simple-evals;
+- the score shown on a Case is its rubric score, not the adjusted value (only the run's mean
+  reads the adjusted value).
+
 The reference is simple-evals' [`healthbench_eval.py` at
 `652c89d`](https://github.com/openai/simple-evals/blob/652c89d0ca9df547706735883097e9537d40dc47/healthbench_eval.py),
 the commit both rows cite. The `blob/main` links in the `prompts.py` and `scoring.py` headers
@@ -58,9 +93,12 @@ name the same file; they stay unpinned because editing any `.py` file here moves
 fingerprints (see Identity).
 
 The judge is `openrouter/openai/gpt-5.4` (the official judge is an OpenAI-internal snapshot we
-cannot reach) with no web search, a 4096 max-token cap and no temperature: the row's
-`JudgeSpec`, the hand-built pins. Every judge request equals the hand-built one byte for byte
-(all 1,135 prompts compared through the real connector at import).
+cannot reach) with no web search, a 4096 max-token cap and no temperature: each row's
+`JudgeSpec`. worst-30 sends exactly the hand-built pins, so its every judge request equals the
+hand-built one byte for byte (all 1,135 prompts compared through the real connector at import).
+Professional also sends `reasoning_effort=low`, the paper's setting (OME-1998): its judge
+prompts are the same bytes, but the request differs, so judge replies recorded before that
+change no longer answer it.
 
 **The Report is thinner** (owner decision, OME-1527): one Check per Case whose evidence carries
 each line's points, verdict and the judge's words, the redraw count and the verdict counts; no

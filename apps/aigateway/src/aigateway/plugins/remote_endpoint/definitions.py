@@ -30,12 +30,18 @@ from pydantic import (
     model_validator,
 )
 
+from .limits import ChoiceLimitsDoc, ClassifierLimits, TextLimitsDoc
+
 SCHEMA_VERSION = 1
 CHAT_CONTRACT = "openai-chat-basic-v1"
 CLASSIFICATION_TASK = "text-classification"
 CLASSIFICATION_CONTRACT = "hf-text-classification-v1"
+CHOICE_CONTRACT = "systemone-choice-v1"
 _TASKS = ("chat", CLASSIFICATION_TASK)
 _UNKNOWN_TASK = "unknown-task"
+# WHY a kind of its own: a choice target shares the classification task, so the contract tells it
+# apart from an HF target before either kind judges the other's fields.
+_CHOICE_KIND = CHOICE_CONTRACT
 
 _ENDPOINT_ID = re.compile(r"^byom_[0-9a-f]{32}$")
 _DEFAULT_PORT = {"http": 80, "https": 443}
@@ -71,6 +77,23 @@ class ClassificationTarget:
     score_semantics: Literal["bounded-score"] = "bounded-score"
     task: Literal["text-classification"] = CLASSIFICATION_TASK
     contract: Literal["hf-text-classification-v1"] = CLASSIFICATION_CONTRACT
+    limits: ClassifierLimits | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ChoiceTarget:
+    """A `systemone-choice-v1` classifier (contract C7): one native `choice` question per call."""
+
+    alias: str
+    request_path: str
+    limits: ClassifierLimits
+    upstream_model: str | None = None
+    task: Literal["text-classification"] = CLASSIFICATION_TASK
+    contract: Literal["systemone-choice-v1"] = CHOICE_CONTRACT
+
+
+type ClassifierTarget = ClassificationTarget | ChoiceTarget
+type Target = ChatTarget | ClassifierTarget
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,9 +104,9 @@ class EndpointDefinition:
     display_name: str
     origin: str
     validation_target: str
-    targets: tuple[ChatTarget | ClassificationTarget, ...]
+    targets: tuple[Target, ...]
 
-    def target(self, alias: str) -> ChatTarget | ClassificationTarget | None:
+    def target(self, alias: str) -> Target | None:
         return next((target for target in self.targets if target.alias == alias), None)
 
     @property
@@ -94,7 +117,7 @@ class EndpointDefinition:
     def classifier_targets(self) -> tuple[ClassificationTarget, ...]:
         return tuple(target for target in self.targets if isinstance(target, ClassificationTarget))
 
-    def model_id(self, target: ChatTarget | ClassificationTarget) -> str:
+    def model_id(self, target: Target) -> str:
         return f"{self.id}/{target.alias}"
 
 
@@ -146,9 +169,13 @@ class _ChatTargetDoc(_TargetDoc):
     @field_validator("upstream_model")
     @classmethod
     def _upstream_model(cls, value: str) -> str:
-        if not _UPSTREAM_MODEL.fullmatch(value):
-            raise ValueError("must be 1-256 printable ASCII characters without spaces")
-        return value
+        return _checked_upstream_model(value)
+
+
+def _checked_upstream_model(value: str) -> str:
+    if not _UPSTREAM_MODEL.fullmatch(value):
+        raise ValueError("must be 1-256 printable ASCII characters without spaces")
+    return value
 
 
 class _ClassificationTargetDoc(_TargetDoc):
@@ -156,6 +183,20 @@ class _ClassificationTargetDoc(_TargetDoc):
     contract: Literal["hf-text-classification-v1"]
     response_envelope: Literal["flat", "single-batch"]
     score_semantics: Literal["bounded-score"]
+    # WHY optional: a target declared before C7 parses as it did, and its row says `null`.
+    limits: TextLimitsDoc | None = None
+
+
+class _ChoiceTargetDoc(_TargetDoc):
+    task: Literal["text-classification"]
+    contract: Literal["systemone-choice-v1"]
+    upstream_model: str | None = None
+    limits: ChoiceLimitsDoc
+
+    @field_validator("upstream_model")
+    @classmethod
+    def _upstream_model(cls, value: str | None) -> str | None:
+        return None if value is None else _checked_upstream_model(value)
 
 
 class _TaskProbe(BaseModel):
@@ -168,16 +209,19 @@ class _TaskProbe(BaseModel):
 
 def _target_kind(value: Any) -> str:
     task = value.get("task") if isinstance(value, Mapping) else None
+    if task == CLASSIFICATION_TASK and value.get("contract") == CHOICE_CONTRACT:
+        return _CHOICE_KIND
     return task if isinstance(task, str) and task in _TASKS else _UNKNOWN_TASK
 
 
 if TYPE_CHECKING:
-    # WHY: the probe never validates, so a parsed target is always one of the two kinds.
-    _AnyTargetDoc = _ChatTargetDoc | _ClassificationTargetDoc
+    # WHY: the probe never validates, so a parsed target is always one of the three kinds.
+    _AnyTargetDoc = _ChatTargetDoc | _ClassificationTargetDoc | _ChoiceTargetDoc
 else:
     _AnyTargetDoc = Annotated[
         Annotated[_ChatTargetDoc, Tag("chat")]
         | Annotated[_ClassificationTargetDoc, Tag(CLASSIFICATION_TASK)]
+        | Annotated[_ChoiceTargetDoc, Tag(_CHOICE_KIND)]
         | Annotated[_TaskProbe, Tag(_UNKNOWN_TASK)],
         Discriminator(_target_kind),
     ]
@@ -280,11 +324,18 @@ def _definition(endpoint: _EndpointDoc) -> EndpointDefinition:
     )
 
 
-def _target(target: _AnyTargetDoc) -> ChatTarget | ClassificationTarget:
+def _target(target: _AnyTargetDoc) -> Target:
     if isinstance(target, _ChatTargetDoc):
         return ChatTarget(
             alias=target.alias,
             request_path=target.request_path,
+            upstream_model=target.upstream_model,
+        )
+    if isinstance(target, _ChoiceTargetDoc):
+        return ChoiceTarget(
+            alias=target.alias,
+            request_path=target.request_path,
+            limits=ClassifierLimits.of(target.limits),
             upstream_model=target.upstream_model,
         )
     return ClassificationTarget(
@@ -292,6 +343,7 @@ def _target(target: _AnyTargetDoc) -> ChatTarget | ClassificationTarget:
         request_path=target.request_path,
         response_envelope=target.response_envelope,
         score_semantics=target.score_semantics,
+        limits=None if target.limits is None else ClassifierLimits.of(target.limits),
     )
 
 
@@ -365,7 +417,7 @@ def _is_canonical_uuid(value: str) -> bool:
 def _location(loc: tuple[int | str, ...]) -> str:
     # WHY drop the kind: the tagged union inserts the kind it chose right after a target's index.
     # That is the parser's choice, not a place in the operator's document.
-    kinds = {*_TASKS, _UNKNOWN_TASK}
+    kinds = {*_TASKS, _CHOICE_KIND, _UNKNOWN_TASK}
     parts = [
         part
         for i, part in enumerate(loc)

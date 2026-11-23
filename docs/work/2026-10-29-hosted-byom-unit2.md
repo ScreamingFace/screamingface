@@ -160,6 +160,8 @@ A third review at `aadfa9ea3` found two more gaps.
   upstreams, with no prior list call and one graded one-case result; each credential reaches only
   its own upstream. It needs an existing Linux environment with NATS/JetStream, not available on
   2026-10-29. Hosted readiness is not claimed until it passes, and OME-1770 stays open.
+  Added 2026-11-23 at the owner's decision: the same hosted run also sends one `/classify`
+  call to a fake upstream, the hosted check moved here from Unit 3 (OME-1794 to OME-1796).
 - A missing usage count shown as 0 is documented as not a measured zero.
 
 ## Outcome (fill at the end — required before COMMIT)
@@ -221,6 +223,9 @@ pending (Acceptance). Hosted readiness is not claimed.
   `aadfa9ea3` fix(screamingface-engine): keep one world config revision per run and hide private
   routes from ungranted callers. Review follow-up 3: the commit that carries this ledger line,
   fix(screamingface-engine): close router answers on private mounts and upgrade readers first.
+- **Merge:** PR #1606 squash-merged 2026-10-30 as `143d4bcf8`. On 2026-11-23 OME-1771, OME-1773
+  and OME-1777 closed in Linear and in their mirrors on their own acceptance. OME-1770 stays
+  open: its hosted mixed Fusion check is pending, and no hosted readiness is claimed.
 - **Gates (2026-10-29, this worktree):**
   - `run_gates.py screamingface-engine`: all green (ruff, format, pyright, layering, pytest with
     coverage floor 80). The same suite without coverage: 5919 passed, 153 skipped.

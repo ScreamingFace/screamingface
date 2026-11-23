@@ -1,12 +1,13 @@
 ---
 id: OME-1771
 linear_url: https://linear.app/openmined/issue/OME-1771/deliver-the-configured-endpoints-file-to-the-gateway-through-its-chart
-status: backlog
+status: done
 type: feature
 priority: high
 labels: [aigateway, agentic, autonomous]
 parent: OME-1306
 created: 2026-10-29
+closed: 2026-11-23
 ---
 
 # Deliver the configured endpoints file to the Gateway through its chart
@@ -27,3 +28,6 @@ Acceptance: Helm render with disabled, enabled and malformed values shows mount,
 parity; Gateway gates are green if Gateway code changes.
 
 Ledger: `docs/work/2026-10-29-hosted-byom-unit2.md` (shared with OME-1770).
+
+Merged [PR #1606](https://github.com/ScreamingFace/screamingface/pull/1606) as `143d4bcf8`.
+Linear is Done.

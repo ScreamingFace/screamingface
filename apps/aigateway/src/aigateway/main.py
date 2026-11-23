@@ -44,10 +44,11 @@ from .core.request_cache.store import ConfiguredCacheAvailability, TortoiseReque
 from .core.request_cache.tavily_store import TavilyRetrievalCacheStore
 from .core.request_cache.upload_job import CacheUploadRunner
 from .core.secrets.factory import build_secret_store, set_active_secret_store
+from .core.shutdown import close_through_cancellation
 from .core.snapshot_publish import build_snapshot_scheduler
-from .core.usage_accounting.hooks import build_accounting_handler
+from .core.usage_accounting.hooks import build_accounting_handler, build_attempt_handler
 from .db import close_db, init_db
-from .middleware import BodyCapMiddleware, CallIdMiddleware
+from .middleware import BodyCapMiddleware, CallIdMiddleware, UpstreamAttemptsMiddleware
 from .plugins.openrouter_provider.credits import OpenRouterCredits
 from .plugins.taxonomy.plugin import TaxonomyPlugin
 from .provider_composition import close_remote_endpoints, compose_providers
@@ -218,6 +219,10 @@ async def _lifespan(app):
         app.state.usage_accounting_handler = app.state.taxonomy_plugin.start(
             build_accounting_handler
         )
+        # FEATURE (contract C7): a second app-lifetime handler, built whatever the taxonomy
+        # setting, for a LiteLLM dispatch that is not accounted. Its sends must still reach the
+        # attempt header, and LiteLLM counts only through a client it was given.
+        app.state.upstream_attempts_handler = build_attempt_handler()
 
         # Weekly cache-snapshot to Garage (OME-1021): armed only when enabled, owned by
         # this lifespan — started here, cancelled and awaited in the finally below.
@@ -249,24 +254,36 @@ async def _lifespan(app):
             # guaranteed to run and cannot await. An unclosed handler leaks its connection
             # pool across TestClient lifecycles and across a reload in dev.
             try:
-                await app.state.taxonomy_plugin.close()
-            except Exception:
-                logger.warning("usage accounting handler did not close cleanly")
+                await close_through_cancellation(
+                    app.state.taxonomy_plugin.close,
+                    logger,
+                    "usage accounting handler did not close cleanly",
+                )
             finally:
                 app.state.usage_accounting_handler = None
-                # FEATURE (hosted BYOM): each configured endpoint's client closes with the app.
+                attempts_handler = app.state.upstream_attempts_handler
+                app.state.upstream_attempts_handler = None
                 try:
-                    await close_remote_endpoints(app.state.providers)
-                except Exception:
-                    logger.warning("a remote endpoint client did not close cleanly")
+                    if attempts_handler is not None:
+                        await close_through_cancellation(
+                            attempts_handler.close,
+                            logger,
+                            "the upstream attempt handler did not close cleanly",
+                        )
                 finally:
+                    # FEATURE (hosted BYOM): each configured endpoint's client closes with the app.
                     try:
-                        await auth.close_loopback_callbacks(app)
+                        await close_remote_endpoints(app.state.providers)
+                    except Exception:
+                        logger.warning("a remote endpoint client did not close cleanly")
                     finally:
-                        # Clear the process-wide active store so it does not leak across app
-                        # instances (e.g. multiple TestClient lifecycles in one process).
-                        set_active_secret_store(None)
-                        await close_db()
+                        try:
+                            await auth.close_loopback_callbacks(app)
+                        finally:
+                            # Clear the process-wide active store so it does not leak across
+                            # app instances (e.g. multiple TestClient lifecycles in one process).
+                            set_active_secret_store(None)
+                            await close_db()
 
 
 async def _redact_validation_errors(_request: Request, exc: Exception) -> JSONResponse:
@@ -365,6 +382,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.settings = settings
     app.state.taxonomy_plugin = TaxonomyPlugin()
     app.state.usage_accounting_handler = None
+    app.state.upstream_attempts_handler = None
     # Only the `disabled` mode makes every caller anonymous, so only it needs the loopback guard.
     # `cloudflare_headers` authenticates from the injected header and is meant to be reached over
     # network — binding it to loopback would break the deployment it exists for.
@@ -392,6 +410,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         max_bytes=settings.max_request_bytes,
         path_limits={"/v1/admin/cache/snapshots": settings.cache_upload_max_bytes + 1024 * 1024},
     )
+
+    # FEATURE (contract C7): the attempt header. Registered between the body cap and the call id,
+    # so it sits immediately inside CallIdMiddleware and outside every other user middleware; a
+    # body-cap or auth refusal therefore still carries the header (`0`).
+    app.add_middleware(UpstreamAttemptsMiddleware)
 
     # FEATURE (OME-938): correlation is app-wide plumbing, not a feature of usage accounting.
     # INVARIANT: added LAST so it is the OUTERMOST layer. `add_middleware` does

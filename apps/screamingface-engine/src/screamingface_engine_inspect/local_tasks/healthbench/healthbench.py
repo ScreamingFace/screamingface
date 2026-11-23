@@ -9,7 +9,7 @@ question booklet (physician-reviewed clinical chats, each with its points rubric
 a scorer that has the judge tick each rubric line once and adds up the points, and two
 `@task`s over the same booklet — `healthbench_worst30` (the frozen hardest 157, scored by the
 plain mean, negatives kept) and `healthbench_professional` (all 525, scored by the official
-clipped mean).
+clipped mean of each Case's value after the paper's length adjustment).
 
 Execution order, as the importer and the Engine see it:
 
@@ -27,8 +27,10 @@ Execution order, as the importer and the Engine see it:
        rubric line; a reply with no verdict is redrawn (twice at most), and a line that never
        parses fails the Case (`judge_reply_invalid`), as the hand-built grader failed it.
     5. the Case score is earned over winnable points, unclamped. worst-30's headline is the
-       plain mean over graded Cases; professional's is `healthbench_clipped_mean`, the
-       reference's `np.clip(mean, 0, 1)` over the run.
+       plain mean over graded Cases. Professional's scorer also files each Case's
+       length-adjusted value (the paper's formula, OME-1998), and its headline is
+       `healthbench_clipped_mean`: the reference's `np.clip(mean, 0, 1)` of those values over
+       every selected Case, a Case that failed counting as 0.
 
 INVARIANT — the Candidate's and the judge's bytes are the hand-built Benchmark's, so the
 recorded healthbench-worst30 golden still replays against this Task;
@@ -62,6 +64,7 @@ from inspect_ai.scorer import (
 )
 from inspect_ai.solver import TaskState, generate
 
+from screamingface_engine.benchmarks.case_records import CANDIDATE_ABSTAINED
 from screamingface_engine.benchmarks.shared_grading.judge_evidence import (
     JudgeEvidence,
     JudgeReplyFormat,
@@ -72,7 +75,11 @@ from screamingface_engine_inspect.local_tasks.healthbench.prompts import (
     build_grader_prompt,
     render_rubric_item,
 )
-from screamingface_engine_inspect.local_tasks.healthbench.scoring import case_score, clipped_mean
+from screamingface_engine_inspect.local_tasks.healthbench.scoring import (
+    calculate_length_adjusted_score,
+    case_score,
+    clipped_mean,
+)
 from screamingface_engine_inspect.local_tasks.healthbench.subset import WORST30_HF_IDS
 
 # ── pins (the hand-built revision_inputs.py) ─────────────────────────────────────────────
@@ -81,6 +88,18 @@ DATASET_REVISION = "349962fd46dd02343a0d8a606491baf59154ea1a"
 #: The pinned revision holds exactly this many rows; a dataset that grew or shrank would
 #: otherwise ship a differently-sized Benchmark under the professional identity.
 PROFESSIONAL_CASE_COUNT = 525
+
+#: HealthBench Professional's length adjustment, the paper's constants (p.8 section 4.1:
+#: ``s - 2.94e-5 * (chars - 2000)``, which is 0.0147 per 500 characters around 2,000), in the
+#: form simple-evals takes them (``--healthbench-length-adjustment-center 2000
+#: --healthbench-length-adjustment-penalty-per-500-chars 0.0147``). Only the professional Task
+#: and row pass them; worst-30 passes none, so it is not adjusted (OME-1998).
+LENGTH_ADJUSTMENT_CENTER: float = 2000.0
+LENGTH_ADJUSTMENT_PENALTY_PER_500_CHARS: float = 0.0147
+
+#: Where an adjusted Case's length-adjusted value rides its ``Score.metadata``, under
+#: simple-evals' own metric name. ``healthbench_clipped_mean`` averages it.
+LENGTH_ADJUSTED_SCORE: str = "overall_score_length_adjusted"
 
 #: The judge, as the scorer calls it through the gateway provider. The official professional
 #: judge is an OpenAI-internal gpt-5.4 snapshot we cannot reach; OpenRouter routes the floating
@@ -252,7 +271,11 @@ def transcript(state: TaskState) -> str:
 
 # ── the scorer ────────────────────────────────────────────────────────────────────────────
 @scorer(metrics=[mean(), stderr()])
-def healthbench_rubric(judge_model: str = JUDGE_MODEL) -> Scorer:
+def healthbench_rubric(
+    judge_model: str = JUDGE_MODEL,
+    length_adjustment_center: float | None = None,
+    length_adjustment_penalty_per_500_chars: float | None = None,
+) -> Scorer:
     """Grade one answer against its rubric: one judge call per line, then the points.
 
     Think of it as an examiner with a physician's checklist who may only look at one line at a
@@ -273,12 +296,24 @@ def healthbench_rubric(judge_model: str = JUDGE_MODEL) -> Scorer:
        lost penalty line would silently raise its score.
     3. Score: earned = the points of every met line (penalties subtract), winnable = the sum
        of the positive points. No clamp: a harmful answer can rank below one that said nothing.
+    4. Length adjustment, only when both length-adjustment arguments are given (HealthBench
+       Professional): the rubric score moves by the length of the Candidate's answer
+       (:func:`calculate_length_adjusted_score`, the paper's formula). The adjusted
+       value is filed in ``Score.metadata`` under ``overall_score_length_adjusted``, with the
+       answer's length, and ``healthbench_clipped_mean`` averages it. The Score's VALUE stays
+       the rubric score. WHY not the adjusted value: it can pass 1 (a short answer that meets
+       every line), and a Case Result's score may not, so the Case would fail instead of
+       scoring.
 
     Worked example, points ``[+5, +3, -3]``, the judge says met, not met, met:
 
         winnable = 5 + 3    = 8   # only positive points are winnable
         earned   = 5 + (-3) = 2   # met lines only — the penalty bites
         score    = 2 / 8    = 0.25
+
+    and, on HealthBench Professional, a 4,000-character answer to that Case:
+
+        adjusted = 0.25 - 0.0147 * ((4000 - 2000) / 500) = 0.1912   # what the run averages
 
     The per-line verdicts (id, points, met, the judge's words) and the redraw count ride
     ``Score.metadata`` into the Case's one Check — the thinner Report the owner accepted
@@ -289,14 +324,36 @@ def healthbench_rubric(judge_model: str = JUDGE_MODEL) -> Scorer:
 
     Args:
         judge_model: the gateway judge, ``screamingface/<model>``; the row pins the same one.
+        length_adjustment_center: the answer length, in characters, that the adjustment
+            leaves untouched (the paper: 2,000). None, with the penalty also None, turns the
+            adjustment off, which is how healthbench worst-30 runs.
+        length_adjustment_penalty_per_500_chars: the points 500 characters away from the
+            centre cost (the paper: 0.0147). Set together with the centre, as in simple-evals.
 
     Returns:
         The inspect scorer. Its Score's value is the Case score (may be negative).
 
     Raises:
+        ValueError: one length-adjustment argument was given without the other, or either is
+            negative (simple-evals' own refusals, raised when the scorer is built).
         JudgeReplyUnparseable: a line had no parseable reply after its redraws.
         KeyError: the Sample carries no rubric (a broken Case, never "nothing to meet").
     """
+
+    # simple-evals' HealthBenchEval.__init__ checks, same messages: both or neither, never
+    # negative.
+    if (length_adjustment_center is None) != (length_adjustment_penalty_per_500_chars is None):
+        raise ValueError(
+            "length_adjustment_center and "
+            "length_adjustment_penalty_per_500_chars must be set together"
+        )
+    if length_adjustment_center is not None and length_adjustment_center < 0:
+        raise ValueError("length_adjustment_center must be non-negative")
+    if (
+        length_adjustment_penalty_per_500_chars is not None
+        and length_adjustment_penalty_per_500_chars < 0
+    ):
+        raise ValueError("length_adjustment_penalty_per_500_chars must be non-negative")
 
     async def score(state: TaskState, target: Target) -> Score:
         judge: Any = get_model(judge_model)
@@ -331,6 +388,24 @@ def healthbench_rubric(judge_model: str = JUDGE_MODEL) -> Scorer:
         )
         if value is None:
             raise ValueError("the rubric has no positive-points line; its score is undefined")
+        # Stage 4 — the paper's length adjustment (professional only), filed beside the
+        # rubric score for the run's clipped mean to average. The length is the Candidate's
+        # answer's, the text the judge graded (simple-evals' `response_text`).
+        length_adjusted: dict[str, Any] = {}
+        if (
+            length_adjustment_center is not None
+            and length_adjustment_penalty_per_500_chars is not None
+        ):
+            response_text: str = state.output.completion
+            length_adjusted = {
+                LENGTH_ADJUSTED_SCORE: calculate_length_adjusted_score(
+                    value,
+                    response_text,
+                    center=length_adjustment_center,
+                    penalty_per_500_chars=length_adjustment_penalty_per_500_chars,
+                ),
+                "response_chars": len(response_text),
+            }
         return Score(
             value=value,
             explanation=f"{len(items)} rubric lines judged",
@@ -339,6 +414,7 @@ def healthbench_rubric(judge_model: str = JUDGE_MODEL) -> Scorer:
                 "judge_redraws": redraws,
                 "verdicts_expected": len(rubric),
                 "verdicts_accepted": len(items),
+                **length_adjusted,
             },
         )
 
@@ -348,26 +424,67 @@ def healthbench_rubric(judge_model: str = JUDGE_MODEL) -> Scorer:
 # ── the run's tally sheet (professional only) ─────────────────────────────────────────────
 @metric
 def healthbench_clipped_mean() -> Metric:
-    """The OFFICIAL HealthBench headline: the mean of the Case scores, then clipped to 0..1.
+    """HealthBench Professional's headline: the mean of each Case's length-adjusted value
+    over every selected Case, then clipped to 0..1.
+
+    NOT the paper's full protocol, so not its published number: the formula and the clip are
+    the paper's, but a failed Case is our flat 0, the run asks each Case once (the paper
+    averages 8 samples), and the judge is a different snapshot of the model.
+
+    Think of it as the run's tally sheet with one line per selected Case. Stages, in
+    execution order:
+
+    1. One value per Case handed in (:func:`_run_value`): a graded Case gives its
+       length-adjusted value, which the scorer filed in the Score's metadata; a Case that
+       failed (its Candidate call or its judging) or abstained gives a flat 0, with no
+       adjustment. A Score with no adjusted value filed gives its own value.
+    2. The mean of those values, then the reference's ``np.clip(mean, 0, 1)``.
+
+    Worked example, four selected Cases: two graded with adjusted values 0.1912 and 1.0, one
+    whose Candidate call failed, one whose judge never gave a verdict:
+
+        mean    = (0.1912 + 1.0 + 0 + 0) / 4 = 0.2978
+        clipped = 0.2978                         # already inside 0..1
+
+    WHY a failed Case is 0 here (OME-1998): the row's failure policy is ``withhold``, so the
+    Engine hands this metric every selected Case and a recipe that fails on hard Cases loses
+    their points. simple-evals never drops a Case either (it retries without end).
 
     WHY a whole-run metric and not a per-Case clamp: clipping the run's mean is not the mean of
-    clipped Case scores. Worked example, Case scores ``[0.25, 0.5, -2.5, 1.0]``:
+    clipped Case scores. Worked example, Case values ``[0.25, 0.5, -2.5, 1.0]``:
 
         clipped mean      = max(0, (0.25 + 0.5 - 2.5 + 1.0) / 4) = max(0, -0.1875) = 0.0
         mean of clamped   = (0.25 + 0.5 + 0.0 + 1.0) / 4                           = 0.4375
 
-    The reference publishes the first. A Case whose grading failed never reaches the metric,
-    as it never reached the hand-built mean.
+    The reference publishes the first.
     """
 
     def compute(scores: list[SampleScore]) -> float:
-        values: list[float] = [sample_score.score.as_float() for sample_score in scores]
+        # Stage 1 — one value per Case; Stage 2 — the mean, clipped.
+        values: list[float] = [_run_value(sample_score) for sample_score in scores]
         clipped: float | None = clipped_mean(values)
         if clipped is None:
             raise ValueError("the clipped mean needs at least one graded Case")
         return clipped
 
     return compute
+
+
+def _run_value(sample_score: SampleScore) -> float:
+    """The number one Case adds to the run's mean: its length-adjusted value when the scorer
+    filed one, a flat 0 when the Case abstained or failed, else the Score's own value.
+
+    WHY the abstain mark is read first: an abstained Case reaches the metric with its value
+    zeroed and its metadata KEPT (``zero_sample_score``), so the judge's view of the empty
+    answer is still filed there, length-adjusted to as much as 1.0588. Reading it would pay an
+    abstain more than an answer. A failed Case arrives as a bare 0.0 Score with nothing filed.
+    """
+
+    metadata: Mapping[str, Any] = sample_score.score.metadata or {}
+    adjusted: object = metadata.get(LENGTH_ADJUSTED_SCORE)
+    if metadata.get(CANDIDATE_ABSTAINED) is True or not isinstance(adjusted, int | float):
+        return sample_score.score.as_float()
+    return float(adjusted)
 
 
 # ── the Tasks ─────────────────────────────────────────────────────────────────────────────
@@ -388,7 +505,8 @@ def healthbench_worst30() -> Task:
 
 @task
 def healthbench_professional() -> Task:
-    """HealthBench Professional: all 525 chats, scored by the official clipped mean."""
+    """HealthBench Professional: all 525 chats, scored by the official clipped mean of each
+    Case's value after the paper's length adjustment."""
 
     samples: list[Sample] = [
         record_to_sample(row, case_id) for case_id, row in enumerate(load_rows(), start=1)
@@ -396,6 +514,9 @@ def healthbench_professional() -> Task:
     return Task(
         dataset=MemoryDataset(samples=samples, name="healthbench_professional"),
         solver=generate(),
-        scorer=healthbench_rubric(),
+        scorer=healthbench_rubric(
+            length_adjustment_center=LENGTH_ADJUSTMENT_CENTER,
+            length_adjustment_penalty_per_500_chars=LENGTH_ADJUSTMENT_PENALTY_PER_500_CHARS,
+        ),
         metrics=[healthbench_clipped_mean()],
     )

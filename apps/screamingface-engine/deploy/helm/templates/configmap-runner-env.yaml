@@ -90,6 +90,17 @@ data:
   URL4_CLOUD_BLOB_S3_REGION: {{ .Values.blobs.storage.s3.region | quote }}
   # NOTE: both halves of the blob key pair travel by Secret (`secret-blob-storage.yaml`).
   {{- end }}
+  # The run-results store (E5 P2 spec D9a): every result of a driver-started run is written here
+  # before its frame. INVARIANT: the SAME stanza as the App's ConfigMap. Its key pair travels by
+  # Secret: the pool's own write-only one when `runResults.storage.s3.poolExistingSecret` is set.
+  {{- if eq (include "screamingface-engine.runResultsBackend" .) "s3" }}
+  URL4_CLOUD_RUN_RESULTS_STORE: "s3"
+  URL4_CLOUD_RUN_RESULTS_S3_ENDPOINT_URL: {{ include "screamingface-engine.runResultsEndpointUrl" . | quote }}
+  URL4_CLOUD_RUN_RESULTS_S3_BUCKET: {{ .Values.runResults.storage.s3.bucket | quote }}
+  URL4_CLOUD_RUN_RESULTS_S3_REGION: {{ .Values.runResults.storage.s3.region | quote }}
+  {{- end }}
+  # How long a runner retries a refused write before it fails the run (spec R5).
+  URL4_CLOUD_RUN_RESULT_WRITE_BUDGET_S: {{ .Values.runResults.writeBudgetS | quote }}
   # OTLP span export (OME-1131) — the SAME keys the App's ConfigMap renders, from one helper
   # (`screamingface-engine.tracingEnv`), so the run's spans and the App's `url4.accept` parent
   # cannot be sent to two different places. The rationale for each key lives with the helper.

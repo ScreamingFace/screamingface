@@ -51,6 +51,8 @@ from screamingface_engine.subjects import (
 )
 from screamingface_engine.worker.memory_watch import MEMORY_POLL_S, RunMemoryGuard
 from screamingface_engine.worker.metrics import WorkerMetrics
+from screamingface_engine.worker.outcome_retry import OutcomeRetries
+from screamingface_engine.worker.topic_claim import ClaimGate, FinishingMessage
 from screamingface_engine.worker.warm_pool import SPAWN_FAILED, LaunchFailed
 from url4.streaming.protocol import (
     ErrorInfo,
@@ -331,8 +333,20 @@ class RunSupervisor:
         world_digest: str | None = None,
         # FEATURE (OME-1785): where each run's Candidate outcome goes (spec R3).
         outcomes: CandidateOutcomeStream | None = None,
+        # FEATURE (E5 P2 spec R3): the claim step of an `exclusive` start. `None` runs every
+        # message as before.
+        claim_gate: ClaimGate | None = None,
+        # FEATURE (E5 P2 spec R6): retries a driver-started run's outcome the stream could not
+        # take. `None` publishes every outcome once, as before.
+        outcome_retries: OutcomeRetries | None = None,
     ) -> None:
-        self._outcomes = outcomes
+        self._outcomes, self._claim_gate, self._outcome_retries = (
+            outcomes,
+            claim_gate,
+            outcome_retries,
+        )
+        # The topics of the driver-started runs this worker is supervising (E5 P2 spec D7).
+        self._driver_topics: set[str] = set()
         self._publisher = publisher
         # The sha256 of the world file this worker's children load; None compares nothing.
         self._world_digest = world_digest
@@ -464,6 +478,11 @@ class RunSupervisor:
                 ending = self._endings.pop(topic, "unknown")
             finally:
                 self._endings.pop(topic, None)
+                self._driver_topics.discard(topic)
+                if self._claim_gate is not None:
+                    # A run that ended without its ack stops being answered for, unfinished,
+                    # so another worker may take its claim over.
+                    self._claim_gate.release(topic)
                 self._starting.discard(topic)
                 # The cancel mark is per-run (a stale entry would misclassify a LATER run
                 # of the same topic), and the control loop can now set it for a run with
@@ -540,6 +559,9 @@ class RunSupervisor:
         AIDEV-NOTE: kept to ruff's `max-returns = 3` by delegating each gate. Add a new
         gate as another `_settled_*` helper returning ``bool``, never as a fourth return.
         """
+        # WHY first (#1759 review): a cancel accepted while the run started publishes its
+        # outcome too, and a driver-started run's goes out with retries (`_send_outcome`).
+        msg = self._finishing(msg, topic)
         if topic in self._cancelled:
             await self._enact_accepted_cancel(msg, topic)
             return
@@ -550,6 +572,15 @@ class RunSupervisor:
         # child is about to run. `waited_s` joins the runner log to the App's `run scheduled`.
         logger.info("run claimed topic=%s waited_s=%s", topic, _seconds(self._waited_s(msg)))
         await self._run_child(msg, topic)
+
+    def _finishing(self, msg: ClaimedMessage, topic: str) -> ClaimedMessage:
+        """``msg``, for an `exclusive` start, with an ack that first marks a won claim
+        finished (E5 P2 spec R3): every ack after a won claim follows the run's terminal frame,
+        however the run ends."""
+        if not _exclusive(msg):
+            return msg
+        self._driver_topics.add(topic)
+        return msg if self._claim_gate is None else FinishingMessage(msg, self._claim_gate, topic)
 
     async def _enact_accepted_cancel(self, msg: ClaimedMessage, topic: str) -> None:
         """Keep the promise made when the control loop accepted a cancel for this topic.
@@ -675,6 +706,26 @@ class RunSupervisor:
         await msg.ack()
         return True
 
+    async def _refuse_duplicate(self, msg: ClaimedMessage, topic: str) -> bool:
+        """Ack a copy away when another worker has, or had, its run.
+
+        An `exclusive` start is claimed (E5 P2 spec R3). The claim takes the place of the
+        cross-pod probe for it, and comes before the expiry, version and world refusals, so a
+        duplicate copy never publishes a terminal frame onto a live run. Any other start keeps
+        OME-1089's probe.
+        """
+        gate = self._claim_gate
+        # WHY the topic, not the message: `_finishing` already decoded it (review round 5).
+        if gate is None or topic not in self._driver_topics:
+            return await self._refuse_cross_pod_duplicate(msg, topic)
+        if await gate.admit(topic):
+            return False
+        logger.warning("a copy of %s acked away: another worker has, or had, its run", topic)
+        if self._metrics is not None:
+            self._metrics.cross_pod_duplicate_claims.inc()
+        await msg.ack()
+        return True
+
     async def _refuse_cross_pod_duplicate(self, msg: ClaimedMessage, topic: str) -> bool:
         """Ack a redelivered claim away when ANOTHER pod is executing the run (OME-1089).
 
@@ -709,7 +760,7 @@ class RunSupervisor:
         a terminal frame here — publishing QUEUE_EXPIRED would race the live run's own
         frames, which is the very duplication the probe exists to prevent.
         """
-        if await self._refuse_cross_pod_duplicate(msg, topic):
+        if await self._refuse_duplicate(msg, topic):
             self._endings[topic] = "duplicate"
             return True
         if not self._capability_expired(msg):
@@ -1349,7 +1400,7 @@ class RunSupervisor:
         # INVARIANT (spec R3): the worker's own outcome, with no cost, only when its frame is
         # the run's. A child that reported first already published its own frame.
         if landed:
-            await publish_outcome(self._outcomes, topic, CandidateOutcome(status, code))
+            await self._send_outcome(topic, CandidateOutcome(status, code))
 
     async def _publish_ending(
         self,
@@ -1374,7 +1425,20 @@ class RunSupervisor:
             # The child's own verdict is the ending on-call reads (OME-1924), over the
             # worker's classification of the exit.
             self._endings[topic] = str(outcome.status)
+            await self._send_outcome(topic, outcome)
+
+    async def _send_outcome(self, topic: str, outcome: CandidateOutcome) -> None:
+        """Publish a Candidate's outcome: a driver-started run's with retries (E5 P2 spec R6),
+        any other's once, as before."""
+        if self._outcome_retries is not None and topic in self._driver_topics:
+            await self._outcome_retries.publish(topic, outcome)
+        else:
             await publish_outcome(self._outcomes, topic, outcome)
+
+    async def drain_outcomes(self, grace_s: float) -> None:
+        """Let the outcomes still being retried land within ``grace_s``, then stop them."""
+        if self._outcome_retries is not None:
+            await self._outcome_retries.drain(grace_s)
 
     async def _child_outcome(self, topic: str, proc: _ChildProcess) -> CandidateOutcome | None:
         settlement = getattr(self._launcher, "settlement", None)
@@ -1383,12 +1447,19 @@ class RunSupervisor:
             return None
         try:
             status = cast(OutcomeStatus, settled.status)
+            # E5 P2 spec §4.3: the child's record, as it cut it to fit, rides the outcome.
             return CandidateOutcome(
-                status, settled.error_code, settled.cost_usd, settled.finished_at
+                status, settled.error_code, settled.cost_usd, settled.finished_at, settled.record
             )
         except ValueError as exc:
             logger.warning("the child of %s reported an outcome no run can have: %r", topic, exc)
             return None
+
+
+def _exclusive(msg: ClaimedMessage) -> bool:
+    """Whether the Engine's driver sent this start (E5 P2 spec D7). Safe: `_topic_or_settle`
+    already decoded the same bytes."""
+    return job_env.exclusive_from_env(decode_message(msg.data))
 
 
 __all__ = [

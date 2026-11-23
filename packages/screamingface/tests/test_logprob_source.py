@@ -21,6 +21,7 @@ from _combine_contract import engine_operators
 from _combine_flow_fixtures import flow_operators_response
 from _model_parameter_fixtures import DETAILS as _DETAILS
 from _model_parameter_fixtures import SUMMARY as _SUMMARY
+from _run_transport import ScriptedRun
 from url4 import RelExpr, expr, render, src, text
 
 import screamingface as sf
@@ -132,18 +133,12 @@ def _engine(support: str | None) -> httpx.MockTransport:
     return httpx.MockTransport(handler)
 
 
-class _ForbiddenTransport:
+class _ForbiddenTransport(ScriptedRun):
     called = False
 
     def run(self, candidate: object, on_event: object) -> NoReturn:
         self.called = True
         raise AssertionError("the logprobs preflight must refuse before any spend")
-
-    def cancel_active(self) -> None:
-        pass
-
-    def close(self) -> None:
-        pass
 
 
 # --- LP#4: mean and sum are refused as a vote weight; prob is accepted -----------------------

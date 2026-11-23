@@ -15,8 +15,8 @@ from urllib.parse import parse_qs, unquote, urlsplit
 
 import httpx
 import pytest
+from _run_engine import AsyncCollectingSink, CollectingSink, ended, run_engine, settled
 from nacl.public import Box, PrivateKey, PublicKey
-from protocol_server import protocol_server
 from websockets.datastructures import Headers
 from websockets.exceptions import InvalidStatus
 from websockets.http11 import Response
@@ -1039,92 +1039,91 @@ def _candidate() -> Candidate:
     )
 
 
-def test_access_token_reaches_http_and_websocket_without_replacing_capability() -> None:
-    with protocol_server() as engine:
-        with closing(Url4CloudTransport(engine.url, _StaticCallerAuth())) as transport:
-            transport.run(_candidate(), None)
+def _run(transport: Url4CloudTransport) -> None:
+    run_id = transport.register_run(None, (_candidate(),))
+    transport.follow_run(run_id, (_candidate(),), CollectingSink())
 
-    assert engine.state.http_auth_schemes == ["Cf-Access-Token"]
-    assert engine.state.websocket_auth_scheme == "Cf-Access-Token"
+
+async def _arun(transport: AsyncUrl4CloudTransport) -> None:
+    run_id = await transport.register_run(None, (_candidate(),))
+    await transport.follow_run(run_id, (_candidate(),), AsyncCollectingSink())
+
+
+_SCRIPT = [[settled(0, b"{}"), ended()]]
+
+
+def _scheme(headers: dict[str, str]) -> str | None:
+    return next((name for name in headers if name.lower() == "cf-access-token"), None)
+
+
+def test_access_token_reaches_http_and_websocket_without_replacing_capability() -> None:
+    with run_engine(_SCRIPT, {0: b"{}"}) as engine:
+        with closing(Url4CloudTransport(engine.url, _StaticCallerAuth())) as transport:
+            _run(transport)
+
+    assert [_scheme(headers) for headers in engine.state.post_headers] == ["Cf-Access-Token"]
+    assert [_scheme(headers) for headers in engine.state.follow_headers] == ["Cf-Access-Token"]
 
 
 @pytest.mark.asyncio
 async def test_async_transport_passes_access_token_to_the_websocket() -> None:
-    with protocol_server() as engine:
+    with run_engine(_SCRIPT, {0: b"{}"}) as engine:
         transport = AsyncUrl4CloudTransport(engine.url, _StaticCallerAuth())
         try:
-            await transport.run(_candidate(), None)
+            await _arun(transport)
         finally:
             await transport.close()
 
-    assert engine.state.http_auth_schemes == ["Cf-Access-Token"]
-    assert engine.state.websocket_auth_scheme == "Cf-Access-Token"
+    assert [_scheme(headers) for headers in engine.state.post_headers] == ["Cf-Access-Token"]
+    assert [_scheme(headers) for headers in engine.state.follow_headers] == ["Cf-Access-Token"]
+
+
+def _challenge(headers: dict[str, str]) -> InvalidStatus:
+    return InvalidStatus(Response(302, "Found", Headers(headers)))
 
 
 def test_websocket_access_rejection_reauthenticates_and_retries_once(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from screamingface._engine import transport as _transport
+    """E5 P2 spec D15: the Run never needs this sign-in, so an Access challenge on the follow
+    starts no login of its own; the follow ends with how to pick the Run up."""
+    from screamingface._engine import run_client
 
-    real_connect = _transport.sync_ws.connect
-    calls = 0
+    def challenged(uri: str, **kwargs: Any):
+        raise _challenge({"Location": f"https://access.example/login?kid={_AUDIENCE}"})
 
-    def reject_once(uri: str, **kwargs: Any):
-        nonlocal calls
-        calls += 1
-        if calls == 1:
-            raise InvalidStatus(
-                Response(
-                    302,
-                    "Found",
-                    Headers({"Location": (f"https://access.example/login?kid={_AUDIENCE}")}),
-                )
-            )
-        return real_connect(uri, **kwargs)
-
-    monkeypatch.setattr(_transport.sync_ws, "connect", reject_once)
+    monkeypatch.setattr(run_client.sync_ws, "connect", challenged)
     auth = _StaticCallerAuth()
-    with protocol_server() as engine:
+    with run_engine(_SCRIPT, {0: b"{}"}) as engine:
         with closing(Url4CloudTransport(engine.url, auth)) as transport:
-            transport.run(_candidate(), None)
+            with pytest.raises(sf.AuthenticationError) as raised:
+                _run(transport)
 
-    assert calls == 2
-    assert auth.reauthentications == 1
+    assert raised.value.code == "login_expired"
+    assert auth.reauthentications == 0
 
 
 @pytest.mark.asyncio
 async def test_async_websocket_access_rejection_has_the_same_retry(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from screamingface._engine import transport as _transport
+    from screamingface._engine import run_client
 
-    real_connect = _transport.async_ws.connect
-    calls = 0
+    def challenged(uri: str, **kwargs: Any):
+        raise _challenge({"cf-access-aud": _AUDIENCE})
 
-    def reject_once(uri: str, **kwargs: Any):
-        nonlocal calls
-        calls += 1
-        if calls == 1:
-            raise InvalidStatus(
-                Response(
-                    302,
-                    "Found",
-                    Headers({"cf-access-aud": _AUDIENCE}),
-                )
-            )
-        return real_connect(uri, **kwargs)
-
-    monkeypatch.setattr(_transport.async_ws, "connect", reject_once)
+    monkeypatch.setattr(run_client.async_ws, "connect", challenged)
     auth = _StaticCallerAuth()
-    with protocol_server() as engine:
+    with run_engine(_SCRIPT, {0: b"{}"}) as engine:
         transport = AsyncUrl4CloudTransport(engine.url, auth)
         try:
-            await transport.run(_candidate(), None)
+            with pytest.raises(sf.AuthenticationError) as raised:
+                await _arun(transport)
         finally:
             await transport.close()
 
-    assert calls == 2
-    assert auth.reauthentications == 1
+    assert raised.value.code == "login_expired"
+    assert auth.reauthentications == 0
 
 
 # --- Challenge detection and request replay -----------------------------------------------

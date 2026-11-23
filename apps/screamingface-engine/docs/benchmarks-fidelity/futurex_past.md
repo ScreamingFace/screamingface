@@ -6,7 +6,7 @@ verdict_reason: "Two by-design differences, each unbounded. First, levels 3-4 ar
 audited: 2026-11-18
 audited_at: 2dcc38aaf   # HEAD of branch futurex-past-local-task (PR 1897), not main; reachable from that branch
 fingerprint:
-  benchmark: 200cf4f72481ffb0
+  benchmark: cbf11bdc4466620e
   harness_url: https://github.com/Futurex-ai/Futurex-Eval/tree/2626f7a297cd87c73a45408e23af8d838f5b60e5
 references:
   paper: https://arxiv.org/abs/2508.11987v3
@@ -64,7 +64,7 @@ What changed in the scorer since the last record:
 | answer extraction | deviation | possibly-score-changing | unknown (D2); ≤ 24/2036 against the Candidate (D11) | **Ours:** the last `\boxed{}` with one level of nesting (`task:grading.py:71`, `:75`). Then `reply_tokens` (`task:grading.py:120`): a whole-box `\text{}` and per-item `\text{}` removed, split on commas. Levels 1-2 at `task:futurex_past.py:225`, levels 3-4 at `task:grading.py:394`. Single-number keys: `{,}` → `,`, then `to_float` reads only a whole plain number (`task:grading.py:168`, `:173`). Otherwise the judge gets the first piece split at a comma that is not inside a number (`task:grading.py:453`, `:464`). **Theirs:** an LLM extractor rewrites the answer and says whether it is a number (`fork:eval.py:73`, `:119`). On "yes", `utils.to_float` runs on the whole rewrite (`fork:eval.py:143-144`, `fork:utils.py:3`); otherwise the answer is split on every comma (`fork:eval.py:145`), and the number judge gets `model_prediction[0]` (`fork:llm_judge_level_34.py:243`). The measured split table is in Checks run (ran). |
 | metric | deviation | possibly-score-changing | unknown (D3, D4); run-dependent (U8) | **Ran, levels 1-2:** `label_score` (`task:grading.py:147`) vs `estimate_score_level_1_2` (`fork:eval.py:151`), tokens equal: 13,720 sheets, 7 differ, all Case 310 (D1). **Ran, number score:** `number_score` (`task:grading.py:222`) vs the real `estimate_score_level_3_4` worker (σ at `fork:eval.py:250`, `:252`; `judge_number_overall` at `fork:llm_judge_level_34.py:234`): 71/71 equal. The grid covers keys 0 / 1 / 249.41 / −634500 / 1e-9 / 1e12 / 1846 / −0.5, offsets 0, ±1%, 2.5%, −4.9%, 5.1%, 50%, −100%, the zero-key boundary (0.009, 0.01, −0.0099, 0.011, 0.005) and ±1e200. Upstream raises `OverflowError` on 1e200, and its worker scores 0.0 (`fork:eval.py:260-263`). **Carried from earlier audits:** ranking, set and text marking with one scripted judge differ only by D3 and D2 artefacts; this code (`task:grading.py:434-444`, `:476-507`) is unchanged since 6c0d21a64 (`git diff 6c0d21a64 2dcc38aaf` touches only `_route`, `Graded` and `_number`). |
 | roll-up | deviation | score-changing | 0 at full coverage (measured); run-dependent otherwise (D5, D6, D10) | **Ran:** five full vectors through `tier_weighted_mean` (`task:futurex_past.py:261`) and the real `fork:run_weekly_leaderboard.py:main()` (weights `:15`, roll-up `:126-136`), its LLM entry points stubbed to return the vector: all-1 1.0 = 1.0; all-0 0.0 = 0.0; alternating 0.503151 = 0.503151; seeded random 0.488432 = 0.488432; levels-1-2-only 0.475 = 0.475. With level 4 absent, 1.0 vs 0.6 (D5). With 20 Cases absent, 1.0 vs 0.995162 (D6). With 20 bare no-level zeros, ours 1.0 vs upstream's 0.995162 for the same 20 Cases counted 0 (D10). `LEVEL_WEIGHTS` `task:futurex_past.py:87`. |
-| judge | deviation | score-changing (by design) | unbounded (D7, D8) | **Ours:** `openrouter/openai/gpt-5.4`, temperature 0, max_tokens 4096, web_search false (`inspect-pkg:benchmarks.py:7968-7971`); three asks and the 4,096 cap declared (`:7951-7953`). **Theirs:** the env-configured model, temperature 0, 5,000 tokens (`fork:llm_judge_level_34.py:30`); 512 for the router and the set count (`fork:metric_router.py:110`, `fork:llm_judge_level_34.py:227`); 2 parse attempts on the router (`fork:metric_router.py:169`). **Ran, router:** `_route` (`task:grading.py:417-431`) vs `route_metric` (`fork:metric_router.py:133`, `except Exception` `:180`) on 7 replies (ConnectionError, TimeoutError, RuntimeError, unreadable, valid set, JSON then prose, fenced JSON) plus a contract conflict: the same route and fallback flag on all 8. Our Score also records why (`ConnectionError`, `JudgeReplyUnparseable`, `contract_conflict`). |
+| judge | deviation | score-changing (by design) | unbounded (D7, D8) | **Ours:** `openrouter/openai/gpt-5.4`, temperature 0, max_tokens 4096, web_search false (`inspect-pkg:benchmarks.py:7968-7971`; since 2026-11-19 no temperature, see Since the audit); three asks and the 4,096 cap declared (`:7951-7953`). **Theirs:** the env-configured model, temperature 0, 5,000 tokens (`fork:llm_judge_level_34.py:30`); 512 for the router and the set count (`fork:metric_router.py:110`, `fork:llm_judge_level_34.py:227`); 2 parse attempts on the router (`fork:metric_router.py:169`). **Ran, router:** `_route` (`task:grading.py:417-431`) vs `route_metric` (`fork:metric_router.py:133`, `except Exception` `:180`) on 7 replies (ConnectionError, TimeoutError, RuntimeError, unreadable, valid set, JSON then prose, fenced JSON) plus a contract conflict: the same route and fallback flag on all 8. Our Score also records why (`ConnectionError`, `JudgeReplyUnparseable`, `contract_conflict`). |
 | sampling | deviation | score-changing (by design) | unbounded (D9) | Ours: `solver=generate()` (`task:futurex_past.py:299`); declaration `failure_policy='coverage_declare', interaction='single_shot', attempts=1`; no Candidate temperature or max_tokens on the row (ran, Checks run 2). Theirs: search agents, deep-research models and "Think&Search" LLMs predicting before resolution (`paper:sections/experiments.tex:4-14`, earlier audit); the paper fixes no decoding parameters. |
 
 ## Deviations
@@ -398,3 +398,19 @@ changes how a reply is read or marked, so the findings above stand:
   after its retries fails the Case as `scorer_error`, where Futurex-Eval scores it 0. That is the finding
   U8 above, which is therefore declared now (`benchmarks.py`, the row's `# NAMED DEVIATION` lines;
   `README.md`, beside the unreadable-reply rule).
+
+## Since the audit (2026-11-19, the Judge's temperature)
+
+The fingerprint moved from `200cf4f72481ffb0` to `cbf11bdc4466620e`; the published id holds at
+`200cf4f72481ffb0` (same Cases, a grading fix; owner decision 2026-11-19).
+
+- The Judge no longer sends `temperature: 0`. Its params are now `(('web_search','false'),
+  ('max_tokens','4096'))`, as on every other gpt-5.4 Judge row. WHY: no OpenRouter endpoint for
+  `openai/gpt-5.4` accepts `temperature`, and the gateway forces `provider.require_parameters`,
+  so every Judge call failed on the hosted Engine: every level-3/4 Case failed as `scorer_error`,
+  and every router call fell back to the level default.
+- This adds one declared deviation to D7/D8 (the judge dimension): upstream asks its judge at
+  temperature 0; ours samples at the provider's default. It is score-changing by design and
+  unbounded, like the judge model itself, so the verdict (`not-comparable`) does not move.
+- `tests/unit/inspect/test_judge_param_support.py` now refuses any `openrouter/openai/gpt-5*`
+  Judge row that pins `temperature`.

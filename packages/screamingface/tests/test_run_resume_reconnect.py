@@ -31,6 +31,7 @@ from typing import Any, Literal
 from urllib.parse import urlsplit
 
 import pytest
+from _run_transport import ScriptedRun, settled_sync
 
 from screamingface._engine.transport import AsyncUrl4CloudTransport, Url4CloudTransport
 from screamingface._evaluation.model import (
@@ -39,7 +40,6 @@ from screamingface._evaluation.model import (
     _compiled_operation,
 )
 from screamingface._evaluation.outcome import _CandidatesFailed
-from screamingface._evaluation.runner import _run_candidates_sync
 from screamingface.errors import AuthenticationError, ExecutionError
 
 _WEBSOCKET_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
@@ -315,103 +315,16 @@ def _candidate() -> Candidate:
     )
 
 
-def test_restart_resumes_from_cursor_and_completes() -> None:
-    """OME-1020 (spec §6 S3): a deploy-style restart is RECOVERABLE.
-
-    First connection receives frames 1..2, then the server closes 1012 (Service Restart).
-    The client re-attaches with `from_sequence = 3` (last accepted 2 + 1) on a NEW socket,
-    replays the missed frames, and returns the normal Report.
-    """
-    with _engine(mode="restart") as eng:
-        transport = Url4CloudTransport(eng.url)
-        try:
-            outcome = transport.run(_candidate(), None)
-        finally:
-            transport.close()
-    assert outcome.result_body == "restart-result"
-    assert eng.state.handshakes == 2
-    assert eng.state.resume_from == 3
-
-
-def test_reclaimed_stream_after_restart_is_run_result_lost() -> None:
-    """OME-1019+1020: a stream reclaimed while we were away is FINAL.
-
-    The Run finished and the Runner deleted the stream (grace elapsed). The engine answers
-    the resume attach with `stream_reclaimed`; the client raises `run_result_lost`,
-    permanent — reconnecting cannot change that.
-    """
-    with _engine(mode="reclaim_after_restart") as eng:
-        transport = Url4CloudTransport(eng.url)
-        try:
-            with pytest.raises(ExecutionError) as caught:
-                transport.run(_candidate(), None)
-        finally:
-            transport.close()
-    assert caught.value.code == "run_result_lost"
-    assert caught.value.permanent is True
-    assert eng.state.resume_from == 3
-
-
-def test_reconnect_budget_exhaustion_sweeps_then_fails() -> None:
-    """FLIP of the OME-1017 pin: a persistently-restarting engine is not fatal at once.
-
-    The client backs off and retries within its budget, then — with the budget spent —
-    stops every Run it owns (the `DELETE /` sweep, which the long-lived token makes
-    succeed) and surfaces `websocket_disconnected`.
-    """
-    with _engine(mode="always_1012") as eng:
-        transport = Url4CloudTransport(eng.url, reconnect_budget_s=0.3, reconnect_base_delay_s=0.01)
-        try:
-            with pytest.raises(ExecutionError) as caught:
-                transport.run(_candidate(), None)
-        finally:
-            transport.close()
-    assert caught.value.code == "websocket_disconnected"
-    assert eng.state.handshakes >= 2  # it tried to reconnect, not one-shot fatal
-    assert eng.state.deletes >= 1  # the sweep's DELETE reached the engine
-
-
-@pytest.mark.asyncio
-async def test_async_restart_resumes_from_cursor_and_completes() -> None:
-    """The async twin resumes identically from the stream cursor."""
-    with _engine(mode="restart") as eng:
-        transport = AsyncUrl4CloudTransport(eng.url)
-        try:
-            outcome = await transport.run(_candidate(), None)
-        finally:
-            await transport.close()
-    assert outcome.result_body == "restart-result"
-    assert eng.state.resume_from == 3
-
-
-def test_cancel_active_raises_when_delete_is_rejected() -> None:
-    """PIN (OME-1017, still true): the sweep raises when the server rejects the DELETE.
-
-    R2 makes this impossible for real long runs (the token now lives for the whole Run),
-    so this pins the RESULT the sweep must not produce: an un-stoppable Run surfaces as
-    an error, not as silent continued spend.
-    """
-    with _engine(mode="always_1012", delete_rejected=True) as eng:
-        transport = Url4CloudTransport(eng.url)
-        try:
-            transport._active_tokens.add("stale-capability")  # noqa: SLF001
-            with pytest.raises(ExceptionGroup) as caught:
-                transport.cancel_active()
-        finally:
-            transport.close()
-    group = caught.value
-    assert any(isinstance(error, AuthenticationError) for error in group.exceptions)
-
-
-class _SweepCountingTransport:
+class _SweepCountingTransport(ScriptedRun):
     def __init__(self, error: BaseException) -> None:
+        super().__init__()
         self.error = error
         self.cancel_calls = 0
 
-    def run(self, candidate: Candidate, on_event: object = None) -> object:
+    def run(self, candidate: Candidate, on_event: object = None) -> Any:
         raise self.error
 
-    def cancel_active(self) -> None:
+    def on_cancel(self) -> None:
         self.cancel_calls += 1
         raise RuntimeError("DELETE / failed with 401")
 
@@ -424,21 +337,140 @@ def test_an_ordinary_candidate_failure_calls_no_sweep() -> None:
     """
     fake = _SweepCountingTransport(ExecutionError("Run stream lost", code="websocket_disconnected"))
     with pytest.raises(_CandidatesFailed):
-        _run_candidates_sync(fake, (_candidate(), _candidate()), None)  # type: ignore[arg-type]
+        settled_sync(fake, (_candidate(), _candidate()), None)
     assert fake.cancel_calls == 0
 
 
 def test_owner_abort_sweep_records_note_when_stop_rejected() -> None:
     """PIN (OME-1017, still honored for an owner abort — spec §4.1 C1a, owner Q1).
 
-    A KeyboardInterrupt stops every Run the Client owns, and a failed sweep is recorded as a
-    note on the interrupt itself.
+    A KeyboardInterrupt cancels the Run, once, and a failed cancel is recorded as a note on the
+    interrupt itself.
     """
     fake = _SweepCountingTransport(KeyboardInterrupt())
     with pytest.raises(KeyboardInterrupt) as caught:
-        _run_candidates_sync(fake, (_candidate(), _candidate()), None)  # type: ignore[arg-type]
+        settled_sync(fake, (_candidate(), _candidate()), None)
     assert any(
-        "Stopping active SF Engine runs also failed" in note
+        "on the SF Engine also failed: DELETE / failed with 401" in note
         for note in getattr(caught.value, "__notes__", ())
     )
     assert fake.cancel_calls == 1
+
+
+# --- E5 P2: one follow per Run resumes after a restart ------------------------------------
+
+
+def _resume_client(url: str, *, budget_s: float = 5.0):
+    from screamingface._engine.run_client import FollowTimings
+
+    transport = Url4CloudTransport(url)
+    transport._runs._timings = FollowTimings(budget_s, 0.0)
+    return transport
+
+
+def _followed(transport, sink):
+    run_id = transport.register_run(None, (_candidate(),))
+    transport.follow_run(run_id, (_candidate(),), sink)
+    return sink.outcomes[0]
+
+
+_BODY = b'{"cases": []}'
+
+
+def test_restart_resumes_from_cursor_and_completes() -> None:
+    """OME-1020 (spec §6 S3): a deploy-style restart (close 1012) is RECOVERABLE. The follow
+    comes back, the Engine replays what it holds, and no event is delivered twice."""
+    from _run_engine import CollectingSink, ended, event, run_engine, settled
+
+    script = [
+        [event(0, 1), event(0, 2), 1012],
+        [event(0, 1), event(0, 2), event(0, 3), settled(0, _BODY), ended()],
+    ]
+    sink = CollectingSink()
+    with run_engine(script, {0: _BODY}) as engine:
+        transport = _resume_client(engine.url)
+        try:
+            outcome = _followed(transport, sink)
+        finally:
+            transport.close()
+
+    assert outcome.result_body == _BODY.decode()
+    assert [e.sequence for _, e in sink.events] == [1, 2, 3]
+    assert len(engine.state.followed) == 2
+
+
+def test_reclaimed_stream_after_restart_is_run_result_lost() -> None:
+    """OME-1019+1020: a Candidate whose record the Engine never got, while we were away, is
+    FINAL: it succeeded, but its result is lost (spec §4.3)."""
+    import json
+
+    from _run_engine import CollectingSink, ended, event, run_engine, settled
+
+    lost = json.loads(settled(0, _BODY))
+    lost["record"] = None
+    sink = CollectingSink()
+    with run_engine([[event(0, 1), 1012], [json.dumps(lost), ended()]], {}) as engine:
+        transport = _resume_client(engine.url)
+        try:
+            outcome = _followed(transport, sink)
+        finally:
+            transport.close()
+
+    assert isinstance(outcome, ExecutionError)
+    assert (outcome.code, outcome.permanent) == ("run_result_lost", True)
+
+
+def test_reconnect_budget_exhaustion_sweeps_then_fails() -> None:
+    """A persistently-restarting Engine is not fatal at once; once the budget is spent the
+    follow ends. The Run is the Engine's from then on, so nothing is canceled."""
+    from _run_engine import CollectingSink, event, run_engine
+
+    with run_engine([[event(0, 1), 1012]] * 3, {}) as engine:
+        transport = _resume_client(engine.url, budget_s=0.0)
+        try:
+            with pytest.raises(ExecutionError) as caught:
+                _followed(transport, CollectingSink())
+        finally:
+            transport.close()
+
+    assert caught.value.code == "websocket_disconnected"
+    assert "1012" in caught.value.message
+    assert engine.state.deleted == []
+
+
+@pytest.mark.asyncio
+async def test_async_restart_resumes_from_cursor_and_completes() -> None:
+    """The async twin resumes identically."""
+    from _run_engine import AsyncCollectingSink, ended, event, run_engine, settled
+
+    script = [[event(0, 1), 1012], [event(0, 1), event(0, 2), settled(0, _BODY), ended()]]
+    sink = AsyncCollectingSink()
+    with run_engine(script, {0: _BODY}) as engine:
+        transport = AsyncUrl4CloudTransport(engine.url, reconnect_base_delay_s=0.0)
+        try:
+            run_id = await transport.register_run(None, (_candidate(),))
+            await transport.follow_run(run_id, (_candidate(),), sink)
+        finally:
+            await transport.close()
+
+    assert sink.outcomes[0].result_body == _BODY.decode()
+    assert [e.sequence for _, e in sink.events] == [1, 2]
+
+
+def test_cancel_active_raises_when_delete_is_rejected() -> None:
+    """PIN (OME-1017, still true): a cancel the Engine rejects raises; the runner records it
+    as a note on the interruption (see `test_owner_abort_sweep_records_note_when_stop_rejected`)."""
+    from typing import cast
+
+    import httpx
+
+    from screamingface._engine.run_client import RunClient
+
+    http = httpx.Client(
+        base_url="https://engine.test",
+        transport=httpx.MockTransport(lambda _r: httpx.Response(401)),
+    )
+    client = RunClient(http, "https://engine.test", cast(Any, None), None)
+
+    with pytest.raises(AuthenticationError):
+        client.cancel("run_" + "a" * 32)

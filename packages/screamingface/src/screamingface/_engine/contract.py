@@ -1,512 +1,20 @@
-"""Strict CloudEvents lifecycle decoder for one SF Engine Run."""
+"""One SF Engine CloudEvent as its public Event (`display_event`), for `on_event` and the
+progress output, and a `cost.usage` frame's data as the Report's usage (`usage_value`)."""
 
 from __future__ import annotations
 
-import json
 import logging
 import math
-from collections import OrderedDict
-from collections.abc import Mapping
-from dataclasses import dataclass
+from collections.abc import Callable, Mapping
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
-from typing import Any, Literal, cast
+from typing import Any, cast
 
 from screamingface import events
-from screamingface._client_provenance import valid_client_version
-from screamingface._core.ports import _ResultArtifact, _RunOutcome
-from screamingface._report_primitives import capture_status_value
 from screamingface.errors import ExecutionError
 from screamingface.report import Usage as AccountingUsage
 
 _LOG = logging.getLogger(__name__)
-_MAX_CONSECUTIVE_REPLAY_REQUESTS = 3
-_MAX_STREAM_REATTACH_REQUESTS = 3
-# Frames the control plane emits outside the broker's sequencer, so they never carry one.
-_UNSEQUENCED_TYPES = frozenset({"ai.url4.heartbeat", "ai.url4.error"})
-# Frames that MAY arrive either way: the broker stamps a sequence on the ones it relays, but
-# url4-cloud also injects notices out of band (a re-attach cache-policy warning, a
-# cache-control override) which bypass it entirely.
-# INVARIANT: only frames that mutate no _RunState may appear in either set. Gap detection,
-# event-id de-duplication, and the replay-order guarantee all live on the sequenced path, so
-# an unsequenced terminated would build an outcome from a stream never checked for gaps, and
-# an unsequenced cost.usage would corrupt the billing total the user reads in their Report.
-# AIDEV-NOTE: keying on the ABSENCE of a field is a tolerant-reader shim — "out of band by
-# design" and "the broker dropped the sequence" are indistinguishable on the wire. The
-# durable fix is a distinct server-side CloudEvent type for advisory notices.
-_ADVISORY_TYPES = frozenset({"ai.url4.log"})
-_UNSEQUENCED_LABELS = {"ai.url4.heartbeat": "heartbeat"}
-
-
-@dataclass(frozen=True, slots=True)
-class _Accepted:
-    event: events.Event | None = None
-    outcome: _RunOutcome | None = None
-    replay_from: int | None = None
-
-
-class _RunState:
-    """Validate one ordered CloudEvents stream and identify its root outcome."""
-
-    def __init__(self, expected_url4: str) -> None:
-        # INVARIANT: sequence and Event IDs define replay order within exactly one Run.
-        self._expected_url4 = expected_url4
-        self._run_id: str | None = None
-        self._root_source: str | None = None
-        self._started_at: datetime | None = None
-        self._result: tuple[str | None, str | None, _ResultArtifact | None] | None = None
-        self._root_usage: AccountingUsage | None = None
-        # None, not Decimal(0): "no priceable saving observed" is a different fact from "saved
-        # nothing", and the run-level status derivation reads exactly that difference.
-        self._saved_cost_usd: Decimal | None = None
-        self._saved_cost_archive_usd: Decimal | None = None
-        # WHY two counts: the run summary log counts EVERY gateway round trip that hit, while a
-        # span keeps only its LAST call's cache outcome, so spans alone can under-count a span
-        # whose first call hit. The summary is the authority; hit spans are the fallback for an
-        # engine that sends no summary. The outcome takes the larger of the two.
-        self._summary_cache_hits = 0
-        self._hit_spans = 0
-        # OME-1463: the root run summary, when one arrived. It is the authority for BOTH the proof
-        # that no hit was unpriced AND the saving amounts (review of #1229, P1): the engine tallies
-        # a hit's saving on the summary before checking that its span exists, so span totals can
-        # miss money the summary holds. Spans cannot stand in for it.
-        self._cache_summary: _CacheSummary | None = None
-        self._client_version: str | None = None
-        self._version_conflict = False
-        self._last_sequence = 0
-        self._event_ids: OrderedDict[str, int] = OrderedDict()
-        self._event_id_bytes = 0
-        self._consecutive_replay_requests = 0
-        self._stream_reattach_requests = 0
-
-    @property
-    def last_sequence(self) -> int:
-        """The highest broker-sequenced frame accepted so far — the resume cursor."""
-        return self._last_sequence
-
-    def accept(self, raw: str | bytes) -> _Accepted:
-        payload = _payload(raw)
-        event_type = _text(payload, "type")
-        # INVARIANT: the discriminator is the presence of "sequence" ALONE. "sequencetype"
-        # annotates "sequence"; with no sequence it annotates nothing. Keying on both fields
-        # would reclassify a sequenced frame whose sequencetype is missing as advisory and
-        # silently skip its handler, instead of rejecting a malformed envelope.
-        if event_type in _UNSEQUENCED_TYPES or (
-            event_type in _ADVISORY_TYPES and payload.get("sequence") is None
-        ):
-            return self._accept_unsequenced(payload, event_type)
-        sequence_result = self._accept_sequence(payload)
-        if sequence_result is not None:
-            return sequence_result
-        sequence = _sequence(payload)
-        envelope = _envelope(payload, sequence)
-        self._observe_run(envelope["run_id"])
-        data = _object(payload.get("data"), f"{event_type} data")
-        handlers = {
-            "ai.url4.started": self._started,
-            "ai.url4.log": self._log,
-            "ai.url4.span": self._span,
-            "ai.url4.cost.usage": self._usage,
-            "ai.url4.result": self._result_event,
-            "ai.url4.terminated": self._terminated,
-        }
-        try:
-            handler = handlers[event_type]
-        except KeyError:
-            raise ExecutionError(f"unsupported SF Engine CloudEvent type {event_type!r}") from None
-        return handler(envelope, data)
-
-    def _accept_unsequenced(
-        self,
-        payload: Mapping[str, object],
-        event_type: str,
-    ) -> _Accepted:
-        label = _UNSEQUENCED_LABELS.get(event_type, event_type)
-        data = _object(payload.get("data"), f"{label} data")
-        self._observe_run(_common_envelope(payload)["run_id"])
-        if event_type == "ai.url4.error":
-            code, message = _advisory_error(data)
-            if code == "stream_reclaimed":
-                # OME-1019/1020: FINAL — the Run finished and the Runner reclaimed its
-                # stream (grace elapsed) while this client was away. The result is
-                # unrecoverable; reconnecting cannot change that.
-                raise ExecutionError(
-                    message or "this run's stream was reclaimed",
-                    code="run_result_lost",
-                    permanent=True,
-                    details=data,
-                )
-            if code == "stream_failed":
-                self._stream_reattach_requests += 1
-                if self._stream_reattach_requests > _MAX_STREAM_REATTACH_REQUESTS:
-                    raise ExecutionError(
-                        message,
-                        code="event_stream_failed",
-                        permanent=False,
-                        details=data,
-                    )
-                return _Accepted(replay_from=self._last_sequence + 1)
-        elif event_type == "ai.url4.log":
-            _advisory_log(data)
-        return _Accepted()
-
-    def _accept_sequence(self, payload: Mapping[str, object]) -> _Accepted | None:
-        sequence = _sequence(payload)
-        event_id = _text(payload, "id")
-        if sequence <= self._last_sequence:
-            return _Accepted()
-        if event_id in self._event_ids:
-            raise ExecutionError("SF Engine reused a CloudEvent event id at a new sequence")
-        if sequence > self._last_sequence + 1:
-            self._consecutive_replay_requests += 1
-            if self._consecutive_replay_requests > _MAX_CONSECUTIVE_REPLAY_REQUESTS:
-                raise ExecutionError(
-                    "SF Engine repeatedly failed to replay a missing Run event",
-                    code="event_stream_replay_exhausted",
-                    permanent=False,
-                )
-            return _Accepted(replay_from=self._last_sequence + 1)
-        self._consecutive_replay_requests = 0
-        self._remember_id(event_id)
-        self._last_sequence = sequence
-        return None
-
-    def _remember_id(self, event_id: str) -> None:
-        # INVARIANT: old sequences remain rejected by the scalar cursor. ID collision
-        # detection covers only this bounded window, never lifetime uniqueness.
-        size = len(event_id.encode("utf-8"))
-        if size > 1024 * 1024:
-            return
-        self._event_ids[event_id] = size
-        self._event_id_bytes += size
-        while len(self._event_ids) > 4096 or self._event_id_bytes > 1024 * 1024:
-            _, removed = self._event_ids.popitem(last=False)
-            self._event_id_bytes -= removed
-
-    def _observe_run(self, run_id: str) -> None:
-        if self._run_id is None:
-            self._run_id = run_id
-        elif run_id != self._run_id:
-            raise ExecutionError("SF Engine changed run subject within one stream")
-
-    def _started(self, envelope: dict[str, Any], data: dict[str, object]) -> _Accepted:
-        url4 = _text(data, "url4")
-        event = events.Started(**envelope, url4=url4)
-        if self._root_source is None and url4 == self._expected_url4:
-            self._root_source = envelope["source"]
-            self._started_at = envelope["timestamp"]
-        elif envelope["source"] == self._root_source:
-            raise ExecutionError("SF Engine emitted duplicate root started Events")
-        return _Accepted(event=event)
-
-    def _log(self, envelope: dict[str, Any], data: dict[str, object]) -> _Accepted:
-        event = _log(envelope, data)
-        # INVARIANT: only ordered root evidence may identify this run's caller. Never
-        # substitute the exporting installation or a child endpoint's version.
-        version = valid_client_version(event.attributes.get("screamingface.client.version"))
-        if envelope["source"] == self._root_source and version is not None:
-            if self._client_version is not None and self._client_version != version:
-                self._version_conflict = True
-            self._client_version = version
-        # The engine's run summary (`cache_counters.attributes`, one per run that touched the
-        # cache). Root only: it is the run's own tally, not a child endpoint's.
-        if envelope["source"] == self._root_source and _CACHE_HITS in event.attributes:
-            summary = _CacheSummary.parse(event.attributes)
-            self._summary_cache_hits = max(self._summary_cache_hits, summary.hits)
-            # The run's own tally only grows, so the largest summary is the latest complete one.
-            if self._cache_summary is None or summary.hits >= self._cache_summary.hits:
-                self._cache_summary = summary
-        return _Accepted(event=event)
-
-    def _span(self, envelope: dict[str, Any], data: dict[str, object]) -> _Accepted:
-        span = _span(envelope, data)
-        if span.cache_status == "hit":
-            self._hit_spans += 1
-        # INVARIANT (OME-1252): accumulate the two provenances SEPARATELY, and never a third
-        # holding their sum. Each producing field is already a span total, so summing across the
-        # run's spans reproduces the engine's own figure — the contract stated on the wire field
-        # and asserted engine-side by `test_cache_saved_cost_spans.py`.
-        self._saved_cost_usd = _accumulated(self._saved_cost_usd, span.cache_saved_cost_usd)
-        self._saved_cost_archive_usd = _accumulated(
-            self._saved_cost_archive_usd, span.cache_saved_cost_archive_usd
-        )
-        return _Accepted(event=span)
-
-    def _cache_evidence(self, cache_hits: int) -> tuple[Decimal | None, Decimal | None, int | None]:
-        """The run's two saving totals and its unpriced-hit count, from ONE body of evidence.
-
-        INVARIANT (review of #1229, P1): the proof and the money come from the same source. With a
-        summary that carries its coverage counts, both savings are the summary's own totals, and the
-        unpriced count is published only when the summary agrees with itself and with the run's
-        final hit count. Otherwise the count is `None`, which the submission reads as "no proof"
-        and sends `partial`: fail CLOSED.
-
-        Without coverage counts (an older engine, or a summary dropped under backpressure) the span
-        totals are the only amounts available, and nothing can be proven complete.
-        """
-        summary = self._cache_summary
-        if summary is None or summary.unpriced_hits is None:
-            return self._saved_cost_usd, self._saved_cost_archive_usd, None
-        consistent = summary.is_consistent() and cache_hits == summary.hits
-        return (
-            summary.saved_cost_usd,
-            summary.saved_cost_archive_usd,
-            summary.unpriced_hits if consistent else None,
-        )
-
-    def _usage(self, envelope: dict[str, Any], data: dict[str, object]) -> _Accepted:
-        usage_event = _usage(envelope, data)
-        if envelope["source"] == self._root_source and usage_event.scope == "subtree":
-            self._root_usage = usage_event.usage
-        return _Accepted(event=usage_event)
-
-    def _result_event(self, envelope: dict[str, Any], data: dict[str, object]) -> _Accepted:
-        if envelope["source"] != self._root_source:
-            return _Accepted()
-        if self._result is not None:
-            raise ExecutionError("SF Engine emitted duplicate root result Events")
-        media_type = _optional_text(data.get("media_type"), "media_type")
-        # FEATURE: deliver large results in full (OME-892) — a result frame carries either
-        # the inline body or an artifact claim ticket, never both and never neither.
-        artifact_raw = data.get("artifact")
-        if artifact_raw is not None:
-            if data.get("body") is not None:
-                raise ExecutionError("SF Engine result carries both a body and an artifact")
-            self._result = (None, media_type, _artifact_reference(artifact_raw))
-            return _Accepted()
-        body = _raw_text(data, "body")
-        self._result = (body, media_type, None)
-        return _Accepted()
-
-    def _terminated(
-        self,
-        envelope: dict[str, Any],
-        data: dict[str, object],
-    ) -> _Accepted:
-        error = _termination_error(data.get("error"))
-        status = _text(data, "status")
-        if status not in {"succeeded", "failed", "stopped", "timed_out"}:
-            raise ExecutionError("SF Engine termination status is invalid")
-        selected_status = _termination_status(status)
-        event = events.Terminated(**envelope, status=selected_status, error=error)
-        # WHY: heartbeats can keep recv alive forever after an unrecognized root terminates.
-        if self._root_source is None:
-            raise ExecutionError("SF Engine run root was never identified (URL4 mismatch)")
-        if envelope["source"] != self._root_source:
-            return _Accepted(event=event)
-        if status != "succeeded":
-            raise ExecutionError(
-                error.message if error is not None else f"SF Engine Run {status}",
-                code=error.code if error is not None else status,
-                permanent=error.permanent if error is not None else None,
-                details=data,
-            )
-        if self._result is None:
-            raise ExecutionError("SF Engine succeeded without a root result")
-        if self._run_id is None or self._started_at is None:
-            raise ExecutionError("SF Engine terminated before the root Run started")
-        cache_hits = max(self._summary_cache_hits, self._hit_spans)
-        saved, saved_archive, unpriced = self._cache_evidence(cache_hits)
-        summary = self._cache_summary
-        return _Accepted(
-            event=event,
-            outcome=_RunOutcome(
-                run_id=self._run_id,
-                started_at=self._started_at,
-                completed_at=envelope["timestamp"],
-                result_body=self._result[0],
-                media_type=self._result[1],
-                root_usage=self._root_usage,
-                cache_saved_cost_usd=saved,
-                cache_saved_cost_archive_usd=saved_archive,
-                cache_hits=cache_hits,
-                cache_unpriced_hits=unpriced,
-                frozen_copy_id=None if summary is None else summary.frozen_copy_id,
-                capture_status=None if summary is None else summary.capture_status,
-                capture_replay=None if summary is None else summary.capture_replay,
-                capture_partial_reasons=(
-                    () if summary is None else summary.capture_partial_reasons
-                ),
-                artifact=self._result[2],
-                client_version=None if self._version_conflict else self._client_version,
-            ),
-        )
-
-
-# The engine's run-summary attribute counting every gateway round trip the cache served
-# (`screamingface_engine.runner.cache_counters.CACHE_HITS`).
-_CACHE_HITS = "cache.hits"
-# Hits whose entry carried no price at all (`cache_counters.UNPRICED_HITS`). OME-1463.
-_UNPRICED_HITS = "cache.saved_cost.unpriced_hits"
-# The coverage counts and totals beside it (`cache_counters.SAVED_COST_*`).
-_REPORTED_HITS = "cache.saved_cost.reported_hits"
-_ARCHIVE_HITS = "cache.saved_cost.archive_hits"
-_SAVED_COST_USD = "cache.saved_cost_usd"
-_SAVED_COST_ARCHIVE_USD = "cache.saved_cost_archive_usd"
-# FEATURE (OME-1307): the frozen copy of the run (`capture_outcomes.CaptureTally.attributes`:
-# `capture.frozen_copy_id` and `capture.status` of a capture run, `capture.replay` of a run that
-# honoured `X-Replay-Frozen-Copy`). They ride on the same summary line as the cache tally.
-_CAPTURE_FROZEN_COPY_ID = "capture.frozen_copy_id"
-_CAPTURE_STATUS = "capture.status"
-_CAPTURE_REPLAY = "capture.replay"
-# FEATURE (Q23, design §5.2): one count per partial reason, `capture.partial.<reason>`.
-_CAPTURE_PARTIAL_PREFIX = "capture.partial."
-
-
-@dataclass(frozen=True, slots=True)
-class _CacheSummary:
-    """One engine run summary: the cache tally and the `capture.*` attributes on the same line.
-
-    The tally is hits, coverage by provenance, and the two totals.
-    """
-
-    hits: int
-    reported_hits: int | None
-    archive_hits: int | None
-    unpriced_hits: int | None
-    saved_cost_usd: Decimal | None
-    saved_cost_archive_usd: Decimal | None
-    frozen_copy_id: str | None = None
-    capture_status: Literal["complete", "partial"] | None = None
-    capture_replay: str | None = None
-    capture_partial_reasons: tuple[str, ...] = ()
-
-    @classmethod
-    def parse(cls, attributes: Mapping[str, object]) -> _CacheSummary:
-        def count(key: str) -> int | None:
-            return _cache_hit_count(attributes[key], key) if key in attributes else None
-
-        return cls(
-            hits=_cache_hit_count(attributes[_CACHE_HITS]),
-            reported_hits=count(_REPORTED_HITS),
-            archive_hits=count(_ARCHIVE_HITS),
-            unpriced_hits=count(_UNPRICED_HITS),
-            saved_cost_usd=_summary_amount(attributes, _SAVED_COST_USD),
-            saved_cost_archive_usd=_summary_amount(attributes, _SAVED_COST_ARCHIVE_USD),
-            frozen_copy_id=_summary_copy_id(attributes, _CAPTURE_FROZEN_COPY_ID),
-            capture_status=_summary_capture_status(attributes),
-            capture_replay=_summary_copy_id(attributes, _CAPTURE_REPLAY),
-            capture_partial_reasons=_summary_partial_reasons(attributes),
-        )
-
-    def is_consistent(self) -> bool:
-        """Whether the coverage counts account for every hit and match the totals beside them.
-
-        The engine publishes a total exactly when its provenance had a priced hit
-        (`cache_counters.attributes`), so an amount without hits, or hits without an amount, is a
-        summary that cannot certify anything.
-        """
-        if self.reported_hits is None or self.archive_hits is None or self.unpriced_hits is None:
-            return False
-        if self.reported_hits + self.archive_hits + self.unpriced_hits != self.hits:
-            return False
-        return (self.reported_hits > 0) == (self.saved_cost_usd is not None) and (
-            self.archive_hits > 0
-        ) == (self.saved_cost_archive_usd is not None)
-
-
-def _summary_amount(attributes: Mapping[str, object], key: str) -> Decimal | None:
-    """A summary total, absent when the key is absent, or a refusal.
-
-    INVARIANT: a canonical decimal STRING only. The engine formats each total exactly
-    (`format(total, "f")`), so any other carrier, a float included, is a summary we cannot trust,
-    and it stops the run rather than rounding the money.
-    """
-    if key not in attributes:
-        return None
-    value = attributes[key]
-    if not isinstance(value, str):
-        raise ExecutionError(f"SF Engine cache summary {key} must be a decimal string")
-    return _decimal(value, f"cache summary {key}")
-
-
-def _summary_copy_id(attributes: Mapping[str, object], key: str) -> str | None:
-    """A summary's frozen copy id, absent when the key is absent, or a refusal."""
-    if key not in attributes:
-        return None
-    value = attributes[key]
-    if not isinstance(value, str) or not value:
-        raise ExecutionError(f"SF Engine capture summary {key} must be a non-empty string")
-    return value
-
-
-def _summary_partial_reasons(attributes: Mapping[str, object]) -> tuple[str, ...]:
-    """The partial reasons the run counted, sorted; a zero count is not a reason.
-
-    INVARIANT: a count that is not a non-negative integer fails closed (`_cache_hit_count`), so a
-    malformed count never reads as "not partial".
-    """
-    return tuple(
-        sorted(
-            key.removeprefix(_CAPTURE_PARTIAL_PREFIX)
-            for key in attributes
-            if key.startswith(_CAPTURE_PARTIAL_PREFIX)
-            and _cache_hit_count(attributes[key], key) > 0
-        )
-    )
-
-
-def _summary_capture_status(
-    attributes: Mapping[str, object],
-) -> Literal["complete", "partial"] | None:
-    """`complete` or `partial`, absent when the key is absent (unknown), or a refusal."""
-    try:
-        return capture_status_value(attributes.get(_CAPTURE_STATUS))
-    except ValueError as exc:
-        raise ExecutionError(f"SF Engine capture summary {_CAPTURE_STATUS} is invalid") from exc
-
-
-def _cache_hit_count(value: object, attribute: str = _CACHE_HITS) -> int:
-    """A summary count, or a refusal: a malformed count must not read as zero.
-
-    INVARIANT: fail CLOSED. These numbers decide whether a cost may be published as exact, so a
-    value that cannot be trusted stops the run rather than silently becoming zero.
-    """
-    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
-        raise ExecutionError(f"SF Engine cache summary {attribute} is invalid")
-    return value
-
-
-def _advisory_error(data: Mapping[str, object]) -> tuple[str, str]:
-    code = _text(data, "code")
-    message = _text(data, "message")
-    _optional_text(data.get("ref_id"), "error ref_id")
-    return code, message
-
-
-def _advisory_log(data: Mapping[str, object]) -> None:
-    """Validate an out-of-band notice and surface it without inventing a sequence.
-
-    WHY: the notice cannot become a public Event — ``events.Event.sequence`` is a mandatory
-    positive integer, and inventing one would pollute the replay order the sequence defines.
-    Dropping it silently is worse than the crash it replaces, though: the server sends these
-    precisely so a caller learns its declaration was overridden. Logging keeps that promise.
-    """
-
-    _severity(_text(data, "severity_text"))
-    _integer(data.get("severity_number"), "log severity_number")
-    _log_attributes(data.get("attributes", {}))
-    _LOG.warning("SF Engine notice: %s", _raw_text(data, "body"))
-
-
-def _payload(raw: str | bytes) -> dict[str, object]:
-    if isinstance(raw, bytes):
-        try:
-            raw = raw.decode("utf-8")
-        except UnicodeDecodeError as exc:
-            raise ExecutionError("SF Engine CloudEvent must be UTF-8 JSON") from exc
-    if not isinstance(raw, str):
-        raise ExecutionError("SF Engine WebSocket frame must contain text JSON")
-    try:
-        value = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        raise ExecutionError("SF Engine CloudEvent must be valid JSON") from exc
-    payload = _object(value, "CloudEvent")
-    if payload.get("specversion") != "1.0":
-        raise ExecutionError("SF Engine CloudEvent must use specversion '1.0'")
-    if payload.get("datacontenttype", "application/json") != "application/json":
-        raise ExecutionError("SF Engine CloudEvent data must use application/json")
-    return payload
 
 
 def _sequence(payload: Mapping[str, object]) -> int:
@@ -629,6 +137,19 @@ def _optional_saved_cost(value: object, label: str) -> Decimal | None:
 
 
 def _usage(envelope: dict[str, Any], data: Mapping[str, object]) -> events.Usage:
+    return events.Usage(
+        **envelope,
+        scope=_usage_scope(_text(data, "scope")),
+        provider=_text(data, "gen_ai.provider.name"),
+        model=_text(data, "gen_ai.response.model"),
+        pricing_version=_text(data, "pricing_version"),
+        usage=usage_value(data),
+    )
+
+
+def usage_value(data: Mapping[str, object]) -> AccountingUsage:
+    """A `cost.usage` frame's `data` as the Report's usage; the Engine's record carries the
+    run's root subtree frame's `data` as it is (E5 P2 spec §4.3)."""
     usage = _object(data.get("usage"), "cost usage tokens")
     cost = _object(data.get("cost"), "cost usage cost")
     pricing_version = _text(data, "pricing_version")
@@ -693,14 +214,7 @@ def _usage(envelope: dict[str, Any], data: Mapping[str, object]) -> events.Usage
         ),
         cost_usd=None if unpriced else total,
     )
-    return events.Usage(
-        **envelope,
-        scope=_usage_scope(_text(data, "scope")),
-        provider=_text(data, "gen_ai.provider.name"),
-        model=_text(data, "gen_ai.response.model"),
-        pricing_version=pricing_version,
-        usage=accounting,
-    )
+    return accounting
 
 
 def _termination_error(value: object) -> events.TerminationError | None:
@@ -791,29 +305,6 @@ def _required_text(value: object, label: str) -> str:
     return value.strip()
 
 
-_ARTIFACT_ID_HEX_LEN = 64
-
-
-def _artifact_reference(value: object) -> _ResultArtifact:
-    """Decode a result frame's artifact claim ticket, strictly (OME-892).
-
-    INVARIANT: an id/sha that is not lowercase sha256 hex is rejected here, before any
-    fetch — it is both the path-traversal guard and the integrity contract's precondition.
-    """
-    mapping = _object(value, "result artifact")
-    artifact_id = _raw_text(mapping, "id")
-    sha256 = _raw_text(mapping, "sha256")
-    for label, digest in (("id", artifact_id), ("sha256", sha256)):
-        if len(digest) != _ARTIFACT_ID_HEX_LEN or any(
-            ch not in "0123456789abcdef" for ch in digest
-        ):
-            raise ExecutionError(f"SF Engine result artifact {label} must be sha256 hex")
-    size_bytes = _integer(mapping.get("size_bytes"), "result artifact size_bytes")
-    if size_bytes < 1:
-        raise ExecutionError("SF Engine result artifact size_bytes must be positive")
-    return _ResultArtifact(id=artifact_id, size_bytes=size_bytes, sha256=sha256)
-
-
 def _raw_text(value: Mapping[str, object], name: str) -> str:
     selected = value.get(name)
     if not isinstance(selected, str):
@@ -861,18 +352,6 @@ def _optional_timestamp(value: object) -> datetime | None:
     return None if value is None else _timestamp(value)
 
 
-def _accumulated(total: Decimal | None, amount: Decimal | None) -> Decimal | None:
-    """Add one span's contribution, keeping absent distinct from zero.
-
-    INVARIANT: a run that observed nothing priceable stays `None`. Seeding with `Decimal(0)`
-    would make every run look like it saved nothing, which reads as evidence where there is
-    none — and `partial` vs `unavailable` turns on precisely that.
-    """
-    if amount is None:
-        return total
-    return amount if total is None else total + amount
-
-
 def _decimal(value: object, label: str) -> Decimal:
     if isinstance(value, bool) or not isinstance(value, str | int | float | Decimal):
         raise ExecutionError(f"SF Engine {label} must be a decimal")
@@ -886,3 +365,43 @@ def _decimal(value: object, label: str) -> Decimal:
 
 
 __all__: list[str] = []
+
+
+def display_event(payload: Mapping[str, object]) -> events.Event | None:
+    """One CloudEvent of a Run's event stream as the public Event, for `on_event` and the
+    progress output only (E5 P2 spec §4.2, D13): the Candidate's outcome comes from the
+    Engine's record, never from these.
+
+    None for a frame that is not a public Event (a result frame, an unsequenced notice, a kind
+    this Client does not know). Raises ExecutionError for a frame that does not decode.
+    """
+    event_type = _text(payload, "type")
+    decode = _DISPLAYED.get(event_type)
+    if decode is None or payload.get("sequence") is None:
+        return None
+    envelope = _envelope(payload, _sequence(payload))
+    return decode(envelope, _object(payload.get("data"), f"{event_type} data"))
+
+
+def _started_event(envelope: dict[str, Any], data: Mapping[str, object]) -> events.Started:
+    return events.Started(**envelope, url4=_text(data, "url4"))
+
+
+def _terminated_event(envelope: dict[str, Any], data: Mapping[str, object]) -> events.Terminated:
+    status = _text(data, "status")
+    if status not in {"succeeded", "failed", "stopped", "timed_out"}:
+        raise ExecutionError("SF Engine termination status is invalid")
+    return events.Terminated(
+        **envelope, status=_termination_status(status), error=_termination_error(data.get("error"))
+    )
+
+
+type _Decode = Callable[[dict[str, Any], Mapping[str, object]], events.Event | None]
+
+_DISPLAYED: dict[str, _Decode] = {
+    "ai.url4.started": _started_event,
+    "ai.url4.log": _log,
+    "ai.url4.span": _span,
+    "ai.url4.cost.usage": _usage,
+    "ai.url4.terminated": _terminated_event,
+}

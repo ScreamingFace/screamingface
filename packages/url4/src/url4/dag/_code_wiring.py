@@ -15,6 +15,7 @@ from __future__ import annotations
 import re
 from collections.abc import Callable
 
+from url4.core.at_most_one import is_at_most_one
 from url4.core.intent import CodePointer, code_pointer_of
 from url4.core.nodes import (
     Binding,
@@ -112,7 +113,9 @@ def _code_slots(slots: list[_Slot]) -> tuple[CodeSlot, ...]:
     specs: list[CodeSlot] = []
     for slot in slots:
         kind = _form_kind(slot.form, slots, specs)
-        specs.append(CodeSlot(slot.name, slot.weight, not _is_optional(slot.form), kind))
+        required = not _is_optional(slot.form)
+        bounded = isinstance(slot.form, Source) and is_at_most_one(slot.form.annotations)
+        specs.append(CodeSlot(slot.name, slot.weight, required, kind, at_most_one=bounded))
     return tuple(specs)
 
 

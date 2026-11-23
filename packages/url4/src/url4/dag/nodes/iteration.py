@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from url4.core.context import Context
 from url4.core.errors import CollectionError, ErrorCode
 from url4.core.nodes import IterationDirectives
+from url4.dag.nodes._at_most_one import at_most_one_payload
 from url4.dag.remote_nodes import reraise_remote_refusal
 from url4.dag.semantics.collection import parse_collection
 
@@ -43,15 +44,17 @@ class ExpandNode:
     """
 
     deps: Mapping[str, DagNode] = field(default_factory=dict)  # {"inner": node}
+    at_most_one: bool = False  # the C19 mark: see :func:`at_most_one_payload`
 
     async def resolve(self, inputs: Mapping[str, Payload], ctx: ExecutionContext) -> Payload:
         inner = inputs["inner"]
         try:
-            return parse_collection(_as_text(inner), _media_type_of(inner))
+            elements = parse_collection(_as_text(inner), _media_type_of(inner))
         except CollectionError as exc:
             raise CollectionError(
                 f"expansion source is not iterable: {exc}", code=ErrorCode.EXPANSION_NOT_ITERABLE
             ) from exc
+        return at_most_one_payload(elements) if self.at_most_one else elements
 
 
 @dataclass(eq=False)

@@ -543,6 +543,28 @@ uncapped bill.
   you get one answer back eight times and a fake 8–0 "consensus". `samples()` must
   vary seed/temperature/prompt per copy; `[solver] * 8` is the version of this bug
   that is impossible to see in a score, which is why the helper exists.
+- **A changed request byte is a cache miss, and a miss is a paid call.** Two stores
+  answer a call from what they hold, and both key on the request itself:
+  - the gateway's response cache keys on request content plus its revision constants
+    (Lane 3's cache-key bullet);
+  - the **pinned cache** (the frozen copy a published run is replayed from) keys each entry
+    on `request_digest` in `apps/aigateway/src/aigateway/core/frozen_copy/store.py`: the
+    canonical JSON of the entry kind, the WHOLE request body and the Attempt number. The
+    Engine looks it up per Case key and call number.
+
+  So any diff that changes a field inside a request (`max_tokens`, temperature, reasoning
+  effort, a prompt word, message order, a seed, a model id) makes every stored entry for
+  that call miss. On a normal run the miss is silent: each call is bought again. On a
+  replay or a re-grade the miss refuses the run. Ask the author three things: which inputs
+  the key hashes (read the key builder, not the diff), which of them this diff changes, and
+  either that the change is meant (a revision move with its re-run or re-grade cost stated)
+  or proof that the bytes are unchanged (the old golden replayed through the real
+  transport). Worked example, #1896 (OME-1909), found in review: a partial re-judge sent
+  TODAY's judge request for the Cases it did not name, with `max_tokens` raised from 8,192
+  to 131,072, to a copy captured at 8,192, so every unnamed Case missed and the whole
+  re-grade was refused. The tests had not seen it because their fake gateway answered every
+  lookup as a hit. A test of any cache or replay path needs a fake that matches by request
+  contents (Lane 7).
 - **Unbounded growth.** `asyncio.gather` over a caller-sized collection fans out
   without limit (the OME-906 event-bridge incident); buffers bounded in *items* when
   the risk is *bytes*; dicts keyed by user-supplied IDs with no eviction; caches with
@@ -677,6 +699,41 @@ config has burned real money here.
   nothing. Require at least one test constructing the REAL vendor type. Flag any
   reliance on a `_private` vendor method unless a drift-alarm test will scream on the
   next bump; prefer tripwires pinned to the vendor's own exported constants (#903).
+- **A diff that pins a model with params needs proof that the model accepts every one.**
+  This is outcome (1) above, made concrete. The gateway sends
+  `provider.require_parameters = true` on every OpenRouter call
+  (`apps/aigateway/docs/openrouter-routing-controls.md`), so OpenRouter refuses the call
+  when no endpoint for the model accepts every param sent. One unsupported param fails
+  every call, not some. The incident:
+  [#1897](https://github.com/ScreamingFace/screamingface/pull/1897) pinned the
+  FutureX-Past Judge as `openrouter/openai/gpt-5.4` with `("temperature", "0")`. No
+  OpenRouter endpoint for gpt-5.4 accepts `temperature`, so every Judge call failed and
+  every level-3/4 Case ended as `scorer_error`, while levels 1–2 (graded by rule, no
+  Judge) passed. Every offline test was green, because scorer tests use a stand-in
+  Judge and never send the params. Fixed in
+  [#1960](https://github.com/ScreamingFace/screamingface/pull/1960) (OME-1977). Review
+  checks, for any diff that adds or changes a model id together with its params (a
+  `JudgeSpec` row in `screamingface_engine_inspect/benchmarks.py`, a `pins.py`, a model
+  seed, a run kit's model config):
+  1. **Compare with every other row that pins the same model.**
+     `grep -n -A12 'model="<the model id>"' benchmarks.py` and read the `params=` lines.
+     A param the sibling rows leave out is a finding until proven supported: the other
+     gpt-5.4 Judge rows all sent no temperature, and the row's own comment cited
+     "HealthBench's precedent" while sending a param HealthBench does not.
+  2. **Ask for one real call as evidence**: the exact model id with the exact params,
+     through the gateway, with the reply or the Run id in the PR. A model's
+     `supported_parameters` on [OpenRouter's models API](https://openrouter.ai/docs/api-reference/models/get-models)
+     is acceptable offline evidence that a param is refused, not that it works. No
+     evidence means "not checked" in Checks and limits, and it blocks a Judge row,
+     because a Judge that cannot be called grades nothing. Never make the paid call
+     yourself.
+  3. **A param copied from the paper or the authors' harness is a claim about another
+     model.** "The authors ask at temperature 0" says nothing about the model we pin.
+     When our model refuses the param, leaving it out is a NAMED DEVIATION in the row.
+  4. **Check the offline guard grows with the diff.**
+     `tests/unit/inspect/test_judge_param_support.py` refuses a pinned temperature on
+     `openrouter/openai/gpt-5*` only. A diff that brings a new model family with a known
+     refused param extends that guard in the same PR.
 - **A version pinned in two projects drifts through the copy nobody holds.** The Engine
   and the SDK are separate uv projects with separate lockfiles, so a pin they must share
   exists twice: the SDK's `inspect` extra copies the Engine's `inspect-ai`, which every

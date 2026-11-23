@@ -21,6 +21,7 @@ from _reducer_fixtures import (
     fixture_operators,
     reducer_fusion,
 )
+from _run_transport import ScriptedRun
 from test_client_run import _engine
 from url4 import Expression, Node, RelExpr, Source, Text, build, expr, render, src, struct
 
@@ -47,18 +48,12 @@ _VOTE_SPEC = (
 )
 
 
-class _NeverRuns:
+class _NeverRuns(ScriptedRun):
     called = False
 
     def run(self, candidate: object, on_event: object) -> NoReturn:
         self.called = True
         raise AssertionError("a reducer outside a Fusion slot must fail before execution")
-
-    def cancel_active(self) -> None:
-        pass
-
-    def close(self) -> None:
-        pass
 
 
 def _client() -> sf.Client:

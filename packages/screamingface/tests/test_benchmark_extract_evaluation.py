@@ -22,6 +22,7 @@ from _combine_contract import (
     engine_operators,
     rule,
 )
+from _run_transport import AsyncScriptedRun
 from _vote_run_fixtures import (
     ScriptedTransport,
     benchmark_resource,
@@ -121,18 +122,12 @@ def test_benchmark_extract_resolves_before_spend() -> None:
     assert all("benchmark" not in str(reported[stage]) for stage in ("extract", "normalize"))
 
 
-class _AsyncForbiddenTransport:
+class _AsyncForbiddenTransport(AsyncScriptedRun):
     called = False
 
     async def run(self, candidate: object, on_event: object) -> NoReturn:
         self.called = True
         raise AssertionError("a benchmark without an answer rule must fail before execution")
-
-    async def cancel_active(self) -> None:
-        pass
-
-    async def close(self) -> None:
-        pass
 
 
 def _check_no_rule_message(message: str) -> None:

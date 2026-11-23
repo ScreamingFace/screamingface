@@ -22,6 +22,8 @@ from dataclasses import dataclass, replace
 import nats
 from nats.aio.client import Client
 from nats.aio.msg import Msg
+from nats.errors import ConnectionClosedError, NoRespondersError, NoServersError
+from nats.errors import TimeoutError as NatsTimeoutError
 from nats.js import JetStreamContext
 from nats.js.api import (
     AckPolicy,
@@ -31,7 +33,7 @@ from nats.js.api import (
     StorageType,
     StreamConfig,
 )
-from nats.js.errors import APIError, NotFoundError
+from nats.js.errors import APIError, NotFoundError, ServiceUnavailableError
 
 from screamingface_engine.adapters.jetstream import STREAM_NAME_IN_USE_ERR_CODE
 from screamingface_engine.candidate_outcomes import (
@@ -39,6 +41,7 @@ from screamingface_engine.candidate_outcomes import (
     MAX_OUTCOME_BYTES,
     CandidateOutcome,
     OutcomeDelivery,
+    OutcomeNotAccepted,
     decode_outcome,
     encode_outcome,
 )
@@ -47,6 +50,14 @@ logger = logging.getLogger(__name__)
 
 CANDIDATE_OUTCOMES_STREAM = "url4-candidate-outcomes"
 _FETCH_WINDOW_S = 5.0
+# The broker could not be reached for this publish.
+_UNREACHABLE = (
+    NoServersError,
+    ConnectionClosedError,
+    NatsTimeoutError,
+    NoRespondersError,
+    OSError,
+)
 _FETCH_BATCH = 64
 
 
@@ -54,13 +65,14 @@ _FETCH_BATCH = 64
 class CandidateOutcomesStreamConfig:
     """The stream, and the writer's consumer. Defaults are the chart defaults (spec R11).
 
-    WHY 64 MiB: an outcome is ~200 bytes, so this holds hundreds of thousands, far beyond the
-    outcomes a 24 h database outage could pile up.
+    WHY 512 MiB: an outcome that carries its Candidate's record is a few KiB (E5 P2 spec §4.4),
+    so this still holds about a hundred thousand, far beyond what a 24 h database outage could
+    pile up.
     """
 
     name: str = CANDIDATE_OUTCOMES_STREAM
     max_age_s: float = DEFAULT_OUTCOMES_MAX_AGE_S
-    max_bytes: int = 64 * 1024**2
+    max_bytes: int = 512 * 1024**2
     replicas: int = 1
     ack_wait_s: float = 30.0
 
@@ -203,8 +215,16 @@ class JetStreamCandidateOutcomeStream:
         await js.add_consumer(self.config.name, self.config.consumer_config())
 
     async def publish(self, topic: str, outcome: CandidateOutcome) -> None:
-        js = await self._jetstream()
-        await js.publish(self.config.subject, encode_outcome(topic, outcome))
+        payload = encode_outcome(topic, outcome)
+        try:
+            js = await self._jetstream()
+            await js.publish(self.config.subject, payload)
+        except (ServiceUnavailableError, *_UNREACHABLE) as exc:
+            # E5 P2 spec R6: a full stream answers 503 (code 10077); either way, a later
+            # publish may land, so the caller may try again.
+            raise OutcomeNotAccepted(
+                f"{self.config.name} did not take an outcome: {exc!r}"
+            ) from exc
 
     async def consume(self) -> AsyncGenerator[OutcomeDelivery, None]:
         js = await self._jetstream()

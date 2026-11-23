@@ -24,6 +24,7 @@ import httpx
 from fastapi import HTTPException
 
 from aigateway.core.api_key_validation_http import bounded_retry_after_seconds
+from aigateway.core.upstream_attempts import observe
 
 from .completion import decode_completion
 
@@ -54,13 +55,17 @@ class _NoCookies(CookieJar):
 
 def _open_client(transport: httpx.AsyncBaseTransport | None) -> httpx.AsyncClient:
     # INVARIANT: core.admission is the one wall-clock authority, as for the local provider.
-    return httpx.AsyncClient(
-        cookies=_NoCookies(),
-        follow_redirects=False,
-        trust_env=False,
-        timeout=None,
-        limits=_POOL_LIMITS,
-        transport=transport,
+    # INVARIANT (contract C7): every send on this shared client is counted into the request that
+    # made it; a readiness probe on the admin route has no counter bound and counts nowhere.
+    return observe(
+        httpx.AsyncClient(
+            cookies=_NoCookies(),
+            follow_redirects=False,
+            trust_env=False,
+            timeout=None,
+            limits=_POOL_LIMITS,
+            transport=transport,
+        )
     )
 
 

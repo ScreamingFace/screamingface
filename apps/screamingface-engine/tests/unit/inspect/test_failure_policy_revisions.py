@@ -33,7 +33,8 @@ def _policy(key: str) -> str:
     return imported_benchmark(key).benchmark.declaration.failure_policy
 
 
-#: The 17 coverage_declare Benchmarks: unchanged revision, as served before OME-1642.
+#: The 16 coverage_declare Benchmarks: unchanged revision, as served before OME-1642.
+#: healthbench-professional left this table with OME-1998, when it became withhold.
 _KEPT: dict[str, str] = {
     "air_bench": "b5d90afe0f368dab",
     "arc_agi_2": "4f831492ca42fdf4",
@@ -44,7 +45,6 @@ _KEPT: dict[str, str] = {
     "draco": "c6fb6f500dc58622",
     "draco-3pass": "e8c3ad925dcd4d4a",
     "fortress_benign": "b04be10a93356ccd",
-    "healthbench-professional": "d8fb037307f35415",
     "healthbench-worst30": "39cfd96b068f7230",
     "ifeval": "1cba769ece27f7ef",
     "simpleqa": "ffd3e901b78f9d0e",
@@ -85,6 +85,9 @@ _MOVED_FROM: dict[str, str] = {
     "frontierscience": "fb33b1e6a2cf0c12",
     "gdpval-text": "2e839377e3ee28d4",
     "gsm8k": "330615c3213bb681",
+    # OME-1998, not OME-1642: it stayed coverage_declare until its whole-run metric had a rule
+    # for a failed Case (0), then moved off this id with the rest of that grading change.
+    "healthbench-professional": "d8fb037307f35415",
     "hellaswag": "c98211d79bcab080",
     "infinite_bench_math_find": "16df28a909f03949",
     "lab_bench_cloning_scenarios": "6edd96369e7edf26",

@@ -15,6 +15,7 @@ from typing import Any
 import httpx
 from _answer_fixtures import evidence_wires
 from _combine_contract import ENGINE_OPERATOR_NAMES, operators_wire
+from _run_transport import ScriptedRun
 from test_client_run import BENCHMARK, _engine
 from test_operation_accounting_decode import _accounting_wire
 from url4 import Expression, build
@@ -66,7 +67,7 @@ def engine_handler(
     return handle
 
 
-class ScriptedTransport:
+class ScriptedTransport(ScriptedRun):
     """A run transport that returns scripted cases for the Candidate it is asked to run."""
 
     def __init__(
@@ -76,6 +77,7 @@ class ScriptedTransport:
         cases_for: Callable[[Candidate], list[dict[str, Any]]],
         events: list[str] | None = None,
     ) -> None:
+        super().__init__()
         self.candidate: Candidate | None = None
         self._benchmark_id = benchmark_id
         self._revision = revision
@@ -109,12 +111,6 @@ class ScriptedTransport:
             media_type="application/json",
             root_usage=None,
         )
-
-    def cancel_active(self) -> None:
-        pass
-
-    def close(self) -> None:
-        pass
 
 
 def case_wire(output: str, operations: list[dict[str, Any]] | None = None) -> dict[str, Any]:

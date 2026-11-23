@@ -131,6 +131,15 @@ data:
   URL4_CLOUD_BLOB_S3_REGION: {{ .Values.blobs.storage.s3.region | quote }}
   # NOTE: both halves of the blob key pair travel by Secret (`secret-blob-storage.yaml`).
   {{- end }}
+  # The run-results store (E5 P2 spec D9a). INVARIANT: the SAME stanza as the pool's ConfigMap,
+  # rendered from the same `runResults.storage` values, so the runners write where this App reads.
+  # Its key pair travels by Secret.
+  {{- if eq (include "screamingface-engine.runResultsBackend" .) "s3" }}
+  URL4_CLOUD_RUN_RESULTS_STORE: "s3"
+  URL4_CLOUD_RUN_RESULTS_S3_ENDPOINT_URL: {{ include "screamingface-engine.runResultsEndpointUrl" . | quote }}
+  URL4_CLOUD_RUN_RESULTS_S3_BUCKET: {{ .Values.runResults.storage.s3.bucket | quote }}
+  URL4_CLOUD_RUN_RESULTS_S3_REGION: {{ .Values.runResults.storage.s3.region | quote }}
+  {{- end }}
   # OTLP span export for the control-plane `url4.accept` span (OME-1218). The SAME keys the pool
   # gets, from one helper — see `screamingface-engine.tracingEnv` for why they must match. These
   # are OpenTelemetry's own variable names, read by `tracing.loader` / the OTel SDK, not by

@@ -54,7 +54,23 @@
       <h1 id="benchmark-name">Leaderboard</h1>
     </header>
 
-    <p class="lead" id="benchmark-desc"></p>
+    <!-- Which revision of the benchmark the stats, chart and table below describe. A
+         dropdown when the benchmark has had two or more revisions, plain text with one. -->
+    <div id="revision-selector" class="revision-selector" data-section="revision" hidden>
+      <label class="revision-selector__label" for="revision-select">Revision</label>
+      <select id="revision-select" class="revision-selector__select" hidden></select>
+      <span id="revision-static" class="revision-selector__static" hidden></span>
+      <span id="revision-scope-note" class="revision-selector__note" hidden></span>
+    </div>
+    <p id="revision-notice" class="revision-notice" role="status" hidden></p>
+
+    <!-- The description folds to three lines behind the button. Both the clamp and the button are
+         switched on by benchmark.js, so a reader without scripts gets the whole text. The <p> tag
+         stays exactly as written: the server fills it by matching this tag. -->
+    <div class="board-desc" id="benchmark-desc-fold">
+      <p class="lead" id="benchmark-desc"></p>
+      <button type="button" class="btn--link board-desc__toggle" id="benchmark-desc-toggle" aria-controls="benchmark-desc" aria-expanded="false" hidden>Show more</button>
+    </div>
 
     <div class="note" data-section="note">
       <span class="kicker">about</span> The leaderboard's top row is the current state of the art. Every submission carries its <a href="https://docs.screamingface.ai/learn/url4" target="_blank" rel="noopener">url4</a> expression, a complete recipe for the run. Copy it with the Copy button in the Run Locally column to rerun, verify or build on any score here.</div>
@@ -150,6 +166,7 @@
   <script src="pareto-chart.js" defer></script>
   <script src="main.js" defer></script>
   <script src="external-results.js" defer></script>
+  <script src="revision-selector.js" defer></script>
   <script src="benchmark.js" defer></script>
   <script src="subscribe.js" defer></script>
   <script src="theme.js" defer></script>

@@ -1,13 +1,13 @@
 ---
 id: OME-1945
 linear_url: https://linear.app/openmined/issue/OME-1945/an-attachment-url-containing-reaches-the-model-as-raw-srcaccept-text
-status: in_review
+status: done
 type: bug
 priority: high
 labels: [bug, url4-sdk, agentic]
 parent: OME-1529
 created: 2026-11-17
-closed:
+closed: 2026-11-18
 ---
 
 # An attachment URL containing "@" reaches the model as raw "src=…;accept=…" text

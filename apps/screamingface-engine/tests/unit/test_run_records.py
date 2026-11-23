@@ -8,7 +8,7 @@ from __future__ import annotations
 import hashlib
 import unicodedata
 from datetime import UTC, datetime, tzinfo
-from typing import cast, get_args
+from typing import Any, cast, get_args
 
 import pytest
 
@@ -54,7 +54,7 @@ def test_candidate_names_are_unique_within_a_run() -> None:
 
 @pytest.mark.parametrize("field", ["client_key", "benchmark"])
 def test_a_run_spec_refuses_blank_identifiers(field: str) -> None:
-    values = {"client_key": "k", "benchmark": "b"} | {field: " "}
+    values: dict[str, Any] = {"client_key": "k", "benchmark": "b"} | {field: " "}
     with pytest.raises(ValueError, match=field):
         RunSpec(case_count=1, candidates=("a",), client_version="1", **values)
 

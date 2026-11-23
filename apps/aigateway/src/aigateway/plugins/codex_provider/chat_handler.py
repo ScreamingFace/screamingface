@@ -22,6 +22,7 @@ from aigateway.core.content_parts import (
     text_only,
 )
 from aigateway.core.provider_error_text import error_message_from_body
+from aigateway.core.upstream_attempts import observe
 from aigateway.core.usage_modalities import IMAGE_AND_FILE_KEY
 
 CODEX_RESPONSES_URL = "https://chatgpt.com/backend-api/codex/responses"
@@ -473,7 +474,8 @@ class CodexCustomLLM(CustomLLM):
             finally:
                 await _close_response(response)
 
-        async with self._http_client_factory() as http_client:
+        # INVARIANT (contract C7): the inference send reaches the attempt header.
+        async with observe(self._http_client_factory()) as http_client:
             async with http_client.stream("POST", CODEX_RESPONSES_URL, **kwargs) as response:
                 return await _model_response_from_response(response, fallback_model)
 

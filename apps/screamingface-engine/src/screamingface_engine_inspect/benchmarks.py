@@ -210,6 +210,14 @@ class BenchmarkSpec:
     #: metric, never a Named Score, since no Case carries a precision (OME-1527). None for a
     #: metric returning one number; Benchmark identity when set, so no other row moves.
     whole_run_headline: str | None = None
+    #: The row's ``whole_run_metric`` reads a Case that failed (its Candidate call or its
+    #: grading) as a Case value of 0 (OME-1998). Only this lets a row with a whole-run metric
+    #: declare ``failure_policy="withhold"``: the tally then hands the metric every selected
+    #: Case, a failed one as a bare 0.0 Score. True only for a metric that is a function of
+    #: per-Case values, where "a failed Case is 0" has a meaning (healthbench-professional's
+    #: clipped mean); an F1 or a pooled accuracy has none, so those rows leave it False and
+    #: stay ``coverage_declare``. Not a pin of its own: ``failure_policy=withhold`` already is.
+    whole_run_failed_case_zero: bool = False
     #: The Task's own epoch reducer, by inspect's name. ``pass_at_1`` on a row with Attempts
     #: makes the fold the mean over Attempts (the share at full marks, inspect's pass@1;
     #: ``docs/spec/2026-11-09-attempts-mean-fold.md``), with or without a whole-run metric. An
@@ -238,11 +246,13 @@ class BenchmarkSpec:
     #: ``test_published_revision.py`` refuses a row without it. None is for test stand-ins only.
     #: AIDEV-NOTE — the rule (``docs/adding-an-imported-benchmark.md``, "Changing a Benchmark's
     #: published revision"):
-    #: - NEVER edit this to make a red fingerprint test green. A refactor, a grading fix or a
-    #:   package bump that keeps the same Cases holds the id; update only the fingerprint pin.
-    #: - Move it only on a fundamental change (a changed Case set, a new Benchmark), only after
+    #: - NEVER edit this to make a red fingerprint test green. A refactor, a code move or a
+    #:   package bump that leaves every grade the same holds the id; update only the fingerprint
+    #:   pin.
+    #: - Move it when what a score means changes (a changed Case set, a changed grading rule, a
+    #:   new Benchmark; rule of 2026-11-17, OME-1909), only after
     #:   ``just engine benchmark-bump <key>``, and only with the owner's sign-off: a move hides
-    #:   every leaderboard result under the old id and marks every submission outdated.
+    #:   every leaderboard result under the old id until it is re-graded onto the new one.
     #: - A move ships with a CHANGELOG line and a team post, so the people using it are told.
     #: Never compared with the fingerprint at run time (owner decision, 2026-10-15). NOT part
     #: of the revision.
@@ -250,6 +260,16 @@ class BenchmarkSpec:
     #: How the scorer reads an answer, as pinned combine operator ids (OME-1289) — set only
     #: where the combine operators copy the scorer exactly (GSM8K, AIME). Not part of the revision.
     answer_rule: AnswerRule | None = None
+    #: Old published revisions this Benchmark may be re-graded from, each paired with the Case
+    #: Digest the Cases computed on the day of the bump (the one ``benchmark-bump`` prints;
+    #: OME-1909). A re-grade replays an old score's pinned cache under the current revision,
+    #: which is only sound when the Cases are the same bytes, so assembly refuses a pair whose
+    #: digest is not the digest the Cases compute now. That catches a Case change made AFTER the
+    #: bump, not one made earlier under a held id: there, the guard is the pinned cache itself,
+    #: since a changed Case misses it and a miss refuses the re-grade.
+    #: INVARIANT: never enters the fingerprint or ``published_revision`` — it lists history, it
+    #: changes nothing a score depends on (like ``description``).
+    regradable_from: tuple[tuple[str, str], ...] = ()
 
 
 #: XSTest's examiner, shared by both halves (``xstest_safe``, ``xstest_unsafe``): the
@@ -711,7 +731,15 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="mmlu",
-        published_revision="9d4c0946ae71f6fa",
+        # OME-1958: moved from 9d4c0946ae71f6fa by OME-1907's grading change (a wrapped letter
+        # such as `ANSWER: $B` is read); its old entries re-grade onto this id.
+        published_revision="e6a95e4c1f1ced71",
+        regradable_from=(
+            (
+                "9d4c0946ae71f6fa",
+                "ea69cb0179c201b4e138eed2f2c21f653f9d0f11e6a2f88812de0143b8930a34",
+            ),
+        ),
         title="MMLU",
         description=(
             "13,937 multiple-choice questions across 57 subjects (the MMLU test "
@@ -769,7 +797,15 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="arc_easy",
-        published_revision="f7d6a5325fb0bcff",
+        # OME-1958: moved from f7d6a5325fb0bcff by OME-1907's grading change (a wrapped letter
+        # such as `ANSWER: $B` is read); its old entries re-grade onto this id.
+        published_revision="e74d42010074448c",
+        regradable_from=(
+            (
+                "f7d6a5325fb0bcff",
+                "51b8598a4db653d7c60ec0a43487d4c5a3ea0daf505316c3b6f9a5d6fd656346",
+            ),
+        ),
         title="ARC-Easy",
         description=(
             "2,376 grade-school science multiple-choice questions (the AI2 ARC "
@@ -820,7 +856,15 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="arc_challenge",
-        published_revision="810d45748fde3b18",
+        # OME-1958: moved from 810d45748fde3b18 by OME-1907's grading change (a wrapped letter
+        # such as `ANSWER: $B` is read); its old entries re-grade onto this id.
+        published_revision="0e623d0bf152297f",
+        regradable_from=(
+            (
+                "810d45748fde3b18",
+                "71c66b3e10dcccf112dc4951676c83d62bb50d8055bad6e0494d6e5181880cfe",
+            ),
+        ),
         title="ARC-Challenge",
         description=(
             "1,172 hard grade-school science questions (the AI2 ARC Challenge "
@@ -873,7 +917,15 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="commonsense_qa",
-        published_revision="203aa920ad7ad52b",
+        # OME-1958: moved from 203aa920ad7ad52b by OME-1907's grading change (a wrapped letter
+        # such as `ANSWER: $B` is read); its old entries re-grade onto this id.
+        published_revision="5b968b3e1fd93280",
+        regradable_from=(
+            (
+                "203aa920ad7ad52b",
+                "0a4789cbd8e63a06f9d3d75a361538276bca39d4c45789715b9d9350bb3c1053",
+            ),
+        ),
         title="CommonsenseQA",
         description=(
             "1,221 five-option questions built from ConceptNet relations, each "
@@ -1067,7 +1119,15 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="mmlu_pro",
-        published_revision="145edec84bfc2324",
+        # OME-1958: moved from 145edec84bfc2324 by OME-1907's grading change (a wrapped letter
+        # such as `ANSWER: $B` is read); its old entries re-grade onto this id.
+        published_revision="4efebd6cc74c2dca",
+        regradable_from=(
+            (
+                "145edec84bfc2324",
+                "b765c667c3ad277a8bd49c388fcf26dc4abc2dcaacd34ac43f05e94cad611426",
+            ),
+        ),
         title="MMLU-Pro",
         description=(
             "12,032 ten-option questions across 14 disciplines (the MMLU-Pro "
@@ -1124,7 +1184,15 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="winogrande",
-        published_revision="3f2af135ba8bad37",
+        # OME-1958: moved from 3f2af135ba8bad37 by OME-1907's grading change (a wrapped letter
+        # such as `ANSWER: $B` is read); its old entries re-grade onto this id.
+        published_revision="539a9c0be94c8087",
+        regradable_from=(
+            (
+                "3f2af135ba8bad37",
+                "6dc17beb2ae9078b422ac035a002268d9ccb59b2ab08ce92c7b6829760598688",
+            ),
+        ),
         title="WinoGrande",
         description=(
             "1,267 sentences where a [BLANK] must be resolved to one of two "
@@ -1184,7 +1252,15 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="race_h",
-        published_revision="8c5ebb4a9d38cc6f",
+        # OME-1958: moved from 8c5ebb4a9d38cc6f by OME-1907's grading change (a wrapped letter
+        # such as `ANSWER: $B` is read); its old entries re-grade onto this id.
+        published_revision="9879ac1a4c9097e9",
+        regradable_from=(
+            (
+                "8c5ebb4a9d38cc6f",
+                "49e1ebc1ebbefe9569375bf666659f1a1d3ae1f309880fcf350875550c330441",
+            ),
+        ),
         title="RACE-H",
         description=(
             "3,498 reading-comprehension questions over English-exam passages "
@@ -1376,7 +1452,15 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="musr",
-        published_revision="a527e0f0db79d923",
+        # OME-1958: moved from a527e0f0db79d923 by OME-1907's grading change (a wrapped letter
+        # such as `ANSWER: $B` is read); its old entries re-grade onto this id.
+        published_revision="1b618ffed7ec9c4d",
+        regradable_from=(
+            (
+                "a527e0f0db79d923",
+                "fa7e1c77159eda64b06ec32238afe23ac0be8497bfcd500db46cd435e846204c",
+            ),
+        ),
         title="MuSR",
         description=(
             "250 machine-generated murder mysteries (the MuSR murder_mysteries "
@@ -1433,7 +1517,15 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="wmdp_bio",
-        published_revision="557c21ed4fcf926e",
+        # OME-1958: moved from 557c21ed4fcf926e by OME-1907's grading change (a wrapped letter
+        # such as `ANSWER: $B` is read); its old entries re-grade onto this id.
+        published_revision="009f4d3e7163867c",
+        regradable_from=(
+            (
+                "557c21ed4fcf926e",
+                "f36e89dd2551294dd4abdcb223262644ff9a4bb04ca69b8b07e993a673ad02aa",
+            ),
+        ),
         title="WMDP-Bio",
         description=(
             "1,273 four-option questions probing hazardous biosecurity "
@@ -1507,7 +1599,15 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="wmdp_chem",
-        published_revision="08989c0d94e03c70",
+        # OME-1958: moved from 08989c0d94e03c70 by OME-1907's grading change (a wrapped letter
+        # such as `ANSWER: $B` is read); its old entries re-grade onto this id.
+        published_revision="deaa83e0dbf8837f",
+        regradable_from=(
+            (
+                "08989c0d94e03c70",
+                "78fd64d8416db768091c674f665dbdd7c964dabbbeb30658690959620174103d",
+            ),
+        ),
         title="WMDP-Chem",
         description=(
             "408 four-option questions probing hazardous chemical-security "
@@ -1578,7 +1678,15 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="wmdp_cyber",
-        published_revision="d8310da16b5e9e1c",
+        # OME-1958: moved from d8310da16b5e9e1c by OME-1907's grading change (a wrapped letter
+        # such as `ANSWER: $B` is read); its old entries re-grade onto this id.
+        published_revision="a3b56fe1a4d3355d",
+        regradable_from=(
+            (
+                "d8310da16b5e9e1c",
+                "fcb59e16ad49985fa62beb40d8b82d50ee777855d82ca6a25bc5455b2bb1981f",
+            ),
+        ),
         title="WMDP-Cyber",
         description=(
             "1,987 four-option questions probing hazardous cybersecurity "
@@ -1649,7 +1757,15 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="hellaswag",
-        published_revision="9190ec85b43791e0",
+        # OME-1958: moved from 9190ec85b43791e0 by OME-1907's grading change (a wrapped letter
+        # such as `ANSWER: $B` is read); its old entries re-grade onto this id.
+        published_revision="90eca5ef70f243e7",
+        regradable_from=(
+            (
+                "9190ec85b43791e0",
+                "13d0a551dc717a7b6aad29674a9b875a47b09a6d869ea36cce7da34900632827",
+            ),
+        ),
         title="HellaSwag",
         description=(
             "10,042 everyday scenarios (the HellaSwag validation split — test "
@@ -1713,7 +1829,15 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="lab_bench_litqa",
-        published_revision="109142a4408d3f4b",
+        # OME-1958: moved from 109142a4408d3f4b by OME-1907's grading change (a wrapped letter
+        # such as `ANSWER: $B` is read); its old entries re-grade onto this id.
+        published_revision="201c79a3f2b025ca",
+        regradable_from=(
+            (
+                "109142a4408d3f4b",
+                "53c9f8077dcf1c9edfa52b1e426be95549dd3b8d9b72cffb9a21001c27417dfe",
+            ),
+        ),
         title="LAB-Bench LitQA2",
         description=(
             "199 multiple-choice questions answerable only from specific recent "
@@ -1775,7 +1899,15 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="lab_bench_suppqa",
-        published_revision="3aae3cdf14efeab8",
+        # OME-1958: moved from 3aae3cdf14efeab8 by OME-1907's grading change (a wrapped letter
+        # such as `ANSWER: $B` is read); its old entries re-grade onto this id.
+        published_revision="3f47298ee2dc3156",
+        regradable_from=(
+            (
+                "3aae3cdf14efeab8",
+                "5233348a35d4e988fd71f1741ded483b9d8ffae3a0e8979203fb6ab0e7aa90f9",
+            ),
+        ),
         title="LAB-Bench SuppQA",
         description=(
             "82 multiple-choice questions about the supplementary materials of "
@@ -1837,7 +1969,15 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="lab_bench_dbqa",
-        published_revision="21ff94a2ef9982c5",
+        # OME-1958: moved from 21ff94a2ef9982c5 by OME-1907's grading change (a wrapped letter
+        # such as `ANSWER: $B` is read); its old entries re-grade onto this id.
+        published_revision="1f9e60915b569740",
+        regradable_from=(
+            (
+                "21ff94a2ef9982c5",
+                "8584a3df081501f949f28a03ff5b058208985ef653a98b88d9946b24e08be17b",
+            ),
+        ),
         title="LAB-Bench DbQA",
         description=(
             "520 multiple-choice questions whose answers live in biological "
@@ -1900,7 +2040,15 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="lab_bench_protocolqa",
-        published_revision="236b15e7b2c90e9b",
+        # OME-1958: moved from 236b15e7b2c90e9b by OME-1907's grading change (a wrapped letter
+        # such as `ANSWER: $B` is read); its old entries re-grade onto this id.
+        published_revision="3314dda27de855f8",
+        regradable_from=(
+            (
+                "236b15e7b2c90e9b",
+                "06f94fdd1c65c0872d6c6cde6afe35019a97e3ac40240771cebfa7fa022fc76f",
+            ),
+        ),
         title="LAB-Bench ProtocolQA",
         description=(
             "108 multiple-choice questions that present a written lab protocol "
@@ -1962,7 +2110,15 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="lab_bench_seqqa",
-        published_revision="48e1368633436c5a",
+        # OME-1958: moved from 48e1368633436c5a by OME-1907's grading change (a wrapped letter
+        # such as `ANSWER: $B` is read); its old entries re-grade onto this id.
+        published_revision="49f7f64cf6065dc0",
+        regradable_from=(
+            (
+                "48e1368633436c5a",
+                "b11b60d26139ccf4d937cb48ddcaa84c5d931cb838e857c1cab0b4ff8ce89c0d",
+            ),
+        ),
         title="LAB-Bench SeqQA",
         description=(
             "600 multiple-choice questions about DNA and protein sequences — "
@@ -2026,7 +2182,15 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="lab_bench_cloning_scenarios",
-        published_revision="9c6f66d6acae7f05",
+        # OME-1958: moved from 9c6f66d6acae7f05 by OME-1907's grading change (a wrapped letter
+        # such as `ANSWER: $B` is read); its old entries re-grade onto this id.
+        published_revision="723a3f5a988ee349",
+        regradable_from=(
+            (
+                "9c6f66d6acae7f05",
+                "0e21d7411577ba5b2b946ffd81f89d7b63269e47303228992a1066a531ddf2c7",
+            ),
+        ),
         title="LAB-Bench CloningScenarios",
         description=(
             "33 multiple-choice questions over multi-step molecular cloning "
@@ -2163,7 +2327,15 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="onet_m6",
-        published_revision="cfc5f0da9f9418bd",
+        # OME-1958: moved from cfc5f0da9f9418bd by OME-1907's grading change (a wrapped letter
+        # such as `ANSWER: $B` is read); its old entries re-grade onto this id.
+        published_revision="f0abec484f0d9a59",
+        regradable_from=(
+            (
+                "cfc5f0da9f9418bd",
+                "224831b1d7bb097a1dec3eb7e06c4ea3515ecb0e89f7628e08cabc3064c8e116",
+            ),
+        ),
         title="O-NET M6",
         description=(
             "372 multiple-choice questions from Thailand's national grade-12 exam "
@@ -2229,7 +2401,15 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="pubmedqa",
-        published_revision="15e20f21d0a78fd9",
+        # OME-1958: moved from 15e20f21d0a78fd9 by OME-1907's grading change (a wrapped letter
+        # such as `ANSWER: $B` is read); its old entries re-grade onto this id.
+        published_revision="a1f2388c0f271b91",
+        regradable_from=(
+            (
+                "15e20f21d0a78fd9",
+                "482998340464f3bf8e35502be4f83dc8fcefa64f6d2eb35d101bac84e1e48f77",
+            ),
+        ),
         title="PubMedQA",
         description=(
             "500 biomedical research questions, each answered yes, no or maybe "
@@ -2438,7 +2618,15 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="agieval_lsat_ar",
-        published_revision="13fe1a6267102769",
+        # OME-1958: moved from 13fe1a6267102769 by OME-1907's grading change (a wrapped letter
+        # such as `ANSWER: $B` is read); its old entries re-grade onto this id.
+        published_revision="e24c40ff7eb00ad1",
+        regradable_from=(
+            (
+                "13fe1a6267102769",
+                "5f77e982829b4ce7a4fbb72abfd54d6cdf84e27fd73c470a7950e59abf599233",
+            ),
+        ),
         title="AGIEval LSAT-AR",
         description=(
             "230 LSAT analytical-reasoning (logic games) questions from the AGIEval benchmark's "
@@ -2498,7 +2686,15 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="agieval_lsat_lr",
-        published_revision="dbaf28cfdc818528",
+        # OME-1958: moved from dbaf28cfdc818528 by OME-1907's grading change (a wrapped letter
+        # such as `ANSWER: $B` is read); its old entries re-grade onto this id.
+        published_revision="0c55782670053db8",
+        regradable_from=(
+            (
+                "dbaf28cfdc818528",
+                "104db4473e5e86e7addb6f683f7c50cb279094ad2091ff270da1618d7cd6a42d",
+            ),
+        ),
         title="AGIEval LSAT-LR",
         description=(
             "510 LSAT logical-reasoning questions from the AGIEval benchmark's English set, "
@@ -2557,7 +2753,15 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="agieval_lsat_rc",
-        published_revision="7e36f14f4aec1e60",
+        # OME-1958: moved from 7e36f14f4aec1e60 by OME-1907's grading change (a wrapped letter
+        # such as `ANSWER: $B` is read); its old entries re-grade onto this id.
+        published_revision="7414b6f2cd38efed",
+        regradable_from=(
+            (
+                "7e36f14f4aec1e60",
+                "984f6070d532200fd9e92d1e0b91ce42c7dec1f6b72ab5316ec1cfe9ab2e8ddb",
+            ),
+        ),
         title="AGIEval LSAT-RC",
         description=(
             "269 LSAT reading-comprehension questions over long passages from the AGIEval "
@@ -2616,7 +2820,15 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="agieval_sat_math",
-        published_revision="098022e0b1e81f81",
+        # OME-1958: moved from 098022e0b1e81f81 by OME-1907's grading change (a wrapped letter
+        # such as `ANSWER: $B` is read); its old entries re-grade onto this id.
+        published_revision="8fbe35b30bf21a7e",
+        regradable_from=(
+            (
+                "098022e0b1e81f81",
+                "54ac8e2293cf2ac8e62d62383bfe8a9f8fa5dfdb4249f6eb603c5b4aef88b84d",
+            ),
+        ),
         title="AGIEval SAT-Math",
         description=(
             "220 SAT math questions from the AGIEval benchmark's English set, imported from "
@@ -2675,7 +2887,15 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="agieval_sat_en",
-        published_revision="092ea478f523193d",
+        # OME-1958: moved from 092ea478f523193d by OME-1907's grading change (a wrapped letter
+        # such as `ANSWER: $B` is read); its old entries re-grade onto this id.
+        published_revision="b54aa3324c5cf8e5",
+        regradable_from=(
+            (
+                "092ea478f523193d",
+                "02045f612ebb038734920b2007dbd49d200b801ec36c8b811d3c84ca773444ce",
+            ),
+        ),
         title="AGIEval SAT-English",
         description=(
             "206 SAT English reading questions, each with its passage from the AGIEval benchmark's "
@@ -2734,7 +2954,15 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="agieval_sat_en_without_passage",
-        published_revision="7a4baa0259c5a3b7",
+        # OME-1958: moved from 7a4baa0259c5a3b7 by OME-1907's grading change (a wrapped letter
+        # such as `ANSWER: $B` is read); its old entries re-grade onto this id.
+        published_revision="67e7fac7146a8c4e",
+        regradable_from=(
+            (
+                "7a4baa0259c5a3b7",
+                "fe8910e4238399ac39b277bc3beaaee5d89328f91e0dd375b94bf7ee091e218d",
+            ),
+        ),
         title="AGIEval SAT-English (no passage)",
         description=(
             "206 SAT English reading questions with the passage removed from the AGIEval "
@@ -2794,7 +3022,15 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="agieval_aqua_rat",
-        published_revision="2550038f01d739fb",
+        # OME-1958: moved from 2550038f01d739fb by OME-1907's grading change (a wrapped letter
+        # such as `ANSWER: $B` is read); its old entries re-grade onto this id.
+        published_revision="f5aff58fd7757744",
+        regradable_from=(
+            (
+                "2550038f01d739fb",
+                "64dce3527cc1ef47977165c9f042992180d301352ec9d33e78cb1be18a612b6b",
+            ),
+        ),
         title="AGIEval AQuA-RAT",
         description=(
             "254 algebra word problems (AQuA-RAT) from the AGIEval benchmark's English set, "
@@ -2853,7 +3089,15 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="agieval_logiqa_en",
-        published_revision="884951da7ad9e2e1",
+        # OME-1958: moved from 884951da7ad9e2e1 by OME-1907's grading change (a wrapped letter
+        # such as `ANSWER: $B` is read); its old entries re-grade onto this id.
+        published_revision="4603329f711a8441",
+        regradable_from=(
+            (
+                "884951da7ad9e2e1",
+                "7c80ae3ee57808416fbfb3a5e7d78e8c99f4c5afbc46367bad967c1b9f90d781",
+            ),
+        ),
         title="AGIEval LogiQA (English)",
         description=(
             "651 logical-reasoning questions from the Chinese civil-service exam, in English "
@@ -2914,7 +3158,15 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="medqa",
-        published_revision="0d4c53de5fd83ec4",
+        # OME-1958: moved from 0d4c53de5fd83ec4 by OME-1907's grading change (a wrapped letter
+        # such as `ANSWER: $B` is read); its old entries re-grade onto this id.
+        published_revision="5524f2e397688fce",
+        regradable_from=(
+            (
+                "0d4c53de5fd83ec4",
+                "ea4634b0825292d91881c0e76dd571a023ad9e8fd037116b5ce908100b2b7944",
+            ),
+        ),
         title="MedQA (USMLE)",
         description=(
             "1,273 US medical-licensing-exam style questions with five options each (the MedQA "
@@ -3032,7 +3284,15 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="bbq",
-        published_revision="cb1baddfb5da6950",
+        # OME-1958: moved from cb1baddfb5da6950 by OME-1907's grading change (a wrapped letter
+        # such as `ANSWER: $B` is read); its old entries re-grade onto this id.
+        published_revision="bc9d396d0bb436fc",
+        regradable_from=(
+            (
+                "cb1baddfb5da6950",
+                "8d7652ea42145db0b27d6ddbedfd81bc5fd4733bb4e78658218b15c0c8a5d28b",
+            ),
+        ),
         title="BBQ",
         description=(
             "58,492 questions probing social bias across BBQ's 11 categories (age, disability, "
@@ -3094,7 +3354,15 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="piqa",
-        published_revision="b51564ee7754bc92",
+        # OME-1958: moved from b51564ee7754bc92 by OME-1907's grading change (a wrapped letter
+        # such as `ANSWER: $B` is read); its old entries re-grade onto this id.
+        published_revision="4bafb8f015b6c626",
+        regradable_from=(
+            (
+                "b51564ee7754bc92",
+                "bc3ae6040b20a2eabe8976f96d58ac8ffae08bc821c73021c2d5b4289eca8958",
+            ),
+        ),
         title="PIQA",
         description=(
             "1,838 physical-commonsense questions: pick the better of two solutions to an everyday "
@@ -3153,7 +3421,15 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="cybermetric_80",
-        published_revision="8f8705617be73c5b",
+        # OME-1958: moved from 8f8705617be73c5b by OME-1907's grading change (a wrapped letter
+        # such as `ANSWER: $B` is read); its old entries re-grade onto this id.
+        published_revision="a2b31b18a28e9eaf",
+        regradable_from=(
+            (
+                "8f8705617be73c5b",
+                "25fa5f98d03ae8aef3e381589b0fc2e6d0130d900c6d14e67766ec9816f73e56",
+            ),
+        ),
         title="CyberMetric-80",
         description=(
             "80 cybersecurity knowledge questions with four options each (CyberMetric-80), asked "
@@ -3214,7 +3490,15 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="cybermetric_500",
-        published_revision="c558ca68a995b0e8",
+        # OME-1958: moved from c558ca68a995b0e8 by OME-1907's grading change (a wrapped letter
+        # such as `ANSWER: $B` is read); its old entries re-grade onto this id.
+        published_revision="ad094e56d367042a",
+        regradable_from=(
+            (
+                "c558ca68a995b0e8",
+                "df8bfe73bc077e26d148a85200c4598dcd93e837cc1aec0459c6f27702b81fa8",
+            ),
+        ),
         title="CyberMetric-500",
         description=(
             "500 cybersecurity knowledge questions with four options each (CyberMetric-500), asked "
@@ -3273,7 +3557,15 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="cybermetric_2000",
-        published_revision="c745e4876131fee2",
+        # OME-1958: moved from c745e4876131fee2 by OME-1907's grading change (a wrapped letter
+        # such as `ANSWER: $B` is read); its old entries re-grade onto this id.
+        published_revision="9623777235b23ab1",
+        regradable_from=(
+            (
+                "c745e4876131fee2",
+                "f5f42a83a438a7cdadd29e35b92b233ecdbd6f8c57ce016d8115f0300fb967c1",
+            ),
+        ),
         title="CyberMetric-2000",
         description=(
             "2,000 cybersecurity knowledge questions with four options each (CyberMetric-2000), "
@@ -3332,7 +3624,15 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="cybermetric_10000",
-        published_revision="9cc0058e566bc9e5",
+        # OME-1958: moved from 9cc0058e566bc9e5 by OME-1907's grading change (a wrapped letter
+        # such as `ANSWER: $B` is read); its old entries re-grade onto this id.
+        published_revision="08174a6273d9ab85",
+        regradable_from=(
+            (
+                "9cc0058e566bc9e5",
+                "058be2a68b92708a1e1a99c504fcbbfcd6b8b6c561eb92be0d4124d343fdbe58",
+            ),
+        ),
         title="CyberMetric-10000",
         description=(
             "10,180 cybersecurity knowledge questions with four options each (CyberMetric-10000), "
@@ -3391,7 +3691,15 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="sevenllm_mcq_zh",
-        published_revision="bf67d1707f236386",
+        # OME-1958: moved from bf67d1707f236386 by OME-1907's grading change (a wrapped letter
+        # such as `ANSWER: $B` is read); its old entries re-grade onto this id.
+        published_revision="bf74fa7fb8723e89",
+        regradable_from=(
+            (
+                "bf67d1707f236386",
+                "8c703ae7baf275cec15551ef2fd7c624547b05c64d50be6f907c28220bd5a823",
+            ),
+        ),
         title="SEvenLLM MCQ (Chinese)",
         description=(
             "50 cybersecurity threat-analysis multiple-choice questions in Chinese from SEvenLLM, "
@@ -3452,7 +3760,15 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="sevenllm_mcq_en",
-        published_revision="e0332fcbf2cfbded",
+        # OME-1958: moved from e0332fcbf2cfbded by OME-1907's grading change (a wrapped letter
+        # such as `ANSWER: $B` is read); its old entries re-grade onto this id.
+        published_revision="c00f2228bd58360b",
+        regradable_from=(
+            (
+                "e0332fcbf2cfbded",
+                "dae1e9538a498a9cbb98ae8ec428db155258fd5a5660fab9d53f41874cf51578",
+            ),
+        ),
         title="SEvenLLM MCQ (English)",
         description=(
             "50 cybersecurity threat-analysis multiple-choice questions in English from SEvenLLM, "
@@ -4165,7 +4481,15 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="pre_flight",
-        published_revision="11c8a1de849b8f0b",
+        # OME-1958: moved from 11c8a1de849b8f0b by OME-1907's grading change (a wrapped letter
+        # such as `ANSWER: $B` is read); its old entries re-grade onto this id.
+        published_revision="41d7f23b10379ca8",
+        regradable_from=(
+            (
+                "11c8a1de849b8f0b",
+                "eda28835a8b5c4dd45f2531315d6fcc2d2301d5ca59b1854346ff0e3c32ffd3f",
+            ),
+        ),
         title="Pre-Flight",
         description=(
             "300 four- or five-option questions on aviation operations (airport ground "
@@ -5105,9 +5429,16 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         description=(
             "The complete 525-conversation HealthBench Professional exam. An AI judge grades "
             "each answer against a physician-written rubric; safety mistakes subtract points, "
-            "so an individual case can score below zero. Benchmark score = the official "
-            "HealthBench metric — the average of the 525 case scores, floored at 0 — so it "
-            "lines up with published HealthBench numbers."
+            "so an individual case can score below zero. The benchmark score uses the paper's "
+            "length-adjustment formula: each case's rubric score loses 0.0147 for every 500 "
+            "characters its answer runs past 2,000 (and gains the same for every 500 under), "
+            "and the mean of those adjusted values is taken over all 525 cases and clipped to "
+            "0..1. A case whose answer or grading failed counts as 0. The score shown on each "
+            "case is its rubric score before the adjustment, so the mean of the case scores "
+            "shown is not the benchmark score. This is not the paper's full protocol (one "
+            "answer per case where the paper averages 8, a different snapshot of the judge "
+            "model, failed cases at 0), so scores are not directly comparable to the published "
+            "numbers."
         ),
         focus="Clinical safety, full official exam",
         dataset_url="https://huggingface.co/datasets/openai/healthbench",
@@ -5115,26 +5446,45 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # saturation, so the full benchmark is frontier work too (OME-1257; the hand-built
         # Benchmark's tier, kept).
         difficulty="hard",
-        failure_policy="coverage_declare",
+        # A Case whose Candidate call or judging failed counts 0 over all 525 selected Cases
+        # (OME-1998; OME-1642 had left this whole-run row on coverage_declare). simple-evals
+        # never drops a Case either. Allowed beside the whole-run metric only because
+        # whole_run_failed_case_zero, below, says the clipped mean reads a failed Case as 0.
+        failure_policy="withhold",
         # Provenance: this scorer is declared by the Task of
         #   screamingface_engine_inspect.local_tasks.healthbench.healthbench:
         #   healthbench_professional — a LOCAL Task (OME-1527), the hand-built Benchmark moved
-        #   into inspect's shape; every field below is carried over from the hand-built
-        #   definition (OME-1455 sources).
+        #   into inspect's shape; the fields below are carried over from the hand-built
+        #   definition (OME-1455 sources), except the three grading changes of OME-1998: the
+        #   length adjustment, the judge's reasoning effort and the failure policy.
         scorer="screamingface_engine_inspect.local_tasks.healthbench.healthbench:healthbench_rubric",
-        scorer_kwargs={"judge_model": "screamingface/openrouter/openai/gpt-5.4"},
+        # The Case row shows the rubric score, not the adjusted value, which can pass the
+        # Case-score cap of 1 (owner decision, 2026-11-23, OME-1998: the cap stays, the
+        # adjusted value lives in the Case's evidence and the run metric averages it).
+        scorer_kwargs={
+            "judge_model": "screamingface/openrouter/openai/gpt-5.4",
+            # The paper's length adjustment (OME-1998), simple-evals' two settings with the
+            # paper's constants: the scorer files each Case's rubric score minus 0.0147 per
+            # 500 answer characters past 2,000, and the clipped mean averages that value.
+            # Equal to the Task's own constants (pinned by test_local_task_healthbench.py).
+            "length_adjustment_center": 2000.0,
+            "length_adjustment_penalty_per_500_chars": 0.0147,
+        },
         judge=JudgeSpec(
             # The official professional judge is ResponsesSampler(model="gpt-5.4-2026-03-05",
             # reasoning_effort="low"), an OpenAI-internal snapshot pin we cannot reach;
             # OpenRouter routes the floating slug (a named deviation, as hand-built).
             model="openrouter/openai/gpt-5.4",
-            # The hand-built JUDGE_PARAMS, same values in the same order (so the same wire and
-            # the same recorded replies): grading is retrieval-free, and 4096 is an Engine-side
-            # safety cap the official judge does not send. NO temperature, on purpose: the
-            # official judge sends none, and a redraw needs a fresh sample to turn a malformed
-            # reply into a parseable one.
+            # Grading is retrieval-free. reasoning_effort is low, as the official judge's is
+            # (OME-1998; the hand-built params sent none, so the provider's default applied).
+            # 4096 is an Engine-side safety cap the official judge does not send. NO
+            # temperature, on purpose: the official judge sends none, and a redraw needs a
+            # fresh sample to turn a malformed reply into a parseable one. The judge request
+            # differs from the hand-built one, so replies recorded before OME-1998 no longer
+            # answer it.
             params=(
                 ("web_search", "false"),
+                ("reasoning_effort", "low"),
                 ("max_tokens", "4096"),
             ),
         ),
@@ -5145,12 +5495,17 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # move leaves Fusion bytes and the recorded e2e golden unchanged (OME-1527 decision 5).
         # A conversation Case is already that envelope and is served as written.
         candidate_input_envelope=True,
-        # The hand-built Benchmark's published revision, so its leaderboard results stay
-        # visible (owner decision, OME-1527). It has no golden of its own: it shares worst-30's
-        # Task package, judge and grader, and all 525 of its Candidate inputs and 1,135 judge
-        # prompts were compared at import (0 differ). Its computed fingerprint is pinned in
-        # the tests.
-        published_revision="d8fb037307f35415",
+        # OME-1998: moved from d8fb037307f35415 (the hand-built Benchmark's id, kept through
+        # OME-1527) when the grading changed in three ways at once: the paper's length
+        # adjustment, the judge's low reasoning effort, and a failed Case counting as 0. The
+        # Cases did not change (all 525 Candidate inputs and 1,135 judge prompts are the ones
+        # compared at import). No regradable_from: the judge request changed, so an old entry's
+        # recorded judge replies do not answer it and a re-grade could not replay them
+        # (OME-1979); an old entry needs fresh judge calls. No golden of its own: it shares
+        # worst-30's Task package and grader. Its computed fingerprint is pinned in the tests
+        # and differs from this id: docstrings in the hashed Task package were reworded after
+        # the id was set, every grade the same, so the id held.
+        published_revision="35c7d07e9058f52d",
         origin="screamingface",
         paper_url="https://arxiv.org/abs/2604.27470",
         authors="Hicks et al., 2026",
@@ -5191,12 +5546,16 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             as_of="2026-09",
         ),
         notebook="08_healthbench",
-        # Reviewed (OME-1527, R1): the official HealthBench metric, the mean of the Case scores
+        # Reviewed (OME-1527, R1): the official HealthBench metric, the mean of the Case values
         # clipped to 0..1 — higher is better, at most 1, a valid Headline Score. Clipping the
-        # run's mean is not the mean of clipped Case scores, hence the eval's own metric.
+        # run's mean is not the mean of clipped Case scores, hence the eval's own metric. Since
+        # OME-1998 the value it averages is each Case's length-adjusted one.
         whole_run_metric=(
             "screamingface_engine_inspect.local_tasks.healthbench.healthbench:healthbench_clipped_mean"
         ),
+        # The clipped mean is a function of per-Case values, so a failed Case has one: 0
+        # (OME-1998). This is what lets the row declare withhold beside a whole-run metric.
+        whole_run_failed_case_zero=True,
     ),
     BenchmarkSpec(
         key="ifeval",
@@ -6310,7 +6669,15 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="truthfulqa_mc1",
-        published_revision="a4ea7f621bf1640c",
+        # OME-1958: moved from a4ea7f621bf1640c by OME-1907's grading change (a wrapped letter
+        # such as `ANSWER: $B` is read); its old entries re-grade onto this id.
+        published_revision="60edf776837600e2",
+        regradable_from=(
+            (
+                "a4ea7f621bf1640c",
+                "ce34c311dff8cd88df4be1ea90bc82127f266cf61595f0a39c15cc85d20af48a",
+            ),
+        ),
         title="TruthfulQA (MC1)",
         description=(
             "817 questions that some humans would answer falsely because of a common "
@@ -6527,7 +6894,15 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="cyse4_malware_analysis",
-        published_revision="0a1c3a7364512973",
+        # OME-1958: moved from 0a1c3a7364512973 by OME-1907's grading change (a wrapped letter
+        # such as `ANSWER: $B` is read); its old entries re-grade onto this id.
+        published_revision="960b3cd5577db0fc",
+        regradable_from=(
+            (
+                "0a1c3a7364512973",
+                "d1e4d7239737704e2113ea4f01ebbc18d861a1857a340d05912602e6809f0267",
+            ),
+        ),
         title="CyberSecEval 4: malware analysis",
         description=(
             "608 multiple-choice questions on real malware detonation reports from "
@@ -6664,7 +7039,17 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="cyse4_threat_intelligence",
-        published_revision="92558cfb773e64d2",
+        # OME-1958: moved from 92558cfb773e64d2 by OME-1907's grading change (a wrapped letter
+        # such as `ANSWER: $B` is read); its old entries re-grade onto this id. The old id also
+        # spans OME-1853's Case change (held 2026-11-09), so an entry from before that change
+        # misses its pinned cache, is refused (`regrade_incomplete`) and needs a fresh run.
+        published_revision="80aa663a5187f5bd",
+        regradable_from=(
+            (
+                "92558cfb773e64d2",
+                "096a744d597ea28fec519663442ad8fa7bbe20704bcfe2f7b49951720d62a722",
+            ),
+        ),
         title="CyberSecEval 4: threat intelligence reasoning",
         description=(
             "587 multiple-choice questions on 45 public threat-intelligence reports from "
@@ -6745,7 +7130,15 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="bbh",
-        published_revision="467f06b54836a6f8",
+        # OME-1958: moved from 467f06b54836a6f8 by OME-1907's grading change (a wrapped letter
+        # such as `ANSWER: $B` is read); its old entries re-grade onto this id.
+        published_revision="c4f0aa7d023cbd2a",
+        regradable_from=(
+            (
+                "467f06b54836a6f8",
+                "2454ce86e6fd87f9887f6c4849dd01d20e1ce7cb161d945ff141dabbf5c6a291",
+            ),
+        ),
         title="BIG-Bench Hard (BBH)",
         description=(
             "6,508 questions from all 23 BIG-Bench Hard tasks (27 subsets: two tasks come in three "
@@ -6839,7 +7232,15 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="medmcqa",
-        published_revision="60e9f16fbe7c0227",
+        # OME-1958: moved from 60e9f16fbe7c0227 by OME-1907's grading change (a wrapped letter
+        # such as `ANSWER: $B` is read); its old entries re-grade onto this id.
+        published_revision="e9e7ca645e342f81",
+        regradable_from=(
+            (
+                "60e9f16fbe7c0227",
+                "5af7adeee44324b1f829e3bc9b6f47770aff5afd4e884fc9569f0a6b0935c5a4",
+            ),
+        ),
         title="MedMCQA",
         description=(
             "4,183 four-option multiple-choice questions from Indian medical entrance exams "
@@ -6908,7 +7309,15 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="lab_bench_figqa",
-        published_revision="7376109d25378310",
+        # OME-1958: moved from 7376109d25378310 by OME-1907's grading change (a wrapped letter
+        # such as `ANSWER: $B` is read); its old entries re-grade onto this id.
+        published_revision="f826e8ceb03ad596",
+        regradable_from=(
+            (
+                "7376109d25378310",
+                "616aeb4906adcac866529fe33a45fb14bb493dfcd0b2232f2007d784e195e0cf",
+            ),
+        ),
         title="LAB-Bench FigQA",
         description=(
             "181 multiple-choice questions about a figure from a biology research paper (the "
@@ -6975,7 +7384,15 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="lab_bench_tableqa",
-        published_revision="9990079555f06a35",
+        # OME-1958: moved from 9990079555f06a35 by OME-1907's grading change (a wrapped letter
+        # such as `ANSWER: $B` is read); its old entries re-grade onto this id.
+        published_revision="fbace884de2f6ef5",
+        regradable_from=(
+            (
+                "9990079555f06a35",
+                "9be147a0caa0ba845731b8d93a7e9b4af406708e93cba62d4bc440cae87ff412",
+            ),
+        ),
         title="LAB-Bench TableQA",
         description=(
             "244 multiple-choice questions about one to three tables from a biology research "
@@ -7041,7 +7458,17 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="mmmu_multiple_choice",
-        published_revision="5b008891134ef4c1",
+        # OME-1958: moved from 5b008891134ef4c1 by OME-1907's grading change (a wrapped letter
+        # such as `ANSWER: $B` is read); its old entries re-grade onto this id. The old id also
+        # spans OME-1853's Case change (held 2026-11-09), so an entry from before that change
+        # misses its pinned cache, is refused (`regrade_incomplete`) and needs a fresh run.
+        published_revision="c537e4e84ccb4d32",
+        regradable_from=(
+            (
+                "5b008891134ef4c1",
+                "419ddea28c127df93f02809677e6f2a5ed065f03fc30188d3e17c1add5d113e1",
+            ),
+        ),
         title="MMMU (multiple choice)",
         description=(
             "847 multiple-choice questions from college exams, quizzes and textbooks across "
@@ -7113,7 +7540,17 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="mathvista",
-        published_revision="ca4cd0f692d18f0e",
+        # OME-1958: moved from ca4cd0f692d18f0e by OME-1907's grading change (a wrapped letter
+        # such as `ANSWER: $B` is read); its old entries re-grade onto this id. The old id also
+        # spans OME-1853's Case change (held 2026-11-09), so an entry from before that change
+        # misses its pinned cache, is refused (`regrade_incomplete`) and needs a fresh run.
+        published_revision="126be76d042c445b",
+        regradable_from=(
+            (
+                "ca4cd0f692d18f0e",
+                "9a4a85c30d791c733dd781bd48432186e8695f11520b00f7c872f7c5ef009f4b",
+            ),
+        ),
         title="MathVista (testmini)",
         description=(
             "1,000 maths questions about a picture (MathVista's testmini split: function "
@@ -8079,9 +8516,15 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             # Benchmark pins the house judge FRAMES, XSTest and HealthBench also call, for judge
             # consistency across our judged Benchmarks (owner decision 2026-09-29).
             model="openrouter/openai/gpt-5.4",
-            # Futurex-Eval asks its judge at temperature 0; grading is retrieval-free and the
-            # token cap is an engine-side safety bound (HealthBench's precedent).
-            params=(("temperature", "0"), ("max_tokens", "4096"), ("web_search", "false")),
+            # HealthBench's judge-params precedent: grading is retrieval-free and the token cap
+            # is an engine-side safety bound.
+            # NAMED DEVIATION: Futurex-Eval asks its judge at temperature 0; this Judge sends no
+            # temperature and samples at the provider default. WHY: no OpenRouter endpoint for
+            # gpt-5.4 accepts temperature, and the gateway forces require_parameters, so a pin
+            # failed every Judge call (every level-3/4 Case scorer_error, 2026-11-19). No
+            # temperature, as on the other gpt-5.4 rows (OME-1602);
+            # tests/unit/inspect/test_judge_param_support.py guards it.
+            params=(("web_search", "false"), ("max_tokens", "4096")),
         ),
         # Judged benchmark, and judge feedback on a forecast would leak the outcome.
         with_check_surface=False,
@@ -8249,6 +8692,7 @@ def _assemble(spec: BenchmarkSpec) -> ImportedBenchmark:
     cases_spec: TaskReplayCasesSpec = _cases_declaration(spec.key)
     _check_answer_key_opt_in(spec, cases_spec)
     _check_whole_run_metric_keeps_metadata(spec, cases_spec)
+    _check_regradable_from(spec, cases_spec)
     identity_pins: tuple[str, ...] = _task_replay_pins(cases_spec)
     prepare: Callable[[Path], dict[str, Any]] = partial(
         prepare_replayed_cases, cases_spec, benchmark_key=spec.key
@@ -8297,6 +8741,7 @@ def _assemble(spec: BenchmarkSpec) -> ImportedBenchmark:
         origin=spec.origin,
         whole_run_metric_factory=_whole_run_metric_factory(spec),
         whole_run_headline=spec.whole_run_headline,
+        whole_run_failed_case_zero=spec.whole_run_failed_case_zero,
         epoch_reducer_factory=_epoch_reducer_factory(spec),
         attempts=spec.attempts,
         attempt_fold=_attempt_fold(spec),
@@ -8305,8 +8750,24 @@ def _assemble(spec: BenchmarkSpec) -> ImportedBenchmark:
         scorer_draft_feedback=spec.scorer_draft_feedback,
         published_revision=spec.published_revision,
         answer_rule=spec.answer_rule,
+        regradable_from=tuple(revision for revision, _digest in spec.regradable_from),
         **_provenance_of(spec),
     )
+
+
+def _check_regradable_from(spec: BenchmarkSpec, cases_spec: TaskReplayCasesSpec) -> None:
+    """Refuse an old revision whose Case Digest is not the one the Cases compute now (OME-1909).
+
+    WHY: a re-grade replays the old score's pinned cache, which holds the old Cases' replies;
+    under changed Cases those replies would answer different questions.
+    """
+
+    for revision, digest in spec.regradable_from:
+        if digest != cases_spec.case_digest:
+            raise ValueError(
+                f"{spec.key}: regradable_from {revision} names Case Digest {digest}, "
+                f"the Cases now digest to {cases_spec.case_digest}"
+            )
 
 
 def _provenance_of(spec: BenchmarkSpec) -> ProvenanceFields:

@@ -2,11 +2,10 @@
 
 import asyncio
 from threading import Event
-from typing import Any, cast
 
+from _run_transport import AsyncScriptedRun, ScriptedRun, settled_async, settled_sync
 from test_live_candidate_progress import candidate, outcome, report_for
 
-from screamingface._evaluation.runner import _run_candidates_async, _run_candidates_sync
 from screamingface._ui.evaluation_state import _EvaluationProgress
 
 
@@ -15,7 +14,7 @@ def test_sync_completion_arrives_before_slow_first_candidate():
     ready = Event()
     seen = []
 
-    class Transport:
+    class Transport(ScriptedRun):
         def run(self, selected, observer):
             if selected == slow:
                 assert ready.wait(2)
@@ -26,7 +25,7 @@ def test_sync_completion_arrives_before_slow_first_candidate():
         if selected == fast:
             ready.set()
 
-    results = _run_candidates_sync(cast(Any, Transport()), (slow, fast), None, completed)
+    results = settled_sync(Transport(), (slow, fast), None, completed)
     assert seen == ["fast", "slow"]
     assert [c.name for c, _ in results] == ["slow", "fast"]
 
@@ -37,7 +36,7 @@ def test_async_completion_arrives_before_slow_first_candidate():
         ready = asyncio.Event()
         seen = []
 
-        class Transport:
+        class Transport(AsyncScriptedRun):
             async def run(self, selected, observer):
                 if selected == slow:
                     await asyncio.wait_for(ready.wait(), 2)
@@ -48,7 +47,7 @@ def test_async_completion_arrives_before_slow_first_candidate():
             if selected == fast:
                 ready.set()
 
-        results = await _run_candidates_async(cast(Any, Transport()), (slow, fast), None, completed)
+        results = await settled_async(Transport(), (slow, fast), None, completed)
         assert seen == ["fast", "slow"]
         assert [c.name for c, _ in results] == ["slow", "fast"]
 
@@ -103,16 +102,14 @@ def test_single_candidate_completion_failure_does_not_change_outcome():
     selected = candidate("one")
     result = outcome(selected.name)
 
-    class Transport:
+    class Transport(ScriptedRun):
         def run(self, candidate, observer):
             return result
 
     def broken(candidate, outcome):
         raise RuntimeError("display failed")
 
-    assert _run_candidates_sync(cast(Any, Transport()), (selected,), None, broken) == (
-        (selected, result),
-    )
+    assert settled_sync(Transport(), (selected,), None, broken) == ((selected, result),)
 
 
 def test_async_single_candidate_notifies_result():
@@ -120,13 +117,13 @@ def test_async_single_candidate_notifies_result():
     result = outcome(selected.name)
     received = []
 
-    class Transport:
+    class Transport(AsyncScriptedRun):
         async def run(self, candidate, observer):
             return result
 
     asyncio.run(
-        _run_candidates_async(
-            cast(Any, Transport()),
+        settled_async(
+            Transport(),
             (selected,),
             None,
             lambda candidate, value: received.append((candidate, value)),

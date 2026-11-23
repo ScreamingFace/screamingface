@@ -369,10 +369,10 @@ class _EvaluationProgress:
                 self.announcement = f"{candidate.name} connection restored"
             case "waiting_for_capacity":
                 # FEATURE OME-1066: the row says the Candidate is queued at the Engine.
-                row.connection = f"Waiting for Engine capacity (attempt {notice.attempt})"
-                self.announcement = (
-                    f"{candidate.name} waiting for Engine capacity (attempt {notice.attempt})"
-                )
+                # WHY optional: a Candidate the Engine queues (E5 P2) has no attempt of its own.
+                attempt = "" if notice.attempt is None else f" (attempt {notice.attempt})"
+                row.connection = f"Waiting for Engine capacity{attempt}"
+                self.announcement = f"{candidate.name} waiting for Engine capacity{attempt}"
             case "admitted":
                 row.connection = None
                 self.announcement = f"{candidate.name} Engine capacity available"

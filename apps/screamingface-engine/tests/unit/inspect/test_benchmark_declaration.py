@@ -321,9 +321,11 @@ def test_every_builtin_benchmark_declares_its_actual_policy() -> None:
         "draco-3pass": ("coverage_declare", "single_shot", "hard"),
         # OME-1527: healthbench-worst30 and healthbench-professional moved the same way, keeping
         # their ids and declarations. A Case whose judge never gives a verdict fails by name, so
-        # only graded Cases reach the mean (or professional's clip of it) — coverage_declare.
+        # on worst-30 only graded Cases reach the mean — coverage_declare.
         "healthbench-worst30": ("coverage_declare", "single_shot", "hard"),
-        "healthbench-professional": ("coverage_declare", "single_shot", "hard"),
+        # OME-1998: on professional a failed Case now counts 0 in the clipped mean over all
+        # selected Cases — withhold.
+        "healthbench-professional": ("withhold", "single_shot", "hard"),
         # OME-1527: ifeval moved the same way, keeping its id, declaration and tier. A Case the
         # Candidate failed never reaches the checker, so only graded Cases reach the tally —
         # coverage_declare.
