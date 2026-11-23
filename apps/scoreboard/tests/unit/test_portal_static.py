@@ -557,3 +557,45 @@ def test_rail_benchmark_crumb_starts_hidden_with_its_separator() -> None:
     parser = _HiddenInRail()
     parser.feed((portal / "benchmark.html").read_text(encoding="utf-8"))
     assert parser.hidden == {"sep": True, "crumbs": True}
+
+
+def test_benchmark_description_is_whole_until_the_script_folds_it() -> None:
+    """A reader whose scripts did not run must still get the full description (OME-1985).
+
+    The fold shows three lines and a "Show more" button. Both are switched on by benchmark.js:
+    the button ships `hidden`, and the three-line clamp is CSS that applies only under the
+    `is-clamped` class the script adds. If either shipped switched on in the markup, a page
+    without scripts would show three lines nobody can open.
+    """
+    portal = Path(__file__).resolve().parents[2] / "portal"
+    html = (portal / "benchmark.html").read_text(encoding="utf-8")
+    css = (portal / "portal.css").read_text(encoding="utf-8")
+
+    # board_pages.py fills the description server-side by matching this exact tag.
+    assert '<p class="lead" id="benchmark-desc"></p>' in html
+
+    class _DescToggleAndClamp(HTMLParser):
+        def __init__(self) -> None:
+            super().__init__()
+            self.toggle_attrs: dict[str, str | None] | None = None
+            self.any_clamped = False
+
+        def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+            attributes = dict(attrs)
+            if attributes.get("id") == "benchmark-desc-toggle":
+                self.toggle_attrs = attributes
+            classes = (attributes.get("class") or "").split()
+            if "is-clamped" in classes:
+                self.any_clamped = True
+
+    parser = _DescToggleAndClamp()
+    parser.feed(html)
+
+    assert parser.toggle_attrs is not None
+    assert "hidden" in parser.toggle_attrs
+    assert parser.toggle_attrs.get("aria-controls") == "benchmark-desc"
+    assert not parser.any_clamped
+
+    clamp_rules = [line for line in css.splitlines() if "line-clamp" in line]
+    assert clamp_rules
+    assert all(line.startswith(".board-desc.is-clamped ") for line in clamp_rules)

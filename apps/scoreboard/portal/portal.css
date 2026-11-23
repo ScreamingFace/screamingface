@@ -466,6 +466,16 @@ html { scroll-padding-top: calc(var(--rail-h) + var(--space-4)); }
 @media (max-width: 620px) {
   .rail .rail-nav { flex: 0 0 100%; margin-right: 0; gap: var(--space-3); }
 }
+/* ---- benchmark description fold ------------------------------------ */
+/* Benchmark descriptions run to 2,500 characters (median ~720), so the page shows three lines and
+   a "Show more" button. Body size, not lead size: this is a paragraph to read, not a one-line
+   standfirst. `.is-clamped` is added by benchmark.js only, so the text is whole without scripts. */
+.board-desc { margin: 0 0 var(--space-4); }
+.board-desc .lead { font-size: var(--text-body); line-height: var(--leading-body); letter-spacing: normal; margin-bottom: var(--space-1); }
+.board-desc.is-clamped .lead { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; overflow: hidden; }
+.board-desc__toggle { padding: var(--space-1) 0; }
+.board-desc__toggle:focus-visible { outline: var(--border-strong) solid var(--focus); outline-offset: var(--space-1); }
+
 /* ---- two-card summary strip ---------------------------------------- */
 /* style.css sets `.stats { grid-template-columns: repeat(3,1fr) }` and is vendored,
    so it is not edited. This leaderboard summary has two cards; without a modifier,
