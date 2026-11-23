@@ -1,5 +1,5 @@
 ---
-ticket: unfiled   # slug-named ledger; set to OME-N when the issue is filed at PR-open
+ticket: OME-2005   # filed 2026-11-23 under OME-1297; lands in PR #1937 with OME-1963
 stack: screamingface   # also screamingface-engine (one small change) and public-docs
 status: in_progress   # planned | in_progress | done | blocked
 started: 2026-11-18
