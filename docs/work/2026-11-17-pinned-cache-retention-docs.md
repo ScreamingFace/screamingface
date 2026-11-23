@@ -10,7 +10,7 @@ finished:
 
 ## Intent
 
-The public docs say that a pinned cache is kept forever. That is no longer true. Unit C3 states the rule: a pinned cache that a leaderboard score uses is kept; one with no submitted score is deleted 90 days after it is sealed. No date and no person is named (Q32).
+The public docs say that a pinned cache is kept forever. That is no longer true. Unit C3 states the rule: a pinned cache that a leaderboard score uses is kept; one with no submitted score is deleted 30 days after it is sealed. No date and no person is named (Q32).
 
 Spec: `docs/spec/2026-11-16-frozen-copy-retention/`. Plan: `docs/plan/2026-11-17-frozen-copy-retention-stack-c.md` (owner approved 2026-11-17).
 
@@ -72,9 +72,14 @@ merged.
       Score").
   - The message of a failed replay is described as "says it expired" (the engine text says
     "the frozen copy expired").
-  - "Submit the score within those 90 days" comes before the sentence about a pinned cache that
+  - "Submit the score within those 30 days" comes before the sentence about a pinned cache that
     was sealed before the rule (the spec order made it read as a rule for those only).
   - Scope addition (review finding 4): the two lists of the causes of `frozen_copy_unavailable`
     (`learn/CachingPage.vue`, `sf-client/api/LeaderboardsPage.vue`) now name an expired copy.
   - Merge only after C1 is merged (Q32). The docstring of `models.py` conflicts with no line of
     C1, but rebase after C1.
+
+## Period change (2026-11-23)
+
+Owner decision (spec `00-overview.md` Q33): the period is 30 days, not 90. The Caching page, the
+Leaderboards API page, `CONTEXT.md` and the E14 decision record (rows Q33, Q35) now say 30 days.

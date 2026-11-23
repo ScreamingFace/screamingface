@@ -102,11 +102,11 @@ import { learnNavigation as navigation } from '@/navigation/learn'
 
     <p>
       A pinned cache that a leaderboard score uses is kept for as long as the score exists on the
-      board. A pinned cache with no submitted score is deleted 90 days after it is sealed; a run
-      seals its pinned cache when it ends. Submit the score within those 90 days. For a pinned cache
-      that was sealed before this rule started, the 90 days count from the start of the rule. A
+      board. A pinned cache with no submitted score is deleted 30 days after it is sealed; a run
+      seals its pinned cache when it ends. Submit the score within those 30 days. For a pinned cache
+      that was sealed before this rule started, the 30 days count from the start of the rule. A
       replay of a deleted pinned cache fails with a message that says it expired. The rule also
-      applies to a local engine: a pinned cache in a local gateway is deleted 90 days after it is
+      applies to a local engine: a pinned cache in a local gateway is deleted 30 days after it is
       sealed, because no hosted leaderboard score can use it there.
     </p>
 
@@ -331,7 +331,7 @@ import { learnNavigation as navigation } from '@/navigation/learn'
       <li>
         <strong>A copy that is not available.</strong> The copy is unknown, or it is not sealed (for
         example, the Engine stopped during the original run), or it expired (no leaderboard score
-        used it in its 90 days), or the gateway is older and has no pinned caches. A web-tool lookup
+        used it in its 30 days), or the gateway is older and has no pinned caches. A web-tool lookup
         or a model call that the gateway does not answer, because of a transport failure or an error
         other than not found, is the same. Cases fail, and the replay is reported as
         <code>frozen_copy_unavailable</code>.
