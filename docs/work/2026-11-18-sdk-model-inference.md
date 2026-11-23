@@ -266,7 +266,8 @@ docs examples run in tests.
   snapshot blob; against `main` the snapshot has new lines and one changed entry (`Recipe`
   members: empty, now `chat`). Gates with no skip: SDK green (append-only with the approval
   record); Engine docs tests 8 passed; public-docs oxlint, eslint, type-check, build green;
-  MI-28 against a real local Engine: 3 passed. Not pushed.
+  MI-28 against a real local Engine: 3 passed. Pushed to PR #1937 on 2026-11-23 on the
+  owner's word ("yes, push it and update the PR"); the PR title and body were updated after the push.
 
 ## Outcome (fill at the end — required before COMMIT)
 
