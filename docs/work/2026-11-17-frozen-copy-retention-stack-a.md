@@ -118,3 +118,21 @@ State on 2026-11-17: the code of A1, A2 and A3 is built, reviewed and committed.
   - The 0018 downgrade is tested on SQLite only (S-28), as the plan says.
   - CH-1: `tests/unit/test_frozen_copy_routes.py:212`. CH-2:
     `tests/unit/test_frozen_copy_routes.py:102`. Both green with no edit.
+
+## Review fixes (2026-11-23)
+
+Review of #1911 (HupBaHa, changes requested 2026-11-19), two findings, both fixed:
+
+1. **Mixed-version overlap.** An old gateway's seal could set a swept copy back to `sealed` while a
+   new gateway purged it. Fix (`099b180cc`): migration 0018 adds the invariant
+   `ck_frozen_copies_sealed_not_swept` (no `sealed` row with `swept_at`): a CHECK constraint on
+   Postgres, two triggers on SQLite (a CHECK there needs a table rebuild, which loses indexes in
+   Tortoise 1.1.8). The purge also selects only `abandoned` and `expired` copies. An old pod's seal
+   of a swept copy now fails (500); the engine treats it as a failed seal (capture `partial`), and
+   the copy stays `abandoned`. `erd.md` §5, §5.1. The constraint is not declared on the model.
+2. **`purged_at` time.** It was the start time of the run. Fix (`62bafad64`): the completion update
+   reads the database clock after the last chunk.
+
+New tests only (4 new files, unit + Postgres); no existing test changed. Postgres lane needs
+`DOCKER_HOST=unix:///Users/junior/.colima/default/docker.sock` and
+`TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE=/var/run/docker.sock` on this machine.
