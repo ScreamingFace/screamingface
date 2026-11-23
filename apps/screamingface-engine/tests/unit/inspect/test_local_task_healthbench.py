@@ -19,7 +19,7 @@ What these tests pin, and why:
   as the hand-built ``cases.json`` input (literals). All 682 real Cases of both Benchmarks
   were compared at import: 0 differ, and 0 of their rubrics;
 - the rows: ids, origin, the judge pinned, the envelope kept, the clip only on professional;
-- professional's paper score (OME-1998): each Case's length-adjusted value is what the run
+- professional's length adjustment (OME-1998): each Case's length-adjusted value is what the run
   averages, a failed Case enters that mean as 0, the judge runs at low reasoning effort, and
   worst-30 keeps every number it had.
 
@@ -480,15 +480,15 @@ def test_the_official_clip_is_taken_over_the_run_mean() -> None:
     assert metric(scored([0.8, 0.4])) == pytest.approx(0.6)
 
 
-# ── professional's paper score (OME-1998) ─────────────────────────────────────────────────
+# ── professional's length adjustment and failed Cases (OME-1998) ──────────────────────────
 
 
 @pytest.mark.asyncio
 async def test_only_professional_adjusts_a_case_for_the_length_of_its_answer(
     judge: _ScriptedJudge, prepared: list[PreparedCase]
 ) -> None:
-    """WHY: the paper's primary score takes points off a long answer, and the numbers shown
-    beside professional's headline are that score. Case 4 meets both rubric lines (rubric
+    """WHY: the paper's length adjustment takes points off a long answer, and the numbers shown
+    beside professional's headline are length-adjusted. Case 4 meets both rubric lines (rubric
     score 1.0); with a 4,000-character answer its length-adjusted value is
     1.0 - 0.0147 * ((4000 - 2000) / 500) = 0.9412. Professional files that value, and the
     answer's length, in the Case's evidence. worst-30 shares the scorer and must not change:
@@ -663,7 +663,7 @@ def test_a_half_set_or_negative_length_adjustment_is_refused(
         healthbench_rubric(**kwargs)
 
 
-def test_only_professional_declares_the_paper_score() -> None:
+def test_only_professional_declares_the_length_adjustment_and_a_failed_case_at_zero() -> None:
     """The rows, side by side: professional turns on the paper's adjustment (the Task's own
     constants: centre 2,000 characters, 0.0147 per 500), counts a failed Case as 0 over all
     selected Cases, and tells the guard its whole-run metric reads a failed Case as 0.
@@ -690,14 +690,31 @@ def test_only_professional_declares_the_paper_score() -> None:
     )
 
 
-def test_the_description_names_the_paper_score_and_claims_no_comparability() -> None:
-    """WHY: the Fidelity Record still rates the Benchmark not-comparable until a re-audit, so
-    the leaderboard page must say what the score is (length-adjusted, all 525 Cases, a failed
-    Case as 0, floored at 0) without claiming it lines up with published numbers."""
+def test_the_description_says_what_is_computed_and_never_calls_it_the_papers_score() -> None:
+    """WHY: the row uses the paper's length-adjustment formula but not its full protocol (one
+    answer per Case where the paper averages 8, another judge snapshot, failed Cases at 0), and
+    the Fidelity Record rates it not-comparable. Beside the published 0.437 and 0.647, the
+    leaderboard page must say what is computed (the formula, all 525 Cases, a failed Case as 0,
+    the mean clipped at both ends) and say plainly that it is not comparable. It must also
+    say that a Case row shows the rubric score before the adjustment (owner decision,
+    2026-11-23), or a reader averaging the rows would not get the run score. It must never
+    call the result the paper's score."""
 
     description: str = imported_benchmark("healthbench-professional").benchmark.description
-    assert "lines up" not in description
-    for phrase in ("length-adjusted", "all 525", "counts as 0", "floored at 0"):
+    for claim in ("lines up", "the paper's length-adjusted score", "the paper's score"):
+        assert claim not in description, claim
+    # "floored at 0" named only the lower bound; the upper clip bites on short perfect answers.
+    assert "floored at 0" not in description
+    for phrase in (
+        "the paper's length-adjustment formula",
+        "all 525 cases",
+        "counts as 0",
+        "clipped to 0..1",
+        "rubric score before the adjustment",
+        "the mean of the case scores shown is not the benchmark score",
+        "not the paper's full protocol",
+        "not directly comparable to the published numbers",
+    ):
         assert phrase in description, phrase
 
 

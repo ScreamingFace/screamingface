@@ -8,8 +8,8 @@ Think of it as the same exam, now printed by the shared press: a dataset loader 
 question booklet (physician-reviewed clinical chats, each with its points rubric kept private),
 a scorer that has the judge tick each rubric line once and adds up the points, and two
 `@task`s over the same booklet — `healthbench_worst30` (the frozen hardest 157, scored by the
-plain mean, negatives kept) and `healthbench_professional` (all 525, scored by the paper's
-length-adjusted score: the official clipped mean of each Case's length-adjusted value).
+plain mean, negatives kept) and `healthbench_professional` (all 525, scored by the official
+clipped mean of each Case's value after the paper's length adjustment).
 
 Execution order, as the importer and the Engine see it:
 
@@ -28,7 +28,7 @@ Execution order, as the importer and the Engine see it:
        parses fails the Case (`judge_reply_invalid`), as the hand-built grader failed it.
     5. the Case score is earned over winnable points, unclamped. worst-30's headline is the
        plain mean over graded Cases. Professional's scorer also files each Case's
-       length-adjusted value (the paper's primary score, OME-1998), and its headline is
+       length-adjusted value (the paper's formula, OME-1998), and its headline is
        `healthbench_clipped_mean`: the reference's `np.clip(mean, 0, 1)` of those values over
        every selected Case, a Case that failed counting as 0.
 
@@ -298,7 +298,7 @@ def healthbench_rubric(
        of the positive points. No clamp: a harmful answer can rank below one that said nothing.
     4. Length adjustment, only when both length-adjustment arguments are given (HealthBench
        Professional): the rubric score moves by the length of the Candidate's answer
-       (:func:`calculate_length_adjusted_score`, the paper's primary score). The adjusted
+       (:func:`calculate_length_adjusted_score`, the paper's formula). The adjusted
        value is filed in ``Score.metadata`` under ``overall_score_length_adjusted``, with the
        answer's length, and ``healthbench_clipped_mean`` averages it. The Score's VALUE stays
        the rubric score. WHY not the adjusted value: it can pass 1 (a short answer that meets
@@ -424,8 +424,12 @@ def healthbench_rubric(
 # ── the run's tally sheet (professional only) ─────────────────────────────────────────────
 @metric
 def healthbench_clipped_mean() -> Metric:
-    """The paper's HealthBench Professional headline: the mean of each Case's length-adjusted
-    value over every selected Case, then clipped to 0..1.
+    """HealthBench Professional's headline: the mean of each Case's length-adjusted value
+    over every selected Case, then clipped to 0..1.
+
+    NOT the paper's full protocol, so not its published number: the formula and the clip are
+    the paper's, but a failed Case is our flat 0, the run asks each Case once (the paper
+    averages 8 samples), and the judge is a different snapshot of the model.
 
     Think of it as the run's tally sheet with one line per selected Case. Stages, in
     execution order:
@@ -501,8 +505,8 @@ def healthbench_worst30() -> Task:
 
 @task
 def healthbench_professional() -> Task:
-    """HealthBench Professional: all 525 chats, scored by the paper's length-adjusted score
-    (each Case's length-adjusted value, then the official clipped mean)."""
+    """HealthBench Professional: all 525 chats, scored by the official clipped mean of each
+    Case's value after the paper's length adjustment."""
 
     samples: list[Sample] = [
         record_to_sample(row, case_id) for case_id, row in enumerate(load_rows(), start=1)

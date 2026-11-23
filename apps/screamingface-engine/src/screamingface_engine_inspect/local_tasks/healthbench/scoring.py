@@ -8,7 +8,7 @@ The whole-run reduction is where the two Benchmarks part:
 
 - ``clipped_mean`` — the OFFICIAL metric (``np.clip(mean, 0, 1)``), used by the full
   525-case professional Benchmark. What it averages there is each Case's length-adjusted
-  value (``calculate_length_adjusted_score``, the paper's primary score, OME-1998).
+  value (``calculate_length_adjusted_score``, the paper's length adjustment, OME-1998).
 - the worst-30% Benchmark keeps the plain mean of its Case scores, negatives kept (the plugin
   lane's own tally). It DIVERGES from the reference deliberately: on that subset every serious
   baseline mean is negative, so the official clip would flatten the whole leaderboard to 0.00.
@@ -114,7 +114,7 @@ def calculate_length_adjusted_score(
     center: float,
     penalty_per_500_chars: float,
 ) -> float:
-    """Take points off a long answer and give them to a short one: the paper's primary score.
+    """Take points off a long answer and give them to a short one: the paper's length adjustment.
 
     HealthBench Professional reports each Case's rubric score adjusted for the length of the
     Candidate's answer, so a model cannot win by writing more. The rule is a straight line:

@@ -54,10 +54,13 @@ _FINGERPRINTS: dict[str, str] = {
     # f12c3e30661ea9d3). The Task package's source is hashed and gained professional's length
     # adjustment, which worst-30 never turns on: its scorer arguments, judge params, failure
     # policy and every number in test_local_task_healthbench.py are unchanged.
-    "healthbench-worst30": "208990ff0106d07a",
+    "healthbench-worst30": "75cdc1d5086ae220",
     # OME-1998: the grading changed (length adjustment, judge reasoning_effort=low, a failed
-    # Case counts 0), so the published id moved to this fingerprint (was 44ddda05be338699).
-    "healthbench-professional": "35c7d07e9058f52d",
+    # Case counts 0), so the published id moved to 35c7d07e9058f52d, the fingerprint when the
+    # grading changed (it was 44ddda05be338699 before). The literal here is one step on: a
+    # review round reworded docstrings in the hashed Task package, every grade the same, so
+    # the published id held.
+    "healthbench-professional": "b46faf98e52d7a35",
     # OME-1853: published id HELD at 1cba769ece27f7ef (fingerprint was ada07458a23c55ab); the
     # row now declares nltk and langdetect as scorer dependencies, so their installed versions
     # (nltk 3.10.4 after the security bump, langdetect 1.0.9) pin into the fingerprint.
