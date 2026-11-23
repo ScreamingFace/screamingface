@@ -1,4 +1,4 @@
-"""MI-26: the reply types of sf.ModelInference have the OpenAI keys and cannot change.
+"""MI-26: the reply types of sf.InferenceClient have the OpenAI keys and cannot change.
 
 FEATURE: SDK model inference (docs/spec/2026-11-18-sdk-model-inference, contracts C1.3).
 """

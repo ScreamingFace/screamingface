@@ -1,4 +1,4 @@
-"""MI-22 and the async half of MI-31 through ModelInference with an AsyncClient
+"""MI-22 and the async half of MI-31 through InferenceClient with an AsyncClient
 (contracts C1.2, ans:Q7)."""
 
 from __future__ import annotations
@@ -38,7 +38,7 @@ from _chat_stream import (
 from screamingface._inference.request import model_source, model_text
 from screamingface.chat_completion import AsyncChatStream, ChatCompletion
 from screamingface.errors import ExecutionError, PlanningError
-from screamingface.inference import ModelInference
+from screamingface.inference import InferenceClient
 
 PAYLOADS = engine_stream({"role": "assistant", "content": "Hello"}, "stop")
 
@@ -50,11 +50,13 @@ stream_engine = engine_for(PAYLOADS)
 async def test_async_client_gives_the_same_reply() -> None:
     sync_requests: list[httpx.Request] = []
     with recording_client(ok, sync_requests) as client:
-        expected = ModelInference("openrouter/a", client=client).chat.complete("Hello")
+        expected = InferenceClient("openrouter/a", client=client).chat.completions.create("Hello")
 
     requests: list[httpx.Request] = []
     async with async_recording_client(ok, requests) as aclient:
-        reply = await ModelInference("openrouter/a", client=aclient).chat.complete("Hello")
+        reply = await InferenceClient("openrouter/a", client=aclient).chat.completions.create(
+            "Hello"
+        )
 
     assert reply == expected
     assert sent_body(requests[0]) == sent_body(sync_requests[0])
@@ -64,7 +66,7 @@ async def test_async_client_gives_the_same_reply() -> None:
 async def test_complete_returns_a_coroutine_that_sends_at_the_await() -> None:
     requests: list[httpx.Request] = []
     async with async_recording_client(ok, requests) as aclient:
-        coro = ModelInference("openrouter/a", client=aclient).chat.complete("Hello")
+        coro = InferenceClient("openrouter/a", client=aclient).chat.completions.create("Hello")
         assert inspect.iscoroutine(coro)
         assert requests == []
         reply = await asyncio.create_task(coro)
@@ -78,7 +80,7 @@ async def test_complete_returns_a_coroutine_that_sends_at_the_await() -> None:
 async def test_async_stream(include_usage: bool) -> None:
     requests: list[httpx.Request] = []
     async with async_recording_client(stream_engine, requests) as aclient:
-        stream = await ModelInference("openrouter/a", client=aclient).chat.complete(
+        stream = await InferenceClient("openrouter/a", client=aclient).chat.completions.create(
             "Hello", stream=True, stream_options={"include_usage": include_usage}
         )
         assert isinstance(stream, AsyncChatStream)
@@ -95,7 +97,7 @@ async def test_async_stream_aclose_closes_the_connection() -> None:
     async with async_recording_client(
         answers(astreamed([reply_body()], closed)), requests
     ) as aclient:
-        stream = await ModelInference("openrouter/a", client=aclient).chat.complete(
+        stream = await InferenceClient("openrouter/a", client=aclient).chat.completions.create(
             "Hello", stream=True
         )
         await anext(stream)
@@ -110,7 +112,7 @@ async def test_async_errors_raise_at_the_await() -> None:
     refusal = envelope(429, "overloaded", headers={"x-should-retry": "true", "Retry-After": "3"})
     requests: list[httpx.Request] = []
     async with async_recording_client(answers(refusal), requests) as aclient:
-        coro = ModelInference("openrouter/a", client=aclient).chat.complete("Hello")
+        coro = InferenceClient("openrouter/a", client=aclient).chat.completions.create("Hello")
         with pytest.raises(ExecutionError) as error:
             await coro
 
@@ -124,7 +126,7 @@ async def test_async_error_event_raises_from_the_iteration() -> None:
     )
     requests: list[httpx.Request] = []
     async with async_recording_client(answers(sse(error_body)), requests) as aclient:
-        stream = await ModelInference("openrouter/a", client=aclient).chat.complete(
+        stream = await InferenceClient("openrouter/a", client=aclient).chat.completions.create(
             "Hello", stream=True
         )
         with pytest.raises(ExecutionError) as error:
@@ -146,7 +148,7 @@ async def test_async_max_retries_works_with_stream_true(monkeypatch: pytest.Monk
     requests: list[httpx.Request] = []
     handler = answers(sse(restart), sse(reply_body()))
     async with async_recording_client(handler, requests) as aclient:
-        stream = await ModelInference("openrouter/a", client=aclient).chat.complete(
+        stream = await InferenceClient("openrouter/a", client=aclient).chat.completions.create(
             "Hello", stream=True, max_retries=1
         )
         texts = [chunk.text async for chunk in stream]
@@ -166,7 +168,7 @@ async def test_async_error_event_with_no_flag_is_permanent() -> None:
     requests: list[httpx.Request] = []
     async with async_recording_client(answers(sse(error_body)), requests) as aclient:
         with pytest.raises(ExecutionError) as error:
-            await ModelInference("openrouter/a", client=aclient).chat.complete(
+            await InferenceClient("openrouter/a", client=aclient).chat.completions.create(
                 "Hello", max_retries=2
             )
 
@@ -174,26 +176,29 @@ async def test_async_error_event_with_no_flag_is_permanent() -> None:
     assert len(requests) == 1
 
 
-ARGUMENT_CASES: list[tuple[Callable[[ModelInference[Any]], object], type[Exception]]] = [
-    (lambda m: m.chat.complete(), TypeError),
-    (lambda m: m.chat.complete("hi", messages=[{"role": "user", "content": "x"}]), TypeError),
-    (lambda m: m.chat.complete(messages=[]), ValueError),
-    (lambda m: m.chat.complete("hi", timeout=0), ValueError),
-    (lambda m: m.chat.complete("hi", max_retries=-1), ValueError),
-    (lambda m: m.chat.complete("hi", stream=cast(Any, "yes")), TypeError),
-    (lambda m: m.chat.complete("hi", tool=[]), TypeError),
-    (lambda m: m.chat.complete("hi", n=2), PlanningError),
+ARGUMENT_CASES: list[tuple[Callable[[InferenceClient[Any]], object], type[Exception]]] = [
+    (lambda m: m.chat.completions.create(), TypeError),
+    (
+        lambda m: m.chat.completions.create("hi", messages=[{"role": "user", "content": "x"}]),
+        TypeError,
+    ),
+    (lambda m: m.chat.completions.create(messages=[]), ValueError),
+    (lambda m: m.chat.completions.create("hi", timeout=0), ValueError),
+    (lambda m: m.chat.completions.create("hi", max_retries=-1), ValueError),
+    (lambda m: m.chat.completions.create("hi", stream=cast(Any, "yes")), TypeError),
+    (lambda m: m.chat.completions.create("hi", tool=[]), TypeError),
+    (lambda m: m.chat.completions.create("hi", n=2), PlanningError),
 ]
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(("call", "error"), ARGUMENT_CASES)
 async def test_async_argument_errors_are_raised_before_a_coroutine_exists(
-    call: Callable[[ModelInference[Any]], object], error: type[Exception]
+    call: Callable[[InferenceClient[Any]], object], error: type[Exception]
 ) -> None:
     requests: list[httpx.Request] = []
     async with async_recording_client(ok, requests) as aclient:
-        llm = ModelInference("openrouter/a", client=aclient)
+        llm = InferenceClient("openrouter/a", client=aclient)
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
             with pytest.raises(error):
@@ -210,7 +215,7 @@ async def test_async_closed_client_raises_at_the_call() -> None:
     aclient = async_recording_client(ok, requests)
     await aclient.aclose()
     with pytest.raises(RuntimeError, match="AsyncClient is closed"):
-        _ = ModelInference("openrouter/a", client=aclient).chat.complete("Hello")
+        _ = InferenceClient("openrouter/a", client=aclient).chat.completions.create("Hello")
 
     assert requests == []
 
@@ -219,7 +224,7 @@ async def test_async_closed_client_raises_at_the_call() -> None:
 async def test_async_reducer_recipe_loads_the_catalogue_with_await() -> None:
     requests: list[httpx.Request] = []
     async with async_recording_client(catalogue_engine, requests) as aclient:
-        reply = await ModelInference(vote(), client=aclient).chat.complete("Hello")
+        reply = await InferenceClient(vote(), client=aclient).chat.completions.create("Hello")
 
     assert isinstance(reply, ChatCompletion)
     assert [r.url.path for r in requests] == ["/v1/operators", CHAT_PATH]

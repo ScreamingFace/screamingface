@@ -1,4 +1,4 @@
-"""MI-24: calls at one time on one ModelInference object (MI-S20), with threads and with tasks."""
+"""MI-24: calls at one time on one InferenceClient object (MI-S20), with threads and with tasks."""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ from _chat_engine import (
 )
 from _chat_stream import async_recording_client
 
-from screamingface.inference import ModelInference
+from screamingface.inference import InferenceClient
 
 
 def echo(request: httpx.Request) -> httpx.Response:
@@ -38,9 +38,11 @@ def test_two_calls_at_one_time_on_one_object_with_threads() -> None:
 
     requests: list[httpx.Request] = []
     with recording_client(handler, requests) as client:
-        llm = ModelInference(vote(), client=client)
+        llm = InferenceClient(vote(), client=client)
         with ThreadPoolExecutor(max_workers=2) as pool:
-            futures = [pool.submit(llm.chat.complete, prompt) for prompt in ("one", "two")]
+            futures = [
+                pool.submit(llm.chat.completions.create, prompt) for prompt in ("one", "two")
+            ]
             texts = [future.result(timeout=10).text for future in futures]
 
     assert texts == ["one", "two"]
@@ -65,8 +67,8 @@ async def test_n_tasks_at_one_time_on_one_object() -> None:
 
     requests: list[httpx.Request] = []
     async with async_recording_client(handler, requests) as aclient:
-        llm = ModelInference(vote(), client=aclient)
-        tasks = [asyncio.create_task(llm.chat.complete(f"q{i}")) for i in range(count)]
+        llm = InferenceClient(vote(), client=aclient)
+        tasks = [asyncio.create_task(llm.chat.completions.create(f"q{i}")) for i in range(count)]
         replies = await asyncio.gather(*tasks)
 
     assert [reply.text for reply in replies] == [f"q{i}" for i in range(count)]
@@ -75,8 +77,8 @@ async def test_n_tasks_at_one_time_on_one_object() -> None:
 def test_the_object_keeps_no_state_of_a_call() -> None:
     requests: list[httpx.Request] = []
     with recording_client(echo, requests) as client:
-        llm = ModelInference("openrouter/a", client=client)
+        llm = InferenceClient("openrouter/a", client=client)
         before = (llm._source, llm._client)
-        llm.chat.complete("one")
-        llm.chat.complete("two")
+        llm.chat.completions.create("one")
+        llm.chat.completions.create("two")
         assert (llm._source, llm._client) == before

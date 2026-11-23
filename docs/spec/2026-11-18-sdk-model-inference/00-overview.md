@@ -1,14 +1,15 @@
-# SDK model inference — `sf.ModelInference` — overview
+# SDK model inference — `sf.InferenceClient` — overview
 
-Status: APPROVED by the owner on 2026-11-18 ("spec approved"), after one independent review (§8). Base branch: PR #1937
+Status: APPROVED by the owner on 2026-11-18 ("spec approved"), after one independent review (§8).
+Amended on 2026-11-23 after the team review: the class name and the call path (§5.4, D11, D12). Base branch: PR #1937
 (`OME-1963-engine-openai-chat-endpoint`); work branch: `engine-openai-chat-endpoint-variant`.
 Parent epic: `OME-1297` (E8). The Linear issue is filed at PR-open.
 
 ## 1. Summary
 
-The ScreamingFace SDK (`packages/screamingface`) gets one public class, `sf.ModelInference`. A
+The ScreamingFace SDK (`packages/screamingface`) gets one public class, `sf.InferenceClient`. A
 user gives it an ensemble that was made with the SDK (a `Model`, a Fusion, a Pipeline, a Gate, a
-Cascade), and then calls `.chat.complete(...)`, as with the OpenAI SDK or LiteLLM. The call goes
+Cascade), and then calls `.chat.completions.create(...)`, as with the OpenAI SDK or LiteLLM. The call goes
 to the Engine route `POST /v1/chat/completions` of PR #1937 and gives a reply with the field
 names of the OpenAI chat-completion object.
 
@@ -17,17 +18,17 @@ import screamingface as sf
 
 ensemble = sf.Fanout(["openrouter/a", "openrouter/b"]) >> sf.Synthesize("openrouter/c")
 
-llm = sf.ModelInference(ensemble)
-reply = llm.chat.complete("What is the capital of France?")
+llm = sf.InferenceClient(ensemble)
+reply = llm.chat.completions.create("What is the capital of France?")
 reply.text                              # short form
 reply.choices[0].message.content        # OpenAI field names
 reply.usage.prompt_tokens, reply.cost_usd
 
-reply = llm.chat.complete(messages=[...], tools=[...])
-for chunk in llm.chat.complete("...", stream=True): ...
+reply = llm.chat.completions.create(messages=[...], tools=[...])
+for chunk in llm.chat.completions.create("...", stream=True): ...
 
-allm = sf.ModelInference(ensemble, client=sf.AsyncClient())
-reply = await allm.chat.complete("Hello")
+allm = sf.InferenceClient(ensemble, client=sf.AsyncClient())
+reply = await allm.chat.completions.create("Hello")
 
 endpoint = llm.endpoint()               # base_url, model, headers for the OpenAI client or LiteLLM
 ```
@@ -53,7 +54,7 @@ in the prompt-planner skill. Paths with the prefix `S/` are under
 
 **Reading of Q7 (to confirm in this review).** Python cannot bind a sync and an async function to
 one name on one object. So the mode follows the client that the object holds: with a `Client`
-(the default), `complete` returns the reply; with an `AsyncClient`, `complete` returns an
+(the default), `create` returns the reply; with an `AsyncClient`, `create` returns an
 awaitable. Typed overloads on the client type give exact types. There is no `acomplete` and no
 second public class.
 
@@ -62,7 +63,7 @@ second public class.
 | Kind | Item | State | Tag |
 |---|---|---|---|
 | actor | SDK user (a script, a notebook, an agent harness) | existing | [stated ans:Q1] |
-| component | `sf.ModelInference` and its `chat` namespace | planned | [stated ans:Q2] |
+| component | `sf.InferenceClient` and its `chat` namespace | planned | [stated ans:Q2] |
 | component | reply types (`ChatCompletion`, `ChatCompletionChunk`, ...) | planned | [stated ans:Q2] |
 | component | stream frame reader (SSE lines to chunks, chunks to one reply) | planned | [implied — ans:Q5] |
 | component | recipe compiler `compile_candidate` | existing | [existing S/_evaluation/candidate.py:136] |
@@ -73,8 +74,8 @@ second public class.
 | store | none: the SDK stores no prompt, no reply | — | [proposed] |
 | external | analytics service: not used by this feature in this version | — | [proposed P9] |
 
-Connections (each one is a contract in `contracts.md`): caller → `ModelInference` (Python API);
-`ModelInference` → Engine (`POST /v1/chat/completions`, always streamed); `ModelInference` →
+Connections (each one is a contract in `contracts.md`): caller → `InferenceClient` (Python API);
+`InferenceClient` → Engine (`POST /v1/chat/completions`, always streamed); `InferenceClient` →
 Engine (`GET /v1/operators`, only for a recipe with a reducer); caller → other library
 (`endpoint()` values).
 
@@ -86,7 +87,7 @@ There is no data model, so this spec has no `erd.md`.
 
 | Id | Decision | Tag |
 |---|---|---|
-| D1 | The class is `sf.ModelInference(ensemble)`; the call is `.chat.complete(...)` | [stated ans:Q1] [stated ans:Q2] |
+| D1 | The class is `sf.ModelInference(ensemble)`; the call is `.chat.complete(...)`. **Replaced by D11 and D12** (§5.4) | [stated ans:Q1] [stated ans:Q2] |
 | D2 | The reply has the OpenAI field names, plus the ScreamingFace extras | [stated ans:Q2] |
 | D3 | The first version has sync, async and streaming | [stated ans:Q2] |
 | D4 | A sampling parameter is accepted, gives one warning, and is not sent | [stated ans:Q3] |
@@ -99,9 +100,9 @@ There is no data model, so this spec has no `erd.md`.
 
 | Id | Proposal | Why |
 |---|---|---|
-| P1 | `ModelInference(model, *, client=None)`: `model` is a recipe, a `sf.Url4`, or a string. A string that starts with `(` is URL4 text; each other string is a gateway model id. This is the rule of the Engine | one rule on both sides [existing E/chat/recipe.py:99] |
+| P1 | `InferenceClient(model, *, client=None)`: `model` is a recipe, a `sf.Url4`, or a string. A string that starts with `(` is URL4 text; each other string is a gateway model id. This is the rule of the Engine | one rule on both sides [existing E/chat/recipe.py:99] |
 | P2 | The constructor sends no request. It compiles a recipe that needs no operator catalogue, so a recipe error shows where the user wrote it. A recipe with a reducer is compiled at each call, with the catalogue that the client keeps; the constructor does the shape checks that need no catalogue | fast errors; the text follows the catalogue, as an evaluation does |
-| P3 | `complete(prompt=None, *, messages=None, tools=None, stream=False, stream_options=None, use_cache=True, max_retries=0, timeout=None, **other)`. Exactly one of `prompt` and `messages` | small surface |
+| P3 | `create(prompt=None, *, model=None, messages=None, tools=None, stream=False, stream_options=None, use_cache=True, max_retries=0, timeout=None, **other)`. Exactly one of `prompt` and `messages` | small surface |
 | P4 | "Accept, warn, ignore" (D4) applies to a fixed list of the known OpenAI chat parameters. A keyword that is not in the list (for example the typo `tool=`) gives `TypeError`, as in the OpenAI SDK. `n` above 1, `logprobs=True`, `audio` and audio `modalities` give `PlanningError`, because the Engine refuses them | a typo must not drop the tools silently [existing E/rest/chat_body.py:256] |
 | P5 | Reply types are frozen dataclasses (the SDK convention), with `to_dict()`. Short forms: `reply.text`, `reply.tool_calls`, `reply.cost_usd`, `reply.trace_id` | [existing S/answer.py:83] |
 | P6 | `stream=True` gives a stream object (iterable, context manager, `close()`); with an async client, an async stream object. `stream_options={"include_usage": True}` works as in OpenAI: one last chunk with empty `choices`. The stream is buffered: the first chunk comes when the run has ended | copied OpenAI loops work [existing E/chat/sse.py:3] |
@@ -110,12 +111,58 @@ There is no data model, so this spec has no `erd.md`.
 | P9 | No analytics event for this feature in this version, and no reply on disk. The analytics service accepts only four event names today, and the SDK tells users that it sends exactly four | [existing apps/analytics/src/analytics_service/contract.py:33] |
 | P10 | Stream error event of the Engine: the `error` object gets `should_retry` (bool) and, when the Engine has one, `retry_after` (seconds) | D6, D8 |
 | P11 | Read time limit of 60 s between bytes (the Engine sends a keep-alive each 15 s by default). `timeout=` is a total limit for one call; by default the Engine limit (600 s) applies | no silent hang |
-| P12 | Docs: a new API page for `ModelInference`; the OpenAI guide page gets the SDK way to get the Candidate URL4 (`endpoint().model`), so the "run an evaluation first" step is only an alternative; README section; changelog entry | closes the follow-up of PR #1937 |
+| P12 | Docs: a new API page for `InferenceClient`; the OpenAI guide page gets the SDK way to get the Candidate URL4 (`endpoint().model`), so the "run an evaluation first" step is only an alternative; README section; changelog entry | closes the follow-up of PR #1937 |
 | P13 | Engine, plain route: a reply with tool calls and no text has `content: null` (today it has `""`; the stream has no `content` key; OpenAI sends null). Then the reply that the SDK builds from the stream is equal to the plain reply | one answer shape [existing E/rest/chat_answer.py:178] [existing E/chat/sse.py:101] |
-| P14 | URL4 text that is an evaluation URL4 (the value of `report.candidates[...].url4`): the SDK takes its `candidate` source and sends that. The Engine refuses the linked text | `sf.ModelInference(report.candidates["x"].url4)` works [existing E/chat/recipe.py:149] |
+| P14 | URL4 text that is an evaluation URL4 (the value of `report.candidates[...].url4`): the SDK takes its `candidate` source and sends that. The Engine refuses the linked text | `sf.InferenceClient(report.candidates["x"].url4)` works [existing E/chat/recipe.py:149] |
 | P15 | After a sign-in challenge of the hosted edge, the client sends the chat request one more time. This is different from `sf.classify`, which raises and lets the user retry. Reason: on this route, a 302, 401 or 403 answer always comes before a run exists (the status of a scheduled run is 200) | a token that expired must not fail an agent loop [existing S/client.py:571] |
 | P16 | `openai==2.54.0` as a dev dependency of the SDK (the version of the Engine tests), so a test runs the docs example of `endpoint()` with the real OpenAI client. A new dependency needs your word; without it, a test with plain `httpx` covers the three values and the docs example is not run | tested docs |
 | P17 | A recipe error of the compiler keeps its type of today (`ValueError` or `PlanningError`), as in `sf.evaluate`. A corrective loop gives `PlanningError`, code `recipe_not_supported`, from the SDK | one behaviour for one recipe error [existing S/_evaluation/candidate.py:808] |
+
+### 5.4 Team review (2026-11-23): the class name and the call path
+
+Two items of feedback came from the team, through the owner. The owner told me to examine them and to
+apply the items that are correct.
+
+- F1 (verbatim): "I am not feeling ModelInference object to be intuitive, since we're wrapping
+  already a model and inference is an action. Can we name it Endpoint ... If there's any concern
+  (although I don't see why), another option could be InferenceSession or InferenceClient?"
+- F2 (Andrew, through the owner): mirror an existing API (OpenAI or the HF inference API) as
+  closely as possible, so that the SDK is a near drop-in replacement. "the ModelInference object
+  would become, maybe, a Client object and then ... chat.complete would need to be
+  chat.completions, etc."
+
+| Id | Decision | Tag |
+|---|---|---|
+| D11 | The call path is `client.chat.completions.create(...)`, the path of the OpenAI SDK (and of the OpenAI alias of the HF `InferenceClient`). There is no `chat.complete` and no alias: the class is not released yet | [stated F2] |
+| D12 | The class is `sf.InferenceClient(model=None, *, client=None)`. `model` is optional. `create(model=...)` and `endpoint(model=...)` take a model for one call, which replaces the model of the client for that call. With no model on the call and none on the client, the call raises `TypeError` before a request. So OpenAI code needs a change only in the line that makes the client | [stated F1] [stated F2], mechanism [proposed] |
+
+Why `InferenceClient`, and not the other names:
+
+- `Client`: the SDK has `sf.Client` and `sf.AsyncClient` already (the Engine connection, which
+  this class takes as `client=`). A second class with that name is not possible.
+- `Endpoint`: the class has an `endpoint()` method, which gives an `InferenceEndpoint` (the
+  URL, the model text and the headers for another client). `sf.Endpoint(x).endpoint()` is not
+  clear. Also, in the HF and cloud vocabulary an "endpoint" is a deployed server with a lifetime
+  and a cost; this object deploys nothing. With D12 the object also calls more than one model, so
+  it is not the endpoint of one ensemble.
+- `InferenceSession`: a "session" has state, for example a conversation. This object keeps no
+  conversation (C1.1).
+- `InferenceClient`: one of the names of F1, and the "Client object" of F2. HF uses this name
+  with the same meaning: a client with an optional default model and the OpenAI call path.
+
+Kept as they are (each is already OpenAI-shaped, or it is an addition that OpenAI code never
+uses, so it does not stop a drop-in change):
+
+- The reply and chunk types have the OpenAI field names (D2), and `stream=True` gives an
+  iterable stream (P6).
+- `prompt` (a positional short form of one user message), `use_cache` and `max_retries` on
+  the call are additions. OpenAI code does not use them.
+- The async mode follows the client (D7): `sf.InferenceClient(client=sf.AsyncClient())`. OpenAI
+  and HF have a second class (`AsyncOpenAI`, `AsyncInferenceClient`). A second class is a
+  possible later addition; it is not in this change.
+- Not in this change (possible later): `timeout` and `max_retries` on the constructor, as on the
+  OpenAI client; `extra_headers`, `extra_query` and `extra_body` on the call (today they give
+  `TypeError`, because the parameter list of P4 is the list of the Engine).
 
 ### 5.3 Not in this work
 
@@ -131,7 +178,7 @@ There is no data model, so this spec has no `erd.md`.
 
 | File | Content |
 |---|---|
-| `prd/model-inference.md` | the object, `chat.complete`, sync and async, the stream |
+| `prd/model-inference.md` | the object, `chat.completions.create`, sync and async, the stream |
 | `prd/endpoint-bridge.md` | `endpoint()` for other libraries |
 | `prd/stream-error-retry-flag.md` | the Engine change (P10) |
 | `contracts.md` | the Python API, the wire contract, the error map |
@@ -145,7 +192,7 @@ Reading order: this file, `contracts.md`, then the PRDs.
 |---|---|---|
 | R1 | Resend of a paid call | Resolved as fact: the HTTP client of `Client` has no retry layer, so a 408, 429 or 5xx is never sent again by the client. The replay-safe mark controls only the resend after a sign-in challenge (P15). The plan adds a streamed POST seam next to `_engine_get` |
 | R2 | Recipes that the compiler refuses | Resolved as fact: a reducer with no catalogue, and `over='benchmark'` with no benchmark, raise `ValueError`; a corrective loop raises `PlanningError` with a text about a benchmark, so the SDK checks it first (P17) |
-| R3 | Typed overloads | The SDK uses pyright in basic mode. Overloads on the client type are valid; the constructor needs its own overloads, and `complete` needs one more overload for a `stream` value that is not a literal. A typing test comes first |
+| R3 | Typed overloads | The SDK uses pyright in basic mode. Overloads on the client type are valid; the constructor needs its own overloads, and `create` needs one more overload for a `stream` value that is not a literal. A typing test comes first |
 | R4 | The reply that the SDK builds must equal the plain reply | Open until P13 and test SE-5. `id` and `created` are not part of the comparison |
 | R5 | Auth headers for `endpoint()` | Resolved as fact: the auth object already gives them; the token is usable only after `Client.login()` named the audience |
 | R6 | Docs snippets for the SDK | Run in SDK tests; both path blocks of the SDK test workflow get the snippet path; `public-docs/CLAUDE.md` names the new files |

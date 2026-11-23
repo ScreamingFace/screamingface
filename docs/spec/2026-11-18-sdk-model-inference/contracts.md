@@ -2,21 +2,24 @@
 
 One section for each connection of the inventory. Tags as in `00-overview.md` §2.
 
-## C1 — caller → `sf.ModelInference` (Python API)
+## C1 — caller → `sf.InferenceClient` (Python API)
 
 ### C1.1 Constructor
 
 ```python
-class ModelInference[ClientT: (Client, AsyncClient)]:
+class InferenceClient[ClientT: (Client, AsyncClient)]:
     @overload
-    def __init__(self: "ModelInference[Client]", model: Recipe | Url4 | str, *, client: Client | None = None) -> None: ...
+    def __init__(self: "InferenceClient[Client]", model: Recipe | Url4 | str | None = None, *, client: Client | None = None) -> None: ...
     @overload
-    def __init__(self: "ModelInference[AsyncClient]", model: Recipe | Url4 | str, *, client: AsyncClient) -> None: ...
-    chat: Chat[ClientT]
-    def endpoint(self): ...   # InferenceEndpoint, or an awaitable of it with an AsyncClient
+    def __init__(self: "InferenceClient[AsyncClient]", model: Recipe | Url4 | str | None = None, *, client: AsyncClient) -> None: ...
+    chat: Chat[ClientT]            # chat.completions: Completions[ClientT] (D11)
+    def endpoint(self, model: Recipe | Url4 | str | None = None): ...   # InferenceEndpoint, or an awaitable of it with an AsyncClient
 ```
 
-- `model` `[proposed P1]`:
+- `model` `[proposed P1]`, optional `[stated F2]` (D12). With no model, each call gives one with
+  `create(model=...)`; a call with no model and no model on the client raises `TypeError` before
+  a request. A model on the call replaces the model of the client for that call only, and follows
+  the same rules:
   - a `Recipe` (`sf.Model`, a Fusion, a Pipeline, a Gate, a Cascade, ...) `[stated ans:Q1]`;
   - a `sf.Url4`, or a string that starts with `(` after white space: URL4 text. Candidate URL4
     text is sent with no change. From an evaluation URL4 the SDK takes the `candidate` source
@@ -40,13 +43,14 @@ class ModelInference[ClientT: (Client, AsyncClient)]:
 - The object keeps no conversation. More than one thread or task can use it at one time. An
   `AsyncClient` belongs to one event loop `[implied]`.
 
-### C1.2 `chat.complete`
+### C1.2 `chat.completions.create`
 
 ```python
-def complete(
+def create(
     self,
     prompt: str | None = None,
     *,
+    model: Recipe | Url4 | str | None = None,   # D12: replaces the model of the client
     messages: Sequence[Mapping[str, Any]] | None = None,
     tools: Sequence[Mapping[str, Any]] | None = None,
     stream: bool = False,
@@ -160,13 +164,13 @@ client `[existing S/client.py:204]` `[existing S/_access/base.py:23]`.
 
 ### C1.6 New public names
 
-`ModelInference`, `ChatCompletion`, `ChatChoice`, `ChatMessage`, `ChatToolCall`,
+`InferenceClient`, `ChatCompletion`, `ChatChoice`, `ChatMessage`, `ChatToolCall`,
 `ChatFunctionCall`, `ChatUsage`, `ChatCompletionChunk`, `ChatChunkChoice`, `ChatDelta`,
 `ChatDeltaToolCall`, `ChatStream`, `AsyncChatStream`, `InferenceInfo`, `FinalStep`,
 `InferenceEndpoint`, `IgnoredParameterWarning`. Each goes into `__all__` and into the public
 surface snapshot `[existing packages/screamingface/tests/test_public_surface.py]`.
 
-## C2 — `ModelInference` → Engine: `POST /v1/chat/completions`
+## C2 — `InferenceClient` → Engine: `POST /v1/chat/completions`
 
 ### C2.1 Request
 
@@ -265,7 +269,7 @@ The body limit (8,000,000 bytes), the length of `model` (32,000 characters), the
 for tools, and the picture rules stay with the Engine. Its error becomes the SDK error of C2.4
 `[proposed]`.
 
-## C3 — `ModelInference` → Engine: `GET /v1/operators`
+## C3 — `InferenceClient` → Engine: `GET /v1/operators`
 
 Only for a recipe with a reducer `[existing S/_evaluation/runner.py:291]`. The client already
 keeps the catalogue for its max-age `[existing S/_engine/catalog.py:402]`, so a call in that
@@ -294,7 +298,7 @@ that case, as OpenAI does. A reply with text does not change.
 ## C5 — caller → other library (`endpoint()`)
 
 ```python
-e = sf.ModelInference(ensemble).endpoint()
+e = sf.InferenceClient(ensemble).endpoint()
 client = OpenAI(base_url=e.base_url, api_key="unused", default_headers=dict(e.headers))
 client.chat.completions.create(model=e.model, messages=[...])
 ```

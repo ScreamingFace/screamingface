@@ -7,7 +7,7 @@
   `[existing packages/screamingface/tests/test_classify.py:59]`.
 - **The frame reader is pure** (bytes in, chunks or one reply out). It has table tests with no
   transport.
-- **Typing is a test.** A file with `assert_type` pins the six result types of `complete`, the
+- **Typing is a test.** A file with `assert_type` pins the six result types of `create`, the
   two constructor forms and the two results of `endpoint`. The pyright gate (basic mode) reads it
   `[existing packages/screamingface/pyrightconfig.json:6]`.
 - **One integration test** uses the e2e harness of the SDK (a real local Engine and the fake
@@ -44,13 +44,14 @@
 
 | Constraint | Tests |
 |---|---|
-| `sf.ModelInference(ensemble)` and `.chat.complete(...)` (ans:Q1, Q2) | MI-6, MI-7, MI-27 |
+| `sf.InferenceClient(ensemble)` and `.chat.completions.create(...)` (ans:Q1, Q2) | MI-6, MI-7, MI-27 |
 | OpenAI field names on the reply (ans:Q2) | MI-4, MI-26 |
 | Sync, async and streaming (ans:Q2) | MI-6, MI-20, MI-22 |
 | A sampling parameter: accept, warn, ignore (ans:Q3) | MI-16 |
 | No retry by default (ans:Q4) | MI-15, MI-2, MI-31 |
 | Always streamed on the wire (ans:Q5) | MI-6, MI-4, SE-5 |
 | One method name; the mode follows the client (ans:Q7) | MI-1, MI-22, EB-5 |
+| `sf.InferenceClient` and the OpenAI path `chat.completions.create`; `model` on the client or on each call (D11, D12; team review 2026-11-23) | MI-32 (the path), MI-33 (the model of a call, sync and async), MI-34 (no model: `TypeError` before a request), MI-35 (`endpoint(model=...)`) — `tests/test_model_inference_openai_shape.py` |
 
 ## 5. Existing tests
 

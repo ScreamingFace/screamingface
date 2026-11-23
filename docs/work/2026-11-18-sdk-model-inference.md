@@ -158,6 +158,42 @@ docs examples run in tests.
   downloaded the openai wheel and the locked `notebook` extra wheels into the package venv.
   Gate pitfall: the SDK venv needs `uv sync --locked --extra notebook` (as CI) or pyright fails
   on the ipywidgets imports. Gates: SDK green.
+- **2026-11-19 — S2 paid check (owner: "Yes, local stack").** Local stack `~/sf-local/inference/`
+  (Engine + aigateway from this worktree, OpenRouter). Playground notebook
+  `model-inference-playground.ipynb` (generator `make_nb.py`), executed once:
+  `model-inference-playground.executed.ipynb`. Every example worked: model id, fusion, regex gate,
+  messages, URL4 text, sync and async stream, `include_usage`, `asyncio.gather` of 3, tool
+  call round trip, ignored-parameter warnings, `TypeError` on a typo, `model_not_found` as
+  `PlanningError`, `endpoint()` with the real openai client (plain and stream). Cost 0.126 USD
+  (plan said about 0.05). Findings, not fixed:
+  (1) a missing provider key fails the run with `profile_not_found`, and the chat route answers
+  `internal_error` "the request failed" with no hint about the key (Engine, PR #1937 area);
+  (2) fusion calls with nearly the same tokens cost 0.0003 or 0.0143 USD: not explained yet;
+  (3) the local gateway had `AIGW_REQUEST_CACHE_ENABLED` off (its default), so no request came
+  from the cache; the start script now sets it;
+  (4) about 300 prompt tokens for a five-word prompt: the default Candidate prompt of the recipe;
+  (5) this branch predates E4c, so the notebook uses `sf.RegexClassifier`, not `sf.Keywords`.
+- **2026-11-23 — Team review: rename and OpenAI call path (spec §5.4, D11, D12).** Two items of
+  feedback, through the owner: F1 "ModelInference" is not clear (proposed `Endpoint`, else
+  `InferenceSession` or `InferenceClient`); F2 (Andrew) mirror the OpenAI or HF API as closely
+  as possible, a "Client object" with `chat.completions`. The owner told me to examine them and
+  apply what is correct. Done: the class is `sf.InferenceClient` (not `Client`: `sf.Client`
+  exists; not `Endpoint`: it clashes with `endpoint()`/`InferenceEndpoint` and suggests a
+  deployed server; not `InferenceSession`: suggests a conversation state); the path is
+  `chat.completions.create` (class `Completions`, no alias, not released yet); `model` is
+  optional on the constructor and `create(model=...)` / `endpoint(model=...)` give a model for
+  one call (no model anywhere: `TypeError` before a request). Kept: the reply types (already
+  OpenAI-shaped), `prompt`/`use_cache`/`max_retries` as additions, the async mode that
+  follows the client (D7). Not done (possible later): an `AsyncInferenceClient` class,
+  `timeout`/`max_retries` on the constructor, `extra_headers`/`extra_query`/`extra_body`
+  (they need a change to the parameter list that `test_model_inference_params.py` fixes).
+  Prior tests of this branch (not on `main`) changed by a rename only (`ModelInference` →
+  `InferenceClient`, `chat.complete` → `chat.completions.create`, the `TypeError` text
+  `create() got ...`); no assertion changed. New tests MI-32…MI-35
+  (`tests/test_model_inference_openai_shape.py`). Test file names keep `model_inference` (the
+  feature slug). Spec, contracts, PRDs, test plan and plan updated; the Q1/Q2 quotes stay
+  verbatim. Local playground notebook renamed in place (owner edits kept) plus a new cell 1.6
+  (the OpenAI form). Gates: SDK green (`--base` merge base).
 
 ## Outcome (fill at the end — required before COMMIT)
 

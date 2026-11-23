@@ -1,4 +1,4 @@
-# Plan — SDK model inference (`sf.ModelInference`)
+# Plan — SDK model inference (`sf.InferenceClient`)
 
 Status: DRAFT, waits for the owner's approval in plain words. No code before that.
 Spec (approved 2026-11-18, with the reading of Q7 and the proposals P1–P17):
@@ -14,7 +14,7 @@ Paths: `S/` = `packages/screamingface/src/screamingface/`, `T/` = `packages/scre
 |---|---|---|
 | D1 | One branch, one PR; the units below are ordered commits | the same shape as PR #1937; the units depend on each other |
 | D2 | The Engine change comes first (U1) | the SDK reader is written against the final frames, and test SE-5 pins the reply rule that the SDK copies |
-| D3 | New SDK files, each 450 lines or less: `S/inference.py` (public: `ModelInference`, the `chat` namespace, the overloads, `InferenceEndpoint`); `S/chat_completion.py` (public: the reply and chunk types, `ChatStream`, `AsyncChatStream`); `S/_inference/` (private: `frames.py` the SSE reader and the reply builder, pure; `request.py` the model rule, the compile step and the parameter policy; `transport.py` the send, the error map and the retry, sync and async) | the SDK puts public types in top-level modules (`answer.py`, `classification.py`) and the mechanics in private packages |
+| D3 | New SDK files, each 450 lines or less: `S/inference.py` (public: `InferenceClient`, the `chat` namespace, the overloads, `InferenceEndpoint`); `S/chat_completion.py` (public: the reply and chunk types, `ChatStream`, `AsyncChatStream`); `S/_inference/` (private: `frames.py` the SSE reader and the reply builder, pure; `request.py` the model rule, the compile step and the parameter policy; `transport.py` the send, the error map and the retry, sync and async) | the SDK puts public types in top-level modules (`answer.py`, `classification.py`) and the mechanics in private packages |
 | D4 | One streamed POST seam on each client, next to `_engine_get`: `_engine_post_stream(path, *, json, headers, timeout)`, with the replay-safe mark (P15) | the existing seams are GET-only or not streamed [existing S/client.py:571] |
 | D5 | Exemplar for the transport and the error map: `S/_engine/classification.py`; for the tests: `T/test_classify.py` (`httpx.MockTransport` through `http_transport=`) | the closest single paid call |
 | D6 | The `IgnoredParameterWarning` class goes where the SDK defines its other public `*Warning` classes | one place for warnings |
@@ -45,8 +45,8 @@ Paths: `S/` = `packages/screamingface/src/screamingface/`, `T/` = `packages/scre
 
 - Tests: MI-1 (a typing file with `assert_type` for the six rows of C1.2, the two constructor
   forms and the two results of `endpoint()`), MI-2, MI-3.
-- `S/inference.py`: `ModelInference` with the constructor overloads, `Chat` with the
-  `complete` overloads, `endpoint()` overloads; the bodies raise `NotImplementedError` until U4.
+- `S/inference.py`: `InferenceClient` with the constructor overloads, `Chat` with the
+  `create` overloads, `endpoint()` overloads; the bodies raise `NotImplementedError` until U4.
 - `Client._engine_post_stream` and `AsyncClient._engine_post_stream` (D4).
 - STOP rule: if pyright (basic) refuses the overload shape, the unit stops and the owner sees
   the options before a change of the public shape.
@@ -67,12 +67,12 @@ Paths: `S/` = `packages/screamingface/src/screamingface/`, `T/` = `packages/scre
 - `S/_inference/transport.py`: send through `_engine_post_stream`, the error map (C2.4), the read
   limit of 60 s and the total `timeout` (P11), `max_retries` (C2.5), the close of the connection
   on each exit.
-- `ModelInference` takes `default_client()` at each call when it has no client (MI-S20b).
+- `InferenceClient` takes `default_client()` at each call when it has no client (MI-S20b).
 
 ### U5 — SDK streams, async, concurrency
 
 - Tests: MI-20, MI-21, MI-22, MI-24, the stream and async half of MI-31.
-- `ChatStream` and `AsyncChatStream` (C1.4); the async path of `transport.py`; `complete`
+- `ChatStream` and `AsyncChatStream` (C1.4); the async path of `transport.py`; `create`
   returns a coroutine with an `AsyncClient`; argument errors are raised before the coroutine is
   made.
 

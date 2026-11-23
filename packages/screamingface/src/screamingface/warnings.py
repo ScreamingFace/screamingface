@@ -19,8 +19,8 @@ class FixedSeedSittingWarning(EvaluationWarning):
 
 
 class IgnoredParameterWarning(UserWarning):
-    """A chat parameter that the SF Engine does not use: sf.ModelInference accepts it, does not send
-    it, and gives this warning (contracts C1.2, ans:Q3)."""
+    """A chat parameter that the SF Engine does not use: sf.InferenceClient accepts it, does not
+    send it, and gives this warning (contracts C1.2, ans:Q3)."""
 
 
 class JudgeWriterWarning(EvaluationWarning):

@@ -117,7 +117,7 @@ def test_evaluation_url4_with_no_candidate_is_a_planning_error() -> None:
 
 
 # WHY: MI-10, also inside WithBudget. sf.WithBudget refuses the loop when it is made, so no
-# ModelInference can get it.
+# InferenceClient can get it.
 @pytest.mark.parametrize(
     "build",
     [

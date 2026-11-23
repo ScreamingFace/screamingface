@@ -1,4 +1,4 @@
-"""Call a recipe, a URL4 or a gateway model as an OpenAI-style chat model (sf.ModelInference).
+"""Call a recipe, a URL4 or a gateway model as an OpenAI-style chat model (sf.InferenceClient).
 
 FEATURE: SDK model inference (docs/spec/2026-11-18-sdk-model-inference, contracts C1.1, C1.2 and
 C2.1), unit U4. The module holds the model rule, the compile step, the argument checks, the
@@ -251,7 +251,7 @@ def check_options(
     """Check the typed options of one chat call (C1.2)."""
 
     _require_bool(stream, "stream")
-    # WHY: one check and one message for use_cache in sf.evaluate and ModelInference.
+    # WHY: one check and one message for use_cache in sf.evaluate and InferenceClient.
     _use_cache_value(use_cache)
     if stream_options is not None and not isinstance(stream_options, Mapping):
         raise TypeError("stream_options must be a dict or None")
@@ -291,13 +291,13 @@ def check_other(other: Mapping[str, Any]) -> None:
 
     Order: an unknown name raises TypeError first, then a refused value raises PlanningError,
     then each known name gives one warning. So a call that raises gives no warning.
-    AIDEV-NOTE: Chat.complete calls this function directly, so stacklevel=3 names the line of the
-    caller. Do not call it through another helper.
+    AIDEV-NOTE: Completions.create calls this function directly, so stacklevel=3 names the line of
+    the caller. Do not call it through another helper.
     """
 
     unknown = [name for name in other if name not in KNOWN_PARAMETERS]
     if unknown:
-        raise TypeError(f"complete() got an unexpected keyword argument {unknown[0]!r}")
+        raise TypeError(f"create() got an unexpected keyword argument {unknown[0]!r}")
     for name, value in other.items():
         refuse = _REFUSED.get(name)
         if refuse is not None and refuse(value):

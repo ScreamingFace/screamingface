@@ -19,14 +19,14 @@ from _endpoint_access import (
 
 from screamingface._evaluation.candidate import compile_candidate
 from screamingface.errors import AuthenticationError, EngineCapabilityError
-from screamingface.inference import InferenceEndpoint, ModelInference
+from screamingface.inference import InferenceClient, InferenceEndpoint
 
 
 @pytest.mark.asyncio
 async def test_endpoint_is_awaitable_with_an_async_client() -> None:
     requests: list[httpx.Request] = []
     async with async_recording_client(ok, requests) as aclient:
-        call = ModelInference("openrouter/a", client=aclient).endpoint()
+        call = InferenceClient("openrouter/a", client=aclient).endpoint()
         assert inspect.iscoroutine(call)
         e = await call
 
@@ -42,7 +42,7 @@ async def test_async_endpoint_values_for_a_hosted_client(monkeypatch: pytest.Mon
     token, browser = signed_in(monkeypatch)
     requests: list[httpx.Request] = []
     async with async_hosted_client(ok, requests) as aclient:
-        e = await ModelInference("openrouter/a", client=aclient).endpoint()
+        e = await InferenceClient("openrouter/a", client=aclient).endpoint()
 
     assert e.base_url == f"{HOSTED_URL}/v1"
     assert dict(e.headers) == {TOKEN_HEADER: token}
@@ -55,7 +55,7 @@ async def test_async_endpoint_values_for_a_hosted_client(monkeypatch: pytest.Mon
 async def test_async_endpoint_loads_the_catalogue_for_a_reducer_recipe() -> None:
     requests: list[httpx.Request] = []
     async with async_recording_client(catalogue_engine, requests) as aclient:
-        e = await ModelInference(vote(), client=aclient).endpoint()
+        e = await InferenceClient(vote(), client=aclient).endpoint()
 
     assert e.model == compile_candidate(vote(), operators=CATALOG).url4
     assert [r.url.path for r in requests] == ["/v1/operators"]
@@ -69,7 +69,7 @@ async def test_async_endpoint_failure_gives_no_partial_value(
     requests: list[httpx.Request] = []
     async with async_hosted_client(catalogue_engine, requests) as aclient:
         with pytest.raises(AuthenticationError) as raised:
-            await ModelInference(vote(), client=aclient).endpoint()
+            await InferenceClient(vote(), client=aclient).endpoint()
 
     assert raised.value.code == "access_not_advertised"
     assert requests == []
@@ -84,7 +84,7 @@ async def test_async_endpoint_raises_the_catalogue_error() -> None:
     requests: list[httpx.Request] = []
     async with async_recording_client(not_found, requests) as aclient:
         with pytest.raises(EngineCapabilityError):
-            await ModelInference(vote(), client=aclient).endpoint()
+            await InferenceClient(vote(), client=aclient).endpoint()
 
     assert [r.url.path for r in requests] == ["/v1/operators"]
 
@@ -95,6 +95,6 @@ async def test_async_closed_client_raises_before_a_coroutine() -> None:
     aclient = async_recording_client(ok, requests)
     await aclient.aclose()
     with pytest.raises(RuntimeError, match="AsyncClient is closed"):
-        _ = ModelInference("openrouter/a", client=aclient).endpoint()
+        _ = InferenceClient("openrouter/a", client=aclient).endpoint()
 
     assert requests == []

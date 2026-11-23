@@ -1,4 +1,4 @@
-# PRD — `sf.ModelInference` and `chat.complete`
+# PRD — `sf.InferenceClient` and `chat.completions.create`
 
 Tags as in `00-overview.md` §2. Contract references (C1, C2, ...) are sections of
 `contracts.md`. Risk is given as likelihood × impact (H, M, L).
@@ -6,7 +6,7 @@ Tags as in `00-overview.md` §2. Contract references (C1, C2, ...) are sections 
 ## 1. User story
 
 As an SDK user, I make an ensemble with the SDK and I call it as I call a model with the OpenAI
-SDK or LiteLLM: one object, `.chat.complete("prompt")`, and a reply with the field names that I
+SDK or LiteLLM: one object, `.chat.completions.create("prompt")`, and a reply with the field names that I
 know `[stated ans:Q1]`.
 
 ## 2. Current behaviour
@@ -28,8 +28,8 @@ know `[stated ans:Q1]`.
 ### 3.1 Happy path
 
 **MI-S1 One prompt, one reply.** `[stated ans:Q1]`
-- Given `llm = sf.ModelInference(sf.Model("openrouter/a"))` and a reachable Engine
-- When `reply = llm.chat.complete("Hello")`
+- Given `llm = sf.InferenceClient(sf.Model("openrouter/a"))` and a reachable Engine
+- When `reply = llm.chat.completions.create("Hello")`
 - Then the SDK sends one streamed request (C2.1) with the compiled recipe as `model` and one
   user message
 - And `reply` is a `ChatCompletion`; `reply.text == reply.choices[0].message.content`
@@ -37,33 +37,33 @@ know `[stated ans:Q1]`.
 
 **MI-S2 An ensemble.** `[stated ans:Q1]`
 - Given a Fusion, a Pipeline, a Gate or a Cascade made with the SDK
-- Then `ModelInference` compiles it to the same Candidate URL4 text that an evaluation of the
+- Then `InferenceClient` compiles it to the same Candidate URL4 text that an evaluation of the
   same recipe uses as its candidate `[implied]`.
 
 **MI-S3 Messages and tools.** `[stated ans:Q2]`
-- When `llm.chat.complete(messages=[...], tools=[...])`
+- When `llm.chat.completions.create(messages=[...], tools=[...])`
 - Then the SDK sends both lists with no change, and `reply.tool_calls` has the calls of the
   final step, each with its full `arguments` text.
 
 **MI-S4 Async.** `[stated ans:Q7]`
-- Given `allm = sf.ModelInference(ensemble, client=sf.AsyncClient())`
-- When `reply = await allm.chat.complete("Hello")`
+- Given `allm = sf.InferenceClient(ensemble, client=sf.AsyncClient())`
+- When `reply = await allm.chat.completions.create("Hello")`
 - Then the result is the same `ChatCompletion`, and no thread blocks.
 
 **MI-S5 Chunks.** `[stated ans:Q2]`
-- When `for chunk in llm.chat.complete("Hello", stream=True)`
+- When `for chunk in llm.chat.completions.create("Hello", stream=True)`
 - Then the caller gets the chunks of the Engine in order, with no keep-alive line; the last chunk
   with a choice has the `finish_reason`
 - And with `stream_options={"include_usage": True}` one more chunk follows, with empty `choices`,
   `usage` and `screamingface` `[proposed P6]`.
 
 **MI-S6 A model id or URL4 text.** `[proposed P1]`
-- `sf.ModelInference("openrouter/a")` sends the string as a gateway model id.
-- `sf.ModelInference("(model_1:0.0:...)!...")` or a `sf.Url4` with Candidate URL4 text sends the
+- `sf.InferenceClient("openrouter/a")` sends the string as a gateway model id.
+- `sf.InferenceClient("(model_1:0.0:...)!...")` or a `sf.Url4` with Candidate URL4 text sends the
   text with no change.
 
 **MI-S6b An evaluation URL4.** `[proposed P14]`
-- Given `sf.ModelInference(report.candidates["x"].url4)` (the URL4 of an evaluation)
+- Given `sf.InferenceClient(report.candidates["x"].url4)` (the URL4 of an evaluation)
 - Then the SDK takes the `candidate` source of the expression and sends that text
 - And an evaluation URL4 with no `candidate` source gives `PlanningError` before a request.
 
@@ -72,12 +72,12 @@ know `[stated ans:Q1]`.
 **MI-S7 A recipe with a reducer.** `[existing S/_evaluation/candidate.py:808]`
 - Given a recipe with `sf.Vote()` (or another reducer)
 - Then the constructor sends no request; it does the shape checks that need no catalogue
-- And each `complete` (or `endpoint`) compiles the recipe with the operator catalogue that the
+- And each `create` (or `endpoint`) compiles the recipe with the operator catalogue that the
   client keeps; in the max-age of the catalogue, only the first call sends the catalogue request
   `[proposed P2]`.
 
 **MI-S8 An ignored parameter.** `[stated ans:Q3]`
-- When `llm.chat.complete("Hello", temperature=0.2, max_tokens=50)`
+- When `llm.chat.completions.create("Hello", temperature=0.2, max_tokens=50)`
 - Then the call works, the request has neither parameter, and the SDK gives one
   `IgnoredParameterWarning` for each name; the text points to `sf.Model(params=...)`.
 - And a keyword that is not a known OpenAI chat parameter (for example the typo `tool=[...]`)
@@ -150,12 +150,12 @@ know `[stated ans:Q1]`.
 ### 3.4 Concurrency
 
 **MI-S20 Two calls at one time.** `[proposed]`
-- Two threads (or two tasks) call `complete` on one object with a reducer recipe at the same
+- Two threads (or two tasks) call `create` on one object with a reducer recipe at the same
   time. Each gets its reply. The object has no state that a call changes.
 
 **MI-S20b The default client changes.** `[existing S/_default_client.py:173]`
-- Given `llm = sf.ModelInference(ensemble)` with no `client`
-- When the user calls `sf.close()` or `sf.configure(...)` and then `llm.chat.complete(...)`
+- Given `llm = sf.InferenceClient(ensemble)` with no `client`
+- When the user calls `sf.close()` or `sf.configure(...)` and then `llm.chat.completions.create(...)`
 - Then the call uses the default client of that moment, as `sf.classify` does.
 - An explicit client that is closed gives the `RuntimeError` of the client, before a request.
 

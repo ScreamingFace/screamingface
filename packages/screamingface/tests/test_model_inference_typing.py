@@ -22,54 +22,58 @@ import pytest
 
 from screamingface.chat_completion import AsyncChatStream, ChatCompletion, ChatStream
 from screamingface.client import AsyncClient, Client
-from screamingface.inference import Chat, InferenceEndpoint, ModelInference
+from screamingface.inference import Chat, InferenceClient, InferenceEndpoint
 
 PACKAGE = Path(__file__).resolve().parents[1]
 _MODEL = "openrouter/a"
 
 
 def _sync_rows(client: Client, flag: bool) -> None:
-    default = ModelInference(_MODEL)
-    assert_type(default, ModelInference[Client])
-    assert_type(ModelInference(_MODEL, client=client), ModelInference[Client])
+    default = InferenceClient(_MODEL)
+    assert_type(default, InferenceClient[Client])
+    assert_type(InferenceClient(_MODEL, client=client), InferenceClient[Client])
     assert_type(default.chat, Chat[Client])
-    assert_type(default.chat.complete("hi"), ChatCompletion)
-    assert_type(default.chat.complete("hi", stream=False), ChatCompletion)
-    assert_type(default.chat.complete("hi", stream=True), ChatStream)
-    assert_type(default.chat.complete("hi", stream=flag), ChatCompletion | ChatStream)
+    assert_type(default.chat.completions.create("hi"), ChatCompletion)
+    assert_type(default.chat.completions.create("hi", stream=False), ChatCompletion)
+    assert_type(default.chat.completions.create("hi", stream=True), ChatStream)
+    assert_type(default.chat.completions.create("hi", stream=flag), ChatCompletion | ChatStream)
     assert_type(
-        default.chat.complete(messages=[{"role": "user", "content": "hi"}], temperature=0.2),
+        default.chat.completions.create(
+            messages=[{"role": "user", "content": "hi"}], temperature=0.2
+        ),
         ChatCompletion,
     )
     assert_type(default.endpoint(), InferenceEndpoint)
 
 
 def _async_rows(client: AsyncClient, flag: bool) -> None:
-    model = ModelInference(_MODEL, client=client)
-    assert_type(model, ModelInference[AsyncClient])
+    model = InferenceClient(_MODEL, client=client)
+    assert_type(model, InferenceClient[AsyncClient])
     assert_type(model.chat, Chat[AsyncClient])
     # WHY .close(): pyright reports a coroutine that nothing uses; the close uses it.
-    assert_type(model.chat.complete("hi"), Coroutine[Any, Any, ChatCompletion]).close()
+    assert_type(model.chat.completions.create("hi"), Coroutine[Any, Any, ChatCompletion]).close()
     assert_type(
-        model.chat.complete("hi", stream=False), Coroutine[Any, Any, ChatCompletion]
+        model.chat.completions.create("hi", stream=False), Coroutine[Any, Any, ChatCompletion]
     ).close()
     assert_type(
-        model.chat.complete("hi", stream=True), Coroutine[Any, Any, AsyncChatStream]
+        model.chat.completions.create("hi", stream=True), Coroutine[Any, Any, AsyncChatStream]
     ).close()
     assert_type(
-        model.chat.complete("hi", stream=flag),
+        model.chat.completions.create("hi", stream=flag),
         Coroutine[Any, Any, ChatCompletion | AsyncChatStream],
     ).close()
     assert_type(model.endpoint(), Coroutine[Any, Any, InferenceEndpoint]).close()
 
 
 async def _awaited_rows(client: AsyncClient, flag: bool) -> None:
-    model = ModelInference(_MODEL, client=client)
-    assert_type(await model.chat.complete("hi"), ChatCompletion)
-    assert_type(await model.chat.complete("hi", stream=True), AsyncChatStream)
-    assert_type(await model.chat.complete("hi", stream=flag), ChatCompletion | AsyncChatStream)
+    model = InferenceClient(_MODEL, client=client)
+    assert_type(await model.chat.completions.create("hi"), ChatCompletion)
+    assert_type(await model.chat.completions.create("hi", stream=True), AsyncChatStream)
+    assert_type(
+        await model.chat.completions.create("hi", stream=flag), ChatCompletion | AsyncChatStream
+    )
     # INVARIANT: the async result is a Coroutine, so asyncio.create_task accepts it (MI-24).
-    task = asyncio.create_task(model.chat.complete("hi"))
+    task = asyncio.create_task(model.chat.completions.create("hi"))
     assert_type(await task, ChatCompletion)
     assert_type(await model.endpoint(), InferenceEndpoint)
 
@@ -78,7 +82,7 @@ _SNIPPET_HEAD = """from __future__ import annotations
 
 from screamingface.chat_completion import ChatCompletion, ChatStream
 from screamingface.client import AsyncClient, Client
-from screamingface.inference import ModelInference
+from screamingface.inference import InferenceClient
 
 """
 
@@ -86,22 +90,22 @@ from screamingface.inference import ModelInference
 # report them in a fixed order.
 REFUSED = {
     "await-a-sync-reply": (
-        "async def call(model: ModelInference[Client]) -> None:\n"
-        "    await model.chat.complete('hi')\n",
+        "async def call(model: InferenceClient[Client]) -> None:\n"
+        "    await model.chat.completions.create('hi')\n",
         ["reportGeneralTypeIssues"],
     ),
     "an-async-reply-is-a-coroutine": (
-        "def call(model: ModelInference[AsyncClient]) -> None:\n"
-        "    reply: ChatCompletion = model.chat.complete('hi')\n",
+        "def call(model: InferenceClient[AsyncClient]) -> None:\n"
+        "    reply: ChatCompletion = model.chat.completions.create('hi')\n",
         ["reportAssignmentType"],
     ),
     "the-default-sync-reply-is-not-a-stream": (
-        "def call(model: ModelInference[Client]) -> None:\n"
-        "    reply: ChatStream = model.chat.complete('hi')\n",
+        "def call(model: InferenceClient[Client]) -> None:\n"
+        "    reply: ChatStream = model.chat.completions.create('hi')\n",
         ["reportAssignmentType"],
     ),
     "a-client-of-another-type": (
-        "def call() -> None:\n    ModelInference('openrouter/a', client=object())\n",
+        "def call() -> None:\n    InferenceClient('openrouter/a', client=object())\n",
         ["reportArgumentType", "reportCallIssue"],
     ),
 }
@@ -165,8 +169,8 @@ def test_the_constructor_keeps_a_sync_client_and_sends_no_request() -> None:
         http_transport=_counting_engine(requests),
         save_results=False,
     ) as client:
-        default = ModelInference(_MODEL)
-        explicit = ModelInference(_MODEL, client=client)
+        default = InferenceClient(_MODEL)
+        explicit = InferenceClient(_MODEL, client=client)
 
     assert isinstance(explicit.chat, Chat)
     assert explicit._client is client
@@ -185,7 +189,7 @@ async def test_the_constructor_keeps_an_async_client_and_sends_no_request() -> N
         http_transport=_counting_engine(requests),
         save_results=False,
     ) as client:
-        model = ModelInference(_MODEL, client=client)
+        model = InferenceClient(_MODEL, client=client)
 
     assert isinstance(model.chat, Chat)
     assert model._client is client

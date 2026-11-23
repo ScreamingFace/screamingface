@@ -26,7 +26,7 @@ from _chat_frames import META, USAGE, info, message
 from _endpoint_access import HOSTED_URL, TOKEN_HEADER, hosted_client, signed_in
 
 import screamingface as sf
-from screamingface.inference import InferenceEndpoint, ModelInference
+from screamingface.inference import InferenceClient, InferenceEndpoint
 
 
 def _plain_reply(text: str) -> dict[str, Any]:
@@ -58,9 +58,9 @@ def _no_engine_request(_request: httpx.Request) -> httpx.Response:
 def _endpoint(hosted: bool) -> InferenceEndpoint:
     if hosted:
         with hosted_client(_no_engine_request, []) as client:
-            return ModelInference("openrouter/a", client=client).endpoint()
+            return InferenceClient("openrouter/a", client=client).endpoint()
     with recording_client(_no_engine_request, []) as client:
-        return ModelInference("openrouter/a", client=client).endpoint()
+        return InferenceClient("openrouter/a", client=client).endpoint()
 
 
 def _openai_client(e: InferenceEndpoint, requests: list[httpx.Request]) -> openai.OpenAI:
@@ -122,7 +122,7 @@ def test_docs_example_uses_a_recipe_as_the_model() -> None:
     recipe = sf.Fanout(["openrouter/a", "openrouter/b"]) >> sf.Synthesize("openrouter/c")
 
     with recording_client(_no_engine_request, []) as client:
-        e = ModelInference(recipe, client=client).endpoint()
+        e = InferenceClient(recipe, client=client).endpoint()
 
     with _openai_client(e, requests) as openai_client:
         openai_client.chat.completions.create(
