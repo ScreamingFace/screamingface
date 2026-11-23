@@ -180,7 +180,8 @@ _FINGERPRINTS: dict[str, str] = {
     "medmcqa": "e9e7ca645e342f81",
     "futurex_past_study": "3c66e638e04516ed",
     # The hand-built Benchmark (screamingface_engine.benchmarks.medxpert).
-    "medxpert": "1e5a3b8a461a52f7",
+    # Moved from 1e5a3b8a461a52f7 (OME-1786): turn 2 carries turn 1's answer text, not its record.
+    "medxpert": "490235dc9a53b7d9",
 }
 
 

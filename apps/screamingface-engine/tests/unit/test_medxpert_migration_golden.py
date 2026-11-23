@@ -28,8 +28,10 @@ from url4.core.errors import ResolutionError
 from url4.peer.server import Request
 
 # Captured 2026-09-21 from the pre-migration benchmark (base of this branch); moved once on
-# 2026-10-19 when medxpert declared withhold (OME-1642: the failure policy is identity).
-_GOLDEN_REVISION = "1e5a3b8a461a52f7"
+# 2026-10-19 when medxpert declared withhold (OME-1642: the failure policy is identity), and on
+# 2026-11-21 from 1e5a3b8a461a52f7 when turn 2 began to carry turn 1's answer text in place of
+# its whole result record (OME-1786: the turn-2 prompt bytes changed on every Case).
+_GOLDEN_REVISION = "490235dc9a53b7d9"
 
 _OPTIONS = {"A": "aspirin", "B": "heparin", "C": "warfarin", "D": "apixaban", "E": "alteplase"}
 _QUESTION = "Which agent is indicated? Answer Choices: " + " ".join(

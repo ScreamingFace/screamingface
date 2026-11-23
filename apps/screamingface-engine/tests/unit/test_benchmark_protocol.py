@@ -268,7 +268,9 @@ def test_protocol_rejects_an_impossible_case_selection() -> None:
         # (an empty parametrize would skip this test silently).
         # Moved once (OME-1642): medxpert declares withhold, so its revision — in every route —
         # moved with it.
-        (MEDXPERT, "25fc7f56169d3a10670e8d3bc73c66d51e9ac1d586f447b9e035d6d4de441952"),
+        # Moved again (OME-1786): turn 2 reads turn 1's answer text through the new
+        # reasoning-text route, and the revision in every route moved with that.
+        (MEDXPERT, "867d9c7e3a00e1de78019bd6cfc950ccf5047b70cd2254d7e106a18dac4187e2"),
     ),
 )
 def test_canonical_benchmark_url4_is_pinned_byte_for_byte(
