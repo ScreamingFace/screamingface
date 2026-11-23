@@ -26,6 +26,7 @@ from types import MappingProxyType
 
 from url4.core._annotations import parse_query_tail
 from url4.core._call_head import REMOTE_SCHEME, check_data_path
+from url4.core.at_most_one import raise_if_c19, refuse_too_deep
 from url4.core.errors import ParseError
 from url4.core.grammar import intent_atom, parse_value
 from url4.core.nodes import (
@@ -116,14 +117,19 @@ def classify_intent(text: str) -> IntentForm:
 
     A remote expression (``url4://n/p(c)!x``) is an EXPRESSION, although the parser
     still refuses it as an intent (url4 2.0 changes no acceptance). A text the parser
-    refuses outright raises its :class:`~url4.core.errors.ParseError`.
+    refuses outright raises its :class:`~url4.core.errors.ParseError`, and a text too deep to
+    read that names the C19 mark is refused (:func:`~url4.core.at_most_one.refuse_too_deep`).
     """
     stripped = text.strip()
     if stripped.startswith("'"):
         return IntentForm.QUOTED
     if stripped.startswith(REMOTE_SCHEME):
         return _remote_form(stripped)
-    form = _FORM_OF_NODE.get(type(intent_atom(stripped)))
+    try:
+        form = _FORM_OF_NODE.get(type(intent_atom(stripped)))
+    except RecursionError:
+        refuse_too_deep(stripped)
+        raise
     return form if form is not None else _text_form(stripped)
 
 
@@ -137,7 +143,8 @@ def _text_form(text: str) -> IntentForm:
 def _remote_form(text: str) -> IntentForm:
     try:
         node = parse_value(text)
-    except ParseError:
+    except ParseError as error:
+        raise_if_c19(error)  # INVARIANT (C19): a broken mark is never a reference
         return IntentForm.URL4_REFERENCE
     return IntentForm.EXPRESSION if isinstance(node, RemoteExpr) else IntentForm.URL4_REFERENCE
 
@@ -192,6 +199,9 @@ def is_named_job(text: str) -> bool:
         return intent_atom(text) == NamedJob(text)
     except ParseError:
         return False
+    except RecursionError:
+        refuse_too_deep(text)
+        raise
 
 
 __all__ = [

@@ -36,16 +36,16 @@ from dataclasses import replace
 
 from url4.core._annotations import (
     _VALID_ON_ERROR,
-    checked_retries,
-    checked_timeout,
     directives_from_fields,
 )
+from url4.core._builder_exec import exec_annotations
 from url4.core._lexical import _IDENT_RE, _STRUCT_KEY_RE, chained_bang
 
 # WHY: the renderer owns the canonical text forms; re-deriving quoting/number/
 # intent/source formatting here would let builders and renderer drift.
 from url4.core._render_values import format_number as _format_number
 from url4.core._render_values import quote as _quote
+from url4.core.at_most_one import check_at_most_one, refuse_too_deep, with_mark
 from url4.core.errors import ParseError
 from url4.core.grammar import intent_atom, parse, parse_value
 from url4.core.nodes import (
@@ -151,6 +151,7 @@ def src(
     accept: str | None = None,
     required: bool | None = None,
     expand: bool = False,
+    at_most_one: bool = False,
     annotations: ParamsLike = (),
 ) -> Node:
     """Build a source descriptor (§4.3) around ``value``.
@@ -162,20 +163,28 @@ def src(
     ``True`` marks ``;required``, ``False`` marks ``;optional``, and the
     default ``None`` leaves the spec's default handling.
 
+    ``at_most_one`` writes the package extension ``expand.at_most_one=true``
+    right after ``;required``/``;optional``: a named ``expand=True`` source
+    with one guard then contributes nothing for zero elements and its one
+    element under its own name. A broken form — from this keyword or from
+    ``annotations`` — raises ``ValueError``.
+
     Returns the parser-canonical node for the descriptor: a bare value node
     when no descriptor content is given, a :class:`Binding` for name-only, a
     :class:`Source` otherwise.
     """
     node = _coerce_value(value)
     _check_name(name)
-    ann = _exec_annotations(mode, t, retry, accept, required, annotations)
+    ann = exec_annotations(mode, t, retry, accept, required) + _pairs(annotations)
+    if at_most_one:
+        ann = with_mark(ann)  # C19: right after the guard, whichever argument gave it
     norm_weight = _norm_weight(weight)
     norm_budgets = _norm_budgets(budgets)
     if norm_weight is None and not norm_budgets and not ann and not expand:
         if name is not None:
             return Binding(name, node, "=")
         return node
-    return Source(
+    source = Source(
         value=node,
         name=name,
         weight=norm_weight,
@@ -183,6 +192,8 @@ def src(
         annotations=ann,
         expand=expand,
     )
+    _check_at_most_one(source)
+    return source
 
 
 def _check_name(name: str | None) -> None:
@@ -192,32 +203,13 @@ def _check_name(name: str | None) -> None:
         raise ValueError(f"invalid source name {name!r} ('src' is reserved, §4.3)")
 
 
-def _exec_annotations(
-    mode: str | None,
-    t: float | int | None,
-    retry: int | None,
-    accept: str | None,
-    required: bool | None,
-    extra: ParamsLike,
-) -> Params:
-    typed = (
-        ("mode", mode),
-        ("t", None if t is None else _timeout_text(t)),
-        ("retry", None if retry is None else _retry_text(retry)),
-        ("accept", accept),
-    )
-    pairs: list[tuple[str, str | None]] = [(k, v) for k, v in typed if v is not None]
-    if required is not None:
-        pairs.append(("required" if required else "optional", None))
-    return tuple(pairs) + _pairs(extra)
-
-
-def _timeout_text(t: float | int) -> str:
-    return _format_number(checked_timeout(t))
-
-
-def _retry_text(retry: int) -> str:
-    return str(checked_retries(retry))
+def _check_at_most_one(source: Source) -> None:
+    # INVARIANT (C19): the builder refuses exactly what the parser refuses, whatever
+    # the mark's origin (keyword or `annotations=`), as it refuses a bad name.
+    try:
+        check_at_most_one(source)
+    except ParseError as exc:
+        raise ValueError(str(exc)) from exc
 
 
 def _pairs(extra: ParamsLike) -> Params:
@@ -293,9 +285,13 @@ def _to_node(value: SourceLike, parse_text) -> Node:
 
 def _rewrite_reducer_iteration(node: Node) -> Node:
     """``(iteration)!reducer`` is the value-position spelling of a reducer (§5.3)."""
-    if isinstance(node, Iteration) and node.reducer is not None:
+    if not isinstance(node, Iteration) or node.reducer is None:
+        return node
+    try:
         return Expression(sources=(replace(node, reducer=None),), intent=intent_atom(node.reducer))
-    return node
+    except RecursionError:
+        refuse_too_deep(node.reducer)
+        raise
 
 
 # --- expr() and friends -----------------------------------------------------------------
@@ -329,7 +325,11 @@ def _intent_node(intent: str | Node) -> Node:
                 f"intent {intent!r} holds an unquoted '!', where a url4 intent ends "
                 f"(Spec B §8); pass text({intent!r}) to send it as literal prompt text"
             )
-        return intent_atom(intent)
+        try:
+            return intent_atom(intent)
+        except RecursionError:
+            refuse_too_deep(intent)
+            raise
     if isinstance(intent, (Text, NamedJob, Url, RelUrl)):
         return intent
     raise TypeError(
