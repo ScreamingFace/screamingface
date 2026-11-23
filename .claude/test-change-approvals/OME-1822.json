@@ -1,0 +1,14 @@
+{
+  "issue": "OME-1822",
+  "branch": "OME-1822-routing-pilot-landing",
+  "approver": "owner",
+  "date": "2026-11-23",
+  "scope": "BYOM routing pilot landing on main. The same C3 move as the 2026-11-04 approval, re-based on main: tests/unit/test_url4_executor.py gains exactly one entry in _ALLOWED_RUNNER_IMPORTERS, Path(\"screamingface_engine/world/gateway_endpoints.py\"), with its comment, after main's world/branch.py entry. Every existing entry and assertion is unchanged. No other prior test changes.",
+  "reason": "Approved in chat on 2026-11-23 for the landing branch: the 2026-11-04 OME-1822 transition re-pinned to main's base blob, with the same one-entry scope.",
+  "files": {
+    "apps/screamingface-engine/tests/unit/test_url4_executor.py": {
+      "base_blob": "4a2ba578bf287b89d721d8329e202774269666a6",
+      "approved_blob": "6424f96fc2c7cccc88b2da6bd7c44b95d1b06081"
+    }
+  }
+}

@@ -62,15 +62,21 @@ from screamingface_engine.rest.routes import (
 from screamingface_engine.rest.selector import X_PROFILE_PARAMETER
 from screamingface_engine.runner_queue import RunQueueUnavailable
 from screamingface_engine.world.classification import (
+    CLASSIFY_ROUTE,
     MALFORMED_MESSAGE,
     MALFORMED_SOURCE,
-    refuses_query,
+    undecodable_query,
 )
+from screamingface_engine.world.routing import ROUTE_ANSWER_ROUTE, ROUTED_MALFORMED_MESSAGE
 from screamingface_engine.world.serving import MountDescriptor, MountTable, mount_http_status
 from screamingface_engine.world.wire import url4_error_body
 from url4.streaming.protocol import ResultEvent, TerminatedEvent
 
 logger = logging.getLogger(__name__)
+
+# The direct routes that refuse a query escape that is not UTF-8 (`undecodable_query`), each with
+# its own message.
+_TEXT_ROUTES = {CLASSIFY_ROUTE: MALFORMED_MESSAGE, ROUTE_ANSWER_ROUTE: ROUTED_MALFORMED_MESSAGE}
 
 MOUNT_TAG = "Mounts"
 MOUNT_INLINE_LIMIT_BYTES = 1024 * 1024
@@ -328,8 +334,9 @@ def _validated(
     # Measured on the RAW bytes: a decoded-then-re-encoded query counts a byte >= 0x80 twice.
     if len(mount.path.encode()) + 1 + len(raw) > job_env.MAX_DIRECT_TARGET_BYTES:
         raise _Refused(_envelope(414, "uri_too_long", "the path and query exceed 8 KiB"))
-    if refuses_query(mount.path, raw):
-        raise _Refused(_envelope(400, MALFORMED_SOURCE, MALFORMED_MESSAGE))
+    message = _TEXT_ROUTES.get(mount.path)
+    if message is not None and undecodable_query(raw):
+        raise _Refused(_envelope(400, MALFORMED_SOURCE, message))
     query = raw.decode("latin-1")
     target = f"{mount.path}?{query}" if query else mount.path
     return (dict(identity) if identity else None), seed, target

@@ -51,6 +51,7 @@ from screamingface_engine.world.config import (
 )
 from screamingface_engine.world.factory import World, build_world
 from screamingface_engine.world.publication import private_mount_paths
+from screamingface_engine.world.routing import ROUTING_STATUS
 from screamingface_engine.world.wire import AsgiApp
 from url4.core.errors import ErrorCode
 from url4.peer import describe_routes
@@ -206,6 +207,8 @@ _ENGINE_STATUS: dict[str, int] = {
     # what a permanent Engine code would otherwise answer (`502`).
     CLASSIFICATION_UNSUPPORTED: 400,
     CLASSIFIER_NOT_FOUND: 404,
+    # FEATURE (OME-1822, spec 3.5): the routed answer's codes.
+    **ROUTING_STATUS,
 }
 """The engine's own codes a mount call can end with (contracts.md C1/C2), over url4's table."""
 
