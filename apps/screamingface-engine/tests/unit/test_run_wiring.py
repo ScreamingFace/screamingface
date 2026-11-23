@@ -194,6 +194,7 @@ def test_a_local_restart_sweeps_the_last_processs_candidates_lost(tmp_path: Path
         store = first.state.run_registry
         run = client.portal.call(store.create, owner, RunSpec("k", "b", 1, ("alpha",), "1.0"))
         client.portal.call(store.bind, owner, run.id, 0, "topic-1")
+        client.portal.call(store.mark_scheduled, "topic-1")
 
     second = FastAPI()
     install_runs(second, settings, _CountingStream(), local=True)

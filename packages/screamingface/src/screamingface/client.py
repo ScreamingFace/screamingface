@@ -6,8 +6,9 @@ import asyncio
 import os
 import time
 from collections.abc import Mapping, Sequence
+from datetime import timedelta
 from types import TracebackType
-from typing import TYPE_CHECKING, Any, Literal, overload
+from typing import TYPE_CHECKING, Any, Literal, cast, overload
 
 from screamingface._analytics.tracking import tracked
 from screamingface._client_connections import (
@@ -31,6 +32,7 @@ if TYPE_CHECKING:
     from screamingface._core.ports import AsyncRunTransport, SyncRunTransport
     from screamingface._engine.catalog import AsyncBenchmarks, AsyncModels, Benchmarks, Models
     from screamingface._engine.connections import AsyncConnections, Connections
+    from screamingface._engine.runs import RunRecord
     from screamingface._scoreboard.leaderboards import AsyncLeaderboards, Leaderboards
     from screamingface._ui.connections import ConnectionPanel
     from screamingface.classification import Classification
@@ -40,6 +42,7 @@ if TYPE_CHECKING:
     from screamingface.leaderboard import LeaderboardScore
     from screamingface.media import CaseMedia, FetchedMedia
     from screamingface.recipe import Recipe
+    from screamingface.runs import Run
 from screamingface._evaluation.model import _answer_seed_value
 from screamingface.report import Report
 
@@ -73,6 +76,7 @@ class Client:
         from screamingface._engine.transport import Url4CloudTransport
         from screamingface._scoreboard.leaderboards import Leaderboards
 
+        _require_run_transport(run_transport)
         self._engine_url = _engine_origin(engine_url)
         self._scoreboard_url = _scoreboard_origin(scoreboard_url)
         self._closed = False
@@ -277,6 +281,55 @@ class Client:
         answer_seed: int | None = None,
         capture: bool = False,
         use_cache: bool = True,
+        detach: Literal[False] = False,
+    ) -> Report: ...
+
+    @overload
+    def evaluate(
+        self,
+        candidates: str,
+        *,
+        benchmark: None = None,
+        limit: None = None,
+        on_event: Callable[[Event], None] | None = None,
+        progress: bool | None = None,
+        answer_seed: int | None = None,
+        capture: bool = False,
+        use_cache: bool = True,
+        detach: Literal[True],
+        deadline: timedelta | None = None,
+    ) -> Run: ...
+
+    @overload
+    def evaluate(
+        self,
+        candidates: str,
+        *,
+        benchmark: None = None,
+        limit: None = None,
+        on_event: Callable[[Event], None] | None = None,
+        progress: bool | None = None,
+        answer_seed: int | None = None,
+        capture: bool = False,
+        use_cache: bool = True,
+        detach: bool = False,
+        deadline: timedelta | None = None,
+    ) -> Report | Run: ...
+
+    @overload
+    def evaluate(
+        self,
+        candidates: Recipe | Sequence[Recipe],
+        *,
+        benchmark: str,
+        limit: int | None = None,
+        cases: Sequence[int] | None = None,
+        on_event: Callable[[Event], None] | None = None,
+        progress: bool | None = None,
+        answer_seed: int | None = None,
+        capture: bool = False,
+        use_cache: bool = True,
+        detach: Literal[False] = False,
     ) -> Report: ...
 
     @overload
@@ -292,7 +345,26 @@ class Client:
         answer_seed: int | None = None,
         capture: bool = False,
         use_cache: bool = True,
-    ) -> Report: ...
+        detach: Literal[True],
+        deadline: timedelta | None = None,
+    ) -> Run: ...
+
+    @overload
+    def evaluate(
+        self,
+        candidates: Recipe | Sequence[Recipe],
+        *,
+        benchmark: str,
+        limit: int | None = None,
+        cases: Sequence[int] | None = None,
+        on_event: Callable[[Event], None] | None = None,
+        progress: bool | None = None,
+        answer_seed: int | None = None,
+        capture: bool = False,
+        use_cache: bool = True,
+        detach: bool = False,
+        deadline: timedelta | None = None,
+    ) -> Report | Run: ...
 
     @overload
     def evaluate(
@@ -341,7 +413,9 @@ class Client:
         url4: str | None = None,
         record_reproduction: bool = True,
         use_cache: bool = True,
-    ) -> Report:
+        detach: bool = False,
+        deadline: timedelta | None = None,
+    ) -> Report | Run:
         """Evaluate Recipes, replay a complete URL4, or replay a published run from a pinned cache.
 
         `pinned_cache=` (or `score_id=`, for a private score you submitted) replays a published
@@ -362,14 +436,21 @@ class Client:
         instead of `limit=`'s first N, e.g. a development or held-out set. The Report names them in
         `selected_cases` and `selection_fingerprint`; such a run can't be submitted to the
         leaderboard. At most 1,000 ids.
+
+        `detach=True` sends the evaluation to the Engine and returns its `sf.runs.Run` at once:
+        the Engine runs it whether or not this notebook stays, until `deadline` (48 h by default,
+        7 days at most). `run.wait()` gives the Report, from this machine or any other.
         """
 
-        from screamingface._engine.limits import caller_inflight_cap_sync
         from screamingface._evaluation.runner import evaluate_sync
         from screamingface._evaluation.url4 import evaluate_url4_sync
 
         self._require_open()
+        deadline_s = _deadline_seconds(detach, deadline)
+        _detached_options(detach, on_event, progress)
         if pinned_cache is not None or score_id is not None:
+            if detach:
+                raise TypeError("a replay cannot be detached; it follows its run")
             return self._evaluate_replay(
                 candidates=candidates,
                 benchmark=benchmark,
@@ -392,7 +473,7 @@ class Client:
         _use_cache_value(use_cache)
         if isinstance(candidates, str):
             _raw_url4_options(benchmark, limit, cases)
-            return evaluate_url4_sync(
+            evaluated = evaluate_url4_sync(
                 self._transport,
                 candidates,
                 on_event,
@@ -401,10 +482,13 @@ class Client:
                 capture=capture,
                 use_cache=use_cache,
                 load_operators=self._operator_catalog.load,
+                detach=detach,
+                deadline_s=deadline_s,
             )
+            return self._evaluated(evaluated)
         if benchmark is None:
             raise TypeError("benchmark is required when evaluating Recipes")
-        return evaluate_sync(
+        evaluated = evaluate_sync(
             self._benchmark_resources.load,
             self._transport,
             self.models._load,
@@ -419,7 +503,22 @@ class Client:
             use_cache=use_cache,
             load_operators=self._operator_catalog.load,
             cases=cases,
-            load_caller_cap=lambda: caller_inflight_cap_sync(self._http),
+            detach=detach,
+            deadline_s=deadline_s,
+        )
+        return self._evaluated(evaluated)
+
+    def _evaluated(self, evaluated: Report | str) -> Report | Run:
+        """The Report, or, for a detached evaluation, its Run (E5 P2 spec D14)."""
+        if not isinstance(evaluated, str):
+            return evaluated
+        from screamingface import runs
+        from screamingface._engine import runs as wire
+
+        return runs._run(
+            _detached_run(self._transport, evaluated)
+            or wire.get_sync(self._http_request, evaluated, summary=True),
+            self,
         )
 
     def _evaluate_replay(
@@ -460,6 +559,7 @@ class Client:
         *,
         on_event: Callable[[Event], None] | None = None,
         progress: bool | None = None,
+        expected_target_revision: str | None = None,
     ) -> LeaderboardScore:
         """Move a published score onto its Benchmark's current revision, at no model cost.
 
@@ -469,6 +569,11 @@ class Client:
         grading changed (OME-1909); the Scoreboard accepts it only from an identity it lists as a
         re-grader. A Benchmark whose judge request changed (a new judge prompt or `max_tokens`)
         misses the cache on every judged Case, so it cannot be re-graded this way.
+
+        Set ``expected_target_revision`` when moving scores under a declared transition.
+        A different catalogue revision refuses before replay; a different result revision
+        refuses before submission (``regrade_target_mismatch``, retryable). Omit it to use
+        the current revision as before.
 
         Stages, in the order they run:
 
@@ -514,7 +619,13 @@ class Client:
         from screamingface._regrade import regrade_sync
 
         self._require_open()
-        return regrade_sync(self, score_id, on_event=on_event, progress=progress)
+        return regrade_sync(
+            self,
+            score_id,
+            on_event=on_event,
+            progress=progress,
+            expected_target_revision=expected_target_revision,
+        )
 
     @overload
     def connect(
@@ -704,6 +815,7 @@ class AsyncClient:
         from screamingface._engine.transport import AsyncUrl4CloudTransport
         from screamingface._scoreboard.leaderboards import AsyncLeaderboards
 
+        _require_run_transport(run_transport)
         self._engine_url = _engine_origin(engine_url)
         self._scoreboard_url = _scoreboard_origin(scoreboard_url)
         self._closed = False
@@ -910,6 +1022,39 @@ class AsyncClient:
         answer_seed: int | None = None,
         capture: bool = False,
         use_cache: bool = True,
+        detach: Literal[False] = False,
+    ) -> Report: ...
+
+    @overload
+    async def evaluate(
+        self,
+        candidates: str,
+        *,
+        benchmark: None = None,
+        limit: None = None,
+        on_event: Callable[[Event], None | Awaitable[None]] | None = None,
+        progress: bool | None = None,
+        answer_seed: int | None = None,
+        capture: bool = False,
+        use_cache: bool = True,
+        detach: Literal[True],
+        deadline: timedelta | None = None,
+    ) -> Run: ...
+
+    @overload
+    async def evaluate(
+        self,
+        candidates: Recipe | Sequence[Recipe],
+        *,
+        benchmark: str,
+        limit: int | None = None,
+        cases: Sequence[int] | None = None,
+        on_event: Callable[[Event], None | Awaitable[None]] | None = None,
+        progress: bool | None = None,
+        answer_seed: int | None = None,
+        capture: bool = False,
+        use_cache: bool = True,
+        detach: Literal[False] = False,
     ) -> Report: ...
 
     @overload
@@ -925,7 +1070,9 @@ class AsyncClient:
         answer_seed: int | None = None,
         capture: bool = False,
         use_cache: bool = True,
-    ) -> Report: ...
+        detach: Literal[True],
+        deadline: timedelta | None = None,
+    ) -> Run: ...
 
     @overload
     async def evaluate(
@@ -974,7 +1121,9 @@ class AsyncClient:
         url4: str | None = None,
         record_reproduction: bool = True,
         use_cache: bool = True,
-    ) -> Report:
+        detach: bool = False,
+        deadline: timedelta | None = None,
+    ) -> Report | Run:
         """Asynchronously evaluate Recipes, replay a complete URL4, or replay a pinned cache.
 
         `capture` is off by default. `capture=True` makes the Engine store every model and
@@ -990,14 +1139,21 @@ class AsyncClient:
         instead of `limit=`'s first N, e.g. a development or held-out set. The Report names them in
         `selected_cases` and `selection_fingerprint`; such a run can't be submitted to the
         leaderboard. At most 1,000 ids.
+
+        `detach=True` sends the evaluation to the Engine and returns its `sf.runs.Run` at once:
+        the Engine runs it whether or not this notebook stays, until `deadline` (48 h by default,
+        7 days at most). `run.wait()` gives the Report, from this machine or any other.
         """
 
-        from screamingface._engine.limits import caller_inflight_cap_async
         from screamingface._evaluation.runner import evaluate_async
         from screamingface._evaluation.url4 import evaluate_url4_async
 
         self._require_open()
+        deadline_s = _deadline_seconds(detach, deadline)
+        _detached_options(detach, on_event, progress)
         if pinned_cache is not None or score_id is not None:
+            if detach:
+                raise TypeError("a replay cannot be detached; it follows its run")
             return await self._evaluate_replay(
                 candidates=candidates,
                 benchmark=benchmark,
@@ -1019,7 +1175,7 @@ class AsyncClient:
         _use_cache_value(use_cache)
         if isinstance(candidates, str):
             _raw_url4_options(benchmark, limit, cases)
-            return await evaluate_url4_async(
+            evaluated = await evaluate_url4_async(
                 self._transport,
                 candidates,
                 on_event,
@@ -1028,10 +1184,13 @@ class AsyncClient:
                 capture=capture,
                 use_cache=use_cache,
                 load_operators=self._operator_catalog.load,
+                detach=detach,
+                deadline_s=deadline_s,
             )
+            return await self._evaluated(evaluated)
         if benchmark is None:
             raise TypeError("benchmark is required when evaluating Recipes")
-        return await evaluate_async(
+        evaluated = await evaluate_async(
             self._benchmark_resources.load,
             self._transport,
             self.models._load,
@@ -1046,8 +1205,23 @@ class AsyncClient:
             use_cache=use_cache,
             load_operators=self._operator_catalog.load,
             cases=cases,
-            load_caller_cap=lambda: caller_inflight_cap_async(self._http),
+            detach=detach,
+            deadline_s=deadline_s,
         )
+        return await self._evaluated(evaluated)
+
+    async def _evaluated(self, evaluated: Report | str) -> Report | Run:
+        """The Report, or, for a detached evaluation, its Run, whose methods read and follow it
+        on this Client's own async transport (E5 P2 spec D14): await `run.wait_async()`."""
+        if not isinstance(evaluated, str):
+            return evaluated
+        from screamingface import runs
+        from screamingface._engine import runs as wire
+
+        record = _detached_run(self._transport, evaluated) or await wire.get_async(
+            self._http_request, evaluated, summary=True
+        )
+        return runs._bound(record, runs._AsyncRuns(self))
 
     async def _evaluate_replay(
         self,
@@ -1087,6 +1261,7 @@ class AsyncClient:
         *,
         on_event: Callable[[Event], None | Awaitable[None]] | None = None,
         progress: bool | None = None,
+        expected_target_revision: str | None = None,
     ) -> LeaderboardScore:
         """Asynchronously move a published score onto its Benchmark's current revision.
 
@@ -1096,7 +1271,13 @@ class AsyncClient:
         from screamingface._regrade import regrade_async
 
         self._require_open()
-        return await regrade_async(self, score_id, on_event=on_event, progress=progress)
+        return await regrade_async(
+            self,
+            score_id,
+            on_event=on_event,
+            progress=progress,
+            expected_target_revision=expected_target_revision,
+        )
 
     @overload
     async def connect(
@@ -1183,6 +1364,58 @@ class AsyncClient:
             json=json,
             headers=headers,
             extensions={_REPLAY_SAFE: replay_safe},
+        )
+
+
+#: What `run_transport` must have beyond `close`, which the port's earlier shape had too.
+_FOLLOW_PORT = ("register_run", "follow_run", "cancel_run")
+
+
+def _require_run_transport(transport: object) -> None:
+    """Refuse a `run_transport` without the follow-a-Run port when the Client is made. WHY at the
+    door: one of the earlier shape (`run`, `cancel_active`) otherwise fails with a bare
+    AttributeError, after the evaluation has already called the Engine."""
+    if transport is None:
+        return
+    missing = [name for name in _FOLLOW_PORT if not callable(getattr(transport, name, None))]
+    if missing:
+        raise TypeError(
+            "run_transport must follow a Run: register_run, follow_run, cancel_run and close "
+            f"(SyncRunTransport or AsyncRunTransport); {type(transport).__name__} has no "
+            f"{', '.join(missing)}"
+        )
+
+
+def _detached_run(transport: object, run_id: str) -> RunRecord | None:
+    """The detached Run as its registration answered, from a transport that keeps it."""
+    # WHY by name: a test's fake transport keeps none, and its Run is read from the Engine.
+    detached_run = getattr(transport, "detached_run", None)
+    return cast("RunRecord | None", detached_run(run_id)) if callable(detached_run) else None
+
+
+def _deadline_seconds(detach: object, deadline: object) -> int | None:
+    """``deadline`` in whole seconds, refused at the door (E5 P2 spec D11): only a detached Run
+    has one, and it is a positive `timedelta`."""
+    if not isinstance(detach, bool):
+        raise TypeError("detach must be True or False")
+    if deadline is None:
+        return None
+    if not isinstance(deadline, timedelta):
+        raise TypeError("deadline must be a datetime.timedelta")
+    if not detach:
+        raise ValueError("deadline needs detach=True: an attached Run ends when you stop following")
+    if deadline.total_seconds() < 1:
+        raise ValueError("deadline must be at least 1 second")
+    return int(deadline.total_seconds())
+
+
+def _detached_options(detach: bool, on_event: object, progress: object) -> None:
+    """A detached evaluation returns before anything runs, so nothing would reach `on_event` or
+    the progress output: refused at the door rather than silently ignored."""
+    if detach and (on_event is not None or progress):
+        raise TypeError(
+            "on_event and progress need an attached evaluation; follow a detached Run with "
+            "run.wait()"
         )
 
 

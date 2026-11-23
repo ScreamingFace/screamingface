@@ -12,12 +12,12 @@ Replay is open to any authenticated account that holds the copy id and sends the
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Annotated, Any
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 
 from ..call_context import current_call_id, current_trace_id
 from ..core.auth.middleware import CurrentAccount
@@ -53,12 +53,69 @@ class ToolLookupRequest(BaseModel):
     description: dict[str, Any]
 
 
+class RouterRevision(BaseModel):
+    """One Router of a run manifest (C9): its binding and the revision the run recomputed."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    binding: str = Field(pattern=r"^router_[0-9]+$")
+    revision: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+
+
+EngineVersion = Annotated[str, Field(min_length=1, max_length=64)]
+RouterManifest = Annotated[list[RouterRevision], Field(min_length=1, max_length=256)]
+
+
 class Provenance(BaseModel):
-    """Q28: the engine's version, stored on the copy at seal."""
+    """Q28: the engine's version, stored on the copy at seal.
+
+    FEATURE: Router Recipe extension (C9) — a Router capture also seals its run manifest, which a
+    replay run reads back through ``read_provenance`` to refuse a changed Router definition.
+    INVARIANT: the list is stored as sent; the Engine sorts it and compares it exactly.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
-    engine_version: str = Field(min_length=1, max_length=64)
+    engine_version: EngineVersion
+    # WHY null is accepted: as for ``SealRequest.provenance``, an explicit null means "none sent".
+    routers: RouterManifest | None = None
+
+
+class ProvenanceRead(BaseModel):
+    """The C9 read of a sealed copy's provenance: the version, or null, and the manifest, or [].
+
+    INVARIANT: a closed record, like every C9 record: its schema publishes no other key, and a
+    key this model does not list is refused, never dropped.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    engine_version: EngineVersion | None
+    routers: list[RouterRevision] = Field(max_length=256)
+
+
+_ENGINE_VERSION: TypeAdapter[str] = TypeAdapter(EngineVersion)
+_ROUTER_MANIFEST: TypeAdapter[list[RouterRevision]] = TypeAdapter(RouterManifest)
+
+
+def _read_stored(stored: object) -> ProvenanceRead:
+    """The stored provenance as the seal would have accepted it, field by field.
+
+    INVARIANT: a stored value the seal refuses today is absent, never an error and never raw JSON:
+    no engine version reads null, and no valid manifest reads ``[]``, so a replay run with a
+    Router meets a manifest mismatch rather than a broken row.
+    """
+    if not isinstance(stored, dict):
+        return ProvenanceRead(engine_version=None, routers=[])
+    try:
+        version: str | None = _ENGINE_VERSION.validate_python(stored.get("engine_version"))
+    except ValidationError:
+        version = None
+    try:
+        routers = _ROUTER_MANIFEST.validate_python(stored.get("routers"))
+    except ValidationError:
+        routers = []
+    return ProvenanceRead(engine_version=version, routers=routers)
 
 
 class SealRequest(BaseModel):
@@ -204,11 +261,30 @@ def _sealed() -> HTTPException:
 async def seal_frozen_copy(
     copy_id: UUID, request: Request, current: CurrentAccount, body: SealRequest | None = None
 ) -> dict[str, Any]:
-    provenance = None if body is None or body.provenance is None else body.provenance.model_dump()
+    provenance = (
+        None
+        if body is None or body.provenance is None
+        # WHY exclude_none: a seal without routers stores exactly what it stored before C9.
+        else body.provenance.model_dump(exclude_none=True)
+    )
     copy = await frozen_copy_store_for(request.app).seal(copy_id, current.id, provenance)
     if copy is None:
         raise _not_found()
     return {"id": str(copy.id), "status": copy.status, "entries": copy.entries}
+
+
+@router.get("/v1/frozen-copies/{copy_id}/provenance")
+async def read_provenance(
+    copy_id: str, request: Request, current: CurrentAccount
+) -> ProvenanceRead:
+    """The provenance a sealed copy was sealed with (C9).
+
+    INVARIANT: the chat replay route's lookup and caller auth: any authenticated account that may
+    replay the copy may read this, and an unknown, open or malformed id is the same 404. It returns
+    the provenance alone, never a stored request (design F2).
+    """
+    copy = await _sealed_copy(request, copy_id)
+    return _read_stored(copy.provenance)
 
 
 @router.post("/v1/frozen-copies/{copy_id}/tool-results")

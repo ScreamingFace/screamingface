@@ -30,6 +30,12 @@ from screamingface_engine.artifacts import (
     decide_result_delivery,
     result_too_large_message,
 )
+from screamingface_engine.artifacts.run_results import (
+    RESULT_STORE_MISSING,
+    RESULT_STORE_UNAVAILABLE,
+    ResultSink,
+    RunResultStoreUnavailable,
+)
 from screamingface_engine.artifacts.spool import (
     ResultSpool,
     UnredeemedResultReference,
@@ -37,6 +43,7 @@ from screamingface_engine.artifacts.spool import (
 )
 from screamingface_engine.benchmarks.picture_admission import run_expression_scope
 from screamingface_engine.benchmarks.registry import served_routes
+from screamingface_engine.candidate_record import RUN_SUMMARY_INVALID, bound_refusal
 from screamingface_engine.capture_outcomes import CaptureTally, capture_outcomes
 from screamingface_engine.job_env import RunShape
 from screamingface_engine.observations import bridge_loss_attributes
@@ -362,6 +369,31 @@ class _SpanState:
     saved_cost: SavedCostTotals = field(default_factory=SavedCostTotals)
 
 
+def _keep_result(sink: ResultSink, encoded: bytes) -> str:
+    """Write the run's whole result to the run-results store (E5 P2 spec R5), the same bytes the
+    frame carries or names, and return its checksum. A store that refuses for the whole budget
+    fails the run, not permanently."""
+    try:
+        return sink.write(encoded)
+    except RunResultStoreUnavailable as exc:
+        raise ResolutionError(str(exc), code=RESULT_STORE_UNAVAILABLE, permanent=False) from exc
+
+
+async def _check_sink(sink: ResultSink) -> None:
+    """Fail the run before it spends when it could not keep its result (E5 P2 spec R5): a pool
+    with no run-results store, or one the store does not answer within the write budget.
+
+    WHY a write: the runner pool's key may only write. It writes the empty result, whose key
+    is one the Candidate's prefix already allows, so no object of a new kind is kept.
+    """
+    if sink.store is None:
+        raise ResolutionError(
+            "this run must keep its result, and this pool has no run-results store",
+            code=RESULT_STORE_MISSING,
+        )
+    await asyncio.to_thread(_keep_result, sink, b"")
+
+
 class _RunState:
     """Accumulates one run's `url4.observe` events into wire-protocol span and cost frames.
 
@@ -663,6 +695,7 @@ class _RunState:
         store: ArtifactWriter | None,
         media_type: str | None = None,
         spool: ResultSpool | None = None,
+        sink: ResultSink | None = None,
     ) -> ResultData:
         """Build the final `ResultData`: inline, spilled whole, or refused — never cut.
 
@@ -675,7 +708,8 @@ class _RunState:
         naming both byte counts, which the lifecycle turns into a failed terminal event;
         (2) ≤ `inline_cap` → the body rides the result frame exactly as before OME-892;
         (3) otherwise the COMPLETE body is written to the content-addressed `store` and
-        the frame carries only the claim ticket (`ResultArtifact`).
+        the frame carries only the claim ticket (`ResultArtifact`). A driver-started run (a
+        `sink`) keeps it in the run-results store alone, which its ticket names.
 
         WHY the hard cap is checked first: it is absolute. If the inline check ran first,
         inverted knobs (inline_cap > hard_cap) would let an over-hard-cap body sail into
@@ -694,25 +728,27 @@ class _RunState:
         if artifact is not None:
             return ResultData(media_type=media_type, artifact=artifact)
         encoded = result_str.encode("utf-8")
+        # WHY the run-results store counts: a driver-started run keeps its whole result there.
+        spill_available = store is not None or sink is not None
         # The hard-cap-first decision lives in `decide_result_delivery`, so the boundary and
         # which check wins are defined once (T6).
         decision = decide_result_delivery(
             len(encoded),
             inline_cap=inline_cap,
             hard_cap=hard_cap,
-            spill_available=store is not None,
+            spill_available=spill_available,
         )
         if decision is ResultDelivery.TOO_LARGE:
-            allowed = allowed_result_bytes(inline_cap, hard_cap, spill_available=store is not None)
+            allowed = allowed_result_bytes(inline_cap, hard_cap, spill_available=spill_available)
             raise ResolutionError(
                 result_too_large_message(len(encoded), allowed),
                 code="result_too_large",
                 permanent=True,
             )
+        digest = None if sink is None else _keep_result(sink, encoded)
         if decision is ResultDelivery.INLINE:
             return ResultData(body=result_str, media_type=media_type)
-        assert store is not None  # over inline yet allowed ⇒ a store existed above
-        return ResultData(media_type=media_type, artifact=store.write_bytes(encoded))
+        return ResultData(media_type=media_type, artifact=_spilled(encoded, digest, store))
 
     def build_subtree(self) -> CostUsageData:
         provider, model = self._subtree_provider_model()
@@ -744,6 +780,20 @@ class _RunState:
         if len(self._providers_models) == 1:
             return next(iter(self._providers_models))
         return "mixed", "mixed"
+
+
+def _spilled(encoded: bytes, digest: str | None, store: ArtifactWriter | None) -> ResultArtifact:
+    """The ticket of a result over the inline cap. ``digest`` is set when a driver-started run
+    kept it in the run-results store.
+
+    WHY no artifact copy then (review round 3): such a result is read from its Run's result
+    route only, so the ticket names the checksum it is kept under and is never redeemed (E5 P2
+    spec §4.2), as the spool path's is.
+    """
+    if digest is not None:
+        return ResultArtifact(id=digest, size_bytes=len(encoded), sha256=digest)
+    assert store is not None  # over inline yet allowed ⇒ a store existed
+    return store.write_bytes(encoded)
 
 
 def _redeemed_artifact(spool: ResultSpool | None, body: str) -> ResultArtifact | None:
@@ -857,7 +907,7 @@ def _closing_logs(
 
 
 def _summary_attributes(
-    state: _RunState, outcome: RunOutcome, *, succeeded: bool
+    state: _RunState, outcome: RunOutcome
 ) -> Mapping[str, str | int | float | bool | None] | None:
     """The run summary's cache attributes.
 
@@ -866,11 +916,38 @@ def _summary_attributes(
     state; with no capture or replay that is nothing, so a normal failed run keeps ``None``. A
     stopped run states neither: its copy stays open.
     """
-    if succeeded:
+    if outcome == "succeeded":
         return {**state.cache_counters.attributes(), **state.capture_tally.attributes()}
     if outcome == "failed":
         return state.capture_tally.attributes() or None
     return None
+
+
+class SummaryRefusedError(ResolutionError):
+    """The run's failure when its record refused its run summary (E5 P2 spec §4.3, OME-1988).
+
+    Permanent: the summary is the run's own, and the same Candidate on the same Engine computes
+    it the same way. It carries the run's subtree cost: the run made and paid for every call, so
+    that spend is exact, and `Url4Executor.execute` states it for the Candidate.
+    """
+
+    def __init__(self, message: str, subtree: CostUsageData) -> None:
+        super().__init__(message, code=RUN_SUMMARY_INVALID, permanent=True)
+        self.subtree = subtree
+
+
+def _refuse_an_unvouched_summary(subtree: CostUsageData) -> None:
+    """Fail the run when its record refused its run summary (E5 P2 spec §4.3, OME-1988).
+
+    WHY here: after the run's last log, so its record has read every summary the run published
+    (the lifecycle publishes each step before it asks for the next), and before the result is
+    built or written and before `Completed`, so url4's lifecycle publishes `Terminated(failed)`
+    with this code. The terminal frame is then what every reader settles from, R7 included, and
+    the run's summary line states `failed` too.
+    """
+    refusal = bound_refusal()
+    if refusal is not None:
+        raise SummaryRefusedError(refusal, subtree)
 
 
 def _failed_run_logs(capture: CaptureTally) -> list[Traced]:
@@ -934,8 +1011,12 @@ class Url4Executor(Executor):
         io_wrap: Callable[[IOLayer], IOLayer] | None = None,
         io_concurrency: int | None = None,
         run_shape: RunShape = "expression",
+        result_sink: ResultSink | None = None,
     ) -> None:
         self._io = io
+        # E5 P2 spec R5: a driver-started run's result also goes to the run-results store,
+        # before its frame. None for every other run, which writes exactly what it did.
+        self._result_sink = result_sink
         # FEATURE (uniform executor PRD 04): a `direct` run is a MOUNT CALL — its "expression"
         # is `<mount path>?<raw query>` and it runs ONE registered handler of the world node via
         # `url4.peer.dispatch_direct`, never a DAG (D1). Same lifecycle, same frames.
@@ -1006,6 +1087,9 @@ class Url4Executor(Executor):
         # no `ensure_stream`, so an attached client sees heartbeats forever and never a
         # Terminated. Resolving inside `execute` puts config and connect failures inside
         # `run`'s try, where they become Terminated(status="failed") with a real error code.
+        if self._result_sink is not None:
+            # R5: before the world, so before any model call is paid for.
+            await _check_sink(self._result_sink)
         await self._resolve_world()
         bridge = _Bridge(self._queue_cap, memory_budget=self._memory_budget)
         state = _RunState()
@@ -1023,8 +1107,10 @@ class Url4Executor(Executor):
             # A failed run states no cost and no cache counts: neither is exact, and a
             # partial figure would read as a complete one. The error code/type follow the
             # stream's own `_error_info` vocabulary (code, or None when the exception
-            # carries none).
-            self._record_summary("failed", trace, started, bridge, state, error=exc)
+            # carries none). The one exception is a run refused for its run summary: it made
+            # every call, so its cost is exact (OME-1988); its cache counts stay unstated.
+            spent = exc.subtree if isinstance(exc, SummaryRefusedError) else None
+            self._record_summary("failed", trace, started, bridge, state, subtree=spent, error=exc)
             raise
         finally:
             await self._aclose_world()
@@ -1107,6 +1193,9 @@ class Url4Executor(Executor):
                 raise
             for frame in _closing_logs(bridge, state.cache_counters, state.capture_tally):
                 yield frame
+            # WHY before the refusal (OME-1988): a refused run made and paid for every call.
+            subtree = state.build_subtree()
+            _refuse_an_unvouched_summary(subtree)
             # WHY to_thread: for a spilled result this hashes and writes up to hard_cap
             # bytes — synchronous disk work that would otherwise stall the very loop that
             # pumps heartbeats, letting a client declare a FINISHING run dead.
@@ -1118,8 +1207,8 @@ class Url4Executor(Executor):
                 store=self._artifact_store,
                 media_type=eval_result.media_type,
                 spool=bound_result_spool(),
+                sink=self._result_sink,
             )
-            subtree = state.build_subtree()
             # FEATURE (OME-1069): recorded BEFORE the Completed yield, because
             # `lifecycle.run` breaks out of its `async for` on Completed and never resumes
             # this generator — code after the yield would never run. The summary is the
@@ -1246,8 +1335,9 @@ class Url4Executor(Executor):
     ) -> None:
         """Record the run's process-level summary (OME-1069).
 
-        Exact-only, like the rest of the run's accounting: cost and cache counters are
-        stated only for a completed run — a failed run's figures are partial and must not
+        Exact-only, like the rest of the run's accounting: cost is stated only for a run that
+        made every call (``subtree``: a success, or a run refused for its run summary), and
+        cache counters only for a success — a failed run's figures are partial and must not
         read as exact. The error code/type follow the stream's own `_error_info`
         vocabulary.
         """
@@ -1261,7 +1351,7 @@ class Url4Executor(Executor):
             duration_s=time.monotonic() - started,
             cost_usd=subtree.cost.total_usd if subtree is not None else None,
             pricing_version=subtree.pricing_version if subtree is not None else None,
-            cache_attributes=_summary_attributes(state, outcome, succeeded=subtree is not None),
+            cache_attributes=_summary_attributes(state, outcome),
             dropped_logs=bridge.dropped,
             high_water=bridge.high_water,
         )

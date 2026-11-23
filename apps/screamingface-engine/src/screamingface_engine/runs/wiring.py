@@ -27,12 +27,18 @@ from fastapi import FastAPI
 from tortoise.connection import get_connection
 from tortoise.migrations.executor import MigrationExecutor
 
+from screamingface_engine.artifacts.run_results import RunResultStore
 from screamingface_engine.candidate_outcomes import CandidateOutcomeStream
+from screamingface_engine.catalog.admission import run_model_admission
 from screamingface_engine.config import Settings
+from screamingface_engine.ports import IdentityAwareJobRunner
 from screamingface_engine.runs import db
 from screamingface_engine.runs.consumer import DEFAULT_RETRY_S, OutcomeWriter
+from screamingface_engine.runs.driver import DriverSettings, RunDrivers
+from screamingface_engine.runs.sealing import EmailSeal, decode_key
 from screamingface_engine.runs.store import TortoiseRunStore
 from screamingface_engine.runs.sweeps import RunSweeper
+from url4.streaming.interfaces import EventConsumer, JobRunner
 
 logger = logging.getLogger(__name__)
 
@@ -142,12 +148,26 @@ async def open_run_store(
         raise
     return TortoiseRunStore(
         clock=clock,
-        pending_grace=timedelta(seconds=settings.run_pending_grace_s),
         lost_after=timedelta(seconds=settings.run_lost_after_s),
         outcomes_survive_restart=survives_restart,
         started_at=clock(),
+        orphan_grace=timedelta(seconds=settings.orphan_grace_s),
+        default_deadline=timedelta(seconds=settings.run_detached_deadline_s),
+        seal=email_seal(settings),
         context=context,
     )
+
+
+def email_seal(settings: Settings) -> EmailSeal:
+    """What seals each Run's owner email (spec R16): the configured key, or one made for this
+    process when there is none (local mode, which stores no email, and tests)."""
+    key = settings.run_email_key
+    if key is None:
+        return EmailSeal.for_process()
+    try:
+        return EmailSeal(decode_key(key.get_secret_value()))
+    except ValueError as exc:
+        raise RunsConfigError(f"URL4_CLOUD_RUN_EMAIL_KEY is not a usable key: {exc}") from None
 
 
 async def _require_a_reachable_database(url: str) -> None:
@@ -194,6 +214,9 @@ class _RunsLifecycle:
         url: str,
         local: bool,
         writer_retry_s: float,
+        job_runner: JobRunner | None = None,
+        events: EventConsumer | None = None,
+        run_results: RunResultStore | None = None,
     ) -> None:
         self._app = app
         self._settings = settings
@@ -201,6 +224,9 @@ class _RunsLifecycle:
         self._url = url
         self._local = local
         self._writer_retry_s = writer_retry_s
+        self._job_runner = job_runner
+        self._events = events
+        self._run_results = run_results
         self._local_lock: int | None = None
 
     async def start(self) -> None:
@@ -235,17 +261,37 @@ class _RunsLifecycle:
         loop = asyncio.get_running_loop()
         self._app.state.outcome_writer_task = loop.create_task(writer.run())
         sweeper = RunSweeper(
-            store, retention=timedelta(seconds=self._settings.run_retention_s), clock=_utc_now
+            store,
+            retention=timedelta(seconds=self._settings.run_retention_s),
+            clock=_utc_now,
+            results=self._run_results,
         )
-        # WHY awaited: Candidates the last process left, and expired Runs, are cleared before the
-        # App serves; the loop then sweeps every interval.
-        await sweeper.sweep_once()
+        # WHY awaited: the Candidates the last process left are settled before the App serves,
+        # and before the drivers start; the loop sweeps at once, and then every interval.
+        await sweeper.reconcile()
         self._app.state.run_sweep_task = loop.create_task(
-            sweeper.run(interval_s=self._settings.run_sweep_interval_s, sweep_first=False)
+            sweeper.run(interval_s=self._settings.run_sweep_interval_s)
         )
+        self._start_drivers(store, loop)
+
+    def _start_drivers(self, store: TortoiseRunStore, loop: asyncio.AbstractEventLoop) -> None:
+        """E5 P2 spec R1 to R4: drive every Run that has starts, after the first sweep, so the
+        Candidates the last process left are settled first."""
+        if not isinstance(self._job_runner, IdentityAwareJobRunner) or self._events is None:
+            return
+        drivers = RunDrivers(
+            store,
+            self._job_runner,
+            stream=self._events,
+            settings=DriverSettings.from_settings(self._settings, self._job_runner),
+            clock=_utc_now,
+            model_admission=run_model_admission(self._app.state),
+        )
+        self._app.state.run_drivers = drivers
+        self._app.state.run_driver_task = loop.create_task(drivers.run())
 
     async def _cancel_task(self, name: str) -> None:
-        task = getattr(self._app.state, name)
+        task = getattr(self._app.state, name, None)
         setattr(self._app.state, name, None)
         if task is None:
             return
@@ -260,8 +306,15 @@ class _RunsLifecycle:
     async def stop(self) -> None:
         """Release what `start` took, each step even when an earlier one fails."""
         try:
-            for name in ("run_sweep_task", "outcome_writer_task"):
+            # WHY the drivers before the writer: a driver settles Candidates and gives its leases
+            # up, both through the registry, which closes below.
+            for name in ("run_sweep_task", "run_driver_task"):
                 await self._cancel_task(name)
+            drivers = getattr(self._app.state, "run_drivers", None)
+            self._app.state.run_drivers = None
+            if drivers is not None:
+                await drivers.aclose()
+            await self._cancel_task("outcome_writer_task")
         finally:
             store = self._app.state.run_registry
             self._app.state.run_registry = None
@@ -284,15 +337,27 @@ def install_runs(
     *,
     local: bool,
     writer_retry_s: float = DEFAULT_RETRY_S,
+    job_runner: JobRunner | None = None,
+    events: EventConsumer | None = None,
+    run_results: RunResultStore | None = None,
 ) -> None:
     """Open the registry and start its writer with the App, and close both with it.
 
     `app.state.run_registry` is the store, or None while Runs are off; `/runs` (`rest.runs`)
     reads it per request.
+
+    With ``job_runner`` and ``events`` the App also drives every Run that has starts
+    (`app.state.run_drivers`, E5 P2 spec R1); ``run_results`` is the store the Run routes read
+    from, and, in a folder, the one retention removes old results from by age (R13). Without
+    them nothing is driven, as before.
     """
     app.state.run_registry = None
     app.state.outcome_writer_task = None
     app.state.run_sweep_task = None
+    app.state.run_drivers = None
+    app.state.run_driver_task = None
+    # Where the Run routes read results and contexts from (E5 P2 spec D9a, D9b).
+    app.state.run_results = run_results
     # Spec D6: a hosted Run belongs to the verified `X-User-Email`; local mode is single-user.
     app.state.runs_require_identity = not local
     url = local_database_url(settings) if local else settings.database_url
@@ -301,8 +366,24 @@ def install_runs(
             "URL4_CLOUD_DATABASE_URL is a SQLite URL; a hosted Engine needs Postgres, because a "
             "pod's SQLite file is wiped on every restart"
         )
+    if not local and url and settings.run_email_key is None:
+        # INVARIANT (spec R16): a hosted Run keeps its owner's email, so only ever sealed under a
+        # key that outlives this process; one made per process would strand every Run in flight
+        # at the next restart.
+        raise RunsConfigError(
+            "URL4_CLOUD_RUN_EMAIL_KEY is not set; a hosted Engine with Runs on seals each Run's "
+            "owner email with it (DEPLOYMENT.md: turn Runs on)"
+        )
     lifecycle = _RunsLifecycle(
-        app, settings, outcomes, url=url, local=local, writer_retry_s=writer_retry_s
+        app,
+        settings,
+        outcomes,
+        url=url,
+        local=local,
+        writer_retry_s=writer_retry_s,
+        job_runner=job_runner,
+        events=events,
+        run_results=run_results,
     )
     app.router.on_startup.append(lifecycle.start)
     app.router.on_shutdown.append(lifecycle.stop)

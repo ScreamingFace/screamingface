@@ -21,6 +21,7 @@ from typing import Any, NoReturn, cast
 import pytest
 from _combine_contract import engine_operators, read_contract, requires_engine_app
 from _nodes import FusionNode
+from _run_transport import ScriptedRun
 from test_consistency_contract_fixtures import BUILDERS
 from url4 import Binding, Expression, RelExpr, Source, Text, build, expr, render, src, text
 
@@ -339,18 +340,12 @@ _BAD_SAMPLES: dict[str, Callable[[dict[str, Any]], None]] = {
 }
 
 
-class _ForbiddenTransport:
+class _ForbiddenTransport(ScriptedRun):
     called = False
 
     def run(self, candidate: Candidate, on_event: object) -> NoReturn:
         self.called = True
         raise AssertionError("an unknown match operator must fail before execution")
-
-    def cancel_active(self) -> None:
-        pass
-
-    def close(self) -> None:
-        pass
 
 
 # --- CB#1: a url4 without consistency rebuilds as before (CHAR, list L5) ---

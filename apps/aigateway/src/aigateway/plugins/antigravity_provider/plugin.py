@@ -35,6 +35,7 @@ from aigateway.core.plugin_base import (
     ProviderPluginBase,
 )
 from aigateway.core.provider_error_text import credential_values, plugin_error_message
+from aigateway.core.upstream_attempts import PLUGIN_HTTP
 
 from .auth import AntigravityOAuth, exchange_authorization_code
 from .chat_handler import (
@@ -98,6 +99,7 @@ _INPUT_MODALITY_FAMILIES: tuple[tuple[str, tuple[InputModality, ...]], ...] = (
 
 class AntigravityProviderPlugin(ProviderPluginBase[AntigravityPluginSettings]):
     custom_llm_provider = "antigravity"
+    upstream_send_path = PLUGIN_HTTP
     provider_display_name = "Antigravity"
     settings_cls = AntigravityPluginSettings
 

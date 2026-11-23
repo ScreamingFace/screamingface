@@ -4,7 +4,8 @@ FEATURE: first-class Runs. Every producer publishes to the `CandidateOutcomeStre
 writer, in the App, calls `RunRegistry.settle`, so every database write stays in the App (spec D3).
 
 INVARIANT (spec R4): a delivery is acked only after its `settle` committed. An outcome whose write
-failed is not acked, and the stream delivers it again.
+failed is tried again in place, then, if it still fails, left unacked for the stream to deliver
+again.
 """
 
 from __future__ import annotations
@@ -20,7 +21,11 @@ from screamingface_engine.candidate_outcomes import CandidateOutcome, CandidateO
 logger = logging.getLogger(__name__)
 
 DEFAULT_RETRY_S = 5.0
-"""How long the writer waits before consuming again after a failed write or a broken stream."""
+"""How long the writer waits before writing an outcome again, or consuming again after a broken
+stream."""
+IN_PLACE_TRIES = 12
+"""How many times the writer tries one outcome before it consumes again (about a minute at the
+default `retry_s`)."""
 
 
 class _Settles(Protocol):
@@ -56,8 +61,29 @@ class OutcomeWriter:
         async with contextlib.aclosing(self._stream.consume()) as deliveries:
             async for delivery in deliveries:
                 # An unbound topic settles as a no-op (spec R3) and is acked like any other.
-                await self._registry.settle(delivery.topic, delivery.outcome)
+                await self._settle(delivery.topic, delivery.outcome)
                 await delivery.ack()
 
+    async def _settle(self, topic: str, outcome: CandidateOutcome) -> None:
+        """Write one outcome, trying it again in place before the consumer moves on.
 
-__all__ = ["DEFAULT_RETRY_S", "OutcomeWriter"]
+        WHY in place (#1759 review): a restarted consumer gets the later outcomes at once and
+        this one only after the stream's `ack_wait`, so a later outcome of the same topic could
+        commit first, and a Candidate's state is first-wins. WHY bounded: an outcome that can
+        never be written must not hold every other one back; past `IN_PLACE_TRIES` the consumer
+        restarts, as before.
+        """
+        for tries_left in range(IN_PLACE_TRIES - 1, -1, -1):
+            try:
+                await self._registry.settle(topic, outcome)
+                return
+            except Exception:
+                if not tries_left:
+                    raise
+                logger.warning(
+                    "could not write the outcome of %s; trying it again", topic, exc_info=True
+                )
+                await asyncio.sleep(self._retry_s)
+
+
+__all__ = ["DEFAULT_RETRY_S", "IN_PLACE_TRIES", "OutcomeWriter"]

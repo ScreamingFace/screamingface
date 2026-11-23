@@ -140,7 +140,8 @@ separately authorized qualification lane.
 2. Add `ClassifierEntry.input_contracts` and versioned `classifier-limits-v1`; preserve scalar catalog
    and classification body bytes.
 3. Add the bounded SystemOne choice codec under the remote-endpoint plugin; no arbitrary JSON,
-   fallback, redirects, cookies or request-side model binding.
+   fallback, redirects, cookies or request-side model binding. C7 pins its native request and
+   response checks, the target `limits` config and the limit refusal code before code.
 4. Add the outer pure-ASGI attempt-header middleware and count physical sends in transport request
    hooks, below overload policy and LiteLLM's hidden resend. Inventory and instrument every current
    inference transport family, not only LiteLLM and remote endpoints. The middleware sits immediately

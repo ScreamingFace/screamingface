@@ -25,11 +25,13 @@ import httpx
 from screamingface_engine import child_protocol, job_env
 from screamingface_engine.adapters.jetstream import JetStreamPublisher
 from screamingface_engine.artifacts import ArtifactWriter, StreamingArtifactWriter
+from screamingface_engine.artifacts.run_results import RunResultWriter
 from screamingface_engine.artifacts.spool import ResultSpool
-from screamingface_engine.artifacts.wiring import result_writer_from_env
+from screamingface_engine.artifacts.wiring import result_sink_from_env, result_writer_from_env
 from screamingface_engine.benchmarks import EMPTY_BENCHMARKS, BenchmarkRegistry
 from screamingface_engine.benchmarks.builtins import BUILTIN_BENCHMARKS
 from screamingface_engine.candidate_outcomes import CandidateOutcome
+from screamingface_engine.candidate_record import CandidateRecordFold, binding_record
 from screamingface_engine.client_provenance import (
     CLIENT_VERSION_ENV,
     ProvenanceExecutor,
@@ -185,7 +187,7 @@ def result_delivery_from_env(env: Mapping[str, str]) -> tuple[int, int, Artifact
 
 
 def result_spools(
-    store: ArtifactWriter | None, *, inline_cap: int, hard_cap: int
+    store: ArtifactWriter | StreamingArtifactWriter | None, *, inline_cap: int, hard_cap: int
 ) -> Callable[[], ResultSpool] | None:
     """Each run's result spool over the run's result store (memory fix 3, OME-1835).
 
@@ -268,6 +270,9 @@ class RunnerParams:
     nats_url: str
     deadline_s: float | None = None
     client_version: str | None = None
+    # Set only by the Engine's driver (E5 P2 spec D9a): the run reports its record, and writes
+    # its result under this prefix in the run-results store.
+    result_prefix: str | None = None
 
 
 def _deadline_from_env(environ: Mapping[str, str]) -> float | None:
@@ -304,6 +309,7 @@ def params_from_env(environ: Mapping[str, str]) -> RunnerParams:
         nats_url=environ.get(job_env.NATS_URL, job_env.DEFAULT_NATS_URL),
         deadline_s=_deadline_from_env(environ),
         client_version=valid_version(environ.get(CLIENT_VERSION_ENV)),
+        result_prefix=job_env.result_prefix_from_env(environ),
     )
 
 
@@ -511,6 +517,11 @@ def build_executor(
         )
 
     world_factory, scope_factory = _seeded_world(env, config, shared, _build)
+    result_sink = result_sink_from_env(env)
+    # WHY (E5 P2 spec D9a): a driver-started run's spilled result streams straight into its
+    # Candidate's prefix in the run-results store, the only place it is read from; any other run
+    # spills into the artifact store as before.
+    spill_into = artifact_store if result_sink is None else RunResultWriter(result_sink)
     return OperationCapturingExecutor(
         Url4Executor(
             world_factory=world_factory,
@@ -522,12 +533,13 @@ def build_executor(
             io_wrap=io_wrap,
             io_concurrency=None if io_wrap is not None else job_env.io_concurrency_from_env(env),
             run_shape=job_env.run_shape_from_env(env),
+            result_sink=result_sink,
         ),
         observers=observers,
         media_writer=artifact_store,
         # WHY local and not the artifact store: see `benchmarks.case_result_store`.
         case_results=new_case_result_store,
-        result_spools=result_spools(artifact_store, inline_cap=inline_cap, hard_cap=hard_cap),
+        result_spools=result_spools(spill_into, inline_cap=inline_cap, hard_cap=hard_cap),
     )
 
 
@@ -651,24 +663,36 @@ async def _run_and_log(
     # FEATURE (memory diagnostics, OME-1314): the process baseline before any work, and what it
     # holds at the end — inside `run_scope`, so both lines carry the run's topic and trace id.
     log_process_memory("run_start")
-    watch = SettlementWatch(publisher)
-    task = asyncio.ensure_future(
-        run(
-            watch,
-            ProvenanceExecutor(executor, params.client_version),
-            params.topic,
-            params.url4,
-            node=RUN_ROOT_NODE,
-            traceparent=traceparent,
-            deadline_s=params.deadline_s,
+    record = record_fold(params, traceparent)
+    watch = SettlementWatch(publisher, record=record)
+    # WHY bound around the task's creation: the run's executor reads the record's refusal of its
+    # run summary from the task's context (OME-1988).
+    with binding_record(record):
+        task = asyncio.ensure_future(
+            run(
+                watch,
+                ProvenanceExecutor(executor, params.client_version),
+                params.topic,
+                params.url4,
+                node=RUN_ROOT_NODE,
+                traceparent=traceparent,
+                deadline_s=params.deadline_s,
+            )
         )
-    )
     try:
         await task
     finally:
         _log_terminal(executor, params.topic, started)
         log_process_memory("run_end")
     return settlement_of(watch, task, cost_usd=_summary_cost(executor))
+
+
+def record_fold(params: RunnerParams, traceparent: str | None) -> CandidateRecordFold | None:
+    """The fold of a driver-started run's record (E5 P2 spec §4.3); None for any other run,
+    which nobody asks for one."""
+    if params.result_prefix is None:
+        return None
+    return CandidateRecordFold(params.url4, trace_id=parse_traceparent(traceparent))
 
 
 def _summary_cost(executor: object) -> Decimal | None:
@@ -875,8 +899,9 @@ async def _warm_process(environ: Any, stdin: Any) -> int:
 
 
 def _settled(outcome: CandidateOutcome) -> child_protocol.Settled:
+    record = None if outcome.record is None else dict(outcome.record)
     return child_protocol.Settled(
-        outcome.status, outcome.error_code, outcome.cost_usd, outcome.finished_at
+        outcome.status, outcome.error_code, outcome.cost_usd, outcome.finished_at, record
     )
 
 

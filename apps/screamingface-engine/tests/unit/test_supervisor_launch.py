@@ -187,9 +187,9 @@ async def test_an_unknown_spec_major_version_is_refused_with_its_code() -> None:
     publisher = _Publisher()
     launcher = _Launcher(_Proc(exit_after_s=0.0))
     worker = _worker(publisher, launcher)
-    msg = _Msg("t-v3")
+    msg = _Msg("t-v9")
     body = json.loads(msg.data)
-    body[job_env.SPEC_VERSION] = "3"
+    body[job_env.SPEC_VERSION] = "9"
     msg.data = json.dumps(body).encode()
     await worker._supervisor.supervise(msg)  # type: ignore[arg-type]
     assert [f.data.error.code for f in publisher.published] == ["unsupported_spec_version"]

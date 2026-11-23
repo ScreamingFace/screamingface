@@ -1,9 +1,9 @@
 ---
 ticket: OME-1976
 stack: repo
-status: in_progress   # planned | in_progress | done | blocked
+status: done
 started: 2026-11-16
-finished:
+finished: 2026-11-19
 ---
 
 # router-recipe-extension-spec — implementation spec and plan for the Router Recipe extension
@@ -55,9 +55,11 @@ approval-manifest or dependency change in this unit.
 - **Actual files:** six files under `docs/spec/2026-11-16-router-recipe-extension/`,
   `docs/plan/2026-11-16-router-recipe-extension.md`, this ledger and the
   `docs/tasks/2026-11-19-OME-1976-router-recipe-extension-spec.md` mirror.
-- **Commits:** one documentation commit on `OME-1976-router-recipe-extension-spec`, on top of
-  `e5bb820b2`. Code references stay checked at `31c1158e8`: the two later main commits are
-  docs-only and change no cited file.
+- **Commits:** `c403ebd33`, squash of
+  [PR #1957](https://github.com/ScreamingFace/screamingface/pull/1957) (branch
+  `OME-1976-router-recipe-extension-spec`, head `707195d2a` on `e5bb820b2`), merged 2026-11-19.
+  Code references stay checked at `31c1158e8`: the two later main commits are docs-only and
+  change no cited file.
 - **Gates:** fresh-base fast-forward through `9dc57358e` to `31c1158e8`; 149 code-reference
   occurrences checked (134 uniquely resolved plus 15 path-convention/pilot references); pilot/main
   overlap and three-way merge simulation; V1-V5 recomputation with real `resolved_params`; Markdown

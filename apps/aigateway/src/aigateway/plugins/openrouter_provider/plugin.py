@@ -47,6 +47,7 @@ from aigateway.core.standard_parameters import (
     direct_parameter_observations,
     tool_parameter_observations,
 )
+from aigateway.core.upstream_attempts import LITELLM_HTTP
 from aigateway.plugins.taxonomy import (
     CacheReference,
     ProviderUsageAccountingEvidence,
@@ -198,6 +199,7 @@ _STRIPPED_CALLER_HEADERS = frozenset(
 
 class OpenRouterProviderPlugin(ProviderPluginBase[OpenRouterPluginSettings]):
     custom_llm_provider = "openrouter"
+    upstream_send_path = LITELLM_HTTP
     provider_display_name = "OpenRouter"
     settings_cls = OpenRouterPluginSettings
 

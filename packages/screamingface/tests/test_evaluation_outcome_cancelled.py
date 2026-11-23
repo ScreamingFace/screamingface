@@ -16,9 +16,10 @@ from __future__ import annotations
 
 import asyncio
 import threading
-from typing import Any, cast
+from typing import Any
 
 import pytest
+from _run_transport import AsyncScriptedRun, ScriptedRun, settled_async, settled_sync
 from test_evaluation_outcome_abort import _AsyncScene, _Builtin, _started
 from test_live_candidate_progress import candidate
 
@@ -28,8 +29,6 @@ from screamingface._evaluation.model import Candidate
 from screamingface._evaluation.runner import (
     _abort_event_observer,
     _AsyncEventObserver,
-    _run_candidates_async,
-    _run_candidates_sync,
     _SyncEventObserver,
 )
 from screamingface.errors import ExecutionError
@@ -53,13 +52,11 @@ async def test_async_a_cancelled_callback_aborts_the_evaluation_at_once() -> Non
     scene = _AsyncScene("callback")
 
     with pytest.raises(asyncio.CancelledError) as caught:
-        await asyncio.wait_for(
-            _run_candidates_async(cast(Any, scene), candidates, observer), _LIMIT_S
-        )
+        await asyncio.wait_for(settled_async(scene, candidates, observer), _LIMIT_S)
     _abort_event_observer(observer, caught.value)
 
-    # INVARIANT: the owner sweep ran BEFORE the siblings were cancelled, and both siblings
-    # read as stopped — not running, and not failed.
+    # INVARIANT: the Run was canceled, and both siblings read as stopped — not running, and
+    # not failed.
     assert scene.swept.is_set()
     assert builtin.status()["b"] == "stopped"
     assert builtin.status()["c"] == "stopped"
@@ -72,7 +69,7 @@ async def test_async_a_run_that_ends_cancelled_by_itself_aborts_the_evaluation()
     builtin = _Builtin(candidates)
     swept = asyncio.Event()
 
-    class Transport:
+    class Transport(AsyncScriptedRun):
         async def run(self, selected: Candidate, on_event: Any) -> _RunOutcome:
             await on_event(_started(selected))
             if selected.name == "a":
@@ -81,54 +78,54 @@ async def test_async_a_run_that_ends_cancelled_by_itself_aborts_the_evaluation()
             await asyncio.Event().wait()  # `b` is held until it is cancelled
             raise AssertionError("unreachable")
 
-        async def cancel_active(self) -> None:
+        async def on_cancel(self) -> None:
             swept.set()
 
     observer = _AsyncEventObserver(builtin, None)
     with pytest.raises(asyncio.CancelledError):
-        await asyncio.wait_for(
-            _run_candidates_async(cast(Any, Transport()), candidates, observer), _LIMIT_S
-        )
+        await asyncio.wait_for(settled_async(Transport(), candidates, observer), _LIMIT_S)
 
     assert swept.is_set()
     assert builtin.status()["b"] == "stopped"
 
 
-class _SyncScene:
-    """`a` aborts through its callback; `b` is held until the sweep ends its stream."""
+class _SyncScene(ScriptedRun):
+    """`a` aborts through its callback; `b` is held until the cancel ends it."""
 
     def __init__(self) -> None:
+        super().__init__()
         self.b_started = threading.Event()
         self.swept = threading.Event()
 
     def run(self, selected: Candidate, on_event: Any) -> _RunOutcome:
         if selected.name == "a":
             assert self.b_started.wait(_LIMIT_S)
-            on_event(_started(selected))  # the caller's callback raises here
+            on_event(_started(selected))  # the caller's callback raises while this is shown
+            assert self.swept.wait(_LIMIT_S)
             raise AssertionError("unreachable")
         on_event(_started(selected))
         self.b_started.set()
         assert self.swept.wait(_LIMIT_S)
         raise ExecutionError("stream ended", code="websocket_disconnected")
 
-    def cancel_active(self) -> None:
+    def on_cancel(self) -> None:
         self.swept.set()
-        threading.Event().wait(0.05)  # `b` fails DURING the sweep
+        threading.Event().wait(0.05)  # `b` fails DURING the cancel
 
 
 @pytest.mark.parametrize("raised", [KeyboardInterrupt, SystemExit])
 def test_sync_a_callback_that_raises_a_base_exception_aborts_at_once(
     raised: type[BaseException],
 ) -> None:
-    # PIN, not a fix: a worker thread stores any BaseException on its future, so the sync
-    # twin's wait wakes at once. The async twin needed a fix; this keeps the twins equal.
+    # PIN, not a fix: the follow runs on the caller's thread, so the callback's BaseException
+    # ends it at once. The async twin needed a fix; this keeps the twins equal.
     candidates = (candidate("a"), candidate("b"))
     builtin = _Builtin(candidates)
     scene = _SyncScene()
     observer = _SyncEventObserver(builtin, _callback_raising(raised))
 
     with pytest.raises(raised) as caught:
-        _run_candidates_sync(cast(Any, scene), candidates, observer)
+        settled_sync(scene, candidates, observer)
     _abort_event_observer(observer, caught.value)
 
     assert scene.swept.is_set()

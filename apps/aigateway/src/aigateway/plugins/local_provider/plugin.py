@@ -6,6 +6,7 @@ import httpx
 from fastapi import HTTPException
 
 from aigateway.core.plugin_base import ModelDiscoverySource, ModelEntry, ProviderPluginBase
+from aigateway.core.upstream_attempts import PLUGIN_HTTP
 
 from .discovery import discover_local_models, upstream_model_id
 from .parameters import local_chat_parameter_observations, local_chat_parameter_rules
@@ -32,6 +33,7 @@ LOCAL_MODEL_SOURCE = ModelDiscoverySource(
 
 class LocalProviderPlugin(ProviderPluginBase[LocalPluginSettings]):
     custom_llm_provider = "local"
+    upstream_send_path = PLUGIN_HTTP
     provider_display_name = "Local"
     settings_cls = LocalPluginSettings
 

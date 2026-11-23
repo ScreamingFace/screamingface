@@ -59,6 +59,8 @@ _FINGERPRINTS: dict[str, str] = {
     # OME-1853: Pillow 13 re-encoded every picture of the three picture Benchmarks and pypdf
     # 6.21 re-extracted cyse4's report text, so their Cases and fingerprints moved; each
     # published id HELD by owner ruling 2026-11-09 (no official leaderboard runs on them yet).
+    # OME-1958 then moved all three for OME-1907's grading change; each old id spans both Case
+    # sets, so an entry from before OME-1853 misses its pinned cache and needs a fresh run.
     # mmmu_multiple_choice: published id 5b008891134ef4c1 (fingerprint was the same).
     "mmmu_multiple_choice": "c537e4e84ccb4d32",
     # mathvista: published id ca4cd0f692d18f0e (fingerprint was the same).
@@ -87,7 +89,8 @@ _FINGERPRINTS: dict[str, str] = {
     # also the id it publishes: no change since its id was last set. EXCEPT OME-1907: the 46
     # rows graded from option marks (inspect's choice, lab_bench, cyse4, bbh) and mathvista
     # moved with the wrapped-letter rule (an answer such as `ANSWER: $B` is read), a grading
-    # fix that keeps every Case, so each published id is HELD and only its literal moved here.
+    # fix that keeps every Case. #1783 held each published id; OME-1958 then moved each one to
+    # the fingerprint below (old ids in test_published_revisions.py), under the 2026-11-17 rule.
     "gsm8k": "7eebba58799a2f22",
     "mmlu": "e6a95e4c1f1ced71",
     "arc_easy": "e74d42010074448c",
