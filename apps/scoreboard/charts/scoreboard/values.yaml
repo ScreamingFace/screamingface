@@ -153,6 +153,8 @@ seedBenchmarks:
 # AIDEV-NOTE: the ids below are the 😱 SOTA pipeline's, read from HubSpot on 2026-11-19. Stages
 # are matched by id; Project completed, Publication and Dropped out are set by hand, and only
 # Dropped out needs naming (the sync never touches a card there).
+# AIDEV-NOTE: while this CronJob is enabled, do not also run `python -m scoreboard.hubspot_sync`
+# by hand without `--dry-run`: two simultaneous runs can create two cards for one new person.
 hubspotSync:
   enabled: false
   # INVARIANT: true by default, so switching the job on sends nothing until someone turns this

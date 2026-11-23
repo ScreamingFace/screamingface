@@ -3,6 +3,10 @@
 FEATURE: OME-1504 (spec docs/spec/2026-11-18-hubspot-submission-sync.md). Runs as a CronJob every
 few minutes: `python -m scoreboard.hubspot_sync [--dry-run]`.
 
+AIDEV-NOTE: do not run it by hand (without `--dry-run`) while the CronJob is enabled. Two runs at
+the same moment can both create a card for the same new person; the next run then sees two
+cards and stops at `ambiguous_card` until someone merges them in HubSpot.
+
 One run:
 1. Queue every score that has no `hubspot_sync` row yet. Ineligible ones (the team, anything that
    is not an email, private boards) are `skipped` with a reason and never looked at again. Each
