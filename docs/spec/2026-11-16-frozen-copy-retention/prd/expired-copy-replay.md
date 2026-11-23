@@ -1,7 +1,7 @@
 # PRD: a replay of an expired copy, and the public promise
 
 **Source:** ans:Q2, ans:Q8, ans:Q10, ans:Q22, ans:Q24, ans:Q32 · **Priority:** P1 (released
-with the expiry rule, 90 days before the first copy can expire)
+with the expiry rule, 30 days before the first copy can expire)
 **Lifecycle:** existing (characterize + delta) in `apps/aigateway`, `apps/screamingface-engine`,
 `public-docs`, `CONTEXT.md`
 **Owner:** unassigned
@@ -77,14 +77,14 @@ message and keeps the code. The docs, the glossary and the design record state t
   - Given the page "Caching", section "Reproducing a submission"
   - Then it no longer says "kept forever". It says, in the words of the docs: a pinned cache
     that a leaderboard score uses is kept for as long as the score exists on the board; a pinned
-    cache with no submitted score is deleted 90 days after it is sealed (a run seals its pinned
-    cache when it ends); for a pinned cache that was sealed before the rule started, the 90 days
+    cache with no submitted score is deleted 30 days after it is sealed (a run seals its pinned
+    cache when it ends); for a pinned cache that was sealed before the rule started, the 30 days
     count from the start of the rule; submit the score before that time; a replay of a deleted
     pinned cache fails with a message that says it expired.
   - And it gives no date for the start of the rule, and it names no release day and no person.
     The docs state the rule only. `[stated ans:Q32]`
   - And it says that the rule also applies to a local engine: a pinned cache in a local
-    gateway is deleted 90 days after it is sealed, because no score can use it there.
+    gateway is deleted 30 days after it is sealed, because no score can use it there.
     `[stated ans:Q22]`
   - And it says which submit is refused `[stated ans:Q10]`: a score can be submitted with a
     pinned cache only when the service holds that pinned cache complete. A run whose pinned
@@ -100,7 +100,7 @@ message and keeps the code. The docs, the glossary and the design record state t
   - Given `CONTEXT.md`, entry "Pinned Cache"
   - Then the first sentence does not say "permanent". Proposed text: "The record of every model
     answer and web-tool result of one captured run. It is kept while a Leaderboard Score names
-    it; if no Score names it, the AI gateway deletes it 90 days after it is sealed."
+    it; if no Score names it, the AI gateway deletes it 30 days after it is sealed."
 
 ### 3.2 Error paths
 
@@ -134,10 +134,10 @@ message and keeps the code. The docs, the glossary and the design record state t
     two codes of today
     `[existing apps/screamingface-engine/src/screamingface_engine/world/connector.py:1556-1558]`.
 - **R9. The docs are public before a copy can expire.** `[implied]` H×L Must
-  - Given pull request C1 is merged (the production release of C1 starts the 90-day clock of
+  - Given pull request C1 is merged (the production release of C1 starts the 30-day clock of
     the copies that exist, `erd.md` §5)
   - Then pull request C3, with the docs change of R2, is merged after C1 is merged. The first
-    copy cannot expire until 90 days after the production release of C1, so the docs are public
+    copy cannot expire until 30 days after the production release of C1, so the docs are public
     before the first expiry.
   - The docs give no date, and C3 is not tied to the day of a release. `[stated ans:Q32]`
   - No code waits for the docs. `[stated ans:Q22]` If the docs are late, the notice is shorter
@@ -172,9 +172,9 @@ message and keeps the code. The docs, the glossary and the design record state t
 
 | Id | Question | Answer |
 |---|---|---|
-| Q33 | Retention (2026-11-16) | Reverses E14 Q15. A copy that a Score claims is kept forever. A sealed copy with no claim is deleted 90 days after its clock starts. Spec: `docs/spec/2026-11-16-frozen-copy-retention`. |
+| Q33 | Retention (2026-11-16) | Reverses E14 Q15. A copy that a Score claims is kept forever. A sealed copy with no claim is deleted 30 days after its clock starts. Spec: `docs/spec/2026-11-16-frozen-copy-retention`. |
 | Q34 | Open copies (2026-11-16) | An open copy that gets no entry for 24 hours is abandoned, and its entries are deleted. A replay never read an open copy. |
-| Q35 | Clock of copies sealed before the rule (2026-11-16) | Their 90 days start when the rule goes live, not at their seal. The release writes that time into the database; no setting holds it. The public docs name no date. |
+| Q35 | Clock of copies sealed before the rule (2026-11-16) | Their 30 days start when the rule goes live, not at their seal. The release writes that time into the database; no setting holds it. The public docs name no date. |
 | Q36 | Notice to users (2026-11-16) | Public docs and the error message only. No SDK change. |
 
 ### 4.4 Observability

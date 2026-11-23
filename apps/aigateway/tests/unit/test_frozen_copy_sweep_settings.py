@@ -71,9 +71,9 @@ def test_the_lowest_legal_value_is_accepted(
 _TTL_NAME = "AIGW_FROZEN_COPY_UNCLAIMED_TTL_SECONDS"
 
 
-def test_the_unclaimed_ttl_has_a_default_of_90_days(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_unclaimed_ttl_has_a_default_of_30_days(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv(_TTL_NAME, raising=False)
-    assert _settings().frozen_copy_unclaimed_ttl_seconds == 7_776_000
+    assert _settings().frozen_copy_unclaimed_ttl_seconds == 2_592_000
 
 
 @pytest.mark.parametrize("value", ["0", "-1"])

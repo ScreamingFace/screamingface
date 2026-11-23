@@ -238,7 +238,7 @@ class Settings(BaseSettings):
         default=100_000, ge=1, validation_alias="AIGW_FROZEN_COPY_SWEEP_MAX_ENTRIES"
     )
     frozen_copy_unclaimed_ttl_seconds: int = Field(
-        default=7_776_000, gt=0, validation_alias="AIGW_FROZEN_COPY_UNCLAIMED_TTL_SECONDS"
+        default=2_592_000, gt=0, validation_alias="AIGW_FROZEN_COPY_UNCLAIMED_TTL_SECONDS"
     )
 
     # Admin cache-snapshot upload cap (OME-952): the COMPRESSED archive size accepted by

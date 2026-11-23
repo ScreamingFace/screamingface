@@ -24,7 +24,7 @@ from tests.unit.test_frozen_copy_support import (
 )
 from tests.unit.test_frozen_copy_sweep_support import make_entries, read_copy
 
-_TTL_S = 7_776_000
+_TTL_S = 2_592_000
 _TTL = timedelta(seconds=_TTL_S)
 _DAY = timedelta(days=1)
 _SECOND = timedelta(seconds=1)
@@ -212,9 +212,9 @@ def test_s35_a_dry_run_lists_an_expired_candidate_and_changes_nothing(
 ) -> None:
     owner = account_id_of(authenticated_client)
     a_id = seed_copy(authenticated_client, owner, make_entries(2))
-    _set_times(authenticated_client, a_id, sealed_at=_now() - 91 * _DAY)
+    _set_times(authenticated_client, a_id, sealed_at=_now() - 31 * _DAY)
     b_id = seed_copy(authenticated_client, owner, make_entries(1))
-    _set_times(authenticated_client, b_id, sealed_at=_now() - 80 * _DAY)
+    _set_times(authenticated_client, b_id, sealed_at=_now() - 20 * _DAY)
 
     def _state(copy_id: str) -> tuple[str, Any, Any, int]:
         copy = read_copy(authenticated_client, copy_id)

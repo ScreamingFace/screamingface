@@ -61,12 +61,12 @@ def _settings_from(data: dict[str, str], monkeypatch: pytest.MonkeyPatch) -> Set
     return Settings()
 
 
-def test_the_chart_default_is_90_days_and_reaches_the_settings(tmp_path, monkeypatch):
+def test_the_chart_default_is_30_days_and_reaches_the_settings(tmp_path, monkeypatch):
     data = _config_data(tmp_path)
-    assert data[_VAR] == "7776000"
+    assert data[_VAR] == "2592000"
 
     settings = _settings_from(data, monkeypatch)
-    assert settings.frozen_copy_unclaimed_ttl_seconds == 7776000
+    assert settings.frozen_copy_unclaimed_ttl_seconds == 2592000
 
 
 def test_a_value_from_a_values_file_reaches_the_settings(tmp_path, monkeypatch):
@@ -78,10 +78,10 @@ def test_a_value_from_a_values_file_reaches_the_settings(tmp_path, monkeypatch):
 
 
 def test_the_prod_values_keep_the_chart_default(tmp_path):
-    assert _config_data(tmp_path, prod=True)[_VAR] == "7776000"
+    assert _config_data(tmp_path, prod=True)[_VAR] == "2592000"
 
 
 def test_the_value_is_a_key_of_config_and_not_of_the_sweep_block():
     values = yaml.safe_load((_CHART / "values.yaml").read_text())
-    assert values["config"]["frozenCopyUnclaimedTtlSeconds"] == 7776000
+    assert values["config"]["frozenCopyUnclaimedTtlSeconds"] == 2592000
     assert "frozenCopyUnclaimedTtlSeconds" not in values["config"]["frozenCopySweep"]

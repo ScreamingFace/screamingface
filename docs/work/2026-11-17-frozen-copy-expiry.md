@@ -116,3 +116,13 @@ so. Owner decision 2026-11-23 (option A): keep the 410, the same answer as a rep
 route docstring, contracts K3 (route list, R-8), `prd/expired-copy-replay.md` (R-8),
 `DEPLOYMENT.md`. New test file `tests/unit/test_frozen_copy_provenance_expired.py` (expired →
 410 with no `X-AIGW-Replay`; abandoned → 404). No code path changed; no existing test changed.
+
+## Period change (2026-11-23)
+
+Owner decision (spec `00-overview.md` Q33), after the production baseline (§9.5): the period of an
+unclaimed sealed copy is 30 days, not 90. `AIGW_FROZEN_COPY_UNCLAIMED_TTL_SECONDS` defaults to
+2592000; the chart default, `DEPLOYMENT.md`, the chart README, the docstring of migration 0019 and
+the spec (`prd/copy-sweep.md`, `prd/expired-copy-replay.md`, `erd.md`, `test-plan.md`,
+`00-overview.md` §9.3, §9.5) follow. The chart render test of this unit pins the new default
+(the test file is new in this unit, so the append-only check does not apply). The plan for stack C
+keeps "90 days" as it was approved; the spec is the record.

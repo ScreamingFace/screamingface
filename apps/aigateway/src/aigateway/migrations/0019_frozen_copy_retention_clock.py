@@ -1,4 +1,4 @@
-"""The start of the 90-day clock of the frozen copies that are sealed when the expiry rule is
+"""The start of the 30-day clock of the frozen copies that are sealed when the expiry rule is
 released (OME-1947, spec ``erd.md`` section 5).
 
 UPGRADE. One nullable datetime column ``retention_from``, no default. Then one data step: one

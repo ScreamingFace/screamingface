@@ -826,10 +826,10 @@ copies that no run uses again. No user flow starts it. The spec is in
   A replay of an `abandoned` copy gets the `404` `frozen_copy_unavailable`, as for an `open` or
   unknown copy (`contracts.md` K3).
 - A `sealed` copy that no Score claims (`claimed_at` is empty) becomes `expired` when its period
-  ends. The period is `AIGW_FROZEN_COPY_UNCLAIMED_TTL_SECONDS` (default 90 days).
+  ends. The period is `AIGW_FROZEN_COPY_UNCLAIMED_TTL_SECONDS` (default 30 days).
 - The period starts at `retention_from` when it is set, else at `sealed_at`. Migration `0019` sets
   `retention_from` to the time of the migration for each copy that is `sealed` at that time. No
-  code writes `retention_from` after that. Thus the first copies expire 90 days after the release
+  code writes `retention_from` after that. Thus the first copies expire 30 days after the release
   of the expiry rule.
 - A claimed copy never expires. Under the row lock, the sweep checks again that the copy is
   `sealed`, has no claim, and is past its period. A claim that commits first wins.
@@ -867,7 +867,7 @@ copies that no run uses again. No user flow starts it. The spec is in
 | `AIGW_FROZEN_COPY_SWEEP_INTERVAL_SECONDS` | `config.frozenCopySweep.intervalSeconds` | `3600` | ≥ 60 | The time between two periodic runs. |
 | `AIGW_FROZEN_COPY_OPEN_IDLE_SECONDS` | `config.frozenCopySweep.openIdleSeconds` | `86400` | > 0 | The idle time. An `open` copy with no new entry for this time becomes `abandoned`. |
 | `AIGW_FROZEN_COPY_SWEEP_MAX_ENTRIES` | `config.frozenCopySweep.maxEntries` | `100000` | ≥ 1 | The budget: the most entries that one run deletes. |
-| `AIGW_FROZEN_COPY_UNCLAIMED_TTL_SECONDS` | `config.frozenCopyUnclaimedTtlSeconds` | `7776000` | > 0 | The period of a `sealed` copy that no Score claims. After this time, the copy becomes `expired`. |
+| `AIGW_FROZEN_COPY_UNCLAIMED_TTL_SECONDS` | `config.frozenCopyUnclaimedTtlSeconds` | `2592000` | > 0 | The period of a `sealed` copy that no Score claims. After this time, the copy becomes `expired`. |
 
 - If a value is outside its limit, the gateway does not start. The error names the setting.
 - **CAUTION:** Keep the idle time above the engine run deadline of 16 hours. A lower value
@@ -879,7 +879,7 @@ copies that no run uses again. No user flow starts it. The spec is in
 
   ```text
   frozen copy sweep armed (interval_s=3600, open_idle_s=86400, max_entries=100000)
-  frozen copy expiry armed (unclaimed_ttl_s=7776000)
+  frozen copy expiry armed (unclaimed_ttl_s=2592000)
   ```
 
 ### The command
@@ -898,7 +898,7 @@ kubectl exec -n <namespace> deploy/<release>-aigateway -- python -m aigateway.fr
 | `--run --max-entries <n>` | One full pass with a budget of `<n>` entries (1 or more) for this pass only. |
 
 - To see the copies that expire at a later time, give that time to `--cutoff` (for example, the
-  time of the release plus 90 days).
+  time of the release plus 30 days).
 - The command refuses `--run` together with `--cutoff`. It refuses `--max-entries` without
   `--run`.
 - For `--run`, give `-it` to `kubectl exec`. Then Ctrl-C stops the command in the pod. With no
@@ -978,7 +978,7 @@ endpoint and no alert. Use these log records.
      continues the purge.
 
 - `test-plan.md` section 5.3 has the release checks of the expiry rule (migration `0019`, the dry
-  run with `--cutoff`, the run log record after 90 days). Before the release of the expiry rule, do
+  run with `--cutoff`, the run log record after 30 days). Before the release of the expiry rule, do
   the checks 3 and 4 of section 5.2 in production.
 
 ### Rollback and restore

@@ -30,7 +30,7 @@ This spec changes three things:
 
 1. **Abandoned copies are deleted.** An open copy that gets no entry for 24 hours becomes
    `abandoned`. A background job in the gateway (the sweep) deletes its entries.
-2. **Copies with no Score expire.** A sealed copy that no Score claims becomes `expired` 90 days
+2. **Copies with no Score expire.** A sealed copy that no Score claims becomes `expired` 30 days
    after its clock starts. A copy that a Score claims is kept forever. The scoreboard claims the
    copy before it stores the Score. When it has a gateway URL, it stores a Score with a pinned
    cache only when the gateway confirms a sealed copy. At each start, the scoreboard also claims the copies of all
@@ -39,7 +39,7 @@ This spec changes three things:
    replay of an expired copy gets a clear message. The SDK does not change.
 
 The sweep and both rules are automatic. They have no switch, no date setting and no approval
-step `[stated ans:Q22]` `[stated ans:Q23]`. The 90-day clock of the copies that exist starts
+step `[stated ans:Q22]` `[stated ans:Q23]`. The 30-day clock of the copies that exist starts
 when the expiry rule is released; the release writes that time into the database
 `[stated ans:Q24]`.
 
@@ -96,8 +96,8 @@ A1 is the base of all stacks. B1 depends on A1 only. C1 depends on A2 (the sweep
 (the claim store method that S-14 uses).
 
 **Order rule.** C1 is released in production only after B2 and B3 run there, so that the
-copies of the Scores that exist have their claim before the 90-day clock starts. No code
-enforces this order `[stated ans:Q22]`. If the order is wrong, 90 days remain in which one
+copies of the Scores that exist have their claim before the 30-day clock starts. No code
+enforces this order `[stated ans:Q22]`. If the order is wrong, 30 days remain in which one
 start of a scoreboard with a gateway URL claims the copies (`test-plan.md` X15).
 
 **Merge rule.** C1 is not merged until steps 3 and 4 of §7.1 are done in production. Cause: a
@@ -198,6 +198,7 @@ record. This ledger does not use them.
 | Q30 | The second rule takes `sweep.py` above 450 lines. Move the rule classes, or keep one file? | "yes": C1 moves the rule classes to `core/frozen_copy/sweep_rules.py`; no file is above 450 lines | No behavior change. `prd/copy-sweep.md` §7.1 |
 | Q31 | Where does the start log show the 90-day setting? | "recommended": a second record, "frozen copy expiry armed (unclaimed_ttl_s=…)". The record of stack A, "frozen copy sweep armed (…)", does not change | No stack A test changes. Corrects the notes of S-32 and S-37. `prd/copy-sweep.md` §4.1 |
 | Q32 | Do the public docs name the date on which the rule starts? | "doesn't matter and shouldn't be in the docs": the docs state the rule only and give no date. A pinned cache with no submitted Score is deleted 90 days after it is sealed; for a cache sealed before the rule started, the 90 days count from the start of the rule. No person is named for a release day | Q7 and Q24 stay: the release still stamps the clock start in the database. C3 is merged after C1 is merged, not on a fixed day. `prd/expired-copy-replay.md` R2, R9; `test-plan.md` §5.3 (2) |
+| Q33 | 2026-11-23, after the production baseline (§9.5: the gateway database is 132 GB and grows about 12 GB each day): is 90 days still the period of an unclaimed sealed copy? | "30 days instead of 90" | **Changes Q2.** The default of `AIGW_FROZEN_COPY_UNCLAIMED_TTL_SECONDS` is 2592000. Q7, Q24 and Q32 stay: the release stamps the clock start, and for a copy sealed before the rule the 30 days count from the start of the rule. The public docs (C3) say 30 days. The text of Q2, Q7, Q15, Q17, Q24, Q25, Q31 and Q32 in this table keeps "90 days" as it was answered |
 
 ## 6. What stays `[proposed]`
 
@@ -232,7 +233,7 @@ No step needs an approval. `[stated ans:Q22]` `[stated ans:Q23]`
 | 3 | Test the claim route from a scoreboard pod (a random UUID must give 404 `frozen_copy_not_found`). Release B2 and B3 with the gateway URL and actor. At start, each scoreboard pod claims the copies of all Scores. | `test-plan.md` §5.2 (1, 2) |
 | 4 | Verify the claims: the summary record of the pass, and the SQL check that each copy of a Score is `sealed` and claimed. Give the list of exceptions to the owner for information `[stated ans:Q20]`. | `test-plan.md` §5.2 (3 to 6) |
 | 5 | Merge C1 (not before step 4 is done: the merge rule of §2) and release it; migration 0019 stamps the clock. Release C2. Merge C3 after C1 is merged; the docs give no date `[stated ans:Q32]`. | `test-plan.md` §5.3 (1 to 3) |
-| 6 | 90 days after step 5, the first copies expire with no further action. | The run log record shows the count; `test-plan.md` §5.3 (4) |
+| 6 | 30 days after step 5, the first copies expire with no further action. | The run log record shows the count; `test-plan.md` §5.3 (4) |
 
 Step 1 needs no other step. It can be released as soon as stack A is merged.
 
@@ -246,7 +247,7 @@ code enforces the two rules.
 - A new scoreboard with no gateway URL: it works as today, and makes no claim
   (`prd/score-claim.md` C9, C22).
 - A new gateway with an old scoreboard: no copy is claimed. Before C1 this has no effect,
-  because the gateway has no expiry rule. After C1, 90 days remain until the first expiry
+  because the gateway has no expiry rule. After C1, 30 days remain until the first expiry
   (`test-plan.md` X15).
 - After step 3, the user-visible change of Q10 is live: a submit with a pinned cache that is
   not a sealed copy gets 422.
@@ -264,7 +265,7 @@ code enforces the two rules.
   A, and `AIGW_FROZEN_COPY_UNCLAIMED_TTL_SECONDS` comes with C1. No switch and no date.
   `[stated ans:Q22]` In a chart template, a number goes through `int64` before `quote`: Helm
   renders a number of 1 000 000 or more from a values file as `1e+06`, and the gateway refuses
-  that text. The default period (7 776 000) is such a number.
+  that text. The default period (2 592 000) is such a number.
 - Gateway NetworkPolicy: one `allowFrom` element for the scoreboard pods (`contracts.md` K4).
 - Gateway claim networks: set `AIGW_FROZEN_COPY_CLAIM_NETWORKS` to the address range of the
   scoreboard pods. Do not add that range to `AIGW_ALLOWED_NETWORKS`: a peer there may name any
@@ -334,20 +335,19 @@ This was the week with the highest use until now. Read the forecast as an upper 
 
 ### 9.3 Forecast with the rules of this spec
 
+The forecast of 2026-11-16 below assumed a 90-day period and the rates of §9.2. Both changed on
+2026-11-23: the period is 30 days (Q33), and the growth is about 4 times faster (§9.5).
+
 - **Abandoned copies:** about 16 GB of the table is, or becomes, free space inside the table
   (§9.4). The size on disk does not go down; new entries use the free space.
-- **From then until the first expiry:** the used data grows about 1.3 GB each day (claimed
-  copies and unclaimed sealed copies). No sealed copy can expire before the release of C1
-  + 90 days.
-- **Example:** if C1 is released on 2026-12-01, the first expiry is on 2027-03-01. At the
-  rate of §9.2, the used data on that day is about 160 GB. On that day the copies sealed before
-  the release expire together (about 18 GB), with no approval step.
-- **After that:** unclaimed sealed copies stay at about 50 GB (90 days × 0.55 GB). Claimed
-  copies grow about 0.75 GB each day, about 270 GB each year, with no limit. `[stated ans:Q4]`
-- **What this means:** the removal of abandoned copies gives the gain now. The 90-day rule puts
-  a limit on one class but does not reduce the disk in the next months. The class with no limit
-  is the claimed copies. A decision on object storage or a shorter period can become necessary
-  when the provisioned storage is known (§7.3).
+- **From then until the first expiry:** no sealed copy can expire before the release of C1
+  + 30 days.
+- **Example:** if C1 is released on 2026-12-01, the first expiry is on 2026-12-31. On that day the
+  copies sealed before the release expire together, with no approval step.
+- **After that:** unclaimed sealed copies stay at about 30 days of their rate (about 17 GB at the
+  rate of §9.2). Claimed copies grow with no limit. `[stated ans:Q4]`
+- **What this means:** the removal of abandoned copies gives the gain now. The 30-day rule puts
+  a limit on one class. The class with no limit is the claimed copies (OME-2003).
 
 ### 9.4 Manual cleanup of 2026-11-16
 
@@ -377,6 +377,20 @@ because the access window was short.
 Because of this cleanup, the first automatic run after the release of stack A (§7.1, step 1)
 marks only the copies that the manual cleanup did not delete, and those that were abandoned
 after 2026-11-16.
+
+### 9.5 Baseline of 2026-11-23 (production, read-only)
+
+- `aigateway` database 132 GB (47 GB on 2026-11-16), about 12 GB each day.
+  `frozen_copy_entries` 122 GB, about 3.17 million entries (estimate).
+- `frozen_copies`: 496 open (486 with no entry for 24 hours: the first run of the sweep marks
+  them) and 26 430 sealed.
+- Entries by class (from the `entries` column, by count, not bytes): copies that a Score names
+  (667 copies) 1.47 million, 46%; sealed copies with no Score (25 763) 1.01 million, 32%; open
+  copies about 0.69 million, 22%.
+- The scoreboard has 713 Scores; 667 name a copy. Each of the 667 copies exists in the gateway and
+  is `sealed`, so check 4 of `test-plan.md` §5.2 has no exception today.
+- Owner decision on this baseline: the period is 30 days (Q33). A ticket for the claimed copies,
+  which no rule removes: OME-2003.
 
 ## 10. Assumptions
 
@@ -424,7 +438,7 @@ this version:
 different way from the reviews, and the owner accepted the cost:
 
 - **Q17, claim at submit only.** Review 1 named this as a blocker: if the claim path stops with
-  no signal, the copies of Scores stored in that time expire 90 days later. Both reviews
+  no signal, the copies of Scores stored in that time expire 30 days later. Both reviews
   proposed a daily job with an interlock. The owner selected the simpler design. What remains
   as protection: the submit fails closed (Q9), a Score is stored only with a confirmed sealed
   copy (Q10), the expiry switch is set only after a check of each Score id (Q15,
@@ -458,7 +472,7 @@ decided Q22 to Q25 (§5.3). The sweep and both rules are now the only behavior.
   - *The first expiry has no approval.* This is the owner's decision. The guards that remain:
     the scoreboard claims a copy before it stores a Score (Q9, Q10); the scoreboard claims
     the copies of all stored Scores at each start (Q25); stack B is released before C1 (the
-    order rule of §2, not enforced by code); 90 days pass between the release of C1 and the
+    order rule of §2, not enforced by code); 30 days pass between the release of C1 and the
     first expiry; each run writes one log record with its counts (Q16).
 - **Q25 changes Q17.** For the risk that review 1 named for Q17 (a claim path that stops with
   no signal), a claim pass at the next start of the scoreboard is now the repair. Until that
