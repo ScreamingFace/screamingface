@@ -475,7 +475,7 @@ the code and a generic message, never the token, signature or which component mi
 | `x.peer_request_in_progress`, `x.peer_outcome_unknown`, `x.peer_idempotency_conflict` | receiving node | — | — | reserved; defined by the paid-execution spec (§5.9) |
 | `x.peer_nested_call_refused` | the node hosting the delegated run | 422 | permanent | §5.10, §6 step 2: a remote call from inside a delegated run; before any I/O and before the generic gates |
 | `x.peer_signing_unconfigured` | calling node | 500 | permanent | caller has a configured peer but no signing key; before any I/O |
-| `x.remote_node_unsupported` / `x.remote_blob_unsupported` | calling node resolver | 422 | permanent | unchanged from #1450: the target authority is not a configured outbound peer (or the feature is off); for C6 also paid execution not implemented (§6 step 5), before any I/O; or a 404 from exactly `/url4/peer/v1` on a sent request (peer not ready, §6), not retried |
+| `x.remote_node_unsupported` / `x.remote_blob_unsupported` | calling node resolver | 422 | permanent | unchanged from #1450: the target authority is not a configured outbound peer (or the feature is off); for C6 also paid execution not implemented (§6 step 5), before any I/O; or, on a sent request, a 404 without a valid url4 envelope (peer not ready, §6), not retried |
 | `x.source_destination_blocked` | #1521 guard | 422 | permanent | unchanged, plus a redirect on a peer request (§5.3) |
 
 This closes #1450 §4's "remote-node authentication failure has no v1 owner".
