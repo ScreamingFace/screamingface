@@ -810,6 +810,26 @@ become blockers merely because a stronger test is possible.
   and were flattened on owner request, PRs #1004/#1005, 2026-09-22). Flag a class-based
   NEW test file as Minor. Never retro-flag existing class-style files or ask for a
   drive-by flatten of code the diff didn't touch.
+- **A rule that counts, stops or refuses is tested on every kind of Candidate, not only the
+  kind the author tested.** When a PR adds such a rule, do two things before grading it:
+  1. Ask: "can the thing this rule watches fail while the Case still passes?" For a failed
+     model call the answer is yes, in at least these ways: an optional Fusion member or any
+     other `;optional` source (`packages/url4/src/url4/dag/nodes/guard.py` turns its failure
+     into a value the group tolerates), a quorum panel, a fallback Gate (the first model did
+     not answer, so another recipe answers: `world/branch.py`), a recipe that collects its own
+     row errors (`on_error=collect|skip`), a retry, and a reply served from the cache.
+  2. Test the rule once per way, and put the list in the review as a table with one of three
+     marks per row: ran it, only read the code, did not check. Do not stop at the first way
+     that breaks; the others usually share its cause, and the fix must cover all of them.
+
+  Worked example, [#2002](https://github.com/ScreamingFace/screamingface/pull/2002)
+  (OME-1989): the new rule stopped a run when a Candidate model call was refused. That is
+  right for a solo model, where a refused call is a failed Case. A quorum Fusion (three
+  members, `quorum=2`, the third optional) whose optional member was out of credits scored
+  1.0 on main and ended `provider_key_refused` on the PR, though every Case would have passed.
+  All 13 of the author's tests used a solo model, so every test was green. The review found
+  the quorum case, stopped looking, and listed the fallback Gate and row-policy cases only
+  after the owner asked "have you checked all use cases?".
 
 ---
 
