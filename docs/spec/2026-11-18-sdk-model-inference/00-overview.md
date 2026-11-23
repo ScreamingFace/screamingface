@@ -1,36 +1,41 @@
-# SDK model inference — `sf.InferenceClient` — overview
+# SDK model inference — `recipe.chat` and `client.chat` — overview
 
 Status: APPROVED by the owner on 2026-11-18 ("spec approved"), after one independent review (§8).
-Amended on 2026-11-23 after the team review: the class name and the call path (§5.4, D11, D12). Base branch: PR #1937
+Amended on 2026-11-23 after the team review: the class name and the call path (§5.4, D11, D12).
+Amended again on 2026-11-23 by the owner: no new class; `chat` is on each recipe and on each client (§5.5, D13 to D17). §5.5 replaces D12. Base branch: PR #1937
 (`OME-1963-engine-openai-chat-endpoint`); work branch: `engine-openai-chat-endpoint-variant`.
 Parent epic: `OME-1297` (E8). The Linear issue is filed at PR-open.
 
 ## 1. Summary
 
-The ScreamingFace SDK (`packages/screamingface`) gets one public class, `sf.InferenceClient`. A
-user gives it an ensemble that was made with the SDK (a `Model`, a Fusion, a Pipeline, a Gate, a
-Cascade), and then calls `.chat.completions.create(...)`, as with the OpenAI SDK or LiteLLM. The call goes
-to the Engine route `POST /v1/chat/completions` of PR #1937 and gives a reply with the field
-names of the OpenAI chat-completion object.
+A user of the ScreamingFace SDK (`packages/screamingface`) calls an ensemble as a chat model, with
+the call path of the OpenAI SDK, and makes no new object for it (§5.5). Each recipe (a `Model`, a
+Fusion, a Pipeline, a Gate, a Cascade) has `.chat.completions.create(...)`. Each client
+(`sf.Client`, `sf.AsyncClient`) has the same path with `model=`, and the module `sf.chat` is its
+twin for the default client. The call goes to the Engine route `POST /v1/chat/completions` of
+PR #1937 and gives a reply with the field names of the OpenAI chat-completion object.
 
 ```python
 import screamingface as sf
 
 ensemble = sf.Fanout(["openrouter/a", "openrouter/b"]) >> sf.Synthesize("openrouter/c")
 
-llm = sf.InferenceClient(ensemble)
-reply = llm.chat.completions.create("What is the capital of France?")
+# 1. On the ensemble (the default client, sync)
+reply = ensemble.chat.completions.create("What is the capital of France?")
 reply.text                              # short form
 reply.choices[0].message.content        # OpenAI field names
 reply.usage.prompt_tokens, reply.cost_usd
+for chunk in ensemble.chat.completions.create("...", stream=True): ...
+endpoint = ensemble.chat.endpoint()     # base_url, model, headers for the OpenAI client or LiteLLM
 
-reply = llm.chat.completions.create(messages=[...], tools=[...])
-for chunk in llm.chat.completions.create("...", stream=True): ...
+# 2. On a client: the OpenAI form, and the async form
+client = sf.Client()                    # before: openai.OpenAI()
+reply = client.chat.completions.create(model=ensemble, messages=[...], tools=[...])
+aclient = sf.AsyncClient()              # before: openai.AsyncOpenAI()
+reply = await aclient.chat.completions.create(model=ensemble, messages=[...])
 
-allm = sf.InferenceClient(ensemble, client=sf.AsyncClient())
-reply = await allm.chat.completions.create("Hello")
-
-endpoint = llm.endpoint()               # base_url, model, headers for the OpenAI client or LiteLLM
+# 3. The module twin of the default client
+reply = sf.chat.completions.create(model="openrouter/a", messages=[...])
 ```
 
 ## 2. Source tags
@@ -134,7 +139,7 @@ apply the items that are correct.
 | Id | Decision | Tag |
 |---|---|---|
 | D11 | The call path is `client.chat.completions.create(...)`, the path of the OpenAI SDK (and of the OpenAI alias of the HF `InferenceClient`). There is no `chat.complete` and no alias: the class is not released yet | [stated F2] |
-| D12 | The class is `sf.InferenceClient(model=None, *, client=None)`. `model` is optional. `create(model=...)` and `endpoint(model=...)` take a model for one call, which replaces the model of the client for that call. With no model on the call and none on the client, the call raises `TypeError` before a request. So OpenAI code needs a change only in the line that makes the client | [stated F1] [stated F2], mechanism [proposed] |
+| D12 | **Replaced by D13 to D16 (§5.5).** The class is `sf.InferenceClient(model=None, *, client=None)`. `model` is optional. `create(model=...)` and `endpoint(model=...)` take a model for one call, which replaces the model of the client for that call. With no model on the call and none on the client, the call raises `TypeError` before a request. So OpenAI code needs a change only in the line that makes the client | [stated F1] [stated F2], mechanism [proposed] |
 
 Why `InferenceClient`, and not the other names:
 
@@ -163,6 +168,47 @@ uses, so it does not stop a drop-in change):
 - Not in this change (possible later): `timeout` and `max_retries` on the constructor, as on the
   OpenAI client; `extra_headers`, `extra_query` and `extra_body` on the call (today they give
   `TypeError`, because the parameter list of P4 is the list of the Engine).
+
+### 5.5 Owner change (2026-11-23): no new class, `chat` on the recipe and on the client
+
+After D11 and D12 were built, the owner asked for a simpler use (verbatim): "What if, instead of
+creating new Objects explicitly. What if any model/ensemble already had the `.chat.completions`
+method embedded as a method in the screamingface sdk, in a way which the user doesn`t need to
+create new objects or handle new varaibles by himself, and just use the method in a very
+transparent way." I examined the code and proposed the design below. The owner answered: "let`s do
+exactly as you recommend".
+
+Facts of the code that the design uses:
+
+- Each ensemble type is a subclass of one base class `[existing S/recipe.py:35]`. The subclasses are
+  frozen dataclasses with slots, so a property on the base needs no storage.
+- The SDK has one pattern for a capability: a namespace on the client (`client.models`,
+  `client.benchmarks`, ...) with an async twin on `sf.AsyncClient`
+  `[existing S/client.py:115]`, and a module twin that calls the default client
+  `[existing S/models.py]`. `sf.InferenceClient` was outside this pattern: a third object that
+  used four private members of the client.
+- A value object that makes calls exists already: `Run.refresh()` and `Run.wait()`
+  `[existing S/runs.py:102]`.
+
+| Id | Decision | Tag |
+|---|---|---|
+| D13 | `sf.Client` and `sf.AsyncClient` get the namespace `chat`: `client.chat.completions.create(model=..., ...)` and `client.chat.endpoint(model)`. `model` is a required keyword of `create`. The sync namespace and the async namespace are two plain classes, as `Models` and `AsyncModels`. The mode follows the client, as in D7 | [stated owner 2026-11-23] |
+| D14 | Each recipe has the property `chat`: `recipe.chat.completions.create(...)` (no `model` parameter) and `recipe.chat.endpoint()`. It uses the default client at each call, so it is sync only, as `sf.evaluate`. An async caller uses `aclient.chat.completions.create(model=recipe, ...)` | [stated owner 2026-11-23] |
+| D15 | The module `sf.chat` is the twin of `client.chat` for the default client: `sf.chat.completions.create(model=..., ...)` and `sf.chat.endpoint(model)` | [stated owner 2026-11-23] |
+| D16 | `sf.InferenceClient` is removed with no alias (it was not released). D12 is replaced. D11 (the call path `chat.completions.create`) stays. The reply types, the stream types, `InferenceEndpoint`, the errors, the warning, the wire contract C2 and the Engine do not change | [stated owner 2026-11-23] |
+| D17 | `sf.Url4` gets no `chat` property in this change. URL4 text and a gateway model id go through `client.chat` or `sf.chat` as `model=` | [stated owner 2026-11-23] |
+
+Trade-offs that the owner accepted:
+
+- A recipe is no longer only a description: `recipe.chat` makes a paid call through the default
+  client.
+- A recipe that the chat route cannot run (a corrective loop) is refused by `create()`, not by a
+  constructor. This is still before a request.
+- A step that is not a recipe (`sf.Fanout([...])` alone) has no `chat`.
+- `sf.Model("id").chat` runs the Candidate recipe of that model (with the default Candidate
+  prompt). `client.chat.completions.create(model="id")` sends the id with no change.
+
+The contracts are in `contracts.md` C1 (rewritten). The tests are MI-36 to MI-39 in `test-plan.md`.
 
 ### 5.3 Not in this work
 

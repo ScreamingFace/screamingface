@@ -52,6 +52,7 @@
 | Always streamed on the wire (ans:Q5) | MI-6, MI-4, SE-5 |
 | One method name; the mode follows the client (ans:Q7) | MI-1, MI-22, EB-5 |
 | `sf.InferenceClient` and the OpenAI path `chat.completions.create`; `model` on the client or on each call (D11, D12; team review 2026-11-23) | MI-32 (the path), MI-33 (the model of a call, sync and async), MI-34 (no model: `TypeError` before a request), MI-35 (`endpoint(model=...)`) — `tests/test_model_inference_openai_shape.py` |
+| No new class: `chat` on each recipe, on each client and as the module `sf.chat` (D13 to D17; owner change 2026-11-23). MI-32 to MI-35 are rewritten for these surfaces | MI-36 (`recipe.chat`: each recipe type has it; the access sends no request; a call sends the compiled URL4 through the default client and follows `sf.configure`; stream; `endpoint()`; the warning names the line of the caller; a corrective loop is refused by `create`; a lone step has no `chat`), MI-37 (`client.chat` and `aclient.chat`: `model` is a required keyword; the model rules at each call), MI-38 (`sf.chat` goes to the default client), MI-39 (`sf.InferenceClient` is not a name; the snapshot has `chat` on the clients and on each recipe class) — `tests/test_model_inference_recipe_chat.py`, `tests/test_model_inference_openai_shape.py`, `tests/test_model_inference_module_chat.py`, `tests/test_model_inference_public_surface.py` |
 
 ## 5. Existing tests
 

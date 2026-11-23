@@ -2,46 +2,78 @@
 
 One section for each connection of the inventory. Tags as in `00-overview.md` §2.
 
-## C1 — caller → `sf.InferenceClient` (Python API)
+## C1 — caller → `recipe.chat`, `client.chat` and `sf.chat` (Python API)
 
-### C1.1 Constructor
+Rewritten on 2026-11-23 for D13 to D17 (overview §5.5). There is no `sf.InferenceClient`.
+
+### C1.1 The three surfaces
 
 ```python
-class InferenceClient[ClientT: (Client, AsyncClient)]:
-    @overload
-    def __init__(self: "InferenceClient[Client]", model: Recipe | Url4 | str | None = None, *, client: Client | None = None) -> None: ...
-    @overload
-    def __init__(self: "InferenceClient[AsyncClient]", model: Recipe | Url4 | str | None = None, *, client: AsyncClient) -> None: ...
-    chat: Chat[ClientT]            # chat.completions: Completions[ClientT] (D11)
-    def endpoint(self, model: Recipe | Url4 | str | None = None): ...   # InferenceEndpoint, or an awaitable of it with an AsyncClient
+# S/inference.py: the namespaces of the clients. They are not top-level names of the package.
+class Completions:                                   # sf.Client().chat.completions
+    def create(self, prompt: str | None = None, *, model: Recipe | Url4 | str, ...): ...   # C1.2
+class Chat:                                          # sf.Client().chat
+    completions: Completions
+    def endpoint(self, model: Recipe | Url4 | str) -> InferenceEndpoint: ...               # C1.5
+class AsyncCompletions:                              # sf.AsyncClient().chat.completions
+    def create(self, prompt: str | None = None, *, model: Recipe | Url4 | str, ...): ...   # a coroutine
+class AsyncChat:                                     # sf.AsyncClient().chat
+    completions: AsyncCompletions
+    def endpoint(self, model: Recipe | Url4 | str): ...                                    # a coroutine
+
+# recipe.chat: bound to one recipe, through the default client (sync)
+class RecipeCompletions:
+    def create(self, prompt: str | None = None, *, messages=None, tools=None, ...): ...    # no model
+class RecipeChat:
+    completions: RecipeCompletions
+    def endpoint(self) -> InferenceEndpoint: ...
+
+class Recipe(_Chainable, ABC):                       # S/recipe.py
+    @property
+    def chat(self) -> RecipeChat: ...
+
+# S/chat.py: the module twin, sf.chat
+completions                                          # .create(prompt=None, *, model, ...) as Completions
+def endpoint(model: Recipe | Url4 | str) -> InferenceEndpoint: ...
 ```
 
-- `model` `[proposed P1]`, optional `[stated F2]` (D12). With no model, each call gives one with
-  `create(model=...)`; a call with no model and no model on the client raises `TypeError` before
-  a request. A model on the call replaces the model of the client for that call only, and follows
-  the same rules:
+- **`client.chat`** `[stated D13]`. `sf.Client` and `sf.AsyncClient` set the attribute `chat` in
+  their constructor, next to `models` and `benchmarks` `[existing S/client.py:115]`. The
+  namespace keeps its client and no other state. More than one thread or task can use it at one
+  time. An `AsyncClient` belongs to one event loop `[implied]`.
+- **`recipe.chat`** `[stated D14]`. A property of `Recipe`, so each recipe type has it
+  (`sf.Model`, a Fusion, a Pipeline, a Gate, a Cascade, `WithBudget`, the corrective loops).
+  - Each access gives a new small object that keeps only the recipe. The access compiles
+    nothing, sends no request and raises nothing.
+  - Each call takes `default_client()` at that time, as `sf.classify` does, so `sf.configure()`
+    and `sf.close()` work as for each other module call `[existing S/_default_client.py:75]`.
+  - It is sync only. For async, use `aclient.chat.completions.create(model=recipe, ...)`.
+  - A step that is not a recipe (`sf.Fanout([...])` alone, `sf.Synthesize(...)` alone) has no
+    `chat`. `sf.Url4` has no `chat` `[stated D17]`.
+- **`sf.chat`** `[stated D15]`. A module, as `sf.models` `[existing S/models.py]`. Each call
+  goes to `default_client().chat`. It is sync only.
+- **`model`** `[proposed P1]`. A required keyword of `create` on `client.chat` and `sf.chat`
+  (Python raises `TypeError` when it is missing), and the argument of `endpoint`. On
+  `recipe.chat` the model is the recipe. The rules, checked at each call before a request and
+  before a coroutine exists:
   - a `Recipe` (`sf.Model`, a Fusion, a Pipeline, a Gate, a Cascade, ...) `[stated ans:Q1]`;
   - a `sf.Url4`, or a string that starts with `(` after white space: URL4 text. Candidate URL4
     text is sent with no change. From an evaluation URL4 the SDK takes the `candidate` source
     `[proposed P14]`; an evaluation URL4 with no such source gives `PlanningError`;
   - each other string: a gateway model id, sent with no change.
   - Each other type: `TypeError`. An empty or blank string: `ValueError`.
-- `client`: with no value, the object uses the default client of the SDK (sync). It takes
-  `default_client()` at each call, as `sf.classify` does, so `sf.configure()` and `sf.close()`
-  work as for each other module call `[existing S/_default_client.py:173]`. An `AsyncClient`
-  selects the async mode `[stated ans:Q7]`. Each other type: `TypeError`.
-- The constructor sends no request `[proposed P2]`.
-  - A recipe that needs no operator catalogue is compiled in the constructor and the text is
-    kept (it cannot change).
-  - A recipe with a reducer: the constructor does the shape checks that need no catalogue; the
-    text is compiled at each call with the catalogue that the client keeps
-    `[existing S/_engine/catalog.py:402]`. So the object has no state that a call changes.
+- No surface sends a request before `create` or `endpoint` is called `[proposed P2]`. A recipe
+  is compiled at each call. A recipe with a reducer is compiled with the operator catalogue that
+  the client keeps `[existing S/_engine/catalog.py:402]`.
 - Recipe errors `[proposed P17]`: a corrective loop (`CorrectiveLoop`, `SelfCorrective`, also
-  inside `WithBudget`) gives `PlanningError`, code `recipe_not_supported`, from the SDK. Each
-  other compiler error keeps its type of today (`ValueError` or `PlanningError`), as in
-  `sf.evaluate` `[existing S/_evaluation/candidate.py:808]`.
-- The object keeps no conversation. More than one thread or task can use it at one time. An
-  `AsyncClient` belongs to one event loop `[implied]`.
+  inside `WithBudget`) gives `PlanningError`, code `recipe_not_supported`, from `create` and
+  from `endpoint`. The property `recipe.chat` exists on such a recipe. Each other compiler
+  error keeps its type of today (`ValueError` or `PlanningError`), as in `sf.evaluate`
+  `[existing S/_evaluation/candidate.py:808]`.
+- No surface keeps a conversation.
+- Import rule: `S/recipe.py` loads the chat code inside the property, as it loads its other
+  helpers `[existing S/recipe.py:97]`. The client module must not get an import cycle with
+  `S/_inference/request.py`, which imports a helper from `S/client.py`.
 
 ### C1.2 `chat.completions.create`
 
@@ -50,7 +82,7 @@ def create(
     self,
     prompt: str | None = None,
     *,
-    model: Recipe | Url4 | str | None = None,   # D12: replaces the model of the client
+    model: Recipe | Url4 | str,                 # D13: required on client.chat and sf.chat; absent on recipe.chat
     messages: Sequence[Mapping[str, Any]] | None = None,
     tools: Sequence[Mapping[str, Any]] | None = None,
     stream: bool = False,
@@ -62,18 +94,22 @@ def create(
 ): ...
 ```
 
-| Client | `stream` | Result |
+| Surface | `stream` | Result |
 |---|---|---|
-| `Client` | literal `False` (default) | `ChatCompletion` |
-| `Client` | literal `True` | `ChatStream` (iterable of `ChatCompletionChunk`) |
-| `Client` | a `bool` that is not a literal | `ChatCompletion \| ChatStream` |
-| `AsyncClient` | literal `False` (default) | awaitable of `ChatCompletion` |
-| `AsyncClient` | literal `True` | awaitable of `AsyncChatStream` |
-| `AsyncClient` | a `bool` that is not a literal | awaitable of `ChatCompletion \| AsyncChatStream` |
+| `sf.Client().chat`, `recipe.chat`, `sf.chat` | literal `False` (default) | `ChatCompletion` |
+| the same | literal `True` | `ChatStream` (iterable of `ChatCompletionChunk`) |
+| the same | a `bool` variable | `ChatCompletion \| ChatStream` |
+| `sf.AsyncClient().chat` | literal `False` (default) | awaitable of `ChatCompletion` |
+| `sf.AsyncClient().chat` | literal `True` | awaitable of `AsyncChatStream` |
+| `sf.AsyncClient().chat` | a `bool` variable | awaitable of `ChatCompletion \| AsyncChatStream` |
 
-The rows are typed overloads on the client type and on the value of `stream`
-`[stated ans:Q7]` `[proposed]`. At run time there is one method; with an `AsyncClient` it
-returns a coroutine.
+Each surface has three typed overloads on the value of `stream` `[stated ans:Q7]` `[stated D13]`.
+The method name is the same on each surface. `AsyncCompletions.create` is a plain `def` that
+returns a coroutine, so an argument error is raised by the call itself (the rule below).
+
+The four `create` methods share one implementation of the checks and of the send. The
+`IgnoredParameterWarning` names the line of the caller on each surface (also on `recipe.chat`
+and `sf.chat`, which pass through `client.chat`).
 
 Rules:
 
@@ -156,7 +192,9 @@ ended, and then all chunks come at one time. It is not a token stream. The docs 
 `InferenceEndpoint` (frozen dataclass) `[proposed P7]`: `base_url: str` (the Engine URL with
 `/v1`), `model: str` (the Candidate URL4 text or the model id), `headers: Mapping[str, str]`
 (the auth headers that the client sends now; empty for a local Engine). Its `repr` shows the
-header names and hides each value. With an `AsyncClient` the method returns an awaitable.
+header names and hides each value. The method is `client.chat.endpoint(model)`,
+`recipe.chat.endpoint()` and `sf.chat.endpoint(model)` `[stated D13 to D15]`. On
+`sf.AsyncClient().chat` it returns an awaitable. The model rules are those of C1.1.
 
 On an `https` Engine the method calls the sign-in of the client first (`Client.login()`, which
 returns at once when a usable token exists), then reads the headers from the auth object of the
@@ -164,13 +202,18 @@ client `[existing S/client.py:204]` `[existing S/_access/base.py:23]`.
 
 ### C1.6 New public names
 
-`InferenceClient`, `ChatCompletion`, `ChatChoice`, `ChatMessage`, `ChatToolCall`,
+`ChatCompletion`, `ChatChoice`, `ChatMessage`, `ChatToolCall`,
 `ChatFunctionCall`, `ChatUsage`, `ChatCompletionChunk`, `ChatChunkChoice`, `ChatDelta`,
 `ChatDeltaToolCall`, `ChatStream`, `AsyncChatStream`, `InferenceInfo`, `FinalStep`,
-`InferenceEndpoint`, `IgnoredParameterWarning`. Each goes into `__all__` and into the public
-surface snapshot `[existing packages/screamingface/tests/test_public_surface.py]`.
+`InferenceEndpoint`, `IgnoredParameterWarning` (16 names), and the module `chat` (as
+`models`). Each goes into `__all__` and into the public surface snapshot
+`[existing packages/screamingface/tests/test_public_surface.py]`. `InferenceClient` is not a
+name of the package `[stated D16]`. The namespace classes (`Chat`, `Completions`, `AsyncChat`,
+`AsyncCompletions`, `RecipeChat`, `RecipeCompletions`) are not top-level names; a caller who
+needs them for a type annotation imports them from `screamingface.inference`. The snapshot also
+gets the new member `chat` of `Client`, `AsyncClient` and each recipe class.
 
-## C2 — `InferenceClient` → Engine: `POST /v1/chat/completions`
+## C2 — SDK chat call → Engine: `POST /v1/chat/completions`
 
 ### C2.1 Request
 
@@ -269,7 +312,7 @@ The body limit (8,000,000 bytes), the length of `model` (32,000 characters), the
 for tools, and the picture rules stay with the Engine. Its error becomes the SDK error of C2.4
 `[proposed]`.
 
-## C3 — `InferenceClient` → Engine: `GET /v1/operators`
+## C3 — SDK chat call → Engine: `GET /v1/operators`
 
 Only for a recipe with a reducer `[existing S/_evaluation/runner.py:291]`. The client already
 keeps the catalogue for its max-age `[existing S/_engine/catalog.py:402]`, so a call in that
@@ -298,7 +341,7 @@ that case, as OpenAI does. A reply with text does not change.
 ## C5 — caller → other library (`endpoint()`)
 
 ```python
-e = sf.InferenceClient(ensemble).endpoint()
+e = ensemble.chat.endpoint()          # or client.chat.endpoint(ensemble)
 client = OpenAI(base_url=e.base_url, api_key="unused", default_headers=dict(e.headers))
 client.chat.completions.create(model=e.model, messages=[...])
 ```

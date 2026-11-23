@@ -225,6 +225,17 @@ docs examples run in tests.
   vs `bc9eb75a9` lists 5 files, all planned: the SDK surface snapshot (test plan §5) and 4 Engine
   tests of #1937 that U1 changes (`should_retry`/`retry_after` on the stream error event, P10;
   `content: null`, P13). One approval record at PR-open covers them.
+- **2026-11-23 — Pushed onto PR #1937 (owner: "add these changes as new commits on top of the
+  original chat-endpoint PR").** Fast-forward `bc9eb75a9..111298808` on
+  `OME-1963-engine-openai-chat-endpoint`; the SDK surface snapshot joined the approval record
+  `OME-1963.json`; PR title and body updated; a comment told the reviewer. The variant worktree
+  and branch were removed; work continues in the worktree `engine-openai-chat-endpoint`.
+- **2026-11-23 — U9 started: `chat` on the recipe and on the client (spec §5.5, D13 to D17).**
+  Owner request: no new object; each model or ensemble has `.chat.completions`. My evaluation
+  of the code (one `Recipe` base class, the client namespace pattern, `Run` as a value that
+  makes calls) gave the design; the owner said "let`s do exactly as you recommend". Spec
+  overview §1 and §5.5, contracts C1 (rewritten), test plan MI-36 to MI-39 and plan U9 written
+  before the build.
 
 ## Outcome (fill at the end — required before COMMIT)
 

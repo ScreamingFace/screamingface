@@ -101,6 +101,32 @@ Paths: `S/` = `packages/screamingface/src/screamingface/`, `T/` = `packages/scre
 - `.github/workflows/screamingface-tests.yml`: both path blocks get
   `public-docs/src/snippets/inference-client/**`.
 
+### U9 — `chat` on the recipe and on the client; remove `sf.InferenceClient` (spec §5.5)
+
+Owner order of 2026-11-23: "let`s do exactly as you recommend, properly write the spec, then launch
+parallel workers using haiku to implement it". Contracts: C1 (rewritten), D13 to D17.
+
+- Code: `S/inference.py` becomes the namespaces `Chat`, `Completions`, `AsyncChat`,
+  `AsyncCompletions` (three `stream` overloads each; no generic class), with one shared
+  implementation of the checks and the send. `RecipeChat` and `RecipeCompletions` (bound to a
+  recipe, through `default_client()`); the property `Recipe.chat`; the attribute `chat` of
+  `Client` and `AsyncClient`; the module `S/chat.py`; the exports (16 names and `chat`).
+  `check_other` gets a stack-level argument so the warning names the line of the caller on each
+  surface. No change in `S/_inference/` transport, frames, chunks, error map, trace; no change in
+  the Engine.
+- Tests: the tests of this PR that make an `InferenceClient` change to the new surface by a
+  fixed rule (`InferenceClient(X, client=c).chat.completions.create(A)` becomes
+  `c.chat.completions.create(A, model=X)`; `.endpoint()` becomes `c.chat.endpoint(X)`). No
+  assertion on the wire, the reply or an error is made weaker. A test whose subject is gone (the
+  constructor, the model of the client against the model of the call, the generic types) is
+  replaced by the test of the new surface; the ledger lists each one. New tests MI-36 to MI-39.
+- Docs: the API page becomes `/sf-client/api/chat` (`ChatPage.vue`), the snippets move to
+  `public-docs/src/snippets/chat/`, the OpenAI guide page, the errors page, `public-docs/CLAUDE.md`,
+  the SDK README section, the changelog entry and the CI path filters follow. The PRD and
+  test-plan examples of the spec follow.
+- After the build: the approval record gets the new blob of the surface snapshot; MI-28 runs
+  again; the local playground notebook follows. No push before the owner's word.
+
 ## 3. Gates for each unit
 
 - SDK: `uv run --script .claude/scripts/run_gates.py screamingface --base origin/main` (ruff,
