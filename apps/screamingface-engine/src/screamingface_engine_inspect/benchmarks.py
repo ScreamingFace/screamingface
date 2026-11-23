@@ -249,6 +249,12 @@ class BenchmarkSpec:
     #: Never compared with the fingerprint at run time (owner decision, 2026-10-15). NOT part
     #: of the revision.
     published_revision: str | None = None
+    #: What changed in ``published_revision`` and whether scores still compare (OME-2001): one
+    #: plain-text line of at most 120 characters, shown under the leaderboard's revision
+    #: selector. Written in the same edit that moves the id;
+    #: ``tests/unit/inspect/test_revision_notes.py`` refuses a moved id without one. NOT part of
+    #: the revision.
+    revision_note: str | None = None
     #: How the scorer reads an answer, as pinned combine operator ids (OME-1289) — set only
     #: where the combine operators copy the scorer exactly (GSM8K, AIME). Not part of the revision.
     answer_rule: AnswerRule | None = None
@@ -8705,6 +8711,7 @@ def _assemble(spec: BenchmarkSpec) -> ImportedBenchmark:
         candidate_input_envelope=spec.candidate_input_envelope,
         scorer_draft_feedback=spec.scorer_draft_feedback,
         published_revision=spec.published_revision,
+        revision_note=spec.revision_note,
         answer_rule=spec.answer_rule,
         regradable_from=tuple(revision for revision, _digest in spec.regradable_from),
         **_provenance_of(spec),

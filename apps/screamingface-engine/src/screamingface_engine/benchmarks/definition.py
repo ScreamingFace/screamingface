@@ -106,6 +106,9 @@ _WEB_URL = re.compile(r"https?://\S+")
 # the next deploy, where the benchmark can do no better than skip that benchmark and keep its old
 # text. Fail where the text is written instead.
 _DISPLAY_LIMITS = {"title": 255, "revision": 64, "focus": 120}
+#: The longest revision note a Benchmark may declare (OME-2001): one line under the
+#: leaderboard's revision selector. The Scoreboard stores at most this many characters.
+REVISION_NOTE_LIMIT = 120
 
 
 def _no_routes(_node: Url4Node, _assets_root: Path) -> None:
@@ -335,6 +338,14 @@ class Benchmark:
     # INVARIANT: like `description`, never enters `revision` — it lists history, it changes
     # nothing a score depends on. WHY a default: only imported rows declare it.
     regradable_from: tuple[str, ...] = ()
+    # FEATURE: the revision note (OME-2001). One plain-text line saying what changed in this
+    # published revision and whether scores still compare, e.g. "Judge now runs at low effort.
+    # Not comparable with earlier results." Written beside the id by whoever moves it, served
+    # in the catalogue, and shown under the leaderboard's revision selector.
+    # INVARIANT: like `description`, never enters `revision`: it is prose about the id.
+    # WHY a default: revisions published before notes existed have none, and
+    # `tests/unit/inspect/test_revision_notes.py` is what requires one on a new or moved id.
+    revision_note: str | None = None
 
     def __post_init__(self) -> None:
         for name in ("title", "description", "revision"):
@@ -342,6 +353,7 @@ class Benchmark:
             if not isinstance(value, str) or not value.strip():
                 raise ValueError(f"Benchmark {name} must be non-empty text")
         self._validate_display_metadata()
+        self._validate_revision_note()
         validate_provenance(self)
         if not isinstance(self.id, str) or _BENCHMARK_ID.fullmatch(self.id) is None:
             raise ValueError("Benchmark id must be one lowercase identifier")
@@ -362,6 +374,24 @@ class Benchmark:
     def _validate_answer_rule(self) -> None:
         if self.answer_rule is not None and not isinstance(self.answer_rule, AnswerRule):
             raise TypeError("Benchmark answer_rule must be an AnswerRule")
+
+    def _validate_revision_note(self) -> None:
+        """Refuse a note the leaderboard could not show as one short line (OME-2001)."""
+
+        note: str | None = self.revision_note
+        if note is None:
+            return
+        # WHY `isprintable`: it refuses a line break or a tab, so the note stays one line.
+        if not isinstance(note, str) or not note or note != note.strip() or not note.isprintable():
+            raise ValueError(
+                "Benchmark revision_note must be one line of non-empty text with no "
+                "leading or trailing space when declared"
+            )
+        if len(note) > REVISION_NOTE_LIMIT:
+            raise ValueError(
+                f"Benchmark revision_note must be at most {REVISION_NOTE_LIMIT} characters "
+                "so the leaderboard can store it"
+            )
 
     def _validate_display_metadata(self) -> None:
         """Refuse text the leaderboard could not show (OME-904)."""
@@ -416,6 +446,9 @@ class Benchmark:
         metadata.update(provenance_metadata(self))
         if self.answer_rule is not None:
             metadata["answer_rule"] = self.answer_rule.as_block()
+        # Present-only like `focus`, so an entry without a note stays byte-identical (OME-2001).
+        if self.revision_note is not None:
+            metadata["revision_note"] = self.revision_note
         return metadata
 
     def protocol(self, selected_case_count: int | CaseSelection) -> Node:

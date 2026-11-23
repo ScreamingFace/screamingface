@@ -473,6 +473,7 @@
       P.showLoading(statusNode, "Loading leaderboard…");
       clearBoard();
       showScopeNote();
+      showRevisionNote();
 
       P.fetchJson("/v1/leaderboard/" + encodeURIComponent(id) + "?top=50" + scope).then(
         function (data) {
@@ -603,6 +604,16 @@
       note.hidden = !text;
     }
 
+    // Says why the shown revision changed, in the Engine's own words. Written as
+    // text, never as markup: the note is free text another service published.
+    function showRevisionNote() {
+      var line = document.getElementById("revision-note");
+      if (!line) return;
+      var text = R && R.noteLine ? R.noteLine(currentSelection()) : null;
+      line.textContent = text || "";
+      line.hidden = !text;
+    }
+
     // True when Latest has no community runs and an earlier revision has some: the line and its
     // button are shown in `node`.
     function showRevisionPointer(node) {
@@ -697,6 +708,7 @@
           var selected = R.resolveSelection(revisions, null).selected;
           if (selected) renderRevisionSelector(selected);
           showScopeNote();
+          showRevisionNote();
           if (loaded === generation) showBoardStatus();
         },
         function () {}

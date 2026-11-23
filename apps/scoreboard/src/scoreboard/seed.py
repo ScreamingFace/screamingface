@@ -23,6 +23,7 @@ from pydantic import (
 from .config import Settings
 from .db import close_db, init_db
 from .logs import configure as configure_logging
+from .scores.revisions import REVISION_NOTE_LIMIT, usable_revision_note
 from .scores.schemas import SATURATION_VERDICTS, BenchmarkSchema, ProvenanceSchema, Visibility
 from .scores.store import ScoreStore
 
@@ -88,6 +89,10 @@ class SeedBenchmark(BaseModel):
     # it is the one value a catalogue page will sort on.
     provenance: dict[str, Any] | None = None
     saturation: str | None = Field(default=None, max_length=16)
+    # OME-2001: the revision note, what changed in `revision` and whether scores still compare.
+    # INVARIANT: Engine-owned, exactly like `revision` — refused from deployment configuration
+    # by `_classify_configured`; it reaches this model only via `_CatalogEntry.as_seed`.
+    revision_note: str | None = Field(default=None, min_length=1, max_length=REVISION_NOTE_LIMIT)
 
 
 class _CatalogEntry(BaseModel):
@@ -135,6 +140,22 @@ class _CatalogEntry(BaseModel):
     # OME-1455: the verdict is always served; the provenance keys are served flat and
     # present-only, so the whole entry is read a second time as the block (`_block_of`).
     saturation: str | None = None
+    # OME-2001: present only when the Engine row declares one; an Engine that predates notes
+    # sends no key, and the board then stores none.
+    revision_note: str | None = None
+
+    @field_validator("revision_note", mode="before")
+    @classmethod
+    def _unusable_note_is_absent(cls, value: object) -> str | None:
+        """Anything but one short line of text costs the note, never the row.
+
+        WHY dropped and not cut to the limit: a note ends by saying whether scores still
+        compare, so a cut note can lose that sentence and read as the opposite claim. The
+        Engine already refuses to declare such a note; this only guards another service's data
+        (the `case_count` rule).
+        """
+
+        return usable_revision_note(value)
 
     @field_validator("saturation", mode="before")
     @classmethod
@@ -188,6 +209,7 @@ class _CatalogEntry(BaseModel):
             case_count=self.case_count,
             provenance=self.provenance,
             saturation=self.saturation,
+            revision_note=self.revision_note,
         )
 
     # OME-1455: the Engine serves the provenance keys FLAT beside `title`, present-only. They
@@ -459,6 +481,7 @@ def _classify_configured(
             or row.case_count is not None
             or row.provenance is not None
             or row.saturation is not None
+            or row.revision_note is not None
             or row.id in engine_owned
         ):
             report.refused.append(row.id)
@@ -618,6 +641,7 @@ async def seed_benchmarks(benchmarks: Sequence[SeedBenchmark]) -> list[Benchmark
                 case_count=benchmark.case_count,
                 provenance=benchmark.provenance,
                 saturation=benchmark.saturation,
+                revision_note=benchmark.revision_note,
             )
         )
     return seeded

@@ -420,6 +420,7 @@ def single_shot_benchmark(
     candidate_input_envelope: bool = False,
     scorer_draft_feedback: bool = False,
     published_revision: str | None = None,
+    revision_note: str | None = None,
     answer_rule: AnswerRule | None = None,
     regradable_from: tuple[str, ...] = (),
     **provenance: Unpack[ProvenanceFields],
@@ -503,6 +504,9 @@ def single_shot_benchmark(
             compared with the fingerprint (owner decision, 2026-10-15). NOT hashed into the
             revision. None publishes the computed fingerprint, for test stand-ins only: every
             catalogue row sets it (OME-1610).
+        revision_note: one plain-text line saying what changed in the published revision and
+            whether scores still compare (OME-2001); served in the catalogue entry for the
+            leaderboard to show. NOT hashed into the revision.
         answer_rule: how the grader reads an answer, as pinned combine operator ids (OME-1289).
             Published in the catalog; NOT hashed into the revision (like ``focus``).
         regradable_from: the old published revisions a score may be re-graded from (OME-1909),
@@ -658,6 +662,7 @@ def single_shot_benchmark(
         # row like `difficulty`, threaded through verbatim; shapes checked by `Benchmark`.
         answer_rule=answer_rule,
         regradable_from=regradable_from,
+        revision_note=revision_note,
         **provenance,
         declaration=BenchmarkDeclaration(
             # WHY the row's own policy, threaded through verbatim (OME-1642): the cover sheet

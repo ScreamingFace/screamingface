@@ -34,6 +34,12 @@ class BaseBenchmarkRevision(BaseScoreboardModel):
     # can never exceed its revision's Cases and a partial run reports fewer, but if every result
     # is partial the inference is too small; this flag lets the page say so.
     case_count_inferred = fields.BooleanField(default=False)
+    # FEATURE: OME-2001 — the revision note. One plain-text line the Engine publishes beside this
+    # revision: what changed and whether scores still compare. NULL means no note was published
+    # (every revision recorded before notes existed), and the page then shows nothing.
+    # INVARIANT: at most 120 characters, the Engine's own limit (`REVISION_NOTE_LIMIT` in
+    # `scores/revisions.py`); `record_revision` is the only writer.
+    note = fields.CharField(max_length=120, null=True)
 
 
 class BenchmarkRevision(BaseBenchmarkRevision):
