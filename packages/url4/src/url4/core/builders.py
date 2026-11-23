@@ -45,7 +45,7 @@ from url4.core._lexical import _IDENT_RE, _STRUCT_KEY_RE, chained_bang
 # intent/source formatting here would let builders and renderer drift.
 from url4.core._render_values import format_number as _format_number
 from url4.core._render_values import quote as _quote
-from url4.core.at_most_one import check_at_most_one, with_mark
+from url4.core.at_most_one import check_at_most_one, refuse_too_deep, with_mark
 from url4.core.errors import ParseError
 from url4.core.grammar import intent_atom, parse, parse_value
 from url4.core.nodes import (
@@ -285,9 +285,13 @@ def _to_node(value: SourceLike, parse_text) -> Node:
 
 def _rewrite_reducer_iteration(node: Node) -> Node:
     """``(iteration)!reducer`` is the value-position spelling of a reducer (§5.3)."""
-    if isinstance(node, Iteration) and node.reducer is not None:
+    if not isinstance(node, Iteration) or node.reducer is None:
+        return node
+    try:
         return Expression(sources=(replace(node, reducer=None),), intent=intent_atom(node.reducer))
-    return node
+    except RecursionError:
+        refuse_too_deep(node.reducer)
+        raise
 
 
 # --- expr() and friends -----------------------------------------------------------------
@@ -321,7 +325,11 @@ def _intent_node(intent: str | Node) -> Node:
                 f"intent {intent!r} holds an unquoted '!', where a url4 intent ends "
                 f"(Spec B §8); pass text({intent!r}) to send it as literal prompt text"
             )
-        return intent_atom(intent)
+        try:
+            return intent_atom(intent)
+        except RecursionError:
+            refuse_too_deep(intent)
+            raise
     if isinstance(intent, (Text, NamedJob, Url, RelUrl)):
         return intent
     raise TypeError(

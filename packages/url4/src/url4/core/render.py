@@ -55,7 +55,7 @@ from url4.core._render_values import quote as _quote
 from url4.core._render_values import render_budget_value as _render_budget_value
 from url4.core._render_values import render_weight as _render_weight
 from url4.core._scan import balanced_body, find_top_level, skip_quoted
-from url4.core.at_most_one import AT_MOST_ONE_KEY, check_at_most_one
+from url4.core.at_most_one import check_at_most_one, refuse_too_deep
 from url4.core.blob_ref import render_blob_ref
 from url4.core.errors import ParseError, RenderError
 from url4.core.nodes import (
@@ -190,10 +190,6 @@ def _render_param(key: str, value: str | None, *, top: bool) -> str:
             f"param {key!r} is exclusively source-level (§8.1.3) — on reparse it "
             "would leave the nested expression and become a source annotation"
         )
-    if key == AT_MOST_ONE_KEY:
-        # INVARIANT (C19): a source execution key, never an expression param, even under
-        # check=False, where no reparse runs to refuse it.
-        raise RenderError(f"param {key!r} is a source execution key, never an expression param")
     guard.check_param(key, value)
     if value is None:
         return f";{key}"
@@ -230,7 +226,11 @@ def _render_intent(node: Node, *, top: bool = False) -> str:
     # The widened value forms (nested expression, iteration, struct object,
     # self/identity ref) share the value renderers.
     text = _render_value(node)
-    guard.check_structured_intent(node, text)
+    try:
+        guard.check_structured_intent(node, text)
+    except RecursionError:
+        refuse_too_deep(text)
+        raise
     return text
 
 

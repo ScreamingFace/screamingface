@@ -391,3 +391,59 @@ def test_src_writes_the_mark_after_the_guard_and_before_later_annotations() -> N
         ("expand.at_most_one", "true"),
         ("retry", "2"),
     )
+
+
+# --- ninth review: on a marked source ;expand is a flag -----------------------------------------
+
+_VALUED_EXPAND = ";expand as a flag"
+
+
+@pytest.mark.parametrize("value", ["false", "true", "1"])
+@pytest.mark.parametrize("star", ["", "*"], ids=["key", "star-and-key"])
+def test_a_valued_expand_is_refused_at_parse(value: str, star: str) -> None:
+    # WHY: the grammar reads `;expand` by its key alone, so `;expand=false` expands, and the mark
+    # then bounded a collection its author wrote as not expanded, as a valued guard would.
+    with pytest.raises(ParseError, match=_VALUED_EXPAND) as caught:
+        parse(f"(a:https://a, {star}m:https://two;expand={value};required;{MARK})!'x'")
+    assert caught.value.code == ErrorCode.MALFORMED_SOURCE
+
+
+def test_an_unmarked_source_keeps_its_valued_expand() -> None:
+    # The base reading is unchanged: an unmarked `;expand=false` still expands.
+    member = _member("m:https://two;expand=false;required")
+    assert (member.expand, member.annotations) == (True, (("required", None),))
+
+
+def test_a_marked_source_still_takes_expand_as_a_flag() -> None:
+    member = _member(f"m:https://two;expand;required;{MARK}")
+    mark = ("expand.at_most_one", "true")
+    assert (member.expand, member.annotations) == (True, (("required", None), mark))
+
+
+def test_src_refuses_a_valued_expand_with_the_mark() -> None:
+    with pytest.raises(ValueError, match=_VALUED_EXPAND):
+        src(_ONE, name="m", expand=True, required=True, at_most_one=True, annotations=[_FALSE])
+
+
+_FALSE = ("expand", "false")
+
+
+_VALUED_MEMBER = Source(
+    value=_ONE,
+    name="m",
+    annotations=(("expand", "false"), ("required", None), ("expand.at_most_one", "true")),
+    expand=True,
+)
+
+
+@pytest.mark.parametrize("check", [True, False])
+def test_render_refuses_a_valued_expand_with_the_mark(check: bool) -> None:
+    with pytest.raises(RenderError):
+        render(expr(src(Url("https://a"), name="a"), _VALUED_MEMBER, intent=Text("x")), check=check)
+
+
+@pytest.mark.asyncio
+async def test_run_refuses_a_tree_with_a_valued_expand_and_the_mark() -> None:
+    tree = expr(src(Url("https://a"), name="a"), _VALUED_MEMBER, intent=Text("x"))
+    with pytest.raises(ParseError, match=_VALUED_EXPAND):
+        await run(tree, StaticIOLayer())

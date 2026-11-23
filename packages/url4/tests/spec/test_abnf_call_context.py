@@ -1,11 +1,15 @@
 """ABNF conformance — call parens carry a resolved source-list (OME-535).
 
-`relative-expr-sugar = "/" path "(" source-list ")" intent-op intent` (and the
-canonical / remote twins): the CALLER resolves the context source-list before
-dispatch, packing per the OME-534 rules (named → ``name: value``, weight-0.0
-instrumental excluded). A context that does not parse as a source-list falls
-back verbatim to raw text, so prose prompts keep working. Resolution happens
+`relative-expr-sugar = "/" path "(" source-list ")" intent-op intent` and its
+canonical relative twin (``/path?q=...``): the CALLER resolves the context
+source-list before dispatch, packing per the OME-534 rules (named → ``name: value``,
+weight-0.0 instrumental excluded). A context that does not parse as a source-list
+falls back verbatim to raw text, so prose prompts keep working. Resolution happens
 exactly once, caller-side — receivers still get opaque resolved data.
+
+A remote call's context (``url4://...``) is not resolved here: it is
+receiver-owned, forwarded byte for byte and parsed by the receiving node, so it is
+checked separately (``tests/unit/test_at_most_one_receivers.py``).
 """
 
 from __future__ import annotations

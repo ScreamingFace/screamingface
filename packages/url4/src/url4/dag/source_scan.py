@@ -13,6 +13,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 
+from url4.core.at_most_one import c19_blind
 from url4.core.blob_ref import BlobAddress, address_of
 from url4.core.errors import ErrorCode, ParseError, ResolutionError
 from url4.core.grammar import parse as grammar_parse
@@ -261,10 +262,16 @@ def holds_holdings_ref(text: str) -> bool:
     so they are checked the same way. WHY a segment that does not parse counts when it holds
     an ``@``: its meaning is unknown, and the receiving route may read it as a holdings ref —
     the conservative reading the substring test gave every context before F3.
+
+    WHY C19-blind: whether a context holds a holdings ref is a question about its structure,
+    which an at-most-one mark must not change. A broken mark beside an "@" in quoted text or a
+    URL once made its segment unreadable, so the context counted as receiver-owned and shipped
+    the mark unchecked; a real holdings ref still counts, beside a broken mark or not.
     """
     for segment in split_top_level_commas(text):
         try:
-            parsed = grammar_parse(segment.strip()) if segment.strip() else None
+            with c19_blind():
+                parsed = grammar_parse(segment.strip()) if segment.strip() else None
         except ParseError:
             if "@" in segment:
                 return True

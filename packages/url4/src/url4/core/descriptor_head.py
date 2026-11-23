@@ -17,7 +17,6 @@ from url4.core._annotations import classify_boundary, split_annotation_pairs, va
 from url4.core._lexical import _IDENT_RE, reject_chained_intent
 from url4.core._scan import balanced_body, iter_top_level, split_top_level
 from url4.core._splitters import split_intent
-from url4.core.at_most_one import refuse_mark_as_param
 from url4.core.errors import ErrorCode, ParseError
 
 __all__ = [
@@ -86,7 +85,6 @@ def deferrable_group(segment: str) -> tuple[str | None, str, str] | None:
         # AssertionError escaped a node-policy run. It is a malformed source.
         raise ParseError(f"group {value!r} has no readable intent", code=ErrorCode.MALFORMED_SOURCE)
     reject_chained_intent(intent)
-    refuse_mark_as_param(pairs)  # C19: a deferred group's chain is expression params only
     validate_params(pairs)
     return name, kind, ";".join([value, *chain])
 

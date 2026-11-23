@@ -44,7 +44,7 @@ from url4.core._splitters import (
     split_top_level_commas,
     strip_one_paren_layer,
 )
-from url4.core.at_most_one import refuse_mark_as_param
+from url4.core.at_most_one import refuse_too_deep
 from url4.core.errors import ErrorCode, ParseError
 from url4.core.grammar import intent_atom, parse_group_root
 from url4.core.nodes import (
@@ -138,7 +138,6 @@ def decode_envelope(text: str, *, require_intent: bool = True) -> Envelope:
         directives = _merge_directives(directives, tail_directives)
     flag, params = fold_broadcast(params)
     broadcast = broadcast or flag
-    refuse_mark_as_param(params)  # C19: a group or iteration envelope never carries the mark
     # `expr-param = param-key "=" param-value` — the SAME two productions the
     # query sites use, so one validator serves all three (`OME-507`). It runs
     # here, on the resolved expression params, rather than inside
@@ -206,18 +205,23 @@ def build(text: str) -> Node:
     syntax — and eagerly parses the rest into a single parse-tree root: an
     :class:`~url4.core.nodes.Iteration` for the iteration forms, an
     :class:`~url4.core.nodes.Expression` otherwise. The DAG compiler accepts either
-    surface text or this tree (see :func:`url4.dag.compile_expression`).
+    surface text or this tree (see :func:`url4.dag.compile_expression`). A text too deep to
+    read that names the C19 mark is refused (:func:`~url4.core.at_most_one.refuse_too_deep`).
     """
-    env = decode_envelope(text)
-    if isinstance(env, IterationEnvelope):
-        return Iteration(
-            collection=_collection_node(env.collection),
-            body=env.body,
-            intent=env.intent,
-            reducer=env.reducer,
-            directives=env.directives,
-        )
-    return assemble_expression(env.source_expr, env.intent, env.broadcast, env.params)
+    try:
+        env = decode_envelope(text)
+        if isinstance(env, IterationEnvelope):
+            return Iteration(
+                collection=_collection_node(env.collection),
+                body=env.body,
+                intent=env.intent,
+                reducer=env.reducer,
+                directives=env.directives,
+            )
+        return assemble_expression(env.source_expr, env.intent, env.broadcast, env.params)
+    except RecursionError:
+        refuse_too_deep(text)
+        raise
 
 
 def walk(node: Node) -> Iterator[Node]:
