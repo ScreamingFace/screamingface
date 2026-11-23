@@ -573,11 +573,28 @@ def test_benchmark_description_is_whole_until_the_script_folds_it() -> None:
 
     # board_pages.py fills the description server-side by matching this exact tag.
     assert '<p class="lead" id="benchmark-desc"></p>' in html
-    toggle = re.search(r'<button[^>]*id="benchmark-desc-toggle"[^>]*>', html)
-    assert toggle is not None
-    assert " hidden" in toggle.group(0)
-    assert 'aria-controls="benchmark-desc"' in toggle.group(0)
-    assert "is-clamped" not in html
+
+    class _DescToggleAndClamp(HTMLParser):
+        def __init__(self) -> None:
+            super().__init__()
+            self.toggle_attrs: dict[str, str | None] | None = None
+            self.any_clamped = False
+
+        def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+            attributes = dict(attrs)
+            if attributes.get("id") == "benchmark-desc-toggle":
+                self.toggle_attrs = attributes
+            classes = (attributes.get("class") or "").split()
+            if "is-clamped" in classes:
+                self.any_clamped = True
+
+    parser = _DescToggleAndClamp()
+    parser.feed(html)
+
+    assert parser.toggle_attrs is not None
+    assert "hidden" in parser.toggle_attrs
+    assert parser.toggle_attrs.get("aria-controls") == "benchmark-desc"
+    assert not parser.any_clamped
 
     clamp_rules = [line for line in css.splitlines() if "line-clamp" in line]
     assert clamp_rules

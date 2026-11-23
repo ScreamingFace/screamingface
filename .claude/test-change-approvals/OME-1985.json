@@ -1,0 +1,13 @@
+{
+  "issue": "OME-1985",
+  "branch": "OME-1985-collapse-benchmark-description",
+  "approver": "Filip Boltuzic",
+  "date": "2026-11-23",
+  "reason": "Owner approved replacing a regex/substring-based DOM check with a structured HTMLParser check in test_benchmark_description_is_whole_until_the_script_folds_it, per the user's own global CLAUDE.md rule against regex/substring checks over data a structured check can parse instead. Same assertions, same coverage (toggle starts hidden, aria-controls correct, no element pre-clamped) \u2014 only the mechanism changed, from regex-over-raw-HTML to parsing the markup and inspecting actual attributes/class lists.",
+  "files": {
+    "apps/scoreboard/tests/unit/test_portal_static.py": {
+      "base_blob": "6d4354ce4190f7e8a9b93ce51b04a213c5ebfe34",
+      "approved_blob": "7f9059578647bf4b6d13a7e43f8173a435f95f20"
+    }
+  }
+}

@@ -429,9 +429,21 @@
     });
     // A narrower window wraps the text onto more lines, so a description that fitted can start to
     // overflow (and the reverse). An open description is left alone: it has nothing to measure.
+    // A drag-resize fires many events per second; coalesce them to one sync per frame instead of
+    // re-measuring (layout read + DOM write) on every single event.
+    var resizePending = false;
     if (window.addEventListener) {
       window.addEventListener("resize", function () {
-        if (!expanded) sync();
+        if (expanded || resizePending) return;
+        if (!window.requestAnimationFrame) {
+          sync();
+          return;
+        }
+        resizePending = true;
+        window.requestAnimationFrame(function () {
+          resizePending = false;
+          sync();
+        });
       });
     }
     return sync;
