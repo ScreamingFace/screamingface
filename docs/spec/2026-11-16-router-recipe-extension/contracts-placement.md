@@ -265,7 +265,11 @@ New reader:
   (`packages/url4/src/url4/dag/_descriptor.py:54-64`), so `;required` and `;optional` apply to
   either failure as to any other.
 - Unmarked and `;expand` sources keep their behavior and rendered bytes, and every prior url4 test
-  runs unchanged.
+  runs unchanged. Exception for text beyond the eager parser's recursion depth: if the unreadable
+  text contains the literal reserved-key substring `expand.at_most_one`, the reader refuses it
+  fail-closed even when a successful parse might have classified that occurrence as quoted text or
+  prose. Text without that substring keeps its base behavior: a `RecursionError` where base raised
+  one, a lazy compile where base compiled lazily.
 - `url4.src` gains one keyword, `at_most_one: bool = False`
   (`packages/url4/src/url4/core/builders.py:142-196`). `src(value, name=..., required=...,
   expand=True, at_most_one=True)` writes `expand.at_most_one=true` right after `;required` or

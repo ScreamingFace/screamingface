@@ -121,7 +121,10 @@ OME-1306. No Router code and no live call.
   owner on 2026-11-21 after the second review, carries the review-round code, tests and docs. A
   third commit, `fix(url4): check every url4 a run parses for the at-most-one form`, authorized
   by the owner on 2026-11-23 after the twelfth review's second report, carries the third to
-  twelfth reviews' code, tests and docs.
+  twelfth reviews' code, tests and docs. A fourth commit,
+  `docs(url4): state the C19 deep-text exception and correct the prior-test note`, authorized by
+  the owner on 2026-11-23 after the drift check, carries the owner's decisions recorded below:
+  the spec exception, the mirror and this ledger.
 - **Gates:** the url4 gate runner (`run_gates.py url4`) green: append-only check, ruff check, ruff
   format, pyright, pytest 3363 passed and 17 xfailed, coverage 98.81% (floor 95%). The suite also
   passes on Python 3.12.9, 3.13.11 and 3.14.2 with the same counts. The touched execution modules and
@@ -312,7 +315,8 @@ OME-1306. No Router code and no live call.
     `_shared.py` and `_render_guards.py` now sit exactly at their caps.
   - `core/builders.py`, `core/grammar.py` and `core/render.py` are above 450 lines. `builders.py`
     shrank below its base size; `grammar.py` and `render.py` got only the calls into the form owner.
-  - No prior test changed.
+  - One prior test changed, in its module docstring only, after the eighth review (see Actual
+    files); the first two commits changed none.
   - Review round (2026-11-21), seven findings on PR head `709d25e69`, verified by probes against
     the worktree and decided by the owner:
     - Two elements and sibling calls. A delayed marked source fails with `x.expansion_too_many`
@@ -737,3 +741,25 @@ OME-1306. No Router code and no live call.
         at base. Each failed before the fix. No committed test changed. Module sizes:
         `core/builders.py` 477/478, `core/render.py` 616/676, `core/intent.py` 216,
         `core/at_most_one.py` 236.
+    - Owner decisions (2026-11-23), after a drift check of the committed tree against the approved
+      C19 and plan §7: the design did not drift (wire, zero, one and two-plus semantics, guards,
+      old-reader fallback, readers first, no Router code); the enforcement surface grew beyond the
+      plan's list, as the reviews above record.
+      - Deep text, accepted as intentional FAIL CLOSED: a text too deep for the eager parser whose
+        quoted prose merely contains `expand.at_most_one` is refused. On Python 3.12.9 a 300-group
+        text with that string in its intent is refused by `compile_expression`, which compiled it
+        at base; without the string it compiles at both. The C19 bullet on unmarked sources now
+        states this exception. A quote-aware scan of an unreadable text was rejected: it adds code,
+        and the string outside quotes can still be prose or a URL; the remote-call precheck
+        (`dag/_remote_walk.py:229-234`) already refuses the same way. The owner's proposed last
+        sentence said a text without the string keeps the base `RecursionError`; the spec says it
+        keeps its base behavior, because `compile_expression` compiles such a text lazily at base.
+      - The ninth to twelfth reviews' rules are approved as a package, as C19 enforcement
+        clarifications: the strict C19 error subclass, the check of every public text and tree
+        entry path, raw-text carriers and the Form-3 processor, a C19 error over a lenient
+        fallback, the receiver-owned remote, reducer and holdings contexts, the trusted custom
+        registry and pre-built DAG boundary, the deep-text exception, and base behavior for
+        ordinary and unmarked inputs. They change no Router design, wire spelling, zero, one and
+        two-plus semantics, guard behavior, old-reader fallback or the Unit 7 canonical writer, so
+        no design amendment follows.
+      - The mirror and the Deviations entry above no longer say that no prior test changed.
