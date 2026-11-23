@@ -320,14 +320,34 @@
       (states.length ? "; " + states.join("; ") : "; not on the Pareto frontier");
   }
 
-  // The marker's SHAPE encodes composition only — a square is a fusion, and a circle
-  // is everything else (a confirmed single model, or Unknown). `kind` (frontier/dominated/
-  // unpriced) keeps deciding the marker's COLOR, via the same CSS classes as before, on
-  // whichever shape this point draws. The two channels are independent on purpose: frontier
-  // membership used to draw its own diamond, which sits too close to a square at marker scale
-  // to carry a second claim at the same time without the two becoming ambiguous together — the
-  // frontier LINE already states that membership, unchanged, so the per-point mark only needs
-  // to state it in color.
+  // Three corners sized and centred to read at the same visual weight as the circle/square
+  // markers at this radius — a triangle inscribed at the circle's own radius looks visibly
+  // smaller than the circle or square it sits beside, so it is scaled up slightly and its
+  // centroid (not its bounding box) is placed at (cx, cy) so it does not read as low-set
+  // against the other two shapes.
+  function trianglePoints(cx, cy, radius) {
+    var r = radius * 1.3;
+    var top = [cx, cy - r];
+    var bottomLeft = [cx - r * 0.87, cy + r * 0.5];
+    var bottomRight = [cx + r * 0.87, cy + r * 0.5];
+    return [top, bottomLeft, bottomRight]
+      .map(function (p) { return p[0].toFixed(2) + "," + p[1].toFixed(2); })
+      .join(" ");
+  }
+
+  // The marker's SHAPE encodes composition only — a square is a fusion, a triangle is
+  // Unknown (missing, or a composition kind the server does not recognise as model/fusion), and
+  // a circle is a confirmed single model. `kind` (frontier/dominated/unpriced) keeps deciding
+  // the marker's COLOR, via the same CSS classes as before, on whichever shape this point draws.
+  // The two channels are independent on purpose: frontier membership used to draw its own
+  // diamond, which sits too close to a square at marker scale to carry a second claim at the
+  // same time without the two becoming ambiguous together — the frontier LINE already states
+  // that membership, unchanged, so the per-point mark only needs to state it in color.
+  //
+  // Unknown must never borrow the single-model circle (that overstates confidence — a reader
+  // cannot tell an unidentified composition from a confirmed one) and must never borrow the
+  // fusion square (the one mislabeling this ticket names explicitly), so it gets its own
+  // honest third shape rather than defaulting into either existing one.
   function renderMarker(svg, point, x, y, kind, formatScore, formatCost) {
     var group = svgElement("g", "pareto-chart__point");
     group.appendChild(svgElement("title", null, null, describePoint(point, formatCost, formatScore)));
@@ -342,6 +362,10 @@
         y: (y - radius).toFixed(2),
         width: (radius * 2).toFixed(2),
         height: (radius * 2).toFixed(2),
+      }));
+    } else if (L.isUnknownCandidate(point.entry)) {
+      group.appendChild(svgElement("polygon", className, {
+        points: trianglePoints(x, y, radius),
       }));
     } else {
       group.appendChild(svgElement("circle", className, { cx: x, cy: y, r: radius }));
@@ -495,5 +519,10 @@
     describePoint: describePoint,
     buildScoreTicks: buildScoreTicks,
     render: render,
+    // Exposed for the rendered-SVG marker-shape regression test: the pure model
+    // builders above say what a point IS, but only renderChart says what shape gets drawn for
+    // it, so a test that never calls this could stay green while the actual <circle>/<rect>/
+    // <polygon> choice silently regressed.
+    renderChart: renderChart,
   };
 });

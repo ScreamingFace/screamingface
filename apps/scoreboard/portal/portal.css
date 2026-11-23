@@ -609,6 +609,19 @@ td.col-open { white-space: nowrap; }
    independent of the dominated/frontier/leader/unpriced colors above. */
 .pareto-chart-key__single { border-radius: 50%; border: var(--border-strong) solid var(--ink-2); }
 .pareto-chart-key__fusion { border: var(--border-strong) solid var(--ink-2); }
+/* Triangle = Unknown (missing, or a kind the server does not recognise as model/fusion) — its
+   own honest third shape, never the single-model circle above (which would overstate
+   confidence) or the fusion square (the one mislabeling this ticket names explicitly). A
+   border-triangle, not the box-sizing recipe shared above: there is no square box to size, the
+   borders ARE the shape. */
+.pareto-chart-key__unknown {
+  display: inline-block;
+  width: 0;
+  height: 0;
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-bottom: 9px solid var(--ink-2);
+}
 
 [data-theme="dark"] .pareto-chart__frontier-line { stroke: var(--info-solid); }
 [data-theme="dark"] .pareto-chart__frontier-point { fill: var(--info-solid); }
@@ -639,6 +652,13 @@ td.col-open { white-space: nowrap; }
   .pareto-chart-key__single,
   .pareto-chart-key__fusion {
     background: Canvas;
+  }
+  /* The triangle swatch has no background/border-color box to rescue — its visible color is
+     border-bottom, with the left/right borders staying transparent to keep the triangle's
+     point. */
+  .pareto-chart-key__unknown {
+    forced-color-adjust: none;
+    border-bottom-color: CanvasText;
   }
 }
 

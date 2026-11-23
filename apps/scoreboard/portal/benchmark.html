@@ -108,10 +108,13 @@
           <span class="pareto-chart-key"><span class="pareto-chart-key__frontier" aria-hidden="true"></span>Pareto frontier</span>
           <span class="pareto-chart-key"><span class="pareto-chart-key__leader" aria-hidden="true"></span>highest score</span>
           <span class="pareto-chart-key"><span class="pareto-chart-key__unpriced" aria-hidden="true"></span>cost n/a</span>
-          <!-- circle/square is a second, independent channel from the dot above —
-               composition type, not frontier status or cost. -->
+          <!-- circle/square/triangle is a second, independent channel from the dot above —
+               composition type, not frontier status or cost. Unknown (missing, or a kind the
+               server does not recognise as model/fusion) gets its own triangle rather than
+               defaulting into the single-model circle or the fusion square. -->
           <span class="pareto-chart-key"><span class="pareto-chart-key__single" aria-hidden="true"></span>single model</span>
           <span class="pareto-chart-key"><span class="pareto-chart-key__fusion" aria-hidden="true"></span>fusion</span>
+          <span class="pareto-chart-key"><span class="pareto-chart-key__unknown" aria-hidden="true"></span>unknown composition</span>
           <span id="pareto-chart-meta"></span>
         </figcaption>
       </figure>

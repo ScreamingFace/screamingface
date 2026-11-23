@@ -337,10 +337,20 @@
   }
 
   // WHY a separate predicate rather than comparing the label: the chart's shape channel has
-  // exactly two states (circle, square), and only "fusion" ever draws a square — Unknown and
-  // "model" both draw a circle, which is the point of candidateKindLabel above.
+  // exactly three states (circle, square, triangle), and only "fusion" ever draws a square —
+  // "model" draws a circle, and everything isUnknownCandidate below catches draws its own
+  // triangle, never either of the other two shapes.
   function isFusionCandidate(entry) {
     return !!entry && entry.candidate_kind === "fusion";
+  }
+
+  // The complement of isFusionCandidate/"model": anything the server did not declare as exactly
+  // one of the two recognised compositions. Drawn as its own triangle on the chart (never the
+  // single-model circle, which would overstate confidence, and never the fusion square, which
+  // this ticket names explicitly as the one mislabeling this code must not produce).
+  function isUnknownCandidate(entry) {
+    var kind = entry && entry.candidate_kind;
+    return kind !== "model" && kind !== "fusion";
   }
 
   // The pinned cache a row offers for replay, or null. A row offers one only when the server
@@ -382,5 +392,6 @@
     opennessLabel: opennessLabel,
     candidateKindLabel: candidateKindLabel,
     isFusionCandidate: isFusionCandidate,
+    isUnknownCandidate: isUnknownCandidate,
   };
 });

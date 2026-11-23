@@ -246,6 +246,16 @@
       // deliberately "highest score", not "state of the art": this row may be
       // unverified.
       if (isLeader) specTd.appendChild(P.el("span", "sr-only", " (highest score)"));
+      // The Pareto chart's circle/square/triangle composition-type encoding stays
+      // `aria-hidden` — the chart is a visual summary and the table is the
+      // documented accessible data source, so the row that already names this submission is
+      // where a screen reader has to learn the same fact the chart's shape gives a sighted
+      // reader. Always present (never only for fusion/unknown): "single model" is itself an
+      // answer, not the absence of one, so omitting it on the common case would read as missing
+      // data rather than as a stated verdict.
+      specTd.appendChild(
+        P.el("span", "sr-only", " (" + L.candidateKindLabel(entry).toLowerCase() + ")")
+      );
       tr.appendChild(specTd);
 
       // The entry's open/closed verdict rides in this cell as a second line. With the
