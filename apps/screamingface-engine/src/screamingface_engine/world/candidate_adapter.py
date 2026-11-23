@@ -26,6 +26,8 @@ from screamingface_engine.retrieval_policy import (
     normalize_excluded_domains,
     retrieval_scope,
 )
+from screamingface_engine.world.connector import key_refusal_as_url4_error
+from screamingface_engine.world.refused_key_stop import watch_case_refusals
 from url4.core.errors import ResolutionError, Url4Error
 from url4.peer.server import Request, Url4Node
 
@@ -66,6 +68,11 @@ class _CandidateInvocation:
                 candidate_invocation_scope(),
                 case_scope(case_id, position=candidate_position(request)),
                 _attempt_scope(attempt),
+                # FEATURE (OME-1989): the refused-key rule judges this whole Case here, where its
+                # outcome is known — a call refused inside a Candidate that still answers (a
+                # dropped quorum member, a fallback Gate, a collected row) never stops a run.
+                key_refusal_as_url4_error(),
+                watch_case_refusals(case_id),
             ):
                 return await self._evaluate(request.intent, input_text)
         except RetrievalPolicyError as exc:

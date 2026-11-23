@@ -113,7 +113,6 @@ from screamingface_engine.world.refused_key_stop import (
     KeyRefused,
     note_answer,
     note_refusal,
-    refuse_if_stopped,
 )
 from screamingface_engine.world.reply_logprobs import reply_logprobs
 from screamingface_engine.world.reply_origin import record_reply_origin, round_trip_origin
@@ -485,10 +484,6 @@ class _ModelEndpoint:
         # with travel together — the call can never run one route's model under another's flags.
         spec = self._routes[request.path]
         try:
-            # FEATURE (OME-1989): a run the provider's refusals already stopped sends no further
-            # Candidate call. Raised before anything is read or sent, so it costs nothing.
-            with key_refusal_as_url4_error():
-                refuse_if_stopped()
             # INVARIANT (F2): the caller's state is read HERE, per call, from the request scope —
             # never held on `self`. Two concurrent callers through this one handler each observe
             # their own scope because each runs in its own context (AC2), and a spawned model
@@ -544,7 +539,7 @@ class _ModelEndpoint:
                 context=request.context,
                 intent=request.intent,
             ):
-                # OME-1989: an answer ends this model's run of refusals.
+                # OME-1989: tell the Case's refusal watch that this call answered.
                 return note_answer(
                     spec.id,
                     await _chat_completion_loop(
@@ -563,8 +558,9 @@ class _ModelEndpoint:
                     ),
                 )
         except _GatewayRefusal as exc:
-            # FEATURE (OME-1989): count the refusal toward stopping the run. This call still
-            # raises its own error below, so the refused Case keeps its own failure.
+            # FEATURE (OME-1989): record the refusal in the Case's refusal watch, which decides
+            # when the Case ends whether it caused the Case to fail. This call still raises its
+            # own error below.
             note_refusal(spec.id, status=exc.status, code=exc.code)
             # INVARIANT (OME-1770 review): the Gateway refuses an ungranted account a private
             # target as an unknown provider. Relayed, that refusal tells the caller this Engine
@@ -2011,8 +2007,9 @@ def key_refusal_as_url4_error() -> Iterator[None]:
     """Raise a run the refused key stopped (OME-1989) to url4 as its run-stopped error.
 
     WHY here: `refused_key_stop` never imports the url4 engine, so this allowlisted adapter
-    turns its `KeyRefused` into url4's `ResolutionError` — for a refused Candidate call, and
-    around the whole run in the executor. Permanent, because the same key is refused again.
+    turns its `KeyRefused` into url4's `ResolutionError` — for a Case refused by a stopped run
+    (the Candidate adapter), and around the whole run (the executor). Permanent, because the
+    same key is refused again.
     """
     try:
         yield

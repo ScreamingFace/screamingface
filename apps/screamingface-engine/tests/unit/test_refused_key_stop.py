@@ -5,71 +5,168 @@ provider refused with 403, one failed Case at a time, holding runner slots the w
 STORY: as an on-call engineer, a disabled key ends its runs in a handful of calls, so one
 account cannot queue everyone else behind calls that were never going to answer.
 
-INVARIANT: once the run stopped, no further Candidate call reaches the gateway, and the run ends
-with one run-level ``provider_key_refused``. A 403 that belongs to one Case (a flagged input)
-never stops a run on its own: only the same refusal on 5 Cases in a row does.
+INVARIANT: the rule judges CASES through the real Candidate adapter, never single calls. A Case
+the refusal made fail (or left with no answering call) counts; a Case the Candidate still
+answered (a dropped quorum member, a fallback Gate, a collected row) never does. Once the run
+stopped, no further Case reaches the gateway, and the run ends with one run-level
+``provider_key_refused``. A 403 on its own never stops a run: only the same refusal on 5 Cases
+in a row does, because one 403 can be a single input the provider's moderation flagged.
 """
 
 from __future__ import annotations
 
 import asyncio
+import json
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
 
 import httpx
 import pytest
-from frozen_copy_support import CHAT, MODEL, Gateway, chat, error, run_call
+from _signal_world import _body
+from frozen_copy_support import CHAT, MODEL, error, run_call
+from frozen_copy_support import Gateway as ScriptedGateway
 
-from screamingface_engine.benchmarks.case_context import case_scope
-from screamingface_engine.candidate_scope import candidate_invocation_scope
-from screamingface_engine.request_scope import RequestScope
+from screamingface_engine.benchmarks.definition import candidate, link_candidate
+from screamingface_engine.combine.builtins import BUILTIN_OPERATORS
+from screamingface_engine.request_scope import RequestScope, request_scope
 from screamingface_engine.runner.executor import Url4Executor
 from screamingface_engine.world import refused_key_stop as stop
-from screamingface_engine.world.connector import key_refusal_as_url4_error
-from url4.core.errors import ResolutionError
+from screamingface_engine.world.branch import install_branch_runtime
+from screamingface_engine.world.candidate_adapter import install_candidate_invocation
+from screamingface_engine.world.combine import install_combine_runtime
+from screamingface_engine.world.config import ModelSpec
+from screamingface_engine.world.connector import (
+    AigatewayConfig,
+    build_aigateway_world,
+    key_refusal_as_url4_error,
+)
+from url4.core.errors import ResolutionError, Url4Error
+from url4.dag import run as url4_run
 from url4.peer.server import Url4Node
 from url4.streaming.interfaces import Completed
 
+_DATA = Path(__file__).parent / "data"
 _RUN = RequestScope(origin="run")
 _REFUSED_403 = "provider_error"  # the gateway's code for a provider 403 today
 
+#: A solo Candidate: one model answers each Case.
+_SOLO = "/solo($input)!'Answer the request.'"
+#: A quorum Fusion, the SDK's compile: members good-a and good-b required, member bad optional,
+#: quorum 2, synthesiser synth.
+_QUORUM = (_DATA / "fusion_quorum_candidate.url4").read_text(encoding="utf-8").strip()
+#: A fallback Gate, the SDK's compile of
+#: ``sf.Cascade("prov/primary", sf.escalate_if(sf.unanswered()), "prov/backup")``.
+_FALLBACK = (_DATA / "gate_contract" / "fallback_unanswered.url4").read_text("utf-8").strip()
+#: A row policy inside the Candidate: two rows, each row's error collected into the answer.
+_ROWS = '["row-a","row-b"]*(/rows($item)!"Answer the request.";on_error=collect)!"per"'
 
-def _gateway(steps: list[httpx.Response]) -> Gateway:
-    """A scripted gateway that answers the chat calls with ``steps``, in order."""
-    scripted: list[httpx.Response | BaseException] = list(steps)
-    return Gateway(scripted)
+type Reply = Callable[[dict[str, Any]], httpx.Response]
+
+
+def live(content: str = "an answer") -> Reply:
+    """The provider answers this call."""
+    return lambda _sent: httpx.Response(
+        200, headers={"X-AIGW-Cache": "miss"}, json=_body(content, "0.001", "miss")
+    )
+
+
+def cached(content: str = "an answer") -> Reply:
+    """The gateway serves a stored reply; the provider is never asked."""
+    return lambda _sent: httpx.Response(
+        200, headers={"X-AIGW-Cache": "hit"}, json=_body(content, "0.001", "hit")
+    )
+
+
+def refused(status: int, code: str) -> Reply:
+    """The gateway relays the provider's refusal of the key."""
+    return lambda _sent: error(status, code)
+
+
+def in_order(*replies: Reply) -> Reply:
+    """Each call takes the next reply; the last one repeats."""
+    queue: list[Reply] = list(replies)
+
+    def reply(sent: dict[str, Any]) -> httpx.Response:
+        return (queue.pop(0) if len(queue) > 1 else queue[0])(sent)
+
+    return reply
+
+
+@dataclass(slots=True)
+class _Gateway:
+    """A fake gateway: one reply script per model, every model call kept in call order."""
+
+    replies: dict[str, Reply]
+    seen: list[str] = field(default_factory=list)
+
+    def calls(self, model: str | None = None) -> int:
+        """How many model calls reached the gateway (for ``model``, or in all)."""
+        return len(self.seen) if model is None else self.seen.count(model)
+
+    async def handle(self, request: httpx.Request) -> httpx.Response:
+        """Answer one model call from its model's script."""
+        sent: dict[str, Any] = json.loads(request.content)
+        self.seen.append(sent["model"])
+        return self.replies[sent["model"]](sent)
+
+
+def _case(candidate_expression: str, case_id: str) -> str:
+    """``candidate_expression`` linked to one Case by the Benchmark's own builders."""
+    return link_candidate(
+        candidate_expression,
+        candidate(f"question of {case_id}", case_id=case_id, web_search=False),
+    )
 
 
 async def _run_cases(
-    gateway: Gateway,
-    case_ids: list[str | None],
-    *,
-    candidate: bool = True,
+    gateway: _Gateway, candidate: str, case_ids: Sequence[str]
 ) -> tuple[list[str | None], ResolutionError | None]:
-    """One run that makes one model call per entry of ``case_ids``, as the executor scopes it.
+    """One run that answers each Case in order through the real Candidate adapter.
 
-    Returns each call's failure code (None for an answer) and the run-level error the run's
-    scope raised as it closed (None when the run was not stopped).
+    Returns each Case's failure code (None for an answer) and the run-level error raised as the
+    run closed (None when the run was not stopped), scoped the way the executor scopes a run.
     """
+    client = httpx.AsyncClient(
+        transport=httpx.MockTransport(gateway.handle), base_url="http://aigateway.test"
+    )
+    world = await build_aigateway_world(
+        AigatewayConfig(
+            default_model=next(iter(gateway.replies)),
+            models=tuple(ModelSpec(id=model) for model in gateway.replies),
+        ),
+        client=client,
+    )
     codes: list[str | None] = []
     run_error: ResolutionError | None = None
     try:
-        # The executor's pair: the rule's scope inside, the connector's url4 translation outside.
-        with key_refusal_as_url4_error(), stop.refused_key_scope():
-            for case_id in case_ids:
-                if not candidate:
-                    _tally, _answer, failure = await run_call(gateway, _RUN, web_search=False)
-                else:
-                    # The scopes the Candidate adapter opens around a Case's answering calls.
-                    with candidate_invocation_scope(), case_scope(case_id):
-                        _tally, _answer, failure = await run_call(gateway, _RUN, web_search=False)
-                codes.append(None if failure is None else failure.code)
-    except ResolutionError as exc:
-        run_error = exc
+        install_candidate_invocation(world.node)
+        install_combine_runtime(world.node, BUILTIN_OPERATORS)
+        install_branch_runtime(world.node)
+        with request_scope(_RUN):
+            try:
+                with key_refusal_as_url4_error(), stop.refused_key_scope():
+                    for case_id in case_ids:
+                        try:
+                            await url4_run(_case(candidate, case_id), io=world.node)
+                            codes.append(None)
+                        except Url4Error as exc:
+                            codes.append(exc.code)
+            except ResolutionError as exc:
+                run_error = exc
+    finally:
+        await world.aclose()
+        await client.aclose()
     return codes, run_error
 
 
-def _cases(count: int) -> list[str | None]:
+def _cases(count: int) -> list[str]:
     """``count`` distinct Case ids."""
     return [f"case-{n}" for n in range(1, count + 1)]
+
+
+# --- a solo Candidate ------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
@@ -80,27 +177,27 @@ def _cases(count: int) -> list[str | None]:
 async def test_the_first_rejected_or_unfunded_key_stops_the_run(
     status: int, code: str, names: str
 ) -> None:
-    gateway = _gateway([error(status, code)])
+    gateway = _Gateway({"solo": refused(status, code)})
 
-    codes, run_error = await _run_cases(gateway, _cases(4))
+    codes, run_error = await _run_cases(gateway, _SOLO, _cases(4))
 
     # WHY 1: neither refusal can succeed on the next Case, so nothing more is sent.
-    assert len(gateway.calls(CHAT)) == 1
+    assert gateway.calls() == 1
     # The refused Case keeps its own failure; the three after it are refused by the Engine.
     assert codes == [code, stop.STOP_CODE, stop.STOP_CODE, stop.STOP_CODE]
     assert run_error is not None
     assert (run_error.code, run_error.permanent) == (stop.STOP_CODE, True)
-    assert names in str(run_error) and MODEL in str(run_error)
+    assert names in str(run_error) and "solo" in str(run_error)
 
 
 @pytest.mark.asyncio
 async def test_the_same_403_on_five_cases_in_a_row_stops_the_run() -> None:
-    gateway = _gateway([error(403, _REFUSED_403)] * 100)
+    gateway = _Gateway({"solo": refused(403, _REFUSED_403)})
 
-    codes, run_error = await _run_cases(gateway, _cases(100))
+    codes, run_error = await _run_cases(gateway, _SOLO, _cases(100))
 
     # WHY 5 and not 100: this is the 2026-11-19 incident, cut from one call per Case to five.
-    assert len(gateway.calls(CHAT)) == stop.REFUSALS_BEFORE_STOP == 5
+    assert gateway.calls() == stop.REFUSALS_BEFORE_STOP == 5
     assert codes == [_REFUSED_403] * 5 + [stop.STOP_CODE] * 95
     assert run_error is not None and run_error.code == stop.STOP_CODE
     assert "HTTP 403 on 5 Cases in a row" in str(run_error)
@@ -109,83 +206,196 @@ async def test_the_same_403_on_five_cases_in_a_row_stops_the_run() -> None:
 @pytest.mark.asyncio
 async def test_the_stop_message_never_carries_the_gateways_text() -> None:
     """The message is engine-vouched (``ENGINE_ERROR_CODES``), so upstream text must not ride it."""
-    refused = httpx.Response(
-        403, json={"detail": {"code": "sk-leaked-code", "message": "sk-leaked-message"}}
+    gateway = _Gateway(
+        {
+            "solo": lambda _sent: httpx.Response(
+                403, json={"detail": {"code": "sk-leaked-code", "message": "sk-leaked-message"}}
+            )
+        }
     )
-    gateway = _gateway([refused] * 5)
 
-    _codes, run_error = await _run_cases(gateway, _cases(5))
+    _codes, run_error = await _run_cases(gateway, _SOLO, _cases(5))
 
     assert run_error is not None
     assert "sk-leaked" not in str(run_error)
 
 
 @pytest.mark.asyncio
-async def test_one_answer_between_refusals_starts_the_count_over() -> None:
-    refused = error(403, _REFUSED_403)
-    gateway = _gateway([refused] * 4 + [chat("an answer")] + [refused] * 4)
+async def test_a_live_answer_between_refusals_starts_the_count_over() -> None:
+    no = refused(403, _REFUSED_403)
+    gateway = _Gateway({"solo": in_order(no, no, no, no, live(), no, no, no, no)})
 
-    codes, run_error = await _run_cases(gateway, _cases(9))
+    codes, run_error = await _run_cases(gateway, _SOLO, _cases(9))
 
     # WHY: a 403 can belong to one input (a prompt the provider's moderation flagged). A key
     # that still answers is not refused, so four flagged Cases on each side stop nothing.
     assert run_error is None
-    assert len(gateway.calls(CHAT)) == 9
     assert codes == [_REFUSED_403] * 4 + [None] + [_REFUSED_403] * 4
 
 
 @pytest.mark.asyncio
-async def test_a_different_refusal_starts_the_count_over() -> None:
-    gateway = _gateway(
-        [error(403, _REFUSED_403)] * 4 + [error(403, "another_code")] * 4 + [error(400, "x")]
-    )
+async def test_a_cached_answer_neither_counts_nor_restarts_the_count() -> None:
+    no = refused(403, _REFUSED_403)
+    gateway = _Gateway({"solo": in_order(no, no, no, no, cached(), no)})
 
-    codes, run_error = await _run_cases(gateway, _cases(9))
+    codes, run_error = await _run_cases(gateway, _SOLO, _cases(8))
+
+    # WHY: a stored reply never asked the provider, so it says nothing about the key. Had it
+    # restarted the count, a half-cached rerun of a disabled key would never stop.
+    assert codes[:6] == [_REFUSED_403] * 4 + [None, _REFUSED_403]
+    assert run_error is not None and run_error.code == stop.STOP_CODE
+    assert gateway.calls() == 6
+
+
+@pytest.mark.asyncio
+async def test_a_different_refusal_starts_the_count_over() -> None:
+    a, b = refused(403, _REFUSED_403), refused(403, "another_code")
+    gateway = _Gateway({"solo": in_order(a, a, a, a, b, b, b, b, refused(400, "bad_request"))})
+
+    codes, run_error = await _run_cases(gateway, _SOLO, _cases(9))
 
     assert run_error is None
-    assert len(codes) == 9 and stop.STOP_CODE not in codes
+    assert stop.STOP_CODE not in codes
 
 
 @pytest.mark.asyncio
 async def test_attempts_of_one_case_count_as_one_case() -> None:
-    gateway = _gateway([error(403, _REFUSED_403)] * 8)
+    gateway = _Gateway({"solo": refused(403, _REFUSED_403)})
 
     # WHY: a Benchmark that asks each Case several times sends the same flagged input each
     # time. Eight refused Attempts of ONE Case are one Case's failure, not a refused key.
-    _codes, run_error = await _run_cases(gateway, ["case-1"] * 8)
+    _codes, run_error = await _run_cases(gateway, _SOLO, ["case-1"] * 8)
 
     assert run_error is None
+    assert gateway.calls() == 8
+
+
+# --- Candidates that survive a refused call ---------------------------------------------------
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("status", "code"), [(402, "insufficient_credits"), (403, _REFUSED_403)])
+async def test_a_quorum_fusion_survives_its_refused_optional_member(status: int, code: str) -> None:
+    gateway = _Gateway(
+        {
+            "good-a": live("A"),
+            "good-b": live("A"),
+            "bad": refused(status, code),
+            "synth": live("A"),
+        }
+    )
+
+    codes, run_error = await _run_cases(gateway, _QUORUM, _cases(6))
+
+    # WHY (review of #2002): quorum 2 lets the panel drop its optional member, so every Case
+    # is still answered. A refused member call that no Case failed on must never stop the run.
+    assert run_error is None
+    assert codes == [None] * 6
+    assert gateway.calls("bad") == 6
+
+
+@pytest.mark.asyncio
+async def test_a_refused_synthesiser_stops_the_quorum_fusion() -> None:
+    gateway = _Gateway(
+        {
+            "good-a": live("A"),
+            "good-b": live("A"),
+            "bad": live("A"),
+            "synth": refused(402, "insufficient_credits"),
+        }
+    )
+
+    codes, run_error = await _run_cases(gateway, _QUORUM, _cases(3))
+
+    # WHY: the members answered, but the Case failed with the synthesiser's own refusal, which
+    # fails every next Case the same way.
+    assert codes == ["insufficient_credits", stop.STOP_CODE, stop.STOP_CODE]
+    assert run_error is not None and run_error.code == stop.STOP_CODE
+    assert gateway.calls("synth") == 1
+
+
+@pytest.mark.asyncio
+async def test_a_quorum_whose_every_member_is_refused_stops_the_run() -> None:
+    no_credits = refused(402, "insufficient_credits")
+    gateway = _Gateway(
+        {"good-a": no_credits, "good-b": no_credits, "bad": no_credits, "synth": live("A")}
+    )
+
+    codes, run_error = await _run_cases(gateway, _QUORUM, _cases(3))
+
+    # WHY: the Case may fail with the panel's own code rather than the refusal's, but no call
+    # of it answered, so the refusal is the cause. The synthesiser is never reached.
+    assert codes[0] is not None and codes[1:] == [stop.STOP_CODE] * 2
+    assert run_error is not None and run_error.code == stop.STOP_CODE
+    assert gateway.calls("synth") == 0
+
+
+@pytest.mark.asyncio
+async def test_a_fallback_gate_that_answers_keeps_the_run_going() -> None:
+    gateway = _Gateway(
+        {"prov/primary": refused(402, "insufficient_credits"), "prov/backup": live("A")}
+    )
+
+    codes, run_error = await _run_cases(gateway, _FALLBACK, _cases(6))
+
+    # WHY: ``sf.escalate_if(sf.unanswered())`` exists to answer when the first tier cannot.
+    assert run_error is None
+    assert codes == [None] * 6
+    assert gateway.calls("prov/backup") == 6
+
+
+@pytest.mark.asyncio
+async def test_a_row_policy_that_keeps_its_other_rows_keeps_the_run_going() -> None:
+    def rows(sent: dict[str, Any]) -> httpx.Response:
+        # Row a is refused for credits; row b answers.
+        prompt: str = json.dumps(sent["messages"])
+        return (refused(402, "insufficient_credits") if "row-a" in prompt else live("B"))(sent)
+
+    gateway = _Gateway({"rows": rows})
+
+    codes, run_error = await _run_cases(gateway, _ROWS, _cases(6))
+
+    assert run_error is None
+    assert codes == [None] * 6
+
+
+@pytest.mark.asyncio
+async def test_a_row_policy_that_collected_only_refusals_stops_the_run() -> None:
+    gateway = _Gateway({"rows": refused(402, "insufficient_credits")})
+
+    codes, run_error = await _run_cases(gateway, _ROWS, _cases(3))
+
+    # WHY: the Case "answered" with two collected refusals and no answering call, so the
+    # refused key is still the cause, and every next Case would be the same.
+    assert codes[1:] == [stop.STOP_CODE] * 2
+    assert run_error is not None and run_error.code == stop.STOP_CODE
+    assert gateway.calls() == 2
+
+
+# --- outside the Candidate, and the run's lifetime --------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_a_call_outside_a_candidate_case_is_never_counted() -> None:
+    """A Benchmark's judge calls go through the connector with no Case watch open."""
+    refusals: list[httpx.Response | BaseException] = [error(403, _REFUSED_403) for _ in range(8)]
+    gateway = ScriptedGateway(refusals)
+
+    with stop.refused_key_scope():
+        for _ in range(8):
+            _tally, _answer, failure = await run_call(gateway, _RUN, web_search=False)
+            assert failure is not None and failure.code == _REFUSED_403
+
     assert len(gateway.calls(CHAT)) == 8
-
-
-@pytest.mark.asyncio
-async def test_a_judge_call_is_never_counted_or_refused() -> None:
-    gateway = _gateway([error(403, _REFUSED_403)] * 8)
-
-    # WHY: only the Candidate is the user's key. A judge call is not made inside the Candidate
-    # invocation, and a judge's failure is graded by its own rules.
-    codes, run_error = await _run_cases(gateway, _cases(8), candidate=False)
-
-    assert run_error is None
-    assert codes == [_REFUSED_403] * 8
-
-
-@pytest.mark.asyncio
-async def test_a_stopped_run_still_lets_a_judge_call_through() -> None:
-    gateway = _gateway([error(402, "insufficient_credits"), chat("a verdict")])
-
-    with pytest.raises(stop.KeyRefused), stop.refused_key_scope():
-        with candidate_invocation_scope():
-            await run_call(gateway, _RUN, web_search=False)
-        _tally, answer, failure = await run_call(gateway, _RUN, web_search=False)
-        assert failure is None and answer == "a verdict"
 
 
 @pytest.mark.asyncio
 async def test_one_runs_refusals_never_reach_the_next_run() -> None:
     """The state is bound per run: local mode serves every run from one process and one world."""
-    first, _ = await _run_cases(_gateway([error(403, _REFUSED_403)] * 4), _cases(4))
-    second, run_error = await _run_cases(_gateway([error(403, _REFUSED_403)] * 4), _cases(4))
+    first, _ = await _run_cases(_Gateway({"solo": refused(403, _REFUSED_403)}), _SOLO, _cases(4))
+    second, run_error = await _run_cases(
+        _Gateway({"solo": refused(403, _REFUSED_403)}), _SOLO, _cases(4)
+    )
 
     assert run_error is None
     assert first == second == [_REFUSED_403] * 4
@@ -195,17 +405,17 @@ async def test_one_runs_refusals_never_reach_the_next_run() -> None:
 async def test_a_cancelled_run_stays_cancelled_after_a_stop() -> None:
     """A stop or deadline is its own terminal reason; the stop error must not replace it."""
     with pytest.raises(asyncio.CancelledError), stop.refused_key_scope():
-        with candidate_invocation_scope():
+        with pytest.raises(ResolutionError), stop.watch_case_refusals("case-1"):
             stop.note_refusal(MODEL, status=402, code="insufficient_credits")
+            raise ResolutionError("refused", code="insufficient_credits", permanent=True)
         raise asyncio.CancelledError
 
 
 def test_outside_a_run_nothing_is_counted_or_refused() -> None:
-    """The sync surface and tests bind no run holder; the rule is then a no-op."""
-    with candidate_invocation_scope():
+    """The sync surface and direct runs bind no run holder; the rule is then a no-op."""
+    with stop.watch_case_refusals("case-1"):
         stop.note_refusal(MODEL, status=402, code="insufficient_credits")
         assert stop.note_answer(MODEL, "an answer") == "an answer"
-        stop.refuse_if_stopped()
 
 
 @pytest.mark.asyncio
@@ -220,14 +430,12 @@ async def test_an_engine_run_that_stopped_fails_instead_of_completing() -> None:
 
     @node.endpoint("/candidate")
     def candidate(request: object) -> str:
-        # Stands in for the Candidate's model call: the first one is refused for credits, as the
-        # connector reports it, and any later one is refused by the Engine before it is sent.
-        with candidate_invocation_scope():
-            with key_refusal_as_url4_error():
-                stop.refuse_if_stopped()
+        # Stands in for the Candidate adapter: its Case watch is open, and its one model call is
+        # refused for credits, as the connector reports it.
+        with key_refusal_as_url4_error(), stop.watch_case_refusals(None):
             calls.append("sent")
             stop.note_refusal(MODEL, status=402, code="insufficient_credits")
-        raise ResolutionError("refused", code="insufficient_credits", permanent=True)
+            raise ResolutionError("refused", code="insufficient_credits", permanent=True)
 
     # Three rows, each error collected into a row, the way a Benchmark runs its Cases.
     expression = '["a","b","c"]*(/candidate($item)!"i";on_error=collect)!"per"'

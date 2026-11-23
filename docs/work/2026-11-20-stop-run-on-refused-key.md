@@ -89,3 +89,15 @@ said only `type=APIError`.
     raises its own `KeyRefused`, and `connector.key_refusal_as_url4_error` turns it into url4's
     error, both before a Candidate call and around the run in the executor. The allowlist test
     is unchanged. Re-gated: 235 passed across `test_url4_executor.py` and the Engine files above.
+  - 2026-11-23, review of #2002: the rule counted refused CALLS, so a Candidate that survives a
+    refused call was stopped anyway: a quorum Fusion dropping its optional member, a fallback
+    Gate (`sf.escalate_if(sf.unanswered())`), and a row policy (`on_error=collect`) inside the
+    Candidate. A cached reply also restarted the count. Fixed at the Case boundary: the
+    Candidate adapter opens `watch_case_refusals` around each Case; the connector only records
+    what each call met. A Case counts when a key refusal left it unanswered (no call answered,
+    or it failed with the refusal's own code); only a LIVE answer restarts the counts. New
+    fixture `tests/unit/data/gate_contract/fallback_unanswered.url4` is the SDK's compile of
+    that Cascade. The 5 new mechanism tests fail on the previous commit and pass now.
+    Re-gated: 249 + 72 passed across `test_refused_key_stop.py` (20), `test_url4_executor.py`,
+    the connector, retry, error-code, Case-attribution, cascade, quorum and Candidate-adapter
+    consumer suites.
