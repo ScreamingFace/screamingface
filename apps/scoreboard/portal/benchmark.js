@@ -457,6 +457,10 @@
       descNode,
       document.getElementById("benchmark-desc-toggle")
     );
+    // At /benchmarks/<id>/ the server already wrote the description, so fold it now: waiting for
+    // the leaderboard answer shows the whole paragraph while it loads, then collapses it under the
+    // reader (PR #1983 review). The fetch below syncs again when it replaces the text.
+    syncDescriptionFold();
 
     var id = P.boardId();
     if (!id) {

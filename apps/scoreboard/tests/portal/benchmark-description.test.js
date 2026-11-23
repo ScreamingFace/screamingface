@@ -151,3 +151,54 @@ test("a page missing the fold markup gets a no-op, so the leaderboard still rend
   const init = loadInitDescriptionFold({});
   assert.doesNotThrow(() => init(null, makeNode(), null)());
 });
+
+// Runs the real page start-up (init in benchmark.js) on a board whose description the server
+// already wrote, with the leaderboard answer held until the test releases it.
+function openBoardWithHeldLeaderboard(fold, desc, button) {
+  const nodes = { "benchmark-desc-fold": fold, "benchmark-desc": desc, "benchmark-desc-toggle": button };
+  const byId = (id) => {
+    if (!nodes[id]) nodes[id] = makeNode();
+    return nodes[id];
+  };
+  // The crumb's <nav> and the separator before it, which the start-up shows beside the name.
+  nodes["crumb-benchmark"] = Object.assign(makeNode(), {
+    parentNode: Object.assign(makeNode(), { previousElementSibling: makeNode() }),
+  });
+
+  const held = {};
+  const page = {};
+  const window = {
+    SFLeaderboardLogic: L,
+    addEventListener() {},
+    location: { search: "", pathname: "/benchmarks/hle/", hash: "" },
+    ScorePortal: {
+      ready: (init) => (page.start = init),
+      boardId: () => "hle",
+      atBoardAddress: () => true,
+      fetchJson: (url) => new Promise((resolve) => (held[url] = resolve)),
+      showLoading() {},
+      setStatus() {},
+      clear() {},
+    },
+  };
+  vm.runInNewContext(fs.readFileSync(path.join(PORTAL, "benchmark.js"), "utf8"), {
+    window,
+    document: { getElementById: byId, title: "" },
+  });
+  page.start();
+  return held;
+}
+
+test("a server-written description is folded while the leaderboard is still loading", () => {
+  // WHY (PR #1983 review): folding only after the leaderboard answer showed the whole 2,500-
+  // character paragraph during a slow load, then collapsed it and jumped the page up under the
+  // reader. The fold must be in place before that answer, not because of it.
+  const { fold, desc, button } = makeFold(512, 77); // the reviewer's measured heights
+  desc.textContent = "A long description the server wrote into the page.";
+
+  const held = openBoardWithHeldLeaderboard(fold, desc, button);
+  assert.ok(held["/v1/leaderboard/hle?top=50"], "the leaderboard request is still pending");
+  assert.equal(fold.classes.has("is-clamped"), true);
+  assert.equal(button.hidden, false);
+  assert.equal(button.textContent, "Show more");
+});
