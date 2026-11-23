@@ -28,7 +28,8 @@ first step" named by GitHub issue 1966; turn 2 stays one new call to the whole C
 - `apps/screamingface-engine/src/screamingface_engine/benchmarks/medxpert/definition.py` — a
   MedXpertQA-owned route `REASONING_TEXT_ROUTE` bound between the turns; turn 2 reads
   `$reasoning_text`; `compute_revision` takes the protocol constant; `REVISION` moves.
-- `.../medxpert/runtime.py` — the route's handler, reusing `_reasoning_text`; installed by `install`.
+- `.../medxpert/runtime.py` — the route's handler, reusing `_reasoning_text`; installed by `install`
+  (changed in review: the strict decoder, see Decisions).
 - `.../medxpert/revision_inputs.py` — `PROTOCOL_REVISION` `two-turn-cot-v1` → `two-turn-cot-v2`.
 - `apps/screamingface-engine/tests/unit/test_medxpert_commit_turn_bytes.py` (new).
 - Revision pins, per `docs/adding-an-imported-benchmark.md` "Changing a Benchmark's published
@@ -66,8 +67,25 @@ bytes on every run. The ticket asks for no change to how these Cases are graded,
 made: the same turns run and the same reply is graded. The model's reply to an empty reasoning
 may differ from its reply to a record; that is part of the exam change the revision move names.
 
-`_reasoning_text` is reused unchanged (its fallback returns its input when the input is not a
-decodable record; a turn-1 binding is always a record, so the route never takes it).
+Review follow-up (2026-11-23): the route reads the record with the contract's strict decoder
+(`decode_candidate_invocation_record`), not the lenient `_reasoning_text` the plan named. A
+value that is not exactly a Candidate result record (plain text, another schema, a missing or
+unknown field) fails the Case with `candidate_contract_error` before turn 2. Every row of the
+table above is a record the Engine's own encoder writes, so the strict decoder accepts all of
+them and no legitimate turn-1 shape changes its outcome. `_reasoning_text` is untouched and
+still serves the check's audit trail.
+
+## What a fresh run on the new revision costs
+
+- Turn 1: $0 when the same Candidate reruns with the request cache on. This diff changes no
+  line of the turn-1 request (the CoT prompt template, the prepared Cases and the turn-1 call
+  are untouched), so its bytes are the ones already cached. Not checked against prod.
+- Turn 2: all 2,450 commit calls are paid once, because every one has new bytes.
+- The one real data point: an external researcher's rerun paid $3.03 for 1,899 turn-2 calls
+  on one model.
+- At that model's price, 2,450 turn-2 calls cost about $3.91.
+- Another model costs that figure scaled by its price.
+- A Candidate with no cached turn 1 pays for both turns, as on any first run.
 
 ## Acceptance
 
@@ -88,7 +106,8 @@ decodable record; a turn-1 binding is always a record, so the route never takes 
   at `input_tokens` 40 vs 0 and `misses` 1 vs `hits` 1). GREEN: 363 passed, 12 skipped across
   the 46 Engine test files that mention medxpert plus `test_early_grade_compatibility.py`,
   `test_benchmark_stage_installation.py` and `test_benchmark_stage_activity.py`
-  (extra-less venv, as CI); the new file is 10 of those. Mutation check: putting the record
+  (extra-less venv, as CI); the new file is 10 of those
+  (16 after the review follow-up: 369 passed, 12 skipped over the same files). Mutation check: putting the record
   back on turn 2 fails 4 of the 10. Inspect lane (`uv run --isolated --extra inspect`), the 10
   `tests/unit/inspect` files that mention medxpert: 327 passed, 2 failed, both on the
   `enigmaeval` row's description (`test_answer_formats_every_row.py`,

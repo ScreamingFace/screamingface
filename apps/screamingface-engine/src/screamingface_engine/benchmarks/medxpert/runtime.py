@@ -20,6 +20,7 @@ from typing import Any
 
 from screamingface_engine.activity_kinds import ActivityKind
 from screamingface_engine.benchmarks.case_grading_report import report_case_grading
+from screamingface_engine.benchmarks.contract import decode_candidate_invocation_record
 from screamingface_engine.benchmarks.failure_classes import (
     benchmark_definition_error as _definition_error,
 )
@@ -53,6 +54,7 @@ from screamingface_engine.benchmarks.shared_grading.serving import (
     install_benchmark,
     serve_cases,
 )
+from url4.core.errors import ResolutionError
 from url4.peer.server import Request, Url4Node
 
 
@@ -174,11 +176,26 @@ def _turn_one_text(request: Request) -> str:
     only as its whole record. The record's accounting differs between a live call and a cache
     hit, so passing it on made the same Case send different turn-2 bytes on a rerun.
 
-    A turn 1 with no answer text (refused, empty, or a Fusion that abstained) has an empty
-    ``output``, so turn 2 gets an empty reasoning and still commits, as it did before.
+    A turn 1 with no answer text (refused, empty, or a Fusion that abstained) is a valid record
+    with an empty ``output``, so turn 2 gets an empty reasoning and still commits, as it did
+    before.
+
+    WHY the contract's strict decoder and not ``_reasoning_text``: that reader is lenient, for
+    the audit trail, and hands back whatever it was given when it cannot read a record. Here a
+    record that is not exactly a Candidate's result must fail the Case: a lenient read would put
+    the raw record, accounting included, back into the prompt, or let the model commit on a
+    reasoning it never wrote.
     """
 
-    return _reasoning_text(request.context)
+    try:
+        return decode_candidate_invocation_record(request.context).output
+    except ValueError as exc:
+        # The same code the Engine gives a Candidate whose record it cannot encode.
+        raise ResolutionError(
+            f"MedXpertQA turn-1 record is not a Candidate result: {exc}",
+            code="candidate_contract_error",
+            permanent=True,
+        ) from exc
 
 
 def _reasoning_text(value: object) -> str:

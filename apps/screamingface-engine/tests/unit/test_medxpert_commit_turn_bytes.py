@@ -32,7 +32,7 @@ from test_frozen_copy_failed_case import _cases as _case_outcomes
 from test_frozen_copy_failed_case import _run as _copy_run
 
 from screamingface_engine.benchmarks import BenchmarkRegistry, link_candidate
-from screamingface_engine.benchmarks.contract import encode_candidate_invocation
+from screamingface_engine.benchmarks.contract import CANDIDATE_ROUTE, encode_candidate_invocation
 from screamingface_engine.benchmarks.medxpert.definition import (
     FINGERPRINT,
     MEDXPERT,
@@ -45,7 +45,8 @@ from screamingface_engine.benchmarks.medxpert.runtime import _turn_one_text
 from screamingface_engine.job_env import CAPTURE, REPLAY_FROZEN_COPY
 from screamingface_engine.runner.main import build_executor
 from screamingface_engine.world.config import AigatewaySection, ModelSpec, WorldConfig
-from url4.peer.server import Request
+from url4.core.errors import ResolutionError
+from url4.peer.server import Request, Url4Node
 from url4.streaming.interfaces import Completed
 
 _MODEL = "prov/solo"
@@ -326,6 +327,66 @@ def test_a_turn_one_without_answer_text_gives_the_commit_turn_empty_reasoning(
     record would put the accounting back into the prompt for exactly these Cases.
     """
     assert _reasoning_text_reply(record) == ""
+
+
+#: Turn-1 values that are not exactly a Candidate's result record.
+_MALFORMED_RECORDS: dict[str, str] = {
+    "plain-text": "I think B.",
+    "not-an-object": '["I think B."]',
+    "another-schema": '{"schema":"someone.else.v1","output":"I think B."}',
+    # A record cut short: the right schema, the answer and the outcome fields missing.
+    "missing-fields": '{"schema":"screamingface.candidate-invocation.v1","status":"completed"}',
+    "unknown-field": encode_candidate_invocation("I think B.", "stop", None)[:-1] + ',"extra":1}',
+}
+
+
+@pytest.mark.parametrize("record", _MALFORMED_RECORDS.values(), ids=_MALFORMED_RECORDS.keys())
+def test_a_malformed_turn_one_record_is_refused_not_read_as_reasoning(record: str) -> None:
+    """INVARIANT: only an exact Candidate result record becomes turn-2 prompt text.
+
+    A lenient read has two bad endings: it hands the raw value on (accounting and all, the
+    defect of OME-1786), or it reads "no answer" and lets the model commit on a reasoning it
+    never wrote. The route refuses loudly instead, with the Candidate-contract failure code.
+    """
+    with pytest.raises(ResolutionError) as refused:
+        _reasoning_text_reply(record)
+
+    assert refused.value.code == "candidate_contract_error"
+    assert refused.value.permanent
+
+
+@pytest.mark.asyncio
+async def test_a_malformed_turn_one_record_fails_the_case_before_any_commit_turn(
+    tmp_path: Path,
+) -> None:
+    """INVARIANT: a turn 1 the Engine cannot read ends the Case; nothing is committed or graded.
+
+    The stand-in replaces the Engine's own Candidate route, the only way to hand the protocol
+    a record the real route would never write: its first call (turn 1) returns a record cut
+    short, and any later call would be the commit turn.
+    """
+    _assets(tmp_path)
+    node = Url4Node("malformed-turn-one")
+    MEDXPERT.install(node, tmp_path)
+    calls: list[str] = []
+
+    @node.endpoint(CANDIDATE_ROUTE)
+    def candidate(request: Request) -> str:
+        calls.append(request.context)
+        return _MALFORMED_RECORDS["missing-fields"]
+
+    try:
+        result: dict[str, Any] = json.loads(
+            (await node.evaluate(link_candidate(_CANDIDATE, MEDXPERT.build(1)))).text
+        )
+    finally:
+        await node.aclose()
+
+    assert len(calls) == 1, "the commit turn ran on a turn-1 record nobody could read"
+    (case,) = result["cases"]
+    assert case["status"] == "failed"
+    assert [failure["code"] for failure in case["failures"]] == ["candidate_contract_error"]
+    assert case["grade"]["score"] is None
 
 
 def test_the_commit_turn_change_moved_the_published_revision() -> None:
