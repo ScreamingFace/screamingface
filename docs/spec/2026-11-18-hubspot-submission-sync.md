@@ -244,6 +244,23 @@ deleted after (Bennett's rule).
 - With HubSpot unreachable, submissions succeed and the job catches up when it returns.
 - No hand-typed property value is changed.
 
+## Accepted risks (Filip, 2026-11-23, after review of #1981)
+
+1. **A duplicate SOTA card is possible but bounded.** HubSpot documents creating a deal with its
+   contact association in one request, but promises neither that both commit together nor that
+   the association reads back at once. If a create's response is lost and the retry (at least 5
+   minutes later) does not see the card, a second card is created. The next run then finds two
+   cards, writes nothing more, and marks the person `ambiguous_card` for someone to merge.
+   Rejected fixes: a unique integration-owned deal property (needs a schema change by the
+   program team, a backfill onto existing cards, and about half a day of code) and a
+   `create_unknown` state (parks rows until a person resolves them). Revisit if a duplicate is
+   ever seen. Two runs at the same moment can also both create a card; the job's docstring and
+   the chart values say not to run it by hand while the CronJob is on.
+2. **A board made private during a person's HubSpot calls can still be sent.** Visibility is
+   re-checked right before each person's writes; the remaining window is those calls, a few
+   seconds, and the board was public when checked. Rejected fix: holding benchmark row locks
+   across HubSpot calls, which would make visibility changes wait on HubSpot.
+
 ## Open questions
 
 1. **HubSpot names and ids:** answered (Facts).

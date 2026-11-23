@@ -124,3 +124,15 @@ Written in the spec.
 - Tests edited inside this PR (none on `main`): the adapter test's history entries now carry
   `sourceId` and `timestamp` (the old one encoded the looser rule), the migration test moved to
   0026, and the fake sink gained a lost-response mode.
+
+### Second review of #1981 (Dmitry, 2026-11-20) and decision (Filip, 2026-11-23)
+
+- Dmitry: (1) a stale association read can still create a second card; (2) the visibility
+  re-check is not atomic with the HubSpot writes.
+- Decision: accept both risks, recorded in the spec's "Accepted risks". Reply posted on #1981
+  (issuecomment-7100137255). Added a warning against manual runs while the CronJob is on
+  (`0f3b31a4a`).
+- Checked before replying: the duplicate is caught on the next run (`_apply` refuses at two
+  cards, tested); every run honours `next_attempt_at`, so no retry comes sooner than 5 minutes.
+  Not verifiable: HubSpot's association read-after-write timing (no official guarantee; forum
+  reports only).
