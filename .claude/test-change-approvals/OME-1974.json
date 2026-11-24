@@ -1,0 +1,14 @@
+{
+  "issue": "OME-1974",
+  "branch": "OME-1974-colab-analytics-status",
+  "approver": "Filip Boltuzic",
+  "date": "2026-11-24",
+  "reason": "Owner approved the edit as a pure pointer fix: analytics-colab.test.cjs reads the embedded bridge script to test its origin/nonce/timeout checks, and _SCRIPT moved from colab.py to colab_transport.py in this unit's own earlier round. The test's 12 assertions are unchanged; only the source file it reads from is corrected.",
+  "approval_record": "docs/work/2026-11-19-colab-analytics-status.md",
+  "files": {
+    "packages/screamingface/tests/browser/analytics-colab.test.cjs": {
+      "base_blob": "ea3570c8356aa95a4e41504585aba2160723dbfc",
+      "approved_blob": "4797c577fd92c628b49e705b94d87b3ea7eb871c"
+    }
+  }
+}

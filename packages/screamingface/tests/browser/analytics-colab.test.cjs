@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const vm = require('node:vm');
 const fs = require('node:fs');
 const crypto = require('node:crypto');
-const python = fs.readFileSync('src/screamingface/_analytics/colab.py', 'utf8');
+const python = fs.readFileSync('src/screamingface/_analytics/colab_transport.py', 'utf8');
 const source = python.split('_SCRIPT = r"""')[1].split('"""')[0];
 const origin = 'https://analytics.dev.screamingface.ai';
 function run(command, choice='unknown', options={}) {
