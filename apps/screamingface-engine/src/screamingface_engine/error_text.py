@@ -29,6 +29,7 @@ __all__ = [
     "ENGINE_ERROR_CODES",
     "ENGINE_RESERVED_CODES",
     "PUBLIC_UNVOUCHED_CODES",
+    "ROUTING_CODES",
     "public_identifier",
     "public_message",
 ]
@@ -116,7 +117,30 @@ The MESSAGE is not: ``spawn_failed`` carries ``str(exc)``. Disjoint from
 constants by ``test_the_control_plane_set_is_exactly_the_supervisors_own_constants``.
 """
 
-ENGINE_RESERVED_CODES: frozenset[str] = ENGINE_ERROR_CODES | CONTROL_PLANE_TERMINAL_CODES
+ROUTING_CODES: frozenset[str] = frozenset(
+    {
+        "routing_unsupported",
+        "routing_profile_not_found",
+        "routing_connection_missing",
+        "routing_preflight_unavailable",
+        "routing_preflight_failed",
+        "routing_profile_mismatch",
+        "routing_invalid_scores",
+        "routing_ambiguous",
+    }
+)
+"""The routed answer's codes (OME-1822, ``world/routing.py::ROUTING_STATUS``).
+
+The CODE is the Engine's verdict on a routed answer, and a caller acts on it: the SDK reads
+``routing_preflight_unavailable`` as "no model ran, asking again is safe". An upstream body that
+carried one could make a failure after the classifier or the branch was sent claim that nothing
+ran. The MESSAGE is not vouched for: disjoint from :data:`ENGINE_ERROR_CODES`. Pinned to the
+routing table by ``tests/unit/test_routing_relayed_errors.py``.
+"""
+
+ENGINE_RESERVED_CODES: frozenset[str] = (
+    ENGINE_ERROR_CODES | CONTROL_PLANE_TERMINAL_CODES | ROUTING_CODES
+)
 """Every code a public boundary reads as engine-authored. No upstream may mint one of these
 (``world/connector.py::_raise_for_status``), or it could borrow the engine's voice."""
 
