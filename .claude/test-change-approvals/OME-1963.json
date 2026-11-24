@@ -155,8 +155,8 @@
       "approved_blob": "aed5bf534a1c6b0c2cce8bf4ec1e2db09815118d"
     },
     "apps/screamingface-engine/tests/unit/test_terminal_error_detail.py": {
-      "base_blob": "09661f820a3bb970ba9b7a2bbca5e8b8869ca1aa",
-      "approved_blob": "5e0d76fafcb22602e773131021f7a4739f6c7cc2"
+      "base_blob": "1001a18151b9e53577501621baff48838428ea9c",
+      "approved_blob": "1f5dc3f35d62325328be7b7de81ef8c450ed3287"
     },
     "apps/screamingface-engine/tests/unit/test_unsupported_content_part_refusal.py": {
       "base_blob": "8f10af43f604a4f98d8c74bc2f05aef8e1e2b48b",
