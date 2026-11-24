@@ -1,5 +1,5 @@
 ---
-ticket: unfiled   # slug-named ledger; set to OME-N when the issue is filed at PR-open
+ticket: OME-2013
 stack: screamingface-engine
 status: in_progress   # planned | in_progress | done | blocked
 started: 2026-11-24
@@ -47,9 +47,10 @@ Base: `origin/main` `744f3b89b`. Plan approved by the owner in chat on 2026-11-2
 ## Outcome (fill at the end — required before COMMIT)
 
 - **Actual files:** `apps/screamingface-engine/tests/unit/test_refused_key_stop.py` (one new
-  test, `test_two_undeclared_403_codes_extend_one_streak`) and this ledger. No production code.
-- **Commits:** one commit on `engine-refused-key-403-streak`; its sha and the PR are recorded at
-  close-out.
+  test, `test_two_undeclared_403_codes_extend_one_streak`), this ledger, and the mirror
+  `docs/tasks/2026-11-24-OME-2013-engine-refused-key-403-streak.md`. No production code.
+- **Commits:** `c773681a4` (the test and this ledger), then the mirror and the ticket backfill,
+  on `OME-2013-engine-refused-key-403-streak`. The PR and its merge are recorded at close-out.
 - **Gates:** `run_gates.py screamingface-engine --base origin/main` all green on Python 3.13.11
   and 3.12.9: append-only, ruff check, ruff format, pyright, layering, and the full pytest suite
   with coverage at least 80%. The module alone: 25 passed on both. Mutation proof: with
