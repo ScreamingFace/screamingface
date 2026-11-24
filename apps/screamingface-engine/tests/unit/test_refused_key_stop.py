@@ -519,3 +519,24 @@ async def test_an_engine_run_that_stopped_fails_instead_of_completing() -> None:
     assert (caught.value.code, caught.value.permanent) == (stop.STOP_CODE, True)
     assert not any(isinstance(step, Completed) for step in steps)
     assert calls == ["sent"]
+
+
+# --- the Gateway codes the Engine lifts (gateway code provenance) ----------------------------
+
+
+@pytest.mark.asyncio
+async def test_two_undeclared_403_codes_extend_one_streak() -> None:
+    """WHY (gateway code provenance, OME-2010): the Engine lifts only a code the Gateway declares.
+
+    Any other 403 code reads ``aigateway_http_403``, so a proxy that refuses the key with a
+    different code each time still builds one streak, and the run stops after five Cases. Before
+    the closed rule the two codes alternated and restarted the count on every Case.
+    """
+    a, b = refused(403, "proxy_forbidden"), refused(403, "edge_denied")
+    gateway = _Gateway({"solo": in_order(a, b, a, b, a)})
+
+    codes, run_error = await _run_cases(gateway, _SOLO, _cases(8))
+
+    assert gateway.calls() == stop.REFUSALS_BEFORE_STOP == 5
+    assert codes == ["aigateway_http_403"] * 5 + [stop.STOP_CODE] * 3
+    assert run_error is not None and run_error.code == stop.STOP_CODE
