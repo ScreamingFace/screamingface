@@ -1,5 +1,5 @@
 ---
-ticket: unfiled   # slug-named ledger; set to OME-N when the issue is filed at PR-open
+ticket: OME-2014
 stack: screamingface-engine
 status: in_progress   # planned | in_progress | done | blocked
 started: 2026-11-24
@@ -80,7 +80,9 @@ Base: `origin/main` `744f3b89b`.
   - `apps/screamingface-engine/tests/unit/test_engine_ci_path_filters.py` (new, 365 lines).
   - `apps/screamingface-engine/tests/unit/test_engine_ci_heavy_jobs.py` (new, 195 lines).
   - This ledger.
-- **Commits:** recorded at commit and PR-open.
+- **Commits:** `a99e099ae` `ci(screamingface-engine): run the Engine suite on every repo file
+  an Engine test reads`, then the commit that files `OME-2014` and adds its mirror. The PR and
+  its merge are recorded at close-out.
 - **Gates:** `run_gates.py screamingface-engine --base origin/main` is all green on Python
   3.13.11 and 3.12.9. That covers the append-only check, ruff check, ruff format, pyright,
   layering, and the full pytest suite with coverage. The two new modules give 26 passed.
