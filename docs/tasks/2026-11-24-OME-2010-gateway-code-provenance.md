@@ -1,13 +1,13 @@
 ---
 id: OME-2010
 linear_url: https://linear.app/openmined/issue/OME-2010/lift-only-the-gateways-declared-error-codes-from-a-gateway-error-body
-status: in_progress
+status: done
 type: fix
 priority: high
 labels: [screamingface-engine, agentic, autonomous]
 parent: OME-1306
 created: 2026-11-24
-closed:
+closed: 2026-11-24
 ---
 
 # Lift only the Gateway's declared error codes from a Gateway error body
@@ -30,3 +30,6 @@ Spec: `docs/spec/2026-11-23-gateway-code-provenance.md`.
 Plan: `docs/plan/2026-11-23-gateway-code-provenance.md`.
 Ledger: `docs/work/2026-11-23-gateway-code-provenance.md`.
 Branch: `OME-2010-gateway-code-provenance`.
+
+Merged [PR #2025](https://github.com/ScreamingFace/screamingface/pull/2025) as `afe8ec8ea`.
+Linear is Done.

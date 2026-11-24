@@ -1,13 +1,13 @@
 ---
 id: OME-2011
 linear_url: https://linear.app/openmined/issue/OME-2011/declare-every-error-code-the-gateway-can-write-and-check-it-against
-status: in_progress
+status: done
 type: task
 priority: high
 labels: [aigateway, agentic, autonomous]
 parent: OME-1306
 created: 2026-11-24
-closed:
+closed: 2026-11-24
 ---
 
 # Declare every error code the Gateway can write and check it against the source
@@ -29,3 +29,6 @@ Spec: `docs/spec/2026-11-23-gateway-code-provenance.md`.
 Plan: `docs/plan/2026-11-23-gateway-code-provenance.md`.
 Ledger: `docs/work/2026-11-23-gateway-code-provenance.md`.
 Branch: `OME-2010-gateway-code-provenance`.
+
+Merged [PR #2025](https://github.com/ScreamingFace/screamingface/pull/2025) as `afe8ec8ea`.
+Linear is Done.
