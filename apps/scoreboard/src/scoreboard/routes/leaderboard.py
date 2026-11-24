@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException, Query, Request, Response
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from tortoise import BaseDBAsyncClient
 
+from scoreboard.classification.candidate_kind import CandidateKindVerdict
 from scoreboard.classification.openness import EntryVerdict, is_hybrid_entry
 from scoreboard.routes.dependencies import (
     PRIVATE_CACHE_HEADERS,
@@ -118,6 +119,18 @@ class RankedLeaderboardEntry(BaseModel):
     # OME-1918: display detail only; hybrids remain closed for frontier statistics.
     # Omit false so non-hybrid rows retain their existing response shape.
     is_hybrid: bool = Field(default=False, exclude_if=lambda value: not value)
+
+    # FEATURE: OME-1852 — single model vs. fusion, for the public Pareto chart's circle/square
+    # marker. Computed by `classify_candidate_kind` from the row's free-form
+    # `metadata.candidate_kind` (the Client's own declaration), per request and bounded by the
+    # page exactly like `openness` above — never stored on `LeaderboardEntry`, so private
+    # `my_submissions` and the staff export are untouched.
+    #
+    # INVARIANT: "unknown" is a real, always-present verdict, never omitted — mirroring
+    # `openness`'s "unidentified". A missing or unrecognised declaration must read as Unknown on
+    # the wire, not merely in the portal's own fallback, so an older or non-portal client cannot
+    # mistake an absent field for "model".
+    candidate_kind: CandidateKindVerdict
 
     # FEATURE: OME-1596 — the pinned cache (frozen copy) a researcher replays this row from, with
     # `sf.evaluate(pinned_cache=...)`. The portal's Reproduce button copies exactly that.
@@ -265,6 +278,7 @@ def _ranked_entry(
     *,
     on_pareto_frontier: bool,
     openness: EntryVerdict,
+    candidate_kind: CandidateKindVerdict,
     is_hybrid: bool = False,
     pinned_cache: str | None = None,
 ) -> RankedLeaderboardEntry:
@@ -272,6 +286,7 @@ def _ranked_entry(
         rank=rank,
         on_pareto_frontier=on_pareto_frontier,
         openness=openness,
+        candidate_kind=candidate_kind,
         is_hybrid=is_hybrid,
         pinned_cache=pinned_cache,
         **entry.model_dump(),
@@ -446,6 +461,11 @@ async def get_leaderboard(
         pinned_caches = await store.pinned_caches_for_score_ids(
             [row.source_id for row in rows], connection=snapshot
         )
+        # OME-1852: the page's composition verdicts, bounded by the page and read in the same
+        # snapshot as the rows they describe.
+        candidate_kinds = await store.candidate_kinds_for_score_ids(
+            [row.source_id for row in rows], connection=snapshot
+        )
     # The response describes the revision its rows were filtered by.
     benchmark = benchmark.model_copy(update={"revision": revision, "case_count": case_count})
     if await turned_private(benchmark_id):
@@ -489,6 +509,9 @@ async def get_leaderboard(
                 openness=verdicts.get(row.source_id, ("unidentified", ()))[0],
                 is_hybrid=row.source_id in hybrid_ids,
                 pinned_cache=pinned_caches.get(row.source_id),
+                # Same "deleted between the reads" fallback as `openness` above: absent reads as
+                # unknown, never guessed into either shape.
+                candidate_kind=candidate_kinds.get(row.source_id, "unknown"),
             )
             for index, row in enumerate(rows, start=1)
         ],
