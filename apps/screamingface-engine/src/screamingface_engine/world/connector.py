@@ -11,7 +11,8 @@ import logging
 import math
 import random
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any, NoReturn
@@ -109,6 +110,12 @@ from screamingface_engine.world.model_response import (
     raise_if_unusable,
 )
 from screamingface_engine.world.models.registry import decode_route_id
+from screamingface_engine.world.refused_key_stop import (
+    STOP_CODE,
+    KeyRefused,
+    note_answer,
+    note_refusal,
+)
 from screamingface_engine.world.reply_logprobs import reply_logprobs
 from screamingface_engine.world.reply_origin import record_reply_origin, round_trip_origin
 from screamingface_engine.world.request_parameters import (
@@ -534,21 +541,29 @@ class _ModelEndpoint:
                 context=request.context,
                 intent=request.intent,
             ):
-                return await _chat_completion_loop(
-                    http_client=self._http_client,
-                    cfg=self._cfg,
-                    scope=scope,
-                    messages=place_on_last_user_message(
-                        _messages(request.context, request.intent), parts
+                # OME-1989: tell the Case's refusal watch that this call answered.
+                return note_answer(
+                    spec.id,
+                    await _chat_completion_loop(
+                        http_client=self._http_client,
+                        cfg=self._cfg,
+                        scope=scope,
+                        messages=place_on_last_user_message(
+                            _messages(request.context, request.intent), parts
+                        ),
+                        params=params,
+                        spec=spec,
+                        tavily_http=self._tavily_http,
+                        tavily_api_key=self._tavily_api_key,
+                        retrieval_policy=retrieval_policy,
+                        cache_attempt=egress.cache_attempt,
                     ),
-                    params=params,
-                    spec=spec,
-                    tavily_http=self._tavily_http,
-                    tavily_api_key=self._tavily_api_key,
-                    retrieval_policy=retrieval_policy,
-                    cache_attempt=egress.cache_attempt,
                 )
         except _GatewayRefusal as exc:
+            # FEATURE (OME-1989): record the refusal in the Case's refusal watch, which decides
+            # when the Case ends whether it caused the Case to fail. This call still raises its
+            # own error below.
+            note_refusal(spec.id, status=exc.status, code=exc.code)
             # INVARIANT (OME-1770 review): the Gateway refuses an ungranted account a private
             # target as an unknown provider. Relayed, that refusal tells the caller this Engine
             # declares the route; url4's own answer for an undeclared route does not.
@@ -1992,6 +2007,21 @@ def _json_or_raise(resp: httpx.Response) -> dict:
         ) from exc
 
 
+@contextmanager
+def key_refusal_as_url4_error() -> Iterator[None]:
+    """Raise a run the refused key stopped (OME-1989) to url4 as its run-stopped error.
+
+    WHY here: `refused_key_stop` never imports the url4 engine, so this allowlisted adapter
+    turns its `KeyRefused` into url4's `ResolutionError` — for a Case refused by a stopped run
+    (the Candidate adapter), and around the whole run (the executor). Permanent, because the
+    same key is refused again.
+    """
+    try:
+        yield
+    except KeyRefused as stopped:
+        raise ResolutionError(stopped.message, code=STOP_CODE, permanent=True) from stopped
+
+
 class _GatewayRefusal(ResolutionError):
     """A non-2xx aigateway answer, with its status and the plain-text `detail` it carried."""
 
@@ -2096,6 +2126,7 @@ __all__ = [
     "AigatewayConfig",
     "AigatewayWorld",
     "build_aigateway_world",
+    "key_refusal_as_url4_error",
     "open_frozen_copy",
     "seal_frozen_copy",
 ]

@@ -97,6 +97,10 @@ ENGINE_ERROR_CODES: frozenset[str] = frozenset(
         # world/branch.py DECIDE via benchmarks/failure_classes.py::signal_missing (E4c) — a
         # recipe-otherwise Gate read a missing number. One fixed message plus the gate id.
         "signal_missing",
+        # world/refused_key_stop.py (OME-1989) — a run stopped because the provider refuses the
+        # key. Fixed messages plus the Engine's own model id and a count, never the gateway's
+        # code or text.
+        "provider_key_refused",
     }
 )
 
