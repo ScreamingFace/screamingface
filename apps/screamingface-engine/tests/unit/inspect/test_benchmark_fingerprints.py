@@ -7,14 +7,14 @@ A Benchmark's fingerprint is the hash of everything that defines it: its Cases, 
 source, its judge and the pinned packages. It is an alarm, never published: every row sets
 ``published_revision`` and the Engine publishes that id, and nothing compares the two at run
 time (owner decision, 2026-10-15). ``test_published_revisions.py`` pins the id a Benchmark
-publishes; this file pins what its inputs compute. So a code move, a grading fix or a package
-bump turns a literal here red while the published id, and every leaderboard result under it,
-stays where it is.
+publishes; this file pins what its inputs compute. So a code move or a package bump turns a
+literal here red while the published id, and every leaderboard result under it, stays where it
+is; a grading change turns it red and also moves the published id (owner decision, 2026-11-17).
 
 AIDEV-NOTE: a red literal here is NEVER a reason to change ``published_revision``. Read the
 rule in ``docs/adding-an-imported-benchmark.md`` ("Changing a Benchmark's published
-revision") first. Same Cases (a refactor, a grading fix, a package bump): update only the
-literal here. A fundamental change (a changed Case set, a new Benchmark): run
+revision") first. Only code moved, every grade the same (a refactor, a code move, a package
+bump): update only the literal here. Changed Cases, changed grading or a new Benchmark: run
 ``just engine benchmark-bump <key>`` and get the owner's sign-off before the id moves.
 
 Runs only with the `inspect` extra installed.
@@ -50,8 +50,17 @@ _FINGERPRINTS: dict[str, str] = {
     "aime26": "b289716a32495871",
     # OME-1527: healthbench and ifeval moved from their hand-built folders to local Tasks and
     # kept the hand-built ids; the golden replays proved the exam unchanged.
-    "healthbench-worst30": "f12c3e30661ea9d3",
-    "healthbench-professional": "44ddda05be338699",
+    # OME-1998: worst-30's published id HELD at 39cfd96b068f7230 (fingerprint was
+    # f12c3e30661ea9d3). The Task package's source is hashed and gained professional's length
+    # adjustment, which worst-30 never turns on: its scorer arguments, judge params, failure
+    # policy and every number in test_local_task_healthbench.py are unchanged.
+    "healthbench-worst30": "75cdc1d5086ae220",
+    # OME-1998: the grading changed (length adjustment, judge reasoning_effort=low, a failed
+    # Case counts 0), so the published id moved to 35c7d07e9058f52d, the fingerprint when the
+    # grading changed (it was 44ddda05be338699 before). The literal here is one step on: a
+    # review round reworded docstrings in the hashed Task package, every grade the same, so
+    # the published id held.
+    "healthbench-professional": "b46faf98e52d7a35",
     # OME-1853: published id HELD at 1cba769ece27f7ef (fingerprint was ada07458a23c55ab); the
     # row now declares nltk and langdetect as scorer dependencies, so their installed versions
     # (nltk 3.10.4 after the security bump, langdetect 1.0.9) pin into the fingerprint.
@@ -59,6 +68,8 @@ _FINGERPRINTS: dict[str, str] = {
     # OME-1853: Pillow 13 re-encoded every picture of the three picture Benchmarks and pypdf
     # 6.21 re-extracted cyse4's report text, so their Cases and fingerprints moved; each
     # published id HELD by owner ruling 2026-11-09 (no official leaderboard runs on them yet).
+    # OME-1958 then moved all three for OME-1907's grading change; each old id spans both Case
+    # sets, so an entry from before OME-1853 misses its pinned cache and needs a fresh run.
     # mmmu_multiple_choice: published id 5b008891134ef4c1 (fingerprint was the same).
     "mmmu_multiple_choice": "c537e4e84ccb4d32",
     # mathvista: published id ca4cd0f692d18f0e (fingerprint was the same).
@@ -78,11 +89,17 @@ _FINGERPRINTS: dict[str, str] = {
     "hle": "6bf010527abe2411",
     # hle_diamond: published id 9640c5c7e59fc61e (fingerprint was the same).
     "hle_diamond": "7261715107987e29",
+    # FutureX-Past Judge bug (2026-11-19): the Judge no longer pins temperature 0, which no
+    # OpenRouter endpoint for gpt-5.4 accepts, so every level-3/4 Judge call failed. Same Cases,
+    # a grading fix: published id HELD at 200cf4f72481ffb0 (owner decision 2026-11-19; the
+    # fingerprint was the same).
+    "futurex_past": "cbf11bdc4466620e",
     # OME-1610: every other Benchmark, at the fingerprint main computes (2026-10-22), which is
     # also the id it publishes: no change since its id was last set. EXCEPT OME-1907: the 46
     # rows graded from option marks (inspect's choice, lab_bench, cyse4, bbh) and mathvista
     # moved with the wrapped-letter rule (an answer such as `ANSWER: $B` is read), a grading
-    # fix that keeps every Case, so each published id is HELD and only its literal moved here.
+    # fix that keeps every Case. #1783 held each published id; OME-1958 then moved each one to
+    # the fingerprint below (old ids in test_published_revisions.py), under the 2026-11-17 rule.
     "gsm8k": "7eebba58799a2f22",
     "mmlu": "e6a95e4c1f1ced71",
     "arc_easy": "e74d42010074448c",
@@ -170,10 +187,10 @@ _FINGERPRINTS: dict[str, str] = {
     "drop": "9be2d9ed4b5f1a67",
     "bbh": "c4f0aa7d023cbd2a",
     "medmcqa": "e9e7ca645e342f81",
-    "futurex_past": "200cf4f72481ffb0",
     "futurex_past_study": "3c66e638e04516ed",
     # The hand-built Benchmark (screamingface_engine.benchmarks.medxpert).
-    "medxpert": "1e5a3b8a461a52f7",
+    # Moved from 1e5a3b8a461a52f7 (OME-1786): turn 2 carries turn 1's answer text, not its record.
+    "medxpert": "490235dc9a53b7d9",
 }
 
 
@@ -192,9 +209,10 @@ def test_the_fingerprint_follows_the_exam_not_the_published_id(key: str) -> None
 
     assert computed == _FINGERPRINTS[key], (
         f"{key}: the fingerprint moved ({_FINGERPRINTS[key]} -> {computed}). "
-        "Do NOT change published_revision to make this green. Same Cases (a refactor, a "
-        "grading fix, a package bump): update only this literal. A fundamental change (a "
-        f"changed Case set): run `just engine benchmark-bump {key}` and follow its checklist; "
+        "Do NOT change published_revision to make this green. Only code moved, every grade "
+        "the same (a refactor, a code move, a package bump): update only this literal. "
+        f"Changed Cases or changed grading: run `just engine benchmark-bump {key}` and follow "
+        "its checklist; "
         "the published id moves only with the owner's sign-off. Rule: "
         "docs/adding-an-imported-benchmark.md, 'Changing a Benchmark's published revision'."
     )

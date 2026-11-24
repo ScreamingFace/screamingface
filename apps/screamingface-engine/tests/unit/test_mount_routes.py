@@ -558,7 +558,7 @@ async def test_a_different_permanent_gateway_code_still_reaches_a_mount_caller_u
 
     upstream = httpx.Response(
         422,
-        json={"detail": {"code": "provider_refused", "message": "the provider refused"}},
+        json={"detail": {"code": "unsupported_message", "message": "the provider refused"}},
         request=httpx.Request("POST", "http://aigateway.test/v1/chat/completions"),
     )
     with pytest.raises(ResolutionError) as caught:
@@ -572,5 +572,5 @@ async def test_a_different_permanent_gateway_code_still_reaches_a_mount_caller_u
     async with _client(app) as client:
         resp = await client.get("/v1/chat/completions?q=(a)!b", headers=EMAIL)
     assert resp.status_code == 502
-    assert _error(resp)["code"] == "provider_refused"
+    assert _error(resp)["code"] == "unsupported_message"
     assert _error(resp)["message"] == "the provider refused"

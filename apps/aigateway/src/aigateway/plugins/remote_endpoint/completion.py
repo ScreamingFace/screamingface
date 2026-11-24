@@ -39,14 +39,18 @@ def decode_completion(content_type: str | None, body: bytes) -> dict[str, Any] |
     return value if _is_chat_completion(value) else None
 
 
-def strict_json(content_type: str | None, body: bytes) -> Any:
+def strict_json(content_type: str | None, body: bytes, *, unique_keys: bool = False) -> Any:
     """The strict, finite, bounded JSON value of a 200 response; ValueError when it is none.
 
     # INVARIANT: every configured-endpoint contract reads its answer through this one check.
+    # WHY `unique_keys`: a repeated key otherwise collapses to its last value, so a contract that
+    # projects an object's keys (SystemOne probabilities) would read a value the upstream also
+    # contradicted.
     """
     if (content_type or "").split(";", 1)[0].strip().lower() != "application/json":
         raise ValueError("not a JSON media type")
-    value = json.loads(body, parse_constant=_reject_non_finite)
+    hook = _unique_object if unique_keys else None
+    value = json.loads(body, parse_constant=_reject_non_finite, object_pairs_hook=hook)
     assert_bounded_json(
         value, max_depth=_MAX_JSON_DEPTH, max_nodes=_MAX_JSON_NODES, require_finite=True
     )
@@ -72,6 +76,13 @@ def _require_utf8_strings(value: Any) -> None:
 
 def _reject_non_finite(value: str) -> None:
     raise ValueError(f"non-finite JSON constant {value}")
+
+
+def _unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    value = dict(pairs)
+    if len(value) != len(pairs):
+        raise ValueError("repeated JSON object key")
+    return value
 
 
 def _is_chat_completion(value: Any) -> bool:

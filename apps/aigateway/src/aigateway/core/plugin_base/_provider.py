@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 from ..api_key_validation import ApiKeyValidator
 from ..cache_ports import PROJECTION_BYPASS_REASON, CacheBypass
+from ..upstream_attempts import UpstreamSendPath
 from ._ports import (
     ClassifierEntry,
     CredentialStrategy,
@@ -59,6 +60,11 @@ class ProviderPluginCore[TSettings: PluginSettings](ABC):
     # INVARIANT: a provider that sets it keeps the base `global_cache_projection` (always a bypass),
     # so no cache entry is ever keyed by a URL instead of the bytes behind it.
     forwards_remote_image_urls: ClassVar[bool] = False
+    # FEATURE (contract C7): how this provider's inference sends are observed for the
+    # `X-AIGW-Upstream-Attempts` header; `core/upstream_attempts.py` defines the two families.
+    # INVARIANT: no default family. A guessed one would turn an unobserved send into a false `0`,
+    # so a fitness test refuses a loaded provider that declares none.
+    upstream_send_path: ClassVar[UpstreamSendPath | None] = None
 
     def __init__(self, settings: TSettings | None = None) -> None:
         self.settings = settings if settings is not None else cast(TSettings, self.settings_cls())

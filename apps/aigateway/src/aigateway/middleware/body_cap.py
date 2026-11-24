@@ -51,7 +51,7 @@ class RequestBodyTooLarge(HTTPException):
         super().__init__(status_code=413, detail=_limit_detail(limit))
 
 
-def _route_path(scope: Scope) -> str:
+def route_path(scope: Scope) -> str:
     """The path Starlette routes on: ``scope["path"]`` with a mounted ``root_path`` removed.
 
     # WHY (OME-1542 review 2): uvicorn keeps the mount prefix in ``scope["path"]`` and Starlette
@@ -102,7 +102,7 @@ class BodyCapMiddleware:
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
-        limit = self.path_limits.get(_route_path(scope), self.max_bytes)
+        limit = self.path_limits.get(route_path(scope), self.max_bytes)
         declared = _declared_length(scope)
         if declared is not None and declared > limit:
             await self._refuse(scope, receive, send, limit)

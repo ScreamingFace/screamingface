@@ -1,21 +1,28 @@
-"""Transport redemption of result claim tickets (OME-892).
+"""The transport reads each Candidate's result in full (OME-892, E5 P2 spec D9a).
 
-FEATURE: deliver large results in full instead of cutting them off at 1 MiB.
+FEATURE: deliver large results in full instead of cutting them off at 1 MiB. Since E5 P2 the
+Engine keeps every result of a Run it drives, and the transport reads it from the Run's result
+route as the Run's owner.
 INVARIANT: an outcome leaves the transport with a fully materialized `result_body` —
-verified against the ticket's byte count and sha256 BEFORE anything decodes it. A
+verified against the record's byte count and sha256 BEFORE anything decodes it. A
 mismatch is a named integrity failure, never a mangled Report.
 """
 
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Callable
 from contextlib import closing
 
 import pytest
-from protocol_server import protocol_server
+from _run_engine import (
+    AsyncCollectingSink,
+    CollectingSink,
+    ended,
+    run_engine,
+    settled,
+    state,
+)
 
-import screamingface as sf
 from screamingface._core.ports import _RunOutcome
 from screamingface._engine.transport import AsyncUrl4CloudTransport, Url4CloudTransport
 from screamingface._evaluation.model import (
@@ -43,58 +50,63 @@ def _candidate() -> Candidate:
     )
 
 
-def _run(
-    engine_url: str,
-    on_event: Callable[[sf.Event], None] | None = None,
-) -> _RunOutcome:
+def _script(body: str) -> list[list[str | int]]:
+    return [[state(0, "scheduled"), settled(0, body.encode()), ended()]]
+
+
+def _run(engine_url: str) -> _RunOutcome:
+    sink = CollectingSink()
     with closing(Url4CloudTransport(engine_url)) as transport:
-        return transport.run(_candidate(), on_event)
+        run_id = transport.register_run(None, (_candidate(),))
+        transport.follow_run(run_id, (_candidate(),), sink)
+    outcome = sink.outcomes[0]
+    if isinstance(outcome, Exception):
+        raise outcome
+    return outcome
 
 
-async def _arun(
-    engine_url: str,
-    on_event: Callable[[sf.Event], None | Awaitable[None]] | None = None,
-) -> _RunOutcome:
+async def _arun(engine_url: str) -> _RunOutcome:
+    sink = AsyncCollectingSink()
     transport = AsyncUrl4CloudTransport(engine_url)
     try:
-        return await transport.run(_candidate(), on_event)
+        run_id = await transport.register_run(None, (_candidate(),))
+        await transport.follow_run(run_id, (_candidate(),), sink)
     finally:
         await transport.close()
+    outcome = sink.outcomes[0]
+    if isinstance(outcome, Exception):
+        raise outcome
+    return outcome
 
 
 def test_sync_transport_materializes_an_artifact_result() -> None:
     body = '{"cases":[' + "1," * 4000 + "1]}"
-    with protocol_server(mode="artifact_result", artifact_body=body) as engine:
+    with run_engine(_script(body), {0: body.encode()}) as engine:
         outcome = _run(engine.url)
     assert outcome.result_body == body
-    # The ticket is spent — downstream decoding sees only the materialized body.
+    # No artifact ticket: downstream decoding sees only the materialized body.
     assert outcome.artifact is None
 
 
 def test_async_transport_materializes_an_artifact_result() -> None:
     body = '{"cases":[' + "2," * 4000 + "2]}"
-    with protocol_server(mode="artifact_result", artifact_body=body) as engine:
+    with run_engine(_script(body), {0: body.encode()}) as engine:
         outcome = asyncio.run(_arun(engine.url))
     assert outcome.result_body == body
     assert outcome.artifact is None
 
 
 def test_artifact_fetch_sends_the_run_capability() -> None:
-    with protocol_server(mode="artifact_result") as engine:
+    """The result route is the Run owner's: it names the Run and the Candidate's index."""
+    with run_engine(_script("{}"), {0: b"{}"}) as engine:
         _run(engine.url)
-        assert engine.state.artifact_requests
-        path, capability = engine.state.artifact_requests[0]
-        assert path.startswith("/artifacts/")
-        assert capability in engine.state.minted_tokens
+        (path,) = engine.state.fetched
+        assert path.endswith("/candidates/0/result")
 
 
 def test_short_artifact_body_is_a_named_integrity_error() -> None:
     body = "X" * 1000
-    with protocol_server(
-        mode="artifact_result",
-        artifact_body=body,
-        artifact_served=body.encode("utf-8")[:-7],
-    ) as engine:
+    with run_engine(_script(body), {0: body.encode("utf-8")[:-7]}) as engine:
         with pytest.raises(ExecutionError) as excinfo:
             _run(engine.url)
     # WHY both numbers: the researcher's first question is "how much arrived?"
@@ -106,70 +118,54 @@ def test_short_artifact_body_is_a_named_integrity_error() -> None:
 def test_corrupted_artifact_bytes_are_a_named_integrity_error() -> None:
     body = "Y" * 1000
     tampered = b"Z" + body.encode("utf-8")[1:]  # same length, different content
-    with protocol_server(
-        mode="artifact_result", artifact_body=body, artifact_served=tampered
-    ) as engine:
+    with run_engine(_script(body), {0: tampered}) as engine:
         with pytest.raises(ExecutionError) as excinfo:
             _run(engine.url)
     assert excinfo.value.code == "result_integrity_mismatch"
 
 
 def test_missing_artifact_is_an_execution_error_not_a_report() -> None:
-    with protocol_server(mode="artifact_result", artifact_missing=True) as engine:
+    with run_engine(_script("{}"), {}) as engine:
         with pytest.raises(ExecutionError):
             _run(engine.url)
 
 
 def test_a_transient_reset_during_the_fetch_is_retried_not_fatal() -> None:
-    # WHY: the parcel still sits on the server after a dropped connection — losing a
+    # WHY: the result still sits on the Engine after a dropped connection — losing a
     # 16-hour paid run to one TCP reset would be #642's cost with a new cause.
     body = "W" * 2000
-    with protocol_server(
-        mode="artifact_result", artifact_body=body, artifact_fail_first=2
-    ) as engine:
+    with run_engine(_script(body), {0: body.encode()}, drop_fetches=2) as engine:
         outcome = _run(engine.url)
     assert outcome.result_body == body
     # 2 failed attempts + 1 success were all observed by the server.
-    assert len(engine.state.artifact_requests) == 3
+    assert len(engine.state.fetched) == 3
 
 
 def test_an_oversized_response_is_cut_off_at_the_ticket_size_not_buffered() -> None:
-    # INVARIANT: the ticket already states the exact size — the client must never buffer
+    # INVARIANT: the record already states the exact size — the client must never buffer
     # past it, so a rogue 200 cannot OOM the researcher's process.
     body = "V" * 1000
-    with protocol_server(
-        mode="artifact_result",
-        artifact_body=body,
-        artifact_served=("V" * 1000 + "EXTRA-BYTES-BEYOND-THE-TICKET").encode(),
-    ) as engine:
+    served = ("V" * 1000 + "EXTRA-BYTES-BEYOND-THE-TICKET").encode()
+    with run_engine(_script(body), {0: served}) as engine:
         with pytest.raises(ExecutionError) as excinfo:
             _run(engine.url)
     assert excinfo.value.code == "result_integrity_mismatch"
 
 
 def test_redemption_mints_a_fresh_token_because_run_tokens_expire() -> None:
-    # WHY: capability tokens live ~60 s while an evaluation runs for an hour — the 2026-08-19
-    # live run proved the run-start token is ALWAYS expired by redemption time (401, $30 of
-    # results stranded on disk). Redemption must present a token minted AFTER the run ended.
+    # WHY: capability tokens live ~60 s while an evaluation runs for an hour (the 2026-08-19
+    # live run stranded $30 of results on an expired one). The result route takes the caller's
+    # identity instead, so no token is minted and none can have expired.
     body = '{"cases":[' + "3," * 4000 + "3]}"
-    with protocol_server(
-        mode="artifact_result", artifact_body=body, artifact_token_expiry=True
-    ) as engine:
+    with run_engine(_script(body), {0: body.encode()}) as engine:
         outcome = _run(engine.url)
         assert outcome.result_body == body
-        # One mint to start the run, one fresh mint to redeem the ticket.
-        assert len(engine.state.minted_tokens) == 2
-        _, capability = engine.state.artifact_requests[-1]
-        assert capability == engine.state.minted_tokens[-1]
+        assert "url4-capability" not in {name.lower() for name in engine.state.fetch_headers[-1]}
 
 
 def test_async_redemption_mints_a_fresh_token_because_run_tokens_expire() -> None:
     body = '{"cases":[' + "4," * 4000 + "4]}"
-    with protocol_server(
-        mode="artifact_result", artifact_body=body, artifact_token_expiry=True
-    ) as engine:
+    with run_engine(_script(body), {0: body.encode()}) as engine:
         outcome = asyncio.run(_arun(engine.url))
         assert outcome.result_body == body
-        assert len(engine.state.minted_tokens) == 2
-        _, capability = engine.state.artifact_requests[-1]
-        assert capability == engine.state.minted_tokens[-1]
+        assert "url4-capability" not in {name.lower() for name in engine.state.fetch_headers[-1]}

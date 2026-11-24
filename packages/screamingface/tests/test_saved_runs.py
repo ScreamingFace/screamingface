@@ -304,8 +304,10 @@ def test_remote_recovery_sync_and_async_never_starts_a_model(tmp_path):
 
 
 def test_evaluate_and_recover_use_the_same_durable_result(tmp_path, monkeypatch):
+    from typing import Any, cast
+
     import httpx
-    from protocol_server import protocol_server
+    from _run_engine import one_candidate, run_engine
     from test_client_run import _engine
     from test_evaluation_outcome import valid_body
 
@@ -314,58 +316,42 @@ def test_evaluate_and_recover_use_the_same_durable_result(tmp_path, monkeypatch)
     from screamingface._results.cases import DiskCases
 
     monkeypatch.setenv("SCREAMINGFACE_RESULTS_DIR", str(tmp_path))
-    with protocol_server(mode="artifact_result", artifact_body=valid_body()) as engine:
+    script, results = one_candidate(valid_body().encode())
+    with run_engine(script, results) as engine:
         transport = Url4CloudTransport(engine.url, save_results=True, reconnect_budget_s=0)
-        _match_protocol_url(monkeypatch, transport)
         with sf.Client(
             engine_url=engine.url,
             http_transport=httpx.MockTransport(_engine),
-            run_transport=transport,
+            run_transport=cast(Any, transport),
         ) as client:
             report = client.evaluate(sf.Model("provider/opus"), benchmark="draco", progress=False)
         info = sf.reports.list()[0]
         assert info.id
         assert isinstance(report.candidates[0].cases._items, DiskCases)
         assert sf.reports.get(info.id).to_json() == report.to_json()
-        assert len(engine.state.artifact_requests) == 1
+        assert len(engine.state.fetched) == 1
 
 
 def test_explicit_opt_out_retains_legacy_transport_behavior(tmp_path, monkeypatch):
-    from protocol_server import protocol_server
+    from _run_engine import CollectingSink, one_candidate, run_engine
 
     from screamingface._engine.transport import Url4CloudTransport
     from screamingface._results.store import ResultStore
 
     monkeypatch.setenv("SCREAMINGFACE_RESULTS_DIR", str(tmp_path))
-    with protocol_server(mode="artifact_result", artifact_body="legacy result") as engine:
+    script, results = one_candidate(b"legacy result")
+    sink = CollectingSink()
+    with run_engine(script, results) as engine:
         transport = Url4CloudTransport(engine.url, save_results=False)
         try:
-            result = transport.run(_candidate(), None)
+            run_id = transport.register_run(None, (_candidate(),))
+            transport.follow_run(run_id, (_candidate(),), sink)
         finally:
             transport.close()
+    result = sink.outcomes[0]
     assert result.result_body == "legacy result"
     assert result.result_path is None
     assert ResultStore(tmp_path).list() == []
-
-
-def _match_protocol_url(monkeypatch, transport):
-    import protocol_server as protocol
-
-    original_frames = protocol._run_frames
-    original_run = transport.run
-    selected = [""]
-
-    def frames():
-        result = original_frames()
-        result[0]["data"] = {"url4": selected[0]}
-        return result
-
-    def run(candidate, on_event):
-        selected[0] = candidate.url4
-        return original_run(candidate, on_event)
-
-    monkeypatch.setattr(protocol, "_run_frames", frames)
-    monkeypatch.setattr(transport, "run", run)
 
 
 def test_invalid_saved_artifact_id_never_makes_an_http_request(tmp_path):

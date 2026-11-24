@@ -27,7 +27,19 @@ from datetime import datetime
 
 from screamingface_engine.job_env import RunShape
 from url4.streaming.interfaces import JobRunner
-from url4.streaming.protocol import CachePolicy
+from url4.streaming.protocol import CachePolicy, OutboundFrame
+
+
+class QueueReadError(RuntimeError):
+    """The stream tail could not be read — a TRANSIENT broker failure, not an answer.
+
+    Distinct from "no frame" (which `last_frame` returns as `None`): this says the read
+    itself failed — a `nats.errors.Error` that is not a JetStream `APIError` (a request
+    timeout, a closed connection, a reconnect in flight). Callers that must not mistake
+    "unreadable" for "empty" — the worker's claim-time dedupe gate — catch this and skip
+    the claim, leaving the message for redelivery, instead of either acting on a phantom
+    `None` or letting the error escape into a shared task group.
+    """
 
 
 class StoppedBeforeSchedule(Exception):
@@ -71,6 +83,10 @@ class IdentityAwareJobRunner(JobRunner):
     queued. A bound start passes its bind moment, which precedes any cancel of it, so the cancel's
     tombstone outlives every moment the run could still start. A substrate that starts the run at
     once has no queue wait and ignores it.
+
+    ``result_prefix`` and ``exclusive`` (E5 P2 spec D7, D9a) are set by the Engine's driver on
+    every start it sends, and by nothing else: the runner writes the result under the prefix in
+    the run-results store, and a worker claims the topic before it runs an exclusive start.
     """
 
     @abstractmethod
@@ -90,6 +106,8 @@ class IdentityAwareJobRunner(JobRunner):
         capture: bool = False,
         replay_frozen_copy: str | None = None,
         enqueued_at: datetime | None = None,
+        result_prefix: str | None = None,
+        exclusive: bool = False,
     ) -> str: ...
 
     @contextlib.contextmanager
@@ -103,6 +121,18 @@ class IdentityAwareJobRunner(JobRunner):
         """
         yield
 
+    async def last_frame(self, topic: str) -> OutboundFrame | None:
+        """The topic's newest frame, or None when it has none (E5 P2 spec R7).
+
+        FEATURE: a detached Run (OME-1837). The driver settles a Candidate whose run ended but
+        whose outcome never arrived from that frame. A substrate that keeps no frames answers
+        None, and such a Candidate waits for reconcile instead.
+
+        Raises:
+            QueueReadError: the stream could not be read: not an answer.
+        """
+        return None
+
     async def stop_bound(self, topic: str) -> None:
         """Stop a topic a Run bound (E5 P1 spec D12): one this App queued, or is about to.
 
@@ -112,3 +142,12 @@ class IdentityAwareJobRunner(JobRunner):
         starting. Any other substrate stops it as usual.
         """
         await self.stop(topic)
+
+    async def stop_landed(self, topic: str) -> bool:
+        """Whether a stop of ``topic`` has landed, so the Run need no longer owe it (E5 P2 spec
+        R9). True here: a substrate where nothing else can run the topic once it is stopped.
+
+        Raises:
+            QueueReadError: the stream could not be read: not an answer.
+        """
+        return True

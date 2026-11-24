@@ -29,6 +29,7 @@ from .core.auth.log_filter import (
 from .core.credential_blob.store import ORMStore
 from .core.credits.service import CreditService
 from .core.discovery_runtime import DiscoveryRuntime
+from .core.frozen_copy.sweep_trigger import build_sweep_trigger
 from .core.loader import load_plugins
 from .core.model_catalog import build_model_catalog
 from .core.parameter_discovery import DiscoveryLimits, HttpxDiscoveryClient
@@ -44,10 +45,11 @@ from .core.request_cache.store import ConfiguredCacheAvailability, TortoiseReque
 from .core.request_cache.tavily_store import TavilyRetrievalCacheStore
 from .core.request_cache.upload_job import CacheUploadRunner
 from .core.secrets.factory import build_secret_store, set_active_secret_store
+from .core.shutdown import close_through_cancellation
 from .core.snapshot_publish import build_snapshot_scheduler
-from .core.usage_accounting.hooks import build_accounting_handler
+from .core.usage_accounting.hooks import build_accounting_handler, build_attempt_handler
 from .db import close_db, init_db
-from .middleware import BodyCapMiddleware, CallIdMiddleware
+from .middleware import BodyCapMiddleware, CallIdMiddleware, UpstreamAttemptsMiddleware
 from .plugins.openrouter_provider.credits import OpenRouterCredits
 from .plugins.taxonomy.plugin import TaxonomyPlugin
 from .provider_composition import close_remote_endpoints, compose_providers
@@ -188,6 +190,9 @@ def _configure_fake_codex_oauth(app: FastAPI) -> None:
 async def _lifespan(app):
     database_url = app.state.settings.database_url.get_secret_value()
     await init_db(database_url)
+    # WHY: shutdown removes only a trigger that this lifespan built, so a later lifespan of the
+    # same app builds one from its own settings; a trigger that a test put there stays.
+    sweep_trigger_built = False
     try:
         # Install the encryption-at-rest provider BEFORE any credential read/write.
         # The JWT-secret bootstrap below goes through the now-encrypting ORMStore, so the
@@ -218,6 +223,10 @@ async def _lifespan(app):
         app.state.usage_accounting_handler = app.state.taxonomy_plugin.start(
             build_accounting_handler
         )
+        # FEATURE (contract C7): a second app-lifetime handler, built whatever the taxonomy
+        # setting, for a LiteLLM dispatch that is not accounted. Its sends must still reach the
+        # attempt header, and LiteLLM counts only through a client it was given.
+        app.state.upstream_attempts_handler = build_attempt_handler()
 
         # Weekly cache-snapshot to Garage (OME-1021): armed only when enabled, owned by
         # this lifespan — started here, cancelled and awaited in the finally below.
@@ -232,41 +241,77 @@ async def _lifespan(app):
                 app.state.settings.cache_snapshot_s3_bucket,
             )
 
+        # FEATURE (OME-1947): the frozen copy sweep is always armed; no setting turns it off (Q22).
+        # WHY getattr: a test can put its own trigger on app.state before the lifespan starts.
+        sweep_trigger = getattr(app.state, "frozen_copy_sweep_trigger", None)
+        if sweep_trigger is None:
+            sweep_trigger = build_sweep_trigger(app.state.settings)
+            app.state.frozen_copy_sweep_trigger = sweep_trigger
+            sweep_trigger_built = True
+        sweep_trigger.start()
+        logger.info(
+            "frozen copy sweep armed (interval_s=%s, open_idle_s=%s, max_entries=%s)",
+            app.state.settings.frozen_copy_sweep_interval_seconds,
+            app.state.settings.frozen_copy_open_idle_seconds,
+            app.state.settings.frozen_copy_sweep_max_entries,
+        )
+
         yield
     finally:
         # WHY nested `finally` blocks: a cancelled shutdown raises past `except Exception`, and
         # it must skip none of the steps after the one it hit; each still runs once, in order.
         try:
-            # The scheduler's owned task must never outlive the app: cancel and await it.
-            scheduler = getattr(app.state, "cache_snapshot_scheduler", None)
+            # WHY first and in its own try: the sweep task must not outlive the app, and a failed
+            # stop must skip none of the steps after it.
+            sweep_trigger = getattr(app.state, "frozen_copy_sweep_trigger", None)
             try:
-                if scheduler is not None:
-                    await scheduler.stop()
+                if sweep_trigger is not None:
+                    await sweep_trigger.stop()
+                if sweep_trigger_built:
+                    app.state.frozen_copy_sweep_trigger = None
             finally:
-                await app.state.credits.aclose()
+                # The scheduler's owned task must never outlive the app: cancel and await it.
+                scheduler = getattr(app.state, "cache_snapshot_scheduler", None)
+                try:
+                    if scheduler is not None:
+                        await scheduler.stop()
+                finally:
+                    await app.state.credits.aclose()
         finally:
             # §9.12: closed explicitly here rather than left to __del__, which is not
             # guaranteed to run and cannot await. An unclosed handler leaks its connection
             # pool across TestClient lifecycles and across a reload in dev.
             try:
-                await app.state.taxonomy_plugin.close()
-            except Exception:
-                logger.warning("usage accounting handler did not close cleanly")
+                await close_through_cancellation(
+                    app.state.taxonomy_plugin.close,
+                    logger,
+                    "usage accounting handler did not close cleanly",
+                )
             finally:
                 app.state.usage_accounting_handler = None
-                # FEATURE (hosted BYOM): each configured endpoint's client closes with the app.
+                attempts_handler = app.state.upstream_attempts_handler
+                app.state.upstream_attempts_handler = None
                 try:
-                    await close_remote_endpoints(app.state.providers)
-                except Exception:
-                    logger.warning("a remote endpoint client did not close cleanly")
+                    if attempts_handler is not None:
+                        await close_through_cancellation(
+                            attempts_handler.close,
+                            logger,
+                            "the upstream attempt handler did not close cleanly",
+                        )
                 finally:
+                    # FEATURE (hosted BYOM): each configured endpoint's client closes with the app.
                     try:
-                        await auth.close_loopback_callbacks(app)
+                        await close_remote_endpoints(app.state.providers)
+                    except Exception:
+                        logger.warning("a remote endpoint client did not close cleanly")
                     finally:
-                        # Clear the process-wide active store so it does not leak across app
-                        # instances (e.g. multiple TestClient lifecycles in one process).
-                        set_active_secret_store(None)
-                        await close_db()
+                        try:
+                            await auth.close_loopback_callbacks(app)
+                        finally:
+                            # Clear the process-wide active store so it does not leak across
+                            # app instances (e.g. multiple TestClient lifecycles in one process).
+                            set_active_secret_store(None)
+                            await close_db()
 
 
 async def _redact_validation_errors(_request: Request, exc: Exception) -> JSONResponse:
@@ -365,6 +410,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.settings = settings
     app.state.taxonomy_plugin = TaxonomyPlugin()
     app.state.usage_accounting_handler = None
+    app.state.upstream_attempts_handler = None
     # Only the `disabled` mode makes every caller anonymous, so only it needs the loopback guard.
     # `cloudflare_headers` authenticates from the injected header and is meant to be reached over
     # network — binding it to loopback would break the deployment it exists for.
@@ -392,6 +438,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         max_bytes=settings.max_request_bytes,
         path_limits={"/v1/admin/cache/snapshots": settings.cache_upload_max_bytes + 1024 * 1024},
     )
+
+    # FEATURE (contract C7): the attempt header. Registered between the body cap and the call id,
+    # so it sits immediately inside CallIdMiddleware and outside every other user middleware; a
+    # body-cap or auth refusal therefore still carries the header (`0`).
+    app.add_middleware(UpstreamAttemptsMiddleware)
 
     # FEATURE (OME-938): correlation is app-wide plumbing, not a feature of usage accounting.
     # INVARIANT: added LAST so it is the OUTERMOST layer. `add_middleware` does

@@ -236,6 +236,24 @@
     return text.slice(0, max).trimEnd() + "…";
   }
 
+  // What the benchmark page's description fold should look like, given two facts the page measures.
+  //
+  // The page shows a long description folded to three lines with a "Show more" button. `overflows`
+  // is whether the text is taller than those three lines (measured while folded); `expanded` is
+  // whether the reader has opened it. Worked example, the 2,515-character EnigmaEval description:
+  //   on load        (overflows true,  expanded false) -> folded, button "Show more"
+  //   after a click  (any,             expanded true)  -> open,   button "Show less"
+  // and a one-line description (overflows false, expanded false) -> open, no button at all, so a
+  // short text never carries a control that does nothing.
+  //
+  // `expanded` wins over `overflows` because an open text is not clamped, so the page cannot
+  // measure overflow then; dropping the button there would strand the reader with no way back.
+  function descriptionFoldState(overflows, expanded) {
+    if (expanded) return { clamped: false, buttonHidden: false, label: "Show less", expanded: true };
+    if (overflows) return { clamped: true, buttonHidden: false, label: "Show more", expanded: false };
+    return { clamped: false, buttonHidden: true, label: "Show more", expanded: false };
+  }
+
   // Case-insensitive substring filter over a benchmark list, for the tab strip's "More benchmarks"
   // search box. Matches on display_name (falling back to id), and also on id, so a reader can type
   // either the name or the slug. An empty or whitespace-only query returns the list unchanged (a
@@ -275,6 +293,31 @@
     };
   }
 
+  // The note beside a score when a run failed on some of its Cases, or null for no note.
+  //
+  // A run selects `total_questions` Cases, and a Case goes ungraded when the Candidate call
+  // errors or times out, or the judge gives no readable verdict. `graded_questions` is how many
+  // got a grade. Example: 525 selected, 505 graded -> "505 / 525 graded", 20 failed.
+  //
+  // Null means "say nothing", and that covers three different rows on purpose: a fully graded
+  // run, a row with no count (an older client, or a row from before the field), and a count the
+  // API could not have stored. Absent never reads as "0 failed", and 0 graded is a real count.
+  function gradedNote(row) {
+    var total = row && row.total_questions;
+    var graded = row && row.graded_questions;
+    if (!_isCount(total) || !_isCount(graded) || graded >= total) return null;
+    var failed = total - graded;
+    return {
+      text: graded.toLocaleString("en-US") + " / " + total.toLocaleString("en-US") + " graded",
+      title: failed.toLocaleString("en-US") + " of " + total.toLocaleString("en-US") +
+        " Cases failed and " + (failed === 1 ? "was" : "were") + " not graded",
+    };
+  }
+
+  function _isCount(value) {
+    return typeof value === "number" && isFinite(value) && Math.floor(value) === value && value >= 0;
+  }
+
   // The "N% open" card, from GET /v1/leaderboard/{id}/frontier.
   //
   // Never state a percentage the API did not measure. `open_share: null` means the
@@ -303,6 +346,36 @@
       text: Math.round(data.open_share * 100) + "% open",
       title: parts.join("; "),
     };
+  }
+
+  // The Pareto chart's circle/square verdict for one row: "model" draws a circle,
+  // "fusion" draws a square, and anything else — missing, or a composition kind the server
+  // does not recognise as one of those two — draws a circle labeled Unknown. Mislabeling an
+  // unrecognized composition as a fusion is the one failure mode this ticket names explicitly;
+  // collapsing it into "Single model" would be an equally unverified claim, so Unknown is its
+  // own answer, never a fallback to either shape.
+  function candidateKindLabel(entry) {
+    var kind = entry && entry.candidate_kind;
+    if (kind === "model") return "Single model";
+    if (kind === "fusion") return "Fusion";
+    return "Unknown";
+  }
+
+  // WHY a separate predicate rather than comparing the label: the chart's shape channel has
+  // exactly three states (circle, square, triangle), and only "fusion" ever draws a square —
+  // "model" draws a circle, and everything isUnknownCandidate below catches draws its own
+  // triangle, never either of the other two shapes.
+  function isFusionCandidate(entry) {
+    return !!entry && entry.candidate_kind === "fusion";
+  }
+
+  // The complement of isFusionCandidate/"model": anything the server did not declare as exactly
+  // one of the two recognised compositions. Drawn as its own triangle on the chart (never the
+  // single-model circle, which would overstate confidence, and never the fusion square, which
+  // this ticket names explicitly as the one mislabeling this code must not produce).
+  function isUnknownCandidate(entry) {
+    var kind = entry && entry.candidate_kind;
+    return kind !== "model" && kind !== "fusion";
   }
 
   // The pinned cache a row offers for replay, or null. A row offers one only when the server
@@ -338,8 +411,13 @@
     FEATURED_BENCHMARK_IDS: FEATURED_BENCHMARK_IDS,
     partitionFeatured: partitionFeatured,
     truncate: truncate,
+    descriptionFoldState: descriptionFoldState,
     filterBenchmarks: filterBenchmarks,
     frontierSummary: frontierSummary,
     opennessLabel: opennessLabel,
+    candidateKindLabel: candidateKindLabel,
+    isFusionCandidate: isFusionCandidate,
+    isUnknownCandidate: isUnknownCandidate,
+    gradedNote: gradedNote,
   };
 });

@@ -14,5 +14,9 @@ data:
   SCOREBOARD_CORS_ORIGINS: {{ .Values.cors.origins | toJson | quote }}
   SCOREBOARD_AUTH_MODE: {{ .Values.config.authMode | quote }}
   SCOREBOARD_ALLOWED_NETWORKS: {{ .Values.config.allowedNetworks | quote }}
+  SCOREBOARD_REGRADE_IDENTITIES: {{ join "," .Values.config.regradeIdentities | quote }}
   SCOREBOARD_DB_POOL_MINSIZE: {{ .Values.config.dbPoolMinsize | quote }}
   SCOREBOARD_DB_POOL_MAXSIZE: {{ .Values.config.dbPoolMaxsize | quote }}
+  SCOREBOARD_GATEWAY_URL: {{ .Values.config.gatewayUrl | quote }}
+  SCOREBOARD_GATEWAY_ACTOR: {{ .Values.config.gatewayActor | quote }}
+  SCOREBOARD_GATEWAY_TIMEOUT_S: {{ .Values.config.gatewayTimeoutS | quote }}

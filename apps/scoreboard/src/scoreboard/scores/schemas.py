@@ -9,10 +9,12 @@ from uuid import UUID
 
 from pydantic import (
     AfterValidator,
+    AliasChoices,
     BaseModel,
     ConfigDict,
     Field,
     PlainSerializer,
+    StrictInt,
     ValidationError,
     field_serializer,
     field_validator,
@@ -575,6 +577,24 @@ class CodedErrorResponse(BaseModel):
     detail: CodedErrorDetail
 
 
+class ExistingRegradeDetail(CodedErrorDetail):
+    """The 409 `already_regraded` refusal, naming the re-grade that already exists (OME-1909).
+
+    WHY the id: a client whose first POST succeeded but whose answer was lost retries and gets this
+    409; the id is how it finds the row it made.
+    """
+
+    existing_score_id: UUID
+
+
+class ExistingRegradeResponse(BaseModel):
+    """HTTP error response for a second re-grade of one source (OME-1909)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    detail: ExistingRegradeDetail
+
+
 class ScoreSubmission(BaseModel):
     """Input DTO for score ingestion."""
 
@@ -630,6 +650,20 @@ class ScoreSubmission(BaseModel):
     score: ExactScore
     total_questions: int
     correct_questions: int | None = None
+    # FEATURE: how many of the run's `total_questions` Cases got a grade. A Case goes ungraded
+    # when the Candidate call errors or times out, or the judge gives no readable verdict, so
+    # `total_questions - graded_questions` is the number of Cases the run failed on.
+    #
+    # WHY optional: `extra="forbid"` above makes the rollout one-directional, so the scoreboard
+    # must accept every client that predates the field. INVARIANT: None is "not reported", never
+    # "none failed"; nothing may default it to `total_questions` or to 0.
+    #
+    # INVARIANT: a STRICT integer, unlike its lax neighbours. Coercion would publish a count
+    # nobody sent: JSON `true` stored as 1, the string "505" stored as 505.
+    #
+    # AIDEV-NOTE: deliberately absent from `_content_hash` and from `_replay_updates`, like
+    # `correct_questions`: it describes one execution, it is not what the recipe is.
+    graded_questions: StrictInt | None = None
     ran_with_providers: list[str]
     ran_at_local: datetime | None = None
     # Nested client metadata, matching the SF "Publish to Leaderboard" wire shape
@@ -887,10 +921,30 @@ class ScoreSubmission(BaseModel):
             raise ValueError("correct_questions must be non-negative")
         return value
 
+    @field_validator("graded_questions")
+    @classmethod
+    def validate_graded_questions(cls, value: int | None) -> int | None:
+        if value is not None and value < 0:
+            raise ValueError("graded_questions must be non-negative")
+        return value
+
     @model_validator(mode="after")
     def validate_questions(self) -> ScoreSubmission:
         if self.correct_questions is not None and self.correct_questions > self.total_questions:
             raise ValueError("correct_questions cannot exceed total_questions")
+        # INVARIANT: graded Cases are a subset of the selected ones. A larger count would let the
+        # leaderboard print "530 / 525 graded", which no run can mean.
+        if self.graded_questions is not None and self.graded_questions > self.total_questions:
+            raise ValueError("graded_questions cannot exceed total_questions")
+        # INVARIANT: a Case that never got a grade cannot be correct, so correct Cases are a
+        # subset of graded ones. Compared only when both were sent: each is optional, and absent
+        # means "not reported", never 0.
+        if (
+            self.correct_questions is not None
+            and self.graded_questions is not None
+            and self.correct_questions > self.graded_questions
+        ):
+            raise ValueError("correct_questions cannot exceed graded_questions")
         return self
 
 
@@ -1126,6 +1180,13 @@ class ScoreSchema(BaseModel):
     # WHY nullable: only binary-graded benchmarks ever had a correctness count; rows
     # submitted after OME-866 carry None unless the client sent one.
     correct_questions: int | None
+    # FEATURE: how many of `total_questions` Cases got a grade; the rest failed. EXCLUDED WHEN
+    # ABSENT, for exactly the reason `models` above records: the private JSONL export hashes these
+    # bytes to authorise a purge, and no legacy row may gain `"graded_questions": null`.
+    #
+    # INVARIANT: null means "not reported" (an older client, or a row from before the column),
+    # never "none failed".
+    graded_questions: int | None = Field(default=None, exclude_if=lambda value: value is None)
     ran_with_providers: list[str]
     ran_at_local: datetime | None
     client_name: str | None
@@ -1213,6 +1274,21 @@ class ScoreSchema(BaseModel):
             "Latest reproduction time; only `GET /v1/scores/{id}` and "
             "`GET /v1/public/scores/{id}` carry it."
         ),
+    )
+    # FEATURE: OME-1909 — on a re-graded row, the score it was re-graded from. Who re-graded it
+    # (`Score.regraded_by`, a verified email) is stored but deliberately on NO read schema.
+    #
+    # INVARIANT: EXCLUDED WHEN ABSENT, for the reason `paper_url` records: an ordinary row's read,
+    # and the private JSONL export whose bytes authorise a purge, must not gain
+    # `"regraded_from": null`.
+    # WHY two aliases: the model's foreign key holds the id as `regraded_from_id` (the score read
+    # validates the ORM row directly), while a dict, such as FastAPI's own re-validation of a
+    # returned schema, carries it under the published name.
+    regraded_from: UUID | None = Field(
+        default=None,
+        validation_alias=AliasChoices("regraded_from_id", "regraded_from"),
+        exclude_if=lambda value: value is None,
+        description="The score this row re-grades onto the current revision. Absent otherwise.",
     )
     # WHY exclude None at the MODEL serializer: ScoreSchema also feeds private JSONL exports and
     # GET responses. A submit-time fact must not add `ranking_notice: null` to either, while a
@@ -1476,6 +1552,18 @@ class LeaderboardStoreEntry(LeaderboardEntry):
     """Store-only leaderboard row carrying identity across independent projections."""
 
     source_id: str = Field(exclude=True)
+    # FEATURE: how many of `total_questions` Cases got a grade, so a reader of the ranked
+    # leaderboard can see a run that failed on some of its Cases. Self-reported, like the score.
+    #
+    # INVARIANT: EXCLUDED WHEN ABSENT. A row with no count serves the payload it always served;
+    # a null or a 0 would read as a claim ("0 graded", "none failed") nobody made.
+    #
+    # WHY no default: the ranking query is the one read that builds this row and it selects the
+    # column, so a query that drops it fails at construction instead of serving every entry as
+    # "not reported".
+    # AIDEV-NOTE: on the ranked row only. A participant's own rows on a private Benchmark
+    # (`list_owned_entries`) and the submission history do not carry it yet.
+    graded_questions: int | None = Field(exclude_if=lambda value: value is None)
 
 
 class BaselineSchema(BaselineObservation):

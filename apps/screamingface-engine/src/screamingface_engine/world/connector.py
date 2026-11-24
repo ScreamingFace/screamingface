@@ -11,7 +11,8 @@ import logging
 import math
 import random
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any, NoReturn
@@ -41,6 +42,8 @@ from screamingface_engine.capture_outcomes import (
     CAPTURE_FIELD,
     FROZEN_COPIES_PATH,
     FROZEN_COPY_HEADER,
+    REPLAY_EXPIRED,
+    REPLAY_EXPIRED_TEXT,
     REPLAY_FIELD,
     REPLAY_MISS,
     REPLAY_UNAVAILABLE,
@@ -101,12 +104,19 @@ from screamingface_engine.world.config import ModelSpec, WorldConfigError, provi
 from screamingface_engine.world.errors import RunnerRequestError
 from screamingface_engine.world.fresh_judge_retry import scope_for_this_send
 from screamingface_engine.world.fusion_context import fusion_picture_messages
+from screamingface_engine.world.gateway_codes import GATEWAY_CODES
 from screamingface_engine.world.model_response import (
     Choice,
     parse_choice,
     raise_if_unusable,
 )
 from screamingface_engine.world.models.registry import decode_route_id
+from screamingface_engine.world.refused_key_stop import (
+    STOP_CODE,
+    KeyRefused,
+    note_answer,
+    note_refusal,
+)
 from screamingface_engine.world.reply_logprobs import reply_logprobs
 from screamingface_engine.world.reply_origin import record_reply_origin, round_trip_origin
 from screamingface_engine.world.request_parameters import (
@@ -532,21 +542,29 @@ class _ModelEndpoint:
                 context=request.context,
                 intent=request.intent,
             ):
-                return await _chat_completion_loop(
-                    http_client=self._http_client,
-                    cfg=self._cfg,
-                    scope=scope,
-                    messages=place_on_last_user_message(
-                        _messages(request.context, request.intent), parts
+                # OME-1989: tell the Case's refusal watch that this call answered.
+                return note_answer(
+                    spec.id,
+                    await _chat_completion_loop(
+                        http_client=self._http_client,
+                        cfg=self._cfg,
+                        scope=scope,
+                        messages=place_on_last_user_message(
+                            _messages(request.context, request.intent), parts
+                        ),
+                        params=params,
+                        spec=spec,
+                        tavily_http=self._tavily_http,
+                        tavily_api_key=self._tavily_api_key,
+                        retrieval_policy=retrieval_policy,
+                        cache_attempt=egress.cache_attempt,
                     ),
-                    params=params,
-                    spec=spec,
-                    tavily_http=self._tavily_http,
-                    tavily_api_key=self._tavily_api_key,
-                    retrieval_policy=retrieval_policy,
-                    cache_attempt=egress.cache_attempt,
                 )
         except _GatewayRefusal as exc:
+            # FEATURE (OME-1989): record the refusal in the Case's refusal watch, which decides
+            # when the Case ends whether it caused the Case to fail. This call still raises its
+            # own error below.
+            note_refusal(spec.id, status=exc.status, code=exc.code)
             # INVARIANT (OME-1770 review): the Gateway refuses an ungranted account a private
             # target as an unknown provider. Relayed, that refusal tells the caller this Engine
             # declares the route; url4's own answer for an undeclared route does not.
@@ -1543,11 +1561,17 @@ async def _fetch_replay(
     return resp, _REPLAYED
 
 
+_REPLAY_REFUSALS: dict[str, tuple[str, str]] = {
+    REPLAY_MISS: ("the frozen copy holds no answer for this call of the replay", REPLAY_MISS),
+    REPLAY_UNAVAILABLE: ("the frozen copy is not available for replay", REPLAY_UNAVAILABLE),
+    REPLAY_EXPIRED: (REPLAY_EXPIRED_TEXT, REPLAY_UNAVAILABLE),
+}
+
+
 def _replay_unavailable() -> ResolutionError:
     """The engine's own permanent failure for a replay the copy did not serve (design §5.3 2a)."""
-    return ResolutionError(
-        "the frozen copy is not available for replay", code=REPLAY_UNAVAILABLE, permanent=True
-    )
+    message, code = _REPLAY_REFUSALS[REPLAY_UNAVAILABLE]
+    return ResolutionError(message, code=code, permanent=True)
 
 
 def _replay_refusal(resp: httpx.Response) -> ResolutionError | None:
@@ -1561,13 +1585,10 @@ def _replay_refusal(resp: httpx.Response) -> ResolutionError | None:
         payload = resp.json()
     except ValueError:
         return None
-    code = replay_refusal_code(resp.status_code, payload)
-    if code == REPLAY_MISS:
-        message = "the frozen copy holds no answer for this call of the replay"
-    elif code == REPLAY_UNAVAILABLE:
-        message = "the frozen copy is not available for replay"
-    else:
+    refusal = _REPLAY_REFUSALS.get(replay_refusal_code(resp.status_code, payload) or "")
+    if refusal is None:
         return None
+    message, code = refusal
     return ResolutionError(message, code=code, permanent=True)
 
 
@@ -1987,6 +2008,21 @@ def _json_or_raise(resp: httpx.Response) -> dict:
         ) from exc
 
 
+@contextmanager
+def key_refusal_as_url4_error() -> Iterator[None]:
+    """Raise a run the refused key stopped (OME-1989) to url4 as its run-stopped error.
+
+    WHY here: `refused_key_stop` never imports the url4 engine, so this allowlisted adapter
+    turns its `KeyRefused` into url4's `ResolutionError` — for a Case refused by a stopped run
+    (the Candidate adapter), and around the whole run (the executor). Permanent, because the
+    same key is refused again.
+    """
+    try:
+        yield
+    except KeyRefused as stopped:
+        raise ResolutionError(stopped.message, code=STOP_CODE, permanent=True) from stopped
+
+
 class _GatewayRefusal(ResolutionError):
     """A non-2xx aigateway answer, with its status and the plain-text `detail` it carried."""
 
@@ -2003,9 +2039,19 @@ class _GatewayRefusal(ResolutionError):
 
 
 def _upstream_code(detail: dict[str, Any], code: str) -> str:
-    """The gateway detail's own `code`, unless it names an engine-reserved one (OME-941)."""
+    """The gateway detail's own `code` when the Gateway declares it, else `code`.
+
+    INVARIANT (gateway code provenance): only a code in `GATEWAY_CODES` is lifted, so a body from
+    a proxy, a provider or an unreviewed Gateway build cannot put a key, an origin or a private ID
+    into the log line, the observation or the report. The reserved check (OME-941) stays as a
+    guard; the parity test already keeps the two sets disjoint.
+    """
     upstream_code = detail.get("code")
-    if isinstance(upstream_code, str) and upstream_code not in ENGINE_RESERVED_CODES:
+    if (
+        isinstance(upstream_code, str)
+        and upstream_code in GATEWAY_CODES
+        and upstream_code not in ENGINE_RESERVED_CODES
+    ):
         return upstream_code
     return code
 
@@ -2015,7 +2061,7 @@ def _refusal_detail(
 ) -> tuple[str, str, str | None, GatewayContentPartRefusal | None]:
     """The `code`, `message`, plain-text `detail` and translated refusal of a 4xx/5xx answer.
 
-    A `detail` object gives the code (never one in `ENGINE_RESERVED_CODES`), the message and,
+    A `detail` object gives the code (only one in `GATEWAY_CODES`), the message and,
     for the gateway's one translated code (spec #1450 §4), the `intent_error` it maps to; a
     `detail` string is kept as the plain text. Anything else keeps the status-based defaults.
     """
@@ -2051,8 +2097,9 @@ def _raise_for_status(resp: httpx.Response, *, logprobs_requested: bool = False)
     message, and the message here is upstream text. So an upstream (or a proxy in front of
     aigateway, which this module already treats as an assumed threat) that answers
     `{"detail": {"code": "malformed_source", …}}` keeps the engine-authored
-    `aigateway_http_<status>` code instead, and its text stays unvouched. Every other upstream
-    code still passes through unchanged — that vocabulary is what the failure report reads.
+    `aigateway_http_<status>` code instead, and its text stays unvouched. Of the other codes,
+    only one the Gateway declares (`GATEWAY_CODES`) passes through unchanged; any other keeps
+    `aigateway_http_<status>` too.
 
     FEATURE (E4b part 3, C4): a call that asked for token log-probabilities (`logprobs_requested`)
     and that the gateway refused with HTTP 404 `unsupported_parameters` fails as
@@ -2091,6 +2138,7 @@ __all__ = [
     "AigatewayConfig",
     "AigatewayWorld",
     "build_aigateway_world",
+    "key_refusal_as_url4_error",
     "open_frozen_copy",
     "seal_frozen_copy",
 ]

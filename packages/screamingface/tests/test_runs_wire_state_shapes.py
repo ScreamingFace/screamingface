@@ -1,7 +1,7 @@
 """A Run state that is not a string is a malformed answer (E5 P1 spec D7, §4.1; plan C1).
 
-FEATURE: first-class Runs (OME-1785). INVARIANT (D7): any malformed `POST /runs` answer is one
-`Unavailable`, never an exception; a malformed read is `engine_contract_error`.
+FEATURE: first-class Runs (OME-1785). INVARIANT: a malformed `POST /runs` answer or read is
+`engine_contract_error` (Runs are required since E5 P2 spec D2, so a registration raises too).
 """
 
 from __future__ import annotations
@@ -33,20 +33,26 @@ _IDS = ["run-list", "run-object", "candidate-list", "candidate-object"]
 
 
 @pytest.mark.parametrize("body", _BODIES, ids=_IDS)
-def test_a_registration_with_an_unhashable_state_is_unavailable(body: object) -> None:
+def test_a_registration_with_an_unhashable_state_is_a_contract_error(body: object) -> None:
     answer = httpx.Response(201, json=body)
 
-    assert isinstance(wire.create_sync(_request(lambda _r: answer, []), _SPEC), wire.Unavailable)
+    with pytest.raises(ExecutionError) as caught:
+        wire.create_sync(_request(lambda _r: answer, []), _SPEC)
+
+    assert caught.value.code == "engine_contract_error"
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("body", _BODIES, ids=_IDS)
-async def test_an_async_registration_with_an_unhashable_state_is_unavailable(
+async def test_an_async_registration_with_an_unhashable_state_is_a_contract_error(
     body: object,
 ) -> None:
     request = _async_request(lambda _r: httpx.Response(201, json=body))
 
-    assert isinstance(await wire.create_async(request, _SPEC), wire.Unavailable)
+    with pytest.raises(ExecutionError) as caught:
+        await wire.create_async(request, _SPEC)
+
+    assert caught.value.code == "engine_contract_error"
 
 
 @pytest.mark.parametrize("body", _BODIES, ids=_IDS)

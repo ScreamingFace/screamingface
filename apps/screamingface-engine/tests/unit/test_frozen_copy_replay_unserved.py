@@ -105,5 +105,5 @@ async def test_a_captured_error_with_the_replay_header_is_raised_as_the_original
 
     assert answer is None
     assert failure is not None
-    assert failure.code == "boom"
+    assert failure.code == "aigateway_http_500"
     assert failure.code != _UNAVAILABLE

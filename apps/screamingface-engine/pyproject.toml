@@ -34,6 +34,9 @@ dependencies = [
     "tortoise-orm[asyncpg]==1.1.8",
     "asyncpg==0.32.0",
     "aiosqlite==0.22.1",
+    # Seals each Run's owner email at rest (E5 P2 spec R16): AES-256-GCM, at aigateway's pin.
+    # INVARIANT: only `runs/sealing.py` imports it.
+    "cryptography==50.0.1",
     # --- both modes ---
     "pydantic>=2.13.4",
     # The catalog's upstream aigateway client (`screamingface_engine.catalog`), and the shared

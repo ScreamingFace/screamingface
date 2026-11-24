@@ -24,8 +24,10 @@ from screamingface_engine.candidate_outcomes import (
     DEFAULT_OUTCOMES_MAX_AGE_S,
     CandidateOutcome,
     OutcomeDelivery,
+    OutcomeNotAccepted,
     check_topic,
 )
+from screamingface_engine.topic_claims import Claim
 from url4.streaming.codec import decode, encode
 from url4.streaming.interfaces import EventStream, StreamNotFoundError, validate_from_sequence
 from url4.streaming.protocol import OutboundFrame
@@ -76,6 +78,11 @@ class InMemoryEventStream(EventStream):
                 del log[: len(log) - self._max_frames]
             cond.notify_all()
 
+    async def last_frame(self, topic: str) -> OutboundFrame | None:
+        """The topic's newest retained frame, or None (E5 P2 spec R7)."""
+        log = self._log.get(topic)
+        return decode(log[-1][1]) if log else None
+
     async def subscribe(
         self, topic: str, from_sequence: int | None = None
     ) -> AsyncIterator[OutboundFrame]:
@@ -123,7 +130,7 @@ DEFAULT_MAX_OUTCOMES = 300_000
 """About what `url4-candidate-outcomes`' 64 MiB holds at ~200 bytes an outcome."""
 
 
-class OutcomeStreamFull(RuntimeError):
+class OutcomeStreamFull(OutcomeNotAccepted):
     """A publish was refused because the stream holds `max_outcomes` unwritten outcomes."""
 
 
@@ -225,11 +232,64 @@ class InMemoryCandidateOutcomeStream:
                 self._unacked.remove(entry)
 
 
+class InMemoryTopicClaims:
+    """The `TopicClaims` double (E5 P2 spec D7): the JetStream bucket's contract in one process.
+
+    Each write gets the next revision and expires `max_age_s` after it, as a key-value entry
+    does. INVARIANT: no method awaits between its read and its write, so on one event loop each
+    is as atomic as the broker's create and compare-and-set.
+    """
+
+    def __init__(self, *, max_age_s: float = 86_400.0) -> None:
+        self._max_age_s = max_age_s
+        self._revision = 0
+        # topic -> (the claim, the loop time it was written)
+        self._entries: dict[str, tuple[Claim, float]] = {}
+
+    async def ensure_bucket(self, *, update: bool = False) -> None:
+        return None
+
+    def _current(self, topic: str) -> Claim | None:
+        entry = self._entries.get(topic)
+        if entry is None:
+            return None
+        claim, written_at = entry
+        if asyncio.get_running_loop().time() - written_at >= self._max_age_s:
+            del self._entries[topic]
+            return None
+        return claim
+
+    def _write(self, topic: str, holder: str, *, finished: bool) -> Claim:
+        self._revision += 1
+        claim = Claim(holder, self._revision, finished)
+        self._entries[topic] = (claim, asyncio.get_running_loop().time())
+        return claim
+
+    async def claim(self, topic: str, worker_id: str) -> Claim:
+        current = self._current(topic)
+        return current if current is not None else self._write(topic, worker_id, finished=False)
+
+    async def take_over(self, topic: str, worker_id: str, revision: int) -> Claim | None:
+        current = self._current(topic)
+        if current is None or current.revision != revision:
+            return None
+        return self._write(topic, worker_id, finished=False)
+
+    async def finish(self, topic: str, worker_id: str) -> None:
+        current = self._current(topic)
+        if current is not None and current.holder == worker_id and not current.finished:
+            self._write(topic, worker_id, finished=True)
+
+    async def close(self) -> None:
+        return None
+
+
 __all__ = [
     "DEFAULT_MAX_FRAMES_PER_TOPIC",
     "DEFAULT_MAX_OUTCOMES",
     "DEFAULT_OUTCOME_ACK_WAIT_S",
     "InMemoryCandidateOutcomeStream",
     "InMemoryEventStream",
+    "InMemoryTopicClaims",
     "OutcomeStreamFull",
 ]

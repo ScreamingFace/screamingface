@@ -1,0 +1,14 @@
+{
+  "issue": "OME-1996",
+  "branch": "OME-1996-url4-expand-at-most-one",
+  "approver": "Dmitry Stebukov (owner)",
+  "date": "2026-11-22",
+  "scope": "Docstring only. In test_abnf_call_context.py the module docstring (old lines 1-8) drops the claim that the remote twin resolves its context caller-side, says the relative sugar and its canonical relative twin resolve caller-side, and says a remote call's context is receiver-owned and checked separately. Imports, test functions, assertions and runtime behavior do not change.",
+  "reason": "Router Recipe extension contract C19: a remote call's context is forwarded byte for byte and parsed by the receiving node, as the remote lowering (no context slots), the source scan and the file-ref conformance tests already show. The old header said the remote twin resolved it caller-side, which was wrong.",
+  "files": {
+    "packages/url4/tests/spec/test_abnf_call_context.py": {
+      "base_blob": "f491ea080d71a5ea22d33d8911f0fb76b608d060",
+      "approved_blob": "ee8311c5d587c584e57ee1fffc349bd9529f4cee"
+    }
+  }
+}

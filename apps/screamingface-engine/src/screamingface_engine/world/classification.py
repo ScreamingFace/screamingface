@@ -224,16 +224,14 @@ def _label_score(item: object) -> tuple[str, int | float]:
     return label, score
 
 
-def refuses_query(path: str, raw: bytes) -> bool:
-    """Whether a call to ``path`` with the raw query ``raw`` is a `/classify` call whose
-    percent-escapes do not decode as UTF-8, refused as `malformed_source` before any run.
+def undecodable_query(raw: bytes) -> bool:
+    """Whether a raw query holds a percent-escape that does not decode as UTF-8; a `/classify`
+    or `/route-answer` call with one is refused as `malformed_source` before any run.
 
     WHY on the raw bytes, at the App (decision 10): url4 decodes such an escape to U+FFFD, so the
     run would read, and the classifier bill, a text the caller never sent. No later step can tell
     a replaced character from one the caller sent.
     """
-    if path != CLASSIFY_ROUTE:
-        return False
     try:
         unquote_to_bytes(raw).decode("utf-8")
     except UnicodeDecodeError:
@@ -267,5 +265,5 @@ __all__ = [
     "MALFORMED_SOURCE",
     "RESULT_CONTRACT",
     "ClassificationEndpoint",
-    "refuses_query",
+    "undecodable_query",
 ]

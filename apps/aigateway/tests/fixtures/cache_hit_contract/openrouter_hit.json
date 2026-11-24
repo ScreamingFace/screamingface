@@ -5,7 +5,8 @@
     "x-aigw-cache": "hit",
     "x-aigw-cache-key": "0123456789ab",
     "x-aigw-cache-reason": "",
-    "x-aigw-trace-id": "4bf92f3577b34da6a3ce929d0e0e4736"
+    "x-aigw-trace-id": "4bf92f3577b34da6a3ce929d0e0e4736",
+    "x-aigw-upstream-attempts": "0"
   },
   "body": {
     "id": "or-final-1",

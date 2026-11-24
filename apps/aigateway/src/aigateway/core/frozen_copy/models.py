@@ -20,11 +20,18 @@ if TYPE_CHECKING:
 
 STATUS_OPEN = "open"
 STATUS_SEALED = "sealed"
+# Final states (OME-1947): the sweep set the status and deleted the entries; the row stays.
+# Stack A writes only `abandoned`; `expired` is for the expiry rule of stack C.
+STATUS_ABANDONED = "abandoned"
+STATUS_EXPIRED = "expired"
 
 
 class FrozenCopy(Model):
     class Meta:
         table = "frozen_copies"
+        # The purge reads swept copies with `purged_at IS NULL`; the idle rule reads
+        # `status = open`.
+        indexes = (("status", "purged_at"),)
 
     id = fields.UUIDField(pk=True, default=uuid.uuid4)
     # The account that opened the copy. Only it may write or seal.
@@ -39,10 +46,17 @@ class FrozenCopy(Model):
     entries = fields.IntField(default=0)
     # Per-copy counter for `FrozenCopyEntry.seq`, advanced under the copy-row lock at each insert.
     entry_seq = fields.IntField(default=0)
-    # Q28: the seal's provenance, {"engine_version": "..."}. NULL when the seal sent none.
+    # Q28: the seal's provenance, {"engine_version": "..."} plus C9 "routers" when the seal sent
+    # them. NULL when the seal sent none.
     provenance: Any = fields.JSONField(null=True)
     created_at = fields.DatetimeField(auto_now_add=True)
     sealed_at = fields.DatetimeField(null=True)
+    # The time the scoreboard claimed the copy for a Score (stack B). NULL = no Score is known.
+    claimed_at = fields.DatetimeField(null=True)
+    # The time the sweep moved the copy to `abandoned` or `expired`.
+    swept_at = fields.DatetimeField(null=True)
+    # The time the sweep deleted the last entry. NULL on a swept copy = entries can remain.
+    purged_at = fields.DatetimeField(null=True)
 
     if TYPE_CHECKING:
         account_id: uuid.UUID

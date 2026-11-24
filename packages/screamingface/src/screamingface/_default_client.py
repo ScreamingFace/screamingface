@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import sys
+from datetime import timedelta
 from threading import Lock
 from typing import TYPE_CHECKING, Literal, overload
 from urllib.parse import urlsplit
@@ -14,6 +15,7 @@ from screamingface.client import (
     DEFAULT_ENGINE_URL,
     DEFAULT_SCOREBOARD_URL,
     Client,
+    _deadline_seconds,
     _evaluation_candidates,
 )
 
@@ -28,6 +30,7 @@ if TYPE_CHECKING:
     from screamingface.media import CaseMedia, FetchedMedia
     from screamingface.recipe import Recipe
     from screamingface.report import Report
+    from screamingface.runs import Run
 
 _client: Client | None = None
 _lock = Lock()
@@ -184,6 +187,55 @@ def evaluate(
     answer_seed: int | None = None,
     capture: bool = False,
     use_cache: bool = True,
+    detach: Literal[False] = False,
+) -> Report: ...
+
+
+@overload
+def evaluate(
+    candidates: str,
+    *,
+    benchmark: None = None,
+    limit: None = None,
+    on_event: Callable[[Event], None] | None = None,
+    progress: bool | None = None,
+    answer_seed: int | None = None,
+    capture: bool = False,
+    use_cache: bool = True,
+    detach: Literal[True],
+    deadline: timedelta | None = None,
+) -> Run: ...
+
+
+@overload
+def evaluate(
+    candidates: str,
+    *,
+    benchmark: None = None,
+    limit: None = None,
+    on_event: Callable[[Event], None] | None = None,
+    progress: bool | None = None,
+    answer_seed: int | None = None,
+    capture: bool = False,
+    use_cache: bool = True,
+    detach: bool = False,
+    deadline: timedelta | None = None,
+) -> Report | Run: ...
+
+
+@overload
+def evaluate(
+    candidates: Recipe | Sequence[Recipe],
+    *,
+    benchmark: str,
+    limit: int | None = None,
+    cases: Sequence[int] | None = None,
+    on_event: Callable[[Event], None] | None = None,
+    progress: bool | None = None,
+    answer_seed: int | None = None,
+    capture: bool = False,
+    use_cache: bool = True,
+    detach: Literal[False] = False,
 ) -> Report: ...
 
 
@@ -199,7 +251,26 @@ def evaluate(
     answer_seed: int | None = None,
     capture: bool = False,
     use_cache: bool = True,
-) -> Report: ...
+    detach: Literal[True],
+    deadline: timedelta | None = None,
+) -> Run: ...
+
+
+@overload
+def evaluate(
+    candidates: Recipe | Sequence[Recipe],
+    *,
+    benchmark: str,
+    limit: int | None = None,
+    cases: Sequence[int] | None = None,
+    on_event: Callable[[Event], None] | None = None,
+    progress: bool | None = None,
+    answer_seed: int | None = None,
+    capture: bool = False,
+    use_cache: bool = True,
+    detach: bool = False,
+    deadline: timedelta | None = None,
+) -> Report | Run: ...
 
 
 @overload
@@ -248,7 +319,9 @@ def evaluate(
     url4: str | None = None,
     record_reproduction: bool = True,
     use_cache: bool = True,
-) -> Report:
+    detach: bool = False,
+    deadline: timedelta | None = None,
+) -> Report | Run:
     """Evaluate Recipes or a complete URL4 through the lazy default Client.
 
     INVARIANT: this wrapper is a pass-through, never a narrower door — every option
@@ -260,10 +333,17 @@ def evaluate(
     `cases=[3, 17, 42]` runs only those Case ids (a Case's position in the Benchmark, 1 to N)
     instead of `limit=`'s first N; see `Client.evaluate`. Refused with a complete URL4 and
     with a replay (`pinned_cache=` / `score_id=`).
+
+    `detach=True` returns the evaluation's `sf.runs.Run` at once; the Engine runs it until
+    `deadline` whether or not this notebook stays (see `Client.evaluate`).
     """
 
     client = default_client()
     if pinned_cache is not None or score_id is not None:
+        if detach:
+            raise TypeError("a replay cannot be detached; it follows its run")
+        # The Client refuses a deadline before any replay starts; so does this door.
+        _deadline_seconds(detach, deadline)
         # The Client checks the replay options; this door passes everything through.
         return client._evaluate_replay(
             candidates=candidates,
@@ -296,6 +376,8 @@ def evaluate(
             answer_seed=answer_seed,
             capture=capture,
             use_cache=use_cache,
+            detach=detach,
+            deadline=deadline,
         )
     if benchmark is None:
         raise TypeError("benchmark is required when evaluating Recipes")
@@ -309,6 +391,8 @@ def evaluate(
         answer_seed=answer_seed,
         capture=capture,
         use_cache=use_cache,
+        detach=detach,
+        deadline=deadline,
     )
 
 

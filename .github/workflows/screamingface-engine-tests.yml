@@ -12,6 +12,8 @@ on:
       - "apps/aigateway/tests/fixtures/replay_reference_twins/**"
       # the shared url4 attachment-cap recipe that tests/unit/test_url4_attachment_cap_fits_the_gateway.py binds
       - "apps/aigateway/tests/fixtures/url4_attachment_cap_request/**"
+      # the gateway's declared error codes that tests/unit/test_gateway_codes_parity.py pins
+      - "apps/aigateway/tests/fixtures/gateway_error_codes/**"
       # the gateway's max_request_bytes default, read with ast by the gateway-fit tests
       - "apps/aigateway/src/aigateway/config.py"
       # the SDK flow operator fixture that tests/unit/test_sdk_flow_catalog_fixture.py binds
@@ -29,6 +31,8 @@ on:
       - "apps/aigateway/tests/fixtures/replay_reference_twins/**"
       # the shared url4 attachment-cap recipe that tests/unit/test_url4_attachment_cap_fits_the_gateway.py binds
       - "apps/aigateway/tests/fixtures/url4_attachment_cap_request/**"
+      # the gateway's declared error codes that tests/unit/test_gateway_codes_parity.py pins
+      - "apps/aigateway/tests/fixtures/gateway_error_codes/**"
       # the gateway's max_request_bytes default, read with ast by the gateway-fit tests
       - "apps/aigateway/src/aigateway/config.py"
       # the SDK flow operator fixture that tests/unit/test_sdk_flow_catalog_fixture.py binds
@@ -69,6 +73,8 @@ jobs:
       # The runner's preinstalled Helm v3 still dials a cluster for that ("Kubernetes cluster
       # unreachable"); Helm v4 renders it offline. Same action as the `chart` job below.
       - uses: azure/setup-helm@v5.0.1
+        with:
+          version: v4.3.2  # OME-1983: never the action's fallback
       # WHY before `uv sync`: sync SILENTLY regenerates a stale lock, so a lockfile that no
       # longer matches pyproject.toml is invisible to every later step. That exact defect shipped
       # once already (a package rename left the lock stale) and CI could not see it.
@@ -179,6 +185,8 @@ jobs:
             tests/unit/test_attach_from_sequence_bounds.py \
             tests/unit/test_jetstream_subscribe_ensures_stream.py \
             tests/unit/test_candidate_outcome_stream_contract.py \
+            tests/unit/test_topic_claims_contract.py \
+            tests/unit/test_outcome_retries.py \
             tests/integration/test_run_queue_roundtrip.py \
             tests/integration/test_run_queue_publish_settles_nats.py \
             tests/integration/test_warm_child_process.py \
@@ -192,6 +200,8 @@ jobs:
             tests/unit/test_stream_contract.py \
             tests/unit/test_attach_from_sequence_bounds.py \
             tests/unit/test_candidate_outcome_stream_contract.py \
+            tests/unit/test_topic_claims_contract.py \
+            tests/unit/test_outcome_retries.py \
             tests/integration/test_run_queue_publish_settles_nats.py \
             tests/integration/test_warm_child_process.py \
             tests/integration/test_queue_unclaimed_depth_nats.py \
@@ -255,6 +265,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: azure/setup-helm@v5.0.1
+        with:
+          version: v4.3.2  # OME-1983: never the action's fallback
       # `helm lint` alone reported "0 chart(s) failed" on a chart that cannot render at all —
       # every template aborts on the `natsUrl` `fail` when it is unset. Templating is the check
       # that actually exercises the templates; linting only reads them.

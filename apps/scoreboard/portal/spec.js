@@ -12,9 +12,45 @@
 (function (P) {
   "use strict";
 
-  function historyRow(s) {
+  // Every run stays listed, with the revision it was graded under. An id the board lists
+  // links to that revision's leaderboard; any other id (one its client sent but the board never
+  // had, or every id when the list is unavailable) is plain text. Rows under an earlier revision
+  // are dimmed.
+  function revisionCell(s, benchmarkId, revisions) {
+    var td = P.el("td", "mono", "");
+    var revision = s.benchmark_revision;
+    if (!revision) {
+      td.textContent = "—";
+      return td;
+    }
+    var short = String(revision).slice(0, 8);
+    var listed = window.SFRevisionSelector
+      ? window.SFRevisionSelector.listedRevision(revisions, revision)
+      : null;
+    if (!listed) {
+      td.textContent = short;
+      return td;
+    }
+    // The board's own address in whichever form this page is served at, always pinned to the row's
+    // revision: a link copied today must open the same grading after the next bump. Only choosing
+    // Latest in the board's own selector drops the parameter.
+    var target = new URL(P.boardHref(benchmarkId), window.location.href);
+    target.searchParams.set("revision", revision);
+    td.appendChild(P.link(null, target.href, short));
+    if (listed.current) td.appendChild(P.el("span", "revision-tag", "latest"));
+    return td;
+  }
+
+  function historyRow(s, benchmarkId, revisions) {
     var tr = document.createElement("tr");
+    // Dimmed only when the board lists the run's revision as an earlier one; an id the board never
+    // listed is not known to be older.
+    var listed = window.SFRevisionSelector && s.benchmark_revision
+      ? window.SFRevisionSelector.listedRevision(revisions, s.benchmark_revision)
+      : null;
+    if (listed && !listed.current) tr.className = "revision-older";
     tr.appendChild(P.el("td", null, P.formatDate(s.submitted_at)));
+    tr.appendChild(revisionCell(s, benchmarkId, revisions));
     tr.appendChild(P.el("td", "cell-wrap", P.formatSubmitter(s.submitted_by)));
     tr.appendChild(P.el("td", "cell-wrap", P.formatAuthors(s.authors)));
     tr.appendChild(P.el("td", "num", P.formatScore(s.score)));
@@ -114,6 +150,15 @@
 
     resolveBenchmarkName(benchmarkId).then(setBenchmarkName);
 
+    // The board's revisions come from /revisions (the history response itself is unchanged).
+    // Best-effort: without them the column still shows each run's revision, unlinked and untagged.
+    var boardRevisions = P.fetchJson(
+      "/v1/leaderboard/" + encodeURIComponent(benchmarkId) + "/revisions"
+    ).then(
+      function (data) { return (data && data.revisions) || []; },
+      function () { return []; }
+    );
+
     P.fetchJson("/v1/leaderboard/" + encodeURIComponent(benchmarkId) + "/" + encodeURIComponent(specId) + "/history?limit=20").then(
       function (data) {
         var submissions = (data && data.submissions) || [];
@@ -122,14 +167,33 @@
           return;
         }
 
-        var best = Math.max.apply(null, submissions.map(function (s) { return s.score; }));
-        document.getElementById("best-score").textContent = P.formatScore(best);
+        // Scores under different revisions are not comparable: the best score covers one revision,
+        // and reads "—" while no single revision can be named. The card stays, so the strip keeps
+        // its three columns.
+        function renderBest(revisions) {
+          var label = document.getElementById("best-score-label");
+          var best = window.SFRevisionSelector
+            ? window.SFRevisionSelector.historyBest(submissions, revisions)
+            : { score: Math.max.apply(null, submissions.map(function (s) { return s.score; })), label: "Best score" };
+          if (label) label.textContent = best ? best.label : "Best score";
+          document.getElementById("best-score").textContent = best ? P.formatScore(best.score) : "—";
+        }
         // Bare number: the .stats cell label ("Runs") carries the word.
         document.getElementById("submission-count").textContent = submissions.length.toLocaleString();
 
         var body = document.getElementById("history-body");
-        P.clear(body);
-        submissions.forEach(function (s) { body.appendChild(historyRow(s)); });
+        function renderRows(revisions) {
+          P.clear(body);
+          submissions.forEach(function (s) { body.appendChild(historyRow(s, benchmarkId, revisions)); });
+        }
+        // The table never waits for the revision list: it draws now, unlinked, and gains the links,
+        // tag and dimming when the list arrives.
+        renderRows([]);
+        renderBest([]);
+        boardRevisions.then(function (revisions) {
+          renderRows(revisions);
+          renderBest(revisions);
+        });
 
         P.setStatus(statusNode, null);
         contentNode.hidden = false;

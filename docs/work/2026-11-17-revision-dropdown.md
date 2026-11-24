@@ -168,3 +168,90 @@ Review-fix outcome:
   writes succeeded. MAX remains explicitly inferred; historical frontier claims are off.
 - Schema check: Tortoise `makemigrations` reports "No changes detected".
 - PR 2's portal work remains on its separate branch; this commit changes no portal files.
+
+### PR 2 — portal selector (2026-11-17, stacked on PR 1)
+
+- **Actual files:**
+  - `portal/revision-selector.js`: pure labels, URL state, fallback and empty-Latest pointer.
+  - `portal/benchmark.html` and `benchmark.js`: the selector under the title, `load(revision)`
+    re-run on each switch, the not-found notice and the empty-Latest pointer.
+  - `portal/spec.html` and `spec.js`: the Revision column, the "latest" tag and dimmed older
+    rows.
+  - `portal/portal.css`.
+  - `tests/portal/revision-selector.test.js` (8), wired into the sdlc card gate and
+    `scoreboard-tests.yml`.
+- **Gates:** `run_gates.py scoreboard` all green: the full pytest suite plus every portal
+  Node suite, the new one included. No prior test was edited.
+- **Visual check:** a local scoreboard on this branch with seeded sample boards, at 1280px:
+  - MMLU-Pro on Latest and on Previous;
+  - LAB-Bench's empty Latest with the pointer;
+  - IFEval's single revision as plain text;
+  - an unknown `?revision=` with its fallback notice;
+  - the history page's Revision column.
+
+  At 390px, headless Chrome clips the existing page too. The dropdown now shrinks inside
+  its row anyway. The owner looks before the PR.
+- **Deviations:**
+  - Served portal files may not carry ticket ids, agent markers (`FEATURE:`,
+    `INVARIANT`) or repository paths (`test_portal_static.py`). The portal comments use
+    plain prose instead.
+  - The selector sits under the title and the "Follow this board" button, above the
+    description. That is option A's place, with the page's existing follow button
+    between them.
+- **Rebase onto main (2026-11-18):** PR 1 merged with the review fixes above, and main gained
+  board addresses (`/benchmarks/<id>/`, OME-1953). Adjustments:
+  - `benchmark.js` keeps main's rule that only `benchmark.html` sets the page title.
+  - The history page's revision links use the board's own address (`P.boardHref`) instead
+    of `benchmark.html?id=`. The old form still works, because its redirect keeps `revision`.
+  - Latest is now always listed first. An earlier revision can therefore arrive with no end
+    date, and its label reads "from 9 Oct 2026" instead of a bare day. One new test.
+  - The gate card and CI keep main's new `board-url.test.js` alongside the new suite.
+- **Prod audit (2026-11-18, read-only, firecall):** both queries ran in a read-only
+  transaction inside the prod scoreboard pod. Migration 0024 is not applied on prod yet.
+  - Four boards have runs under a past revision: draco-3pass (7 runs), inspect-frontierscience
+    (6), inspect-winogrande (2) and musique (7). Each has one submitter, and each was submitted
+    before the board's current revision was first used. These are real earlier revisions,
+    not stray ids.
+  - The largest question count equals the board's Case count on all four, and no group's
+    largest count differs from its most common one. The backfilled counts hold.
+  - inspect-winogrande has no runs under its current revision, so it will open on an empty
+    Latest that points to the 2 earlier results.
+  - musique's earlier revision was first seen 28 minutes before its current one, on the same
+    day. A same-day range now shows that day once ("about 20 Oct 2026"), with one new test.
+- **Independent review loop (2026-11-18, PR #1943):** four rounds by a fresh reviewer that saw
+  only the diff, the API and the spec. Fixed after review:
+  - Overlapping loads: each load takes a number, and a stale board or frontier answer is
+    dropped.
+  - Every switch resets the summary, frontier card, two-column strip, score bars, chart and
+    comparison notes.
+  - An unknown revision is told from an unknown benchmark by the 404's JSON `detail`.
+  - History rows link and tag only revisions the board lists, and dim only listed earlier ones.
+    The table draws first and gains links when the list arrives.
+  - The spec's "Case count inferred from results." line, beside the dropdown.
+  - An empty past revision says "No complete runs under this revision."; the status line is
+    judged on community runs, so imported reference rows never hide it.
+  - Latest loads without waiting for the revision list.
+  - The 404 fallback moves the dropdown back to Latest; URL updates keep the `#fragment`;
+    focus moves to the dropdown after "Show them".
+  - New tests: `revision-selector-review.test.js` (2) and `revision-selector-scope.test.js`
+    (2). They are separate files because the append-only gate cannot verify an appended
+    `.js` test (OME-1709).
+  - Declined: everything that happens only when `/revisions` is unavailable or the board is
+    private (the backend ignores `revision` there), the shared-link `og:url` (backend code
+    outside this PR), screen-reader timing on the notice (unverified), and the label on the
+    single-revision text. Round 4 found nothing else worth fixing.
+  - PR review (Khoa, Dmitry; 2026-11-20): a missing revision list now names the revision shown
+    (private boards drop the ignored `?revision=`); history links always pin their revision; the
+    history best score covers one revision; the history table is a named, focusable scroll
+    region; a fake-DOM test (`benchmark-revision-switch.test.js`) pins the stale-load drop and
+    the reset, and fails when they are removed. Not changed: a Latest board holding only
+    imported rows keeps no status line, as `external-results.test.js` on main pins it.
+    Re-graded entries keep their source's date (OME-1958): checked with a back-dated Latest
+    entry; labels, dimming and the cost/score chart are unaffected, but history sorts that run
+    below later runs under the old revision.
+  - The board page at `/benchmarks/<id>/` is read once at server start, so a portal change
+    shows only after a restart. A deploy restarts it anyway.
+
+### Latest review follow-up — 2026-11-20
+
+The historical scope notice is now neutral because the API returns the selected revision, not a current marker. Versioned boards with only imported references retain their no-submissions message. This supersedes the earlier decision to hide it on Latest. Current-main rebase, realistic regression fixtures, full gates and desktop/mobile light/dark validation are recorded in `docs/work/2026-11-20-OME-1708-review-followup.md`.

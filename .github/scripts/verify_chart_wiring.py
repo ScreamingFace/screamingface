@@ -22,6 +22,7 @@ Run:  python3 .github/scripts/verify_chart_wiring.py
 from __future__ import annotations
 
 import ast
+import hashlib
 import ipaddress
 import json
 import re
@@ -1009,6 +1010,137 @@ check(
     "the blob Garage runs the same image, self-configuration flags, ports and security context "
     "as the results Garage (garage-blobs.yaml is a parallel template; see its AIDEV-NOTE)",
 )
+# E5 P2 spec D9a (OME-1837): with Runs on, the THIRD bundled Garage holds run results and Run
+# contexts, on a volume and a key pair of its own; with Runs off, nothing of it renders.
+check(
+    not [
+        d
+        for d in engine_s3
+        if d["metadata"]["name"].endswith(
+            ("-garage-run-results", "-run-results-storage")
+        )
+    ]
+    and "URL4_CLOUD_RUN_RESULTS_STORE"
+    not in find_named(engine_s3, "ConfigMap", ENGINE_FULLNAME)["data"],
+    "with Runs off there is no run-results store, Garage or Secret",
+)
+engine_runs = render(
+    ENGINE_CHART,
+    ENGINE_RELEASE,
+    *_ENGINE_ARGS,
+    "--set",
+    "artifactStorage.backend=s3",
+    "--set",
+    "garage.enabled=true",
+    "--set",
+    "database.existingSecret=engine-db",
+)
+runs_sts = find_named(
+    engine_runs, "StatefulSet", f"{ENGINE_FULLNAME}-garage-run-results"
+)
+runs_pods = runs_sts["spec"]["template"]["metadata"]["labels"]
+_runs_secret = f"{ENGINE_FULLNAME}-run-results-storage"
+check(
+    runs_pods.get(_component) == "garage-run-results"
+    and _pvc_template(runs_sts)[1] == "10Gi"
+    and all(
+        _garage_container(results_sts)[field] == _garage_container(runs_sts)[field]
+        for field in ("image", "command", "args", "securityContext", "ports")
+    ),
+    "the run-results Garage has its own component label and volume, and runs the same image, "
+    "flags, ports and security context as the results Garage (a parallel template)",
+)
+_runs_svc = find_named(engine_runs, "Service", f"{ENGINE_FULLNAME}-garage-run-results")
+_other_pods = [
+    find_named(engine_runs, "StatefulSet", f"{ENGINE_FULLNAME}{suffix}")["spec"][
+        "template"
+    ]["metadata"]["labels"]
+    for suffix in ("-garage", "-garage-blobs")
+]
+check(
+    _selects(_runs_svc["spec"]["selector"], runs_pods)
+    and not any(_selects(_runs_svc["spec"]["selector"], pods) for pods in _other_pods),
+    "the run-results Garage Service selects ONLY the run-results Garage's pods",
+)
+# WHY: Garage reads garage.toml once, at start, through a subPath mount the kubelet never
+# refreshes. Only a changed pod template rolls the pod, so each carries its config's checksum.
+for _suffix in ("-garage", "-garage-blobs", "-garage-run-results"):
+    _garage_sts = find_named(engine_runs, "StatefulSet", f"{ENGINE_FULLNAME}{_suffix}")
+    _garage_toml = find_named(engine_runs, "ConfigMap", f"{ENGINE_FULLNAME}{_suffix}")[
+        "data"
+    ]["garage.toml"]
+    check(
+        (_garage_sts["spec"]["template"]["metadata"].get("annotations") or {}).get(
+            "checksum/garage-config"
+        )
+        == hashlib.sha256(_garage_toml.rstrip("\n").encode()).hexdigest(),
+        f"the {_suffix[1:]} pod template carries the checksum of its garage.toml, so a config "
+        "change rolls the pod",
+    )
+for _cm_name in (ENGINE_FULLNAME, f"{ENGINE_FULLNAME}-runner-env"):
+    _data = find_named(engine_runs, "ConfigMap", _cm_name)["data"]
+    check(
+        _data.get("URL4_CLOUD_RUN_RESULTS_STORE") == "s3"
+        and _data.get("URL4_CLOUD_RUN_RESULTS_S3_ENDPOINT_URL")
+        == f"http://{ENGINE_FULLNAME}-garage-run-results:3900"
+        and len(
+            {
+                _data.get("URL4_CLOUD_RUN_RESULTS_S3_BUCKET"),
+                _data.get("URL4_CLOUD_BLOB_S3_BUCKET"),
+                _data.get("URL4_CLOUD_ARTIFACT_S3_BUCKET"),
+            }
+        )
+        == 3
+        and "URL4_CLOUD_RUN_RESULTS_S3_SECRET_KEY" not in _data
+        and "URL4_CLOUD_RUN_RESULTS_S3_ACCESS_KEY" not in _data,
+        f"{_cm_name}: run results resolve to their own endpoint and bucket, with no key in a "
+        "ConfigMap",
+    )
+check(
+    set(find_named(engine_runs, "Secret", _runs_secret)["stringData"])
+    == {
+        "URL4_CLOUD_RUN_RESULTS_S3_ACCESS_KEY",
+        "URL4_CLOUD_RUN_RESULTS_S3_SECRET_KEY",
+        "GARAGE_RPC_SECRET",
+    },
+    "the run-results Secret carries its key pair and its Garage's RPC secret",
+)
+_runs_env = _garage_env(runs_sts)
+check(
+    _runs_env["GARAGE_DEFAULT_ACCESS_KEY"]["valueFrom"]["secretKeyRef"]
+    == {"name": _runs_secret, "key": "URL4_CLOUD_RUN_RESULTS_S3_ACCESS_KEY"}
+    and _runs_env["GARAGE_DEFAULT_SECRET_KEY"]["valueFrom"]["secretKeyRef"]
+    == {"name": _runs_secret, "key": "URL4_CLOUD_RUN_RESULTS_S3_SECRET_KEY"}
+    and _runs_env["GARAGE_RPC_SECRET"]["valueFrom"]["secretKeyRef"]
+    == {"name": _runs_secret, "key": "GARAGE_RPC_SECRET"}
+    and _runs_env["GARAGE_DEFAULT_BUCKET"]["value"]
+    == find_named(engine_runs, "ConfigMap", ENGINE_FULLNAME)["data"][
+        "URL4_CLOUD_RUN_RESULTS_S3_BUCKET"
+    ],
+    "the run-results Garage adopts its key pair and creates the bucket the engine reads",
+)
+for _deployment_name in (ENGINE_FULLNAME, f"{ENGINE_FULLNAME}-runner"):
+    _container = find_named(engine_runs, "Deployment", _deployment_name)["spec"][
+        "template"
+    ]["spec"]["containers"][0]
+    _named = {
+        e["name"]: e["valueFrom"]["secretKeyRef"]
+        for e in _container.get("env", [])
+        if "secretKeyRef" in e.get("valueFrom", {})
+    }
+    _env_from = {
+        ref["secretRef"]["name"] for ref in _container["envFrom"] if "secretRef" in ref
+    }
+    check(
+        _named.get("URL4_CLOUD_RUN_RESULTS_S3_ACCESS_KEY")
+        == {"name": _runs_secret, "key": "URL4_CLOUD_RUN_RESULTS_S3_ACCESS_KEY"}
+        and _named.get("URL4_CLOUD_RUN_RESULTS_S3_SECRET_KEY")
+        == {"name": _runs_secret, "key": "URL4_CLOUD_RUN_RESULTS_S3_SECRET_KEY"}
+        and _runs_secret not in _env_from
+        and "GARAGE_RPC_SECRET" not in _named,
+        f"{_deployment_name} reads the run-results key pair by name, never its Garage's RPC "
+        "secret",
+    )
 engine_s3_external = render(
     ENGINE_CHART,
     ENGINE_RELEASE,
@@ -1843,6 +1975,51 @@ for label, extra in (("default", ()), ("prod", SCOREBOARD_PROD_ARGS)):
         f"scoreboard ({label} values): the ConfigMap sets the DB pool bounds explicitly as "
         f"integers with 0 <= min <= max and max >= 1 (got {pool_bounds})",
     )
+    # OME-1909: who may re-grade is a chart value, empty unless an environment names someone, so
+    # an install that never set it has no re-graders (the app's `regrade_identities` default).
+    check(
+        scoreboard_config.get("SCOREBOARD_REGRADE_IDENTITIES") == "",
+        f"scoreboard ({label} values): the ConfigMap renders SCOREBOARD_REGRADE_IDENTITIES, "
+        "empty by default, so nobody may re-grade until an environment names them",
+    )
+    # OME-1947: the frozen copy claim settings reach the pod, and a chart with no override makes
+    # no claim (an empty URL turns the claims off in the app).
+    claim_keys = (
+        "SCOREBOARD_GATEWAY_URL",
+        "SCOREBOARD_GATEWAY_ACTOR",
+        "SCOREBOARD_GATEWAY_TIMEOUT_S",
+    )
+    check(
+        all(key in scoreboard_config for key in claim_keys),
+        f"scoreboard ({label} values): the ConfigMap sets the three frozen copy claim keys",
+    )
+    if label == "default":
+        check(
+            scoreboard_config.get("SCOREBOARD_GATEWAY_URL") == "",
+            "scoreboard (default values): the gateway URL is empty, so the service makes no claim",
+        )
+
+# OME-1909: the list renders as the comma-separated text the app's `regrade_identities` parser
+# splits (`config.py`), so each email a values file names reaches the app as one identity.
+regrade_config = find(
+    render(
+        SCOREBOARD_CHART,
+        SCOREBOARD_RELEASE,
+        "--set",
+        "config.regradeIdentities={ci-a@example.test,ci-b@example.test}",
+    ),
+    "ConfigMap",
+)["data"]
+regrade_identities = [
+    entry
+    for part in regrade_config.get("SCOREBOARD_REGRADE_IDENTITIES", "").split(",")
+    if (entry := part.strip())
+]
+check(
+    regrade_identities == ["ci-a@example.test", "ci-b@example.test"],
+    "scoreboard: config.regradeIdentities renders as the comma-separated list the app splits "
+    f"into one identity per email (got {regrade_identities})",
+)
 
 print(f"\n{checks - len(failures)}/{checks} checks passed")
 if failures:

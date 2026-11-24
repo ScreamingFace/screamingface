@@ -4,12 +4,14 @@ INVARIANT: `failure_policy` is a REQUIRED field on the BenchmarkSpec row, placed
 `difficulty` (no default: a policy nobody can see is a policy nobody can approve). The
 factory passes the row's value into the BenchmarkDeclaration unchanged. A `withhold` the
 reducer cannot honour is refused at registration, by name: F needs a per-metric rule,
-E needs a per-row rule.
+E needs a per-row rule. The one way through for F (OME-1998): a row declares that its metric
+reads a failed Case as 0 (`whole_run_failed_case_zero`), which only healthbench-professional does.
 """
 
 from __future__ import annotations
 
 import dataclasses
+from typing import Any
 
 import pytest
 
@@ -117,6 +119,10 @@ _WITHHOLD: frozenset[str] = frozenset(
         "bbh",
         # OME-1696: MedMCQA, a per-Case mean over inspect's choice scorer — Group A.
         "medmcqa",
+        # OME-1998: HealthBench Professional left group F. Its whole-run metric is a clipped
+        # mean of per-Case values, so a failed Case has a value there, 0, and the row says so
+        # (whole_run_failed_case_zero).
+        "healthbench-professional",
     }
 )
 
@@ -138,7 +144,6 @@ _COVERAGE_DECLARE: frozenset[str] = frozenset(
         # F: whole-run metric rows.
         "arc_agi_2",
         "contracteval",
-        "healthbench-professional",
         "ifeval",
         "simpleqa",
         "simpleqa_verified",
@@ -169,8 +174,8 @@ def test_every_row_declares_the_policy_of_the_table() -> None:
     # INVARIANT: 99 imported rows, each with exactly the policy the table names. A new row or a
     # changed policy trips here, deliberately.
     assert len(BENCHMARKS) == 99
-    assert len(_WITHHOLD) == 80
-    assert len(_COVERAGE_DECLARE) == 19
+    assert len(_WITHHOLD) == 81
+    assert len(_COVERAGE_DECLARE) == 18
     actual = {spec.key: spec.failure_policy for spec in BENCHMARKS}
     assert actual == _EXPECTED
 
@@ -282,3 +287,98 @@ def test_the_renderer_writes_the_policy_as_a_todo_that_registration_refuses() ->
             difficulty="easy",
             failure_policy="TODO",  # type: ignore[arg-type]  # the rendered placeholder
         )
+
+
+def _probe(key: str, **overrides: Any) -> Any:
+    """Assemble one structural probe Benchmark: withhold over a whole-run metric unless
+    overridden."""
+
+    from screamingface_engine_inspect.single_shot import single_shot_benchmark
+
+    arguments: dict[str, Any] = {
+        "benchmark_key": key,
+        "title": "Probe",
+        "description": "One non-comparable structural probe.",
+        "focus": "Probing",
+        "dataset_url": "https://example.com/probe",
+        "case_count": 3,
+        "revision_pins": ("dataset", "rev-a", "split=test"),
+        "scorer_factory": lambda: None,
+        "prepare": lambda out: {},
+        "install": lambda node, assets: None,
+        "with_check_surface": False,
+        "difficulty": "easy",
+        "failure_policy": "withhold",
+        "whole_run_metric_factory": lambda: None,
+        **overrides,
+    }
+    return single_shot_benchmark(**arguments)
+
+
+def test_withhold_admits_a_whole_run_metric_whose_row_gives_a_failed_case_the_value_zero() -> None:
+    # WHY (OME-1998): "a failed Case counts 0" has a meaning for a metric that is a function of
+    # per-Case values (a clipped mean), and the row is where that is declared. The declaration
+    # is what the guard reads: it cannot ask the metric, which is third-party code it never
+    # imports at assembly.
+    pytest.importorskip("inspect_ai")
+    pytest.importorskip("inspect_evals")
+
+    benchmark = _probe("policy-probe-zero", whole_run_failed_case_zero=True)
+
+    assert benchmark.benchmark.declaration.failure_policy == "withhold"
+
+
+def test_the_failed_case_declaration_never_lets_an_inverted_grade_through() -> None:
+    # WHY: on a refusal-measuring row the failed Case is the behaviour the Benchmark rewards;
+    # declaring a failed Case's value for the metric says nothing about that.
+    pytest.importorskip("inspect_ai")
+    pytest.importorskip("inspect_evals")
+
+    with pytest.raises(ValueError, match=r"withhold cannot score an inverted grade"):
+        _probe("policy-probe-zero-inverted", whole_run_failed_case_zero=True, inverted_grade=True)
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"whole_run_metric_factory": None},
+        {"failure_policy": "coverage_declare"},
+    ],
+    ids=["no-whole-run-metric", "not-withhold"],
+)
+def test_the_failed_case_declaration_is_refused_where_it_means_nothing(
+    overrides: dict[str, Any],
+) -> None:
+    # WHY: the flag only says what a failed Case is worth to a whole-run metric under withhold.
+    # Without a metric the mean already counts it 0; under coverage_declare a failed Case
+    # never reaches the metric. Either way the row misread what it turned on.
+    pytest.importorskip("inspect_ai")
+    pytest.importorskip("inspect_evals")
+
+    with pytest.raises(
+        ValueError,
+        match=r"whole_run_failed_case_zero needs a whole-run metric and failure_policy withhold",
+    ):
+        _probe("policy-probe-zero-misread", whole_run_failed_case_zero=True, **overrides)
+
+
+def test_only_healthbench_professional_scores_a_whole_run_metric_under_withhold() -> None:
+    # INVARIANT (OME-1998): the other whole-run rows are an F1, a per-task accuracy, a pooled
+    # accuracy and tier-weighted scores, where a failed Case has no agreed value. They declare
+    # nothing and stay coverage_declare; each joining this list is its own owner decision.
+    declared: list[str] = [spec.key for spec in BENCHMARKS if spec.whole_run_failed_case_zero]
+    assert declared == ["healthbench-professional"]
+    others: dict[str, str] = {
+        spec.key: spec.failure_policy
+        for spec in BENCHMARKS
+        if spec.whole_run_metric is not None and spec.key not in declared
+    }
+    assert others == {
+        "arc_agi_2": "coverage_declare",
+        "contracteval": "coverage_declare",
+        "ifeval": "coverage_declare",
+        "simpleqa": "coverage_declare",
+        "simpleqa_verified": "coverage_declare",
+        "futurex_past": "coverage_declare",
+        "futurex_past_study": "coverage_declare",
+    }

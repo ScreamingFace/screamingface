@@ -1,0 +1,138 @@
+{
+  "issue": "OME-1943",
+  "branch": "OME-1943-e5-p2-client",
+  "approver": "owner \u2014 approved in session 2026-11-14: rewrite the Client's prior tests for the Run the Engine drives (\"Rewrite the tests now\"), and move the old fold's tests to the Client port PR",
+  "date": "2026-11-17",
+  "scope": "The prior test files under packages/screamingface/tests/ that C1 and C2 change. Owner decision 2026-11-18 (the async Run port, #1878 review round 4): public_surface_snapshot.json gains Run.refresh_async, Run.progress_async and Run.cancel_async. Owner decision 2026-11-19 (#1878 CI): the correlation ladder's gateway_log fixture also takes the trace id from the Report, since a Candidate that ends before the follow first sees it sends its record and none of its events.",
+  "reason": "E5 P2 moves the fan-out into the Engine (spec D1): the Client registers a Run with every start and follows its one event stream, so tests that drove the per-Candidate start, admission loop, token and cancel sweep now drive register_run and the Run follow; Run.wait() returns a Report (D12); a follow's expired sign-in ends with how to pick the Run up instead of a login (D15). Each test keeps the behaviour it pinned where the behaviour survives, and changes only where the rule changed.",
+  "files": {
+    "packages/screamingface/tests/e2e/test_correlation_chain.py": {
+      "base_blob": "0e87f16b2e0f46d390d2bb293b217f17e9f40946",
+      "approved_blob": "0d0bbd568821c46a87fe2c97a7ac041858192b40"
+    },
+    "packages/screamingface/tests/public_surface_snapshot.json": {
+      "base_blob": "88adf9d373c7311b1cd43500a4efb83c76de6b35",
+      "approved_blob": "40070d67538814ab70f4f4033382af8dddba8246"
+    },
+    "packages/screamingface/tests/test_abort_during_mint.py": {
+      "base_blob": "24fa41af391873ab9ac304f4d704656c66be583a",
+      "approved_blob": "3c8bdd3c72dce88a8ab306948eedf80352e1a7a8"
+    },
+    "packages/screamingface/tests/test_abort_one_evaluation.py": {
+      "base_blob": "a24a8cdae2e28a53043d7856aa07e93a97859d8a",
+      "approved_blob": "669032dd56ca28e4f237efe12a9ff1be6d1bf43d"
+    },
+    "packages/screamingface/tests/test_admission_retry.py": {
+      "base_blob": "94ef9ed96639374849e07d05ac98b57b4defdac5",
+      "approved_blob": "4de3731316f2625bfeab52d8bef151451353a3aa"
+    },
+    "packages/screamingface/tests/test_answer_seed_report.py": {
+      "base_blob": "0597e068fd68bc35de7a7574c461b6fe757499fe",
+      "approved_blob": "ba422c6d351a4991fa9af6e25350d4ed9a18f7bd"
+    },
+    "packages/screamingface/tests/test_authentication.py": {
+      "base_blob": "176073804b882f029d1269d1059d103c4e453fd7",
+      "approved_blob": "5c27b94c1cefcdf33f7f7b5299a411ac47300902"
+    },
+    "packages/screamingface/tests/test_client_protocol.py": {
+      "base_blob": "d4496a2692a6aaab6b16e10246a6265a612ab067",
+      "approved_blob": "330251f3513306b68ea6317df75e7dc57510bf8a"
+    },
+    "packages/screamingface/tests/test_client_run.py": {
+      "base_blob": "c1f620ae889ab4bbd52c6e56b473a3e854a84181",
+      "approved_blob": "f0ce4181e3d0ecfc5dea12143eef67296c0812aa"
+    },
+    "packages/screamingface/tests/test_credit_notice.py": {
+      "base_blob": "ddea1be7a69ae838a6a46f2f2a2f98e2f8f9c03f",
+      "approved_blob": "7c8f5c28c24f37ffc58710c80c53ee74f01ef853"
+    },
+    "packages/screamingface/tests/test_evaluation_outcome.py": {
+      "base_blob": "1ba9c087f47bc3f3722b07dfaf34ea6397116bb9",
+      "approved_blob": "ad8ac314f6b92ec653c4641afd7e37865e29e91f"
+    },
+    "packages/screamingface/tests/test_frozen_copy_transport.py": {
+      "base_blob": "386b82aec462a6bad25e648f08725c00b4ed5fa7",
+      "approved_blob": "15d3dfbb137e6ea111bf2cf33f5a6d09269fa44c"
+    },
+    "packages/screamingface/tests/test_persistence_followup.py": {
+      "base_blob": "6883309749ad3aaf06587f81707d0b1b69190253",
+      "approved_blob": "08ba0f28969aa5dca8658c7287d886bcee8fde36"
+    },
+    "packages/screamingface/tests/test_reconnect_handshake.py": {
+      "base_blob": "663437841f775517c057593cf50a4f897c8b1049",
+      "approved_blob": "af21c707915b8c39c30c5d9900b3c2880126eb62"
+    },
+    "packages/screamingface/tests/test_reconnect_progress.py": {
+      "base_blob": "d5eaaebb6e76a795fdc170563011140348e8961d",
+      "approved_blob": "761e436061f788048058e02b91688e4bc84ac5af"
+    },
+    "packages/screamingface/tests/test_reconnect_recovery_window.py": {
+      "base_blob": "b9f971b01a24238f95f620cb5a118df6b2d21c79",
+      "approved_blob": "8bfe4cbbd9d6479e603be8186ad5d11e2cb0f447"
+    },
+    "packages/screamingface/tests/test_recovery_failure_paths.py": {
+      "base_blob": "53ded865d673573011689e72dae2a9935d25ce0a",
+      "approved_blob": "346f0e90c6b21c634d74f152b920e7ebe5b5412f"
+    },
+    "packages/screamingface/tests/test_reproduce.py": {
+      "base_blob": "7f2e4235fbce58931cacb389f8f5fe3e211dfe35",
+      "approved_blob": "d740448c91bd9c5f20aba19bcd200c8a2a31632b"
+    },
+    "packages/screamingface/tests/test_reproduce_review.py": {
+      "base_blob": "b3f6655d8b799d7a6ab0e24ad16446d513cefe51",
+      "approved_blob": "5db2419da8737733da0d998491e038a1c0cad3c8"
+    },
+    "packages/screamingface/tests/test_run_isolation.py": {
+      "base_blob": "409e155313e4baea4b4ce949d2ac19992473a24c",
+      "approved_blob": "cafbaaefcb960406d876719bbbf24bf851f396f6"
+    },
+    "packages/screamingface/tests/test_run_isolation_disconnect.py": {
+      "base_blob": "d3259fcd93c5b68a791ee8d8ad898fc7a2738b89",
+      "approved_blob": "1bac4f9bf58cf4097b28c0b7a34c377505e53652"
+    },
+    "packages/screamingface/tests/test_run_registration.py": {
+      "base_blob": "d5e870429c61e5ddcfd07b45d2b274a62860abab",
+      "approved_blob": "15080713fbcd83c301895350c66c8ae6d517afab"
+    },
+    "packages/screamingface/tests/test_run_resume_reconnect.py": {
+      "base_blob": "089c126d9e0610134ef1767ba1d85cfa1f93700e",
+      "approved_blob": "5b3d40dfa9fc3e95b9b8e2eb70839dd81b93e107"
+    },
+    "packages/screamingface/tests/test_runs_api.py": {
+      "base_blob": "5e0186847c31b554e818c94bf0ce280e41fd6588",
+      "approved_blob": "171b54559409c833a50e36e0b41a95efc7a82130"
+    },
+    "packages/screamingface/tests/test_runs_wire.py": {
+      "base_blob": "4fca39afb75d693d1a5fa93e39905b46e13917c9",
+      "approved_blob": "ffea713c9d6fbf9c13dbae01571812522b6a3d51"
+    },
+    "packages/screamingface/tests/test_runs_wire_state_shapes.py": {
+      "base_blob": "aa252a5dad4e20d8429040cc99de65a9f633c1a8",
+      "approved_blob": "e19c869a97e735e2e12e81a2001b51db3f0ac638"
+    },
+    "packages/screamingface/tests/test_saved_runs.py": {
+      "base_blob": "25999c38c6c208781109465ed4d4f9965170ee13",
+      "approved_blob": "c465e93459214a8f117a1e5226eb0bdf98b89885"
+    },
+    "packages/screamingface/tests/test_transport_artifact_fetch.py": {
+      "base_blob": "0d939680658717dfdaf15f2baafdfc1193206146",
+      "approved_blob": "a06b35f9398d5fe46141c05b90b822eb3c58d31b"
+    },
+    "packages/screamingface/tests/test_transport_close_reporting.py": {
+      "base_blob": "2f3fb298b5020bcbb9ca761d5f6d44c7b820c1bf",
+      "approved_blob": "3b3082b4ed1f455179e5e5922ef07dc9f23c86d4"
+    },
+    "packages/screamingface/tests/test_transport_disconnect_diagnosis.py": {
+      "base_blob": "90bc120d58223d129aa502ce66f5c4f13a1106f4",
+      "approved_blob": "d9f239df8b393c4bd0ab6bcd4e36c39bf1106a4d"
+    },
+    "packages/screamingface/tests/test_url4_cloud_integration.py": {
+      "base_blob": "316779339403a00783ff138ce5ca4c82c93d1f50",
+      "approved_blob": "ca8b9deb065cc7e67e0dc3f80741994644b06c8b"
+    },
+    "packages/screamingface/tests/test_use_cache.py": {
+      "base_blob": "4687c42b70522d7c2161c093abbb0375a45d2122",
+      "approved_blob": "ea854501931475dac463a303001d9f714846ffe7"
+    }
+  }
+}

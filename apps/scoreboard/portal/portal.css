@@ -362,7 +362,7 @@ table .btn { white-space: nowrap; }
    takes full --ink-2 instead of the whisper off-state, which misses WCAG AA in the light theme.
    Both rules carry :not(.on) so they out-rank style.css's .status:not(.on) by specificity, not
    by load order. */
-.weights-line { display: block; margin-top: var(--space-1); white-space: nowrap; }
+.weights-line, .graded-line { display: block; margin-top: var(--space-1); white-space: nowrap; }
 .status.status--open:not(.on) { color: var(--ink); }
 .status.status--closed:not(.on) { color: var(--ink-2); }
 .status.status--open .sq { background: var(--ink); }
@@ -466,6 +466,16 @@ html { scroll-padding-top: calc(var(--rail-h) + var(--space-4)); }
 @media (max-width: 620px) {
   .rail .rail-nav { flex: 0 0 100%; margin-right: 0; gap: var(--space-3); }
 }
+/* ---- benchmark description fold ------------------------------------ */
+/* Benchmark descriptions run to 2,500 characters (median ~720), so the page shows three lines and
+   a "Show more" button. Body size, not lead size: this is a paragraph to read, not a one-line
+   standfirst. `.is-clamped` is added by benchmark.js only, so the text is whole without scripts. */
+.board-desc { margin: 0 0 var(--space-4); }
+.board-desc .lead { font-size: var(--text-body); line-height: var(--leading-body); letter-spacing: normal; margin-bottom: var(--space-1); }
+.board-desc.is-clamped .lead { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; overflow: hidden; }
+.board-desc__toggle { padding: var(--space-1) 0; }
+.board-desc__toggle:focus-visible { outline: var(--border-strong) solid var(--focus); outline-offset: var(--space-1); }
+
 /* ---- two-card summary strip ---------------------------------------- */
 /* style.css sets `.stats { grid-template-columns: repeat(3,1fr) }` and is vendored,
    so it is not edited. This leaderboard summary has two cards; without a modifier,
@@ -579,16 +589,39 @@ td.col-open { white-space: nowrap; }
 .pareto-chart-key__dominated,
 .pareto-chart-key__frontier,
 .pareto-chart-key__leader,
-.pareto-chart-key__unpriced {
+.pareto-chart-key__unpriced,
+.pareto-chart-key__single,
+.pareto-chart-key__fusion {
   display: inline-block;
   width: 10px;
   height: 10px;
   box-sizing: border-box;
 }
 .pareto-chart-key__dominated { border-radius: 50%; background: var(--ink-3); }
-.pareto-chart-key__frontier { width: 8px; height: 8px; background: var(--info-text-low); transform: rotate(45deg); }
+/* A short bar, not a shape — this key now stands for the frontier LINE plus the
+   marker's color, never for a shape of its own. It used to be a rotated square (a diamond),
+   which sits too close to the new fusion square at this size to mean two different things at
+   once; dropping the shape is what keeps the two channels unambiguous. */
+.pareto-chart-key__frontier { width: 12px; height: 3px; background: var(--info-text-low); }
 .pareto-chart-key__leader { border-radius: 50%; border: var(--border-strong) solid var(--gain); }
 .pareto-chart-key__unpriced { border-radius: 50%; border: var(--border-strong) solid var(--ink-3); }
+/* Circle = single model, square = fusion — the Pareto chart's own marker shapes,
+   independent of the dominated/frontier/leader/unpriced colors above. */
+.pareto-chart-key__single { border-radius: 50%; border: var(--border-strong) solid var(--ink-2); }
+.pareto-chart-key__fusion { border: var(--border-strong) solid var(--ink-2); }
+/* Triangle = Unknown (missing, or a kind the server does not recognise as model/fusion) — its
+   own honest third shape, never the single-model circle above (which would overstate
+   confidence) or the fusion square (the one mislabeling this ticket names explicitly). A
+   border-triangle, not the box-sizing recipe shared above: there is no square box to size, the
+   borders ARE the shape. */
+.pareto-chart-key__unknown {
+  display: inline-block;
+  width: 0;
+  height: 0;
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-bottom: 9px solid var(--ink-2);
+}
 
 [data-theme="dark"] .pareto-chart__frontier-line { stroke: var(--info-solid); }
 [data-theme="dark"] .pareto-chart__frontier-point { fill: var(--info-solid); }
@@ -603,18 +636,29 @@ td.col-open { white-space: nowrap; }
   .pareto-chart__frontier-point { fill: CanvasText; }
   /* The key's swatches are spans coloured by `background`, which forced-colors strips — the
      block above rescues the chart's own marks but not the legend that explains them, leaving
-     four labels with nothing to map them to. Same omission the table mark had. */
+     the labels with nothing to map them to. Same omission the table mark had. */
   .pareto-chart-key__dominated,
   .pareto-chart-key__frontier,
   .pareto-chart-key__leader,
-  .pareto-chart-key__unpriced {
+  .pareto-chart-key__unpriced,
+  .pareto-chart-key__single,
+  .pareto-chart-key__fusion {
     forced-color-adjust: none;
     background: CanvasText;
     border-color: CanvasText;
   }
   .pareto-chart-key__leader,
-  .pareto-chart-key__unpriced {
+  .pareto-chart-key__unpriced,
+  .pareto-chart-key__single,
+  .pareto-chart-key__fusion {
     background: Canvas;
+  }
+  /* The triangle swatch has no background/border-color box to rescue — its visible color is
+     border-bottom, with the left/right borders staying transparent to keep the triangle's
+     point. */
+  .pareto-chart-key__unknown {
+    forced-color-adjust: none;
+    border-bottom-color: CanvasText;
   }
 }
 
@@ -767,3 +811,57 @@ td.col-run { white-space: nowrap; }
   transform: translateY(calc(-100% - var(--space-4)));
 }
 .skip-link:focus { transform: none; }
+
+/* The revision selector under the benchmark title (mockup option A). It scopes the
+   stats, chart and table below it, so it sits above them, not beside the table. */
+.revision-selector {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin: calc(-1 * var(--space-6)) 0 var(--space-6);
+  font-family: var(--f-mono);
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+}
+.revision-selector[hidden] { display: none; }
+.revision-selector__label { text-transform: uppercase; letter-spacing: .06em; font-size: var(--text-micro); }
+.revision-selector__select {
+  /* Long labels shrink inside the row instead of widening the page on a phone. */
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  text-overflow: ellipsis;
+  font: inherit;
+  color: var(--ink);
+  background: var(--bg);
+  border: var(--border-hairline) solid var(--line-2);
+  border-radius: var(--radius-none);
+  padding: var(--space-2) var(--space-3);
+}
+.revision-selector__select:focus-visible { outline: 2px solid var(--accent-solid); outline-offset: 2px; }
+.revision-selector__static { color: var(--ink); }
+.revision-notice { font-family: var(--f-mono); font-size: var(--text-sm); color: var(--ink-2); margin: 0 0 var(--space-5); }
+.revision-notice[hidden] { display: none; }
+.revision-pointer {
+  font: inherit;
+  color: var(--accent-text);
+  background: none;
+  border: 0;
+  padding: 0;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.revision-pointer:focus-visible { outline: 2px solid var(--accent-solid); outline-offset: 2px; }
+/* The history page: the current revision is tagged; runs under earlier revisions are dimmed. */
+/* Under the id rather than beside it, so the tag never widens the Revision column. `table`
+   keeps the box as wide as the word. */
+.revision-tag {
+  display: table;
+  margin-top: var(--space-1);
+  padding: 0 var(--space-1);
+  border: var(--border-hairline) solid var(--accent-solid);
+  font-size: var(--text-micro);
+  color: var(--ink);
+}
+tr.revision-older td { color: var(--ink-2); }

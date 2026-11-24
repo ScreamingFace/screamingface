@@ -37,6 +37,8 @@ def _row(provider: str, entry: ClassifierEntry) -> dict[str, Any]:
         "owned_by": provider,
         "task": entry.task,
         "contract": entry.contract,
+        "input_contracts": list(entry.input_contracts),
+        "limits": None if entry.limits is None else dict(entry.limits),
     }
 
 

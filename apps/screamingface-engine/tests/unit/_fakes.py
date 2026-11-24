@@ -162,6 +162,8 @@ class RecordingJobRunner(IdentityAwareJobRunner):
         capture: bool = False,
         replay_frozen_copy: str | None = None,
         enqueued_at: Any = None,
+        result_prefix: str | None = None,
+        exclusive: bool = False,
     ) -> str:
         if self._conflict:
             raise JobAlreadyExists(topic)

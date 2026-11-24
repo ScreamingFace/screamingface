@@ -51,6 +51,9 @@ class _Ids(NamedTuple):
     published_pins: tuple[tuple[str, str], ...]
     #: False for a new row that sets no ``published_revision`` yet: it serves its fingerprint.
     hand_set: bool = True
+    #: The Case Digest the row's Cases compute now (its ``cases_spec``), which a
+    #: ``regradable_from`` pair names (OME-1909); None for medxpert, which has no such path yet.
+    case_digest: str | None = None
 
 
 def _ids(key: str) -> _Ids:
@@ -81,6 +84,27 @@ def _ids(key: str) -> _Ids:
         'published_revision="{}"',
         ((_PUBLISHED_PINS, _ROW_PIN_EDIT.format(key=key)),),
         hand_set=spec.published_revision is not None,
+        case_digest=benchmarks._cases_declaration(key).case_digest,  # noqa: SLF001
+    )
+
+
+def _regradable_step(key: str, ids: _Ids) -> str:
+    """The step that lets old entries be re-graded onto the new id: the exact line to add.
+
+    FEATURE OME-1909: a re-grade is refused unless the row lists the old id with its Case
+    Digest, so a move that forgets this line strands every old entry. medxpert, the hand-built
+    Benchmark, has no ``regradable_from`` path yet, so its old entries need a fresh run.
+    """
+
+    if ids.case_digest is None:
+        return (
+            f"{key} is hand-built and has no regradable_from path yet: its old entries cannot "
+            "be re-graded and need a fresh run."
+        )
+    return (
+        f"{ids.home}, only if the Cases did not change (assembly refuses a digest the Cases "
+        f"no longer compute; a row that already lists pairs keeps them and adds this one):\n"
+        f'      regradable_from=(("{ids.published}", "{ids.case_digest}"),),'
     )
 
 
@@ -115,24 +139,28 @@ def _report(key: str, ids: _Ids) -> str:
         f'{_FINGERPRINT_PINS}:\n      "{key}": "{ids.fingerprint}",',
         f"{_CHANGELOG}: one line naming {key}, the old and new id, and why it moved.",
         "Tell the team (a post in the team channel) and name who signed off in the PR body.",
+        _regradable_step(key, ids),
+        "After the deploy, re-grade every old entry that has a pinned cache onto the new id "
+        "(OME-1909); an entry with no pinned cache needs a fresh run.",
     ]
     checklist: str = "".join(f"  {number}. {step}\n" for number, step in enumerate(steps, 1))
     return f"""\
 WARNING: moving {key}'s published revision hides every leaderboard result under
-{ids.published} and marks every submission to it outdated.
-Move it ONLY on a fundamental change: a changed Case set, or a new Benchmark. A refactor, a
-grading fix or a package bump that keeps the same Cases is NOT a reason to move it.
+{ids.published} until it is re-graded onto the new id (OME-1909), and marks every
+submission to it outdated.
+Move it when the Cases or the grading change, or for a new Benchmark. A refactor, a code
+move or a package bump that leaves every grade the same is NOT a reason to move it.
 A move needs the owner's sign-off before it merges. This command edits nothing.
 
 {key}
   publishes (hand-set):        {ids.published}
   computes (fingerprint now):  {ids.fingerprint}
 
-Same Cases? Keep the id. Edit only:
+Only code moved, every grade the same? Keep the id. Edit only:
   {_FINGERPRINT_PINS}
       "{key}": "{ids.fingerprint}",
 
-Fundamental change, and the owner signed off? Edit by hand, in one PR:
+Cases or grading changed, and the owner signed off? Edit by hand, in one PR:
 {checklist}"""
 
 

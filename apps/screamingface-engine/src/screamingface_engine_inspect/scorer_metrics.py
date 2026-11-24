@@ -179,6 +179,20 @@ def score_value_as_float(value: Any) -> float:
     return float(value_to_float()(value))
 
 
+def failed_sample_score(sample_id: int) -> Any:
+    """The mark a FAILED Case hands a whole-run metric on a withhold row: a bare 0.0 Score.
+
+    WHY bare (OME-1998): a Case whose Candidate call or grading failed has no Score of its
+    own, and the row declared that its metric reads such a Case as 0
+    (``whole_run_failed_case_zero``). No metadata, and no abstain mark: failing is a
+    different fact from a Candidate that abstained (``zero_sample_score``).
+    """
+
+    from inspect_ai.scorer import SampleScore, Score
+
+    return SampleScore(score=Score(value=0.0), sample_id=sample_id)
+
+
 def zero_sample_score(kept: Any | None, sample_id: int) -> Any:
     """A Case's mark rewritten to 0.0 for a whole-run metric, marked as an abstain: the kept
     one with its value zeroed and its metadata kept, or a bare 0.0 Score when inspect filed

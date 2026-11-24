@@ -265,6 +265,7 @@ def _run_sync(
     progress: bool | None,
 ) -> Report:
     try:
+        # A replay is never detached: the overload types it as its Report.
         report = evaluate_url4_sync(
             client._transport,
             plan.url4,
@@ -297,6 +298,7 @@ async def _run_async(
     progress: bool | None,
 ) -> Report:
     try:
+        # A replay is never detached: the overload types it as its Report.
         report = await evaluate_url4_async(
             client._transport,
             plan.url4,

@@ -72,8 +72,8 @@ the upstream function.
 (`run_weekly_leaderboard.py`), honoured as the whole-run metric. Each Case's Score metadata
 carries its `level` and `route`, so a run can be cut per level.
 
-**The Judge** is the house judge, `openrouter/openai/gpt-5.4`, at temperature 0. It is asked
-through the shared redraw loop.
+**The Judge** is the house judge, `openrouter/openai/gpt-5.4`, with no temperature set (the
+provider's default). It is asked through the shared redraw loop.
 
 ### Named deviations
 
@@ -96,13 +96,16 @@ through the shared redraw loop.
   its retries fails the Case as `scorer_error`, and the Case leaves the headline's denominator
   the same way. Upstream swallows the error and scores the Case 0. Only the router is forgiven a
   failed call.
+- The Judge sends no temperature, where upstream asks at temperature 0. No OpenRouter endpoint for
+  gpt-5.4 accepts `temperature`, and the gateway requires every sent parameter to be supported,
+  so a pinned 0 failed every Judge call (2026-11-19). The other gpt-5.4 Judges send none either.
 - The Judge's token cap is 4,096 for every question. Upstream allows 5,000 for its judges and 512
   for the router and the set count.
 - A rank overlap count is capped at k, so a Case stays in [0, 1]. Upstream does not cap it.
 - A level missing from a run renormalises the weights. Upstream counts it as 0. The two agree on
   every full run.
-- The router decision is not cached across runs, as upstream caches it; each run routes again at
-  temperature 0.
+- The router decision is not cached across runs, as upstream caches it; each run routes again
+  with the Judge's settings.
 - Failure policy `coverage_declare`: a Case whose Candidate call failed leaves the score and is
   reported in Coverage. The paper excludes a missing prediction too (§3.4.2), although upstream's
   weekly script counts it as 0. The Engine allows no other policy with a whole-run metric yet

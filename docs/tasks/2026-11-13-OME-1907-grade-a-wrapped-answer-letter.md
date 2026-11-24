@@ -17,11 +17,11 @@ inspect_ai reads only a bare answer after `ANSWER:`, so `ANSWER: $B`, `ANSWER: *
 5055). When inspect reads no answer, the Engine now peels one wrapper layer at a time, at most
 3, from a copy of the reply and asks inspect's parser again; the stored reply is never
 rewritten and every reply inspect already reads keeps its grade. 46 rows graded from option
-marks, mathvista and bbh's yes/no subsets are covered; 47 fingerprints move and every published
-revision is held. The OME-1906 answer-format sentence now says wrapped letters count, and 23
+marks, mathvista and bbh's yes/no subsets are covered; 47 fingerprints move, and the published
+revisions move in OME-1958. The OME-1906 answer-format sentence now says wrapped letters count, and 23
 fidelity records move to `unverified`.
 
 - 2026-11-13: filed under epic `OME-1299`, built in one PR stacked on the OME-1906 PR.
-- Pending the owner: whether to bump the 47 rows' published revisions (held by default); if
-  bumped, measure the replay cost after the bump before migrating any leaderboard entry.
+- 2026-11-17: the owner chose to bump the 47 rows' published revisions; they move in OME-1958
+  (the bump PR, merged and deployed right before its batch re-grade, which moves the old leaderboard entries onto the new ids).
 - Ledger: `docs/work/2026-11-13-wrapped-answer-letter.md`

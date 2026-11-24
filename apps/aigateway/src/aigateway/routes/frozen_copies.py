@@ -7,27 +7,37 @@ are the frozen-copy store and the shared ingress preparation, so the digest of a
 is the digest the capture took.
 
 Replay is open to any authenticated account that holds the copy id and sends the exact request
-(design Q16). No route here lists or reads back a stored request (design F2).
+(design Q16). No route here lists or reads back a stored request (design F2). The claim route is
+open only to a caller on the claim list (OME-1947, contracts K4): it sets `claimed_at` of a sealed
+copy, so that the expiry rule keeps the copy.
 """
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Annotated, Any
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 
 from ..call_context import current_call_id, current_trace_id
+from ..core.auth.copy_claim import require_copy_claimer
 from ..core.auth.middleware import CurrentAccount
 from ..core.frozen_copy.headers import STORED_HEADERS_FIELD, MalformedCallKey, parse_call_key
-from ..core.frozen_copy.models import STATUS_OPEN, STATUS_SEALED, FrozenCopy
+from ..core.frozen_copy.models import (
+    STATUS_ABANDONED,
+    STATUS_EXPIRED,
+    STATUS_OPEN,
+    STATUS_SEALED,
+    FrozenCopy,
+)
 from ..core.frozen_copy.store import (
     FrozenCopySealed,
     frozen_copy_store_for,
     log_capture_failure,
 )
+from ..core.frozen_copy.times import as_utc
 from ..core.request_cache.canonical import CanonicalizationError
 from ..core.request_hardening import chat_body_shape_error, prepare_ingress_body
 from ..plugins.taxonomy import new_gateway_call_id
@@ -53,12 +63,69 @@ class ToolLookupRequest(BaseModel):
     description: dict[str, Any]
 
 
+class RouterRevision(BaseModel):
+    """One Router of a run manifest (C9): its binding and the revision the run recomputed."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    binding: str = Field(pattern=r"^router_[0-9]+$")
+    revision: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+
+
+EngineVersion = Annotated[str, Field(min_length=1, max_length=64)]
+RouterManifest = Annotated[list[RouterRevision], Field(min_length=1, max_length=256)]
+
+
 class Provenance(BaseModel):
-    """Q28: the engine's version, stored on the copy at seal."""
+    """Q28: the engine's version, stored on the copy at seal.
+
+    FEATURE: Router Recipe extension (C9) — a Router capture also seals its run manifest, which a
+    replay run reads back through ``read_provenance`` to refuse a changed Router definition.
+    INVARIANT: the list is stored as sent; the Engine sorts it and compares it exactly.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
-    engine_version: str = Field(min_length=1, max_length=64)
+    engine_version: EngineVersion
+    # WHY null is accepted: as for ``SealRequest.provenance``, an explicit null means "none sent".
+    routers: RouterManifest | None = None
+
+
+class ProvenanceRead(BaseModel):
+    """The C9 read of a sealed copy's provenance: the version, or null, and the manifest, or [].
+
+    INVARIANT: a closed record, like every C9 record: its schema publishes no other key, and a
+    key this model does not list is refused, never dropped.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    engine_version: EngineVersion | None
+    routers: list[RouterRevision] = Field(max_length=256)
+
+
+_ENGINE_VERSION: TypeAdapter[str] = TypeAdapter(EngineVersion)
+_ROUTER_MANIFEST: TypeAdapter[list[RouterRevision]] = TypeAdapter(RouterManifest)
+
+
+def _read_stored(stored: object) -> ProvenanceRead:
+    """The stored provenance as the seal would have accepted it, field by field.
+
+    INVARIANT: a stored value the seal refuses today is absent, never an error and never raw JSON:
+    no engine version reads null, and no valid manifest reads ``[]``, so a replay run with a
+    Router meets a manifest mismatch rather than a broken row.
+    """
+    if not isinstance(stored, dict):
+        return ProvenanceRead(engine_version=None, routers=[])
+    try:
+        version: str | None = _ENGINE_VERSION.validate_python(stored.get("engine_version"))
+    except ValidationError:
+        version = None
+    try:
+        routers = _ROUTER_MANIFEST.validate_python(stored.get("routers"))
+    except ValidationError:
+        routers = []
+    return ProvenanceRead(engine_version=version, routers=routers)
 
 
 class SealRequest(BaseModel):
@@ -200,15 +267,80 @@ def _sealed() -> HTTPException:
     )
 
 
+def _not_sealed() -> HTTPException:
+    return HTTPException(
+        status_code=409,
+        detail={"code": "frozen_copy_not_sealed", "message": "the frozen copy is not sealed"},
+    )
+
+
+def _gone(state: str) -> HTTPException:
+    # FEATURE (OME-1947, contracts K2): the sweep made the copy final and deleted its entries.
+    return HTTPException(
+        status_code=410,
+        detail={
+            "code": "frozen_copy_expired",
+            "state": state,
+            "message": "the frozen copy was swept and its entries were deleted",
+        },
+    )
+
+
 @router.post("/v1/frozen-copies/{copy_id}/seal")
 async def seal_frozen_copy(
     copy_id: UUID, request: Request, current: CurrentAccount, body: SealRequest | None = None
 ) -> dict[str, Any]:
-    provenance = None if body is None or body.provenance is None else body.provenance.model_dump()
+    provenance = (
+        None
+        if body is None or body.provenance is None
+        # WHY exclude_none: a seal without routers stores exactly what it stored before C9.
+        else body.provenance.model_dump(exclude_none=True)
+    )
     copy = await frozen_copy_store_for(request.app).seal(copy_id, current.id, provenance)
     if copy is None:
         raise _not_found()
+    if copy.status in (STATUS_ABANDONED, STATUS_EXPIRED):
+        raise _gone(copy.status)
     return {"id": str(copy.id), "status": copy.status, "entries": copy.entries}
+
+
+@router.get("/v1/frozen-copies/{copy_id}/provenance")
+async def read_provenance(
+    copy_id: str, request: Request, current: CurrentAccount
+) -> ProvenanceRead:
+    """The provenance a sealed copy was sealed with (C9).
+
+    INVARIANT: the chat replay route's lookup and caller auth: any authenticated account that may
+    replay the copy may read this, and an unknown, open or malformed id is the same 404. It returns
+    the provenance alone, never a stored request (design F2).
+    """
+    copy = await _sealed_copy(request, copy_id)
+    return _read_stored(copy.provenance)
+
+
+@router.post("/v1/frozen-copies/{copy_id}/claim", dependencies=[Depends(require_copy_claimer)])
+async def claim_frozen_copy(copy_id: str, request: Request) -> dict[str, Any]:
+    # WHY `str` and not `UUID`: a malformed id must be the same 404 as an unknown id, not a 422.
+    try:
+        parsed_id = UUID(copy_id)
+    except ValueError:
+        raise _not_found() from None
+    outcome = await frozen_copy_store_for(request.app).claim(parsed_id)
+    if outcome is None:
+        raise _not_found()
+    copy = outcome.copy
+    if copy.status in (STATUS_ABANDONED, STATUS_EXPIRED):
+        raise _gone(copy.status)
+    if copy.status != STATUS_SEALED:
+        raise _not_sealed()
+    # INVARIANT: `claim` leaves `claimed_at` set on each sealed copy, so a 200 always has it.
+    assert copy.claimed_at is not None
+    return {
+        "id": str(copy.id),
+        "status": copy.status,
+        "claimed_at": as_utc(copy.claimed_at).isoformat(),
+        "already": not outcome.first,
+    }
 
 
 @router.post("/v1/frozen-copies/{copy_id}/tool-results")

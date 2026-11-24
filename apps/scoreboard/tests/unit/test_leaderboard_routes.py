@@ -523,7 +523,16 @@ async def test_every_score_field_reaches_at_least_one_read_dto() -> None:
     # Deliberately unpublished: dedup plumbing, the FK object, and the reverse
     # relation to idempotency keys (a relation, not a column). `enriched_at` only places a row
     # in the open-share trend (OME-1145 review round 3; owner approved 2026-09-29).
-    internal = {"content_hash", "benchmark", "idempotency_keys", "enriched_at"}
+    # `regraded_by`, the re-grader's verified email, is kept for audit and never published
+    # (OME-1909); `regraded_from_id` is the foreign key's id column, published as `regraded_from`.
+    internal = {
+        "content_hash",
+        "benchmark",
+        "idempotency_keys",
+        "enriched_at",
+        "regraded_from_id",
+        "regraded_by",
+    }
     columns = {name for name in Score._meta.fields_map if not name.startswith("_")}
 
     missing = columns - exposed - internal
@@ -711,6 +720,11 @@ _PUBLIC_BOARD_ENTRY_FIELDS = {
     # verdict, published instead of its `models` (OME-1181 Q2 stands). Still exact, so any other
     # field appearing here fails.
     "openness",
+    # OME-1852: a deliberate addition, owner-decided (Option A, shape encoding) — the entry's
+    # single-model/fusion verdict for the public Pareto chart's circle/square marker, published
+    # instead of raw composition detail, the same `models`-stays-internal precedent as
+    # `openness` above. Still exact, so any other field appearing here fails.
+    "candidate_kind",
     "ran_with_providers",
     "rank",
     "run_cost_usd",

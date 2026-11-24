@@ -6,116 +6,24 @@ STORY: as a researcher who submits a score, my result knows which frozen copy ho
 whether the copy holds every answer of it. An older Engine that states neither leaves both fields
 None, which the submission then omits.
 
-The input is the real Engine stream of `test_cache_hit_contract`. Only the attributes of its
-cache summary line are replaced, so the decoder reads the real frame shape.
+Reading them from the run summary is the Engine's fold's rule, pinned in
+`apps/screamingface-engine/tests/unit/test_candidate_record_evidence_rules.py`; this file pins
+how the Client carries them onto the result.
 """
 
 from __future__ import annotations
 
-import json
 from dataclasses import replace
-from typing import Any
 
 import httpx
 import pytest
-from test_cache_hit_contract import _URL4, RUN_EVENTS
 from test_client_run import REPLAY_URL4, _engine, _ReplayTransport
 
 import screamingface as sf
 from screamingface._core.ports import _RunOutcome
-from screamingface._engine.contract import _RunState
-from screamingface.errors import ExecutionError
 
 _COPY = "0b1f6d3a-5c0e-4a8e-9a3f-2f6f8f4c7d11"
 _CAPTURE_KEYS = ("capture.frozen_copy_id", "capture.status", "capture.replay")
-
-
-def _decode(attributes: dict[str, object]) -> _RunOutcome:
-    """Decode the real stream with the cache summary's capture attributes replaced."""
-    events: list[dict[str, Any]] = json.loads(RUN_EVENTS.read_text(encoding="utf-8"))
-    for event in events:
-        if event["type"] == "ai.url4.log" and "cache.hits" in event["data"]["attributes"]:
-            kept = {
-                key: value
-                for key, value in event["data"]["attributes"].items()
-                if key not in _CAPTURE_KEYS and not key.startswith("capture.partial.")
-            }
-            event["data"]["attributes"] = {**kept, **attributes}
-    state = _RunState(_URL4)
-    outcome = None
-    for event in events:
-        accepted = state.accept(json.dumps(event))
-        if accepted.outcome is not None:
-            outcome = accepted.outcome
-    assert outcome is not None
-    return outcome
-
-
-def test_the_decoder_reads_the_frozen_copy_and_the_capture_status() -> None:
-    outcome = _decode({"capture.frozen_copy_id": _COPY, "capture.status": "complete"})
-
-    assert outcome.frozen_copy_id == _COPY
-    assert outcome.capture_status == "complete"
-    assert outcome.capture_replay is None
-
-
-def test_a_partial_run_may_have_no_frozen_copy() -> None:
-    # The copy failed to open: the run is `partial` (reason `open`) and names no copy.
-    outcome = _decode({"capture.status": "partial", "capture.partial.open": 1})
-
-    assert outcome.frozen_copy_id is None
-    assert outcome.capture_status == "partial"
-
-
-def test_the_decoder_reads_the_copy_the_engine_replayed() -> None:
-    outcome = _decode({"capture.replay": _COPY})
-
-    assert outcome.capture_replay == _COPY
-    assert outcome.frozen_copy_id is None
-    assert outcome.capture_status is None
-
-
-def test_an_older_engine_without_the_attributes_leaves_them_unknown() -> None:
-    # INVARIANT: absent means unknown, never `partial`.
-    outcome = _decode({})
-
-    assert outcome.frozen_copy_id is None
-    assert outcome.capture_status is None
-    assert outcome.capture_replay is None
-
-
-def test_the_decoder_reads_the_partial_reasons_with_a_non_zero_count_only() -> None:
-    # Q23: a local capture counts `capture.partial.local = 1`. A zero count is not a reason.
-    outcome = _decode(
-        {
-            "capture.status": "partial",
-            "capture.partial.local": 1,
-            "capture.partial.failed": 0,
-        }
-    )
-
-    assert outcome.capture_partial_reasons == ("local",)
-
-
-@pytest.mark.parametrize("count", [-1, True, "one", 1.5])
-def test_a_malformed_partial_count_fails_closed(count: object) -> None:
-    # INVARIANT: a count that cannot be trusted stops the run, as the cache counts do.
-    with pytest.raises(ExecutionError, match="capture.partial.local is invalid"):
-        _decode({"capture.status": "partial", "capture.partial.local": count})
-
-
-@pytest.mark.parametrize(
-    "attributes",
-    [
-        {"capture.status": "maybe"},
-        {"capture.status": True},
-        {"capture.status": "complete", "capture.frozen_copy_id": 7},
-        {"capture.status": "complete", "capture.replay": 7},
-    ],
-)
-def test_a_malformed_capture_attribute_stops_the_run(attributes: dict[str, object]) -> None:
-    with pytest.raises(ExecutionError, match="capture summary"):
-        _decode(attributes)
 
 
 # --- onto CandidateResult -------------------------------------------------------------------------

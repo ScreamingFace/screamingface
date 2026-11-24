@@ -6,6 +6,8 @@ from typing import TYPE_CHECKING
 from urllib.parse import urlsplit
 
 if TYPE_CHECKING:
+    from uuid import UUID
+
     from screamingface._reproduction import Reproduction
     from screamingface.report import Report
 
@@ -157,7 +159,11 @@ class ProviderConnectionError(_DiagnosticError):
 
 
 class LeaderboardError(_DiagnosticError):
-    """A public Scoreboard operation could not be completed safely."""
+    """A public Scoreboard operation could not be completed safely.
+
+    ``existing_score_id`` is set only on ``code="already_regraded"``: the re-grade the board
+    already holds for that source score, so a batch of re-grades can count the source as done.
+    """
 
     _default_code: str = "leaderboard_failed"
 
@@ -171,8 +177,11 @@ class LeaderboardError(_DiagnosticError):
         permanent: bool | None = None,
         details: object = None,
         hint: str | None = None,
+        existing_score_id: UUID | None = None,
     ) -> None:
         self.scoreboard_url: str | None = scoreboard_url
+        # FEATURE (OME-1909): the board names the re-grade that won, so a repeat is not a failure.
+        self.existing_score_id: UUID | None = existing_score_id
         if hint is None and code == "scoreboard_unreachable":
             hint = _scoreboard_hint(scoreboard_url)
         super().__init__(

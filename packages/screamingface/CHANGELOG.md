@@ -4,6 +4,24 @@
 
 ### Added
 
+* A leaderboard submission from a run that failed to grade some of its Cases now says how many
+  were graded (`graded_questions`), so the leaderboard can show "505 / 525 graded" beside the
+  score. A fully graded run submits exactly what it did before.
+
+* Re-grading accepts `expected_target_revision` on sync and async clients. A catalogue or
+  replay result on another revision is refused before submission (`regrade_target_mismatch`).
+  The batch verifies returned score evidence and preserves unresolved journal state through
+  tail recovery, log rotation and interrupted owner resolutions (OME-1958).
+
+* `Client.regrade(score_id)` and `AsyncClient.regrade` move a published score onto its
+  Benchmark's current revision (`OME-1909`): the score's url4 is rebuilt against today's
+  Benchmark, replayed from its pinned cache with its answer seed at no Candidate cost, and posted
+  as a new entry credited to the score's submitter, at no model cost: every Candidate and judge
+  reply comes from the cache, and any cache miss submits nothing (`regrade_incomplete`). For ScreamingFace
+  re-graders only; `LeaderboardError.existing_score_id` names the re-grade a repeat ran into.
+  `LeaderboardScore.regraded_from` names the score a re-graded entry came from, and a re-grade
+  of a re-graded entry is refused (`regrade_the_source`) naming that root score to re-grade.
+
 - `Benchmark.provenance.contributors` names the GitHub handles of whoever wrote a Benchmark
   from outside the team; such a Benchmark's `origin` is `external`.
 
@@ -13,8 +31,11 @@
 - `sf.credits()` now renders as a notebook card in the connection panel's style, instead of
   the plain dataclass repr. An unavailable amount says why ("Not connected", "Key
   rejected", "Lookup failed", "Not supported", "Unreadable response", "Not available on
-  hosted"), in the card and in the connection panel. When no amount is known, the card shows one "Credits unavailable"
-  box (OME-1935).
+  hosted"), in the card and in the connection panel. When no amount is known, the card
+  shows one "Credits unavailable" box (OME-1935). A hosted panel says "Lookup failed" when
+  the credit request fails, and a rejected management key reads "Management key
+  rejected" on the account box (OME-1968). A rejected execution key still reads "Key
+  rejected" on both boxes.
 
 - Notebook credits now show account credit separately from the key spending cap,
   with optional account settings and visible-only five-minute refresh. OpenRouter
@@ -32,6 +53,20 @@
 * **screamingface:** `sf.Gate` is the one branch construct (E4c, `OME-1291`). `then=` and `otherwise=` each take a reducer step (after a `sf.Fanout`), a recipe (a route, a `sf.Model`, a chain or another `sf.Gate`), `sf.abstain()` or `sf.fail()`. The E4b limits are gone: `then=` is not only `sf.Vote()`, and a gated vote can read `over=sf.Extract(...)`. A Gate whose condition reads a label of the input (`sf.label(sel) == "x"`) is a recipe, and nested Gates give an N-way choice. A Gate whose `otherwise=` is a recipe runs it only when the comparison is false: when the panel gives no answer, the Case abstains, and when the number is missing, the Case fails with `signal_missing`. See the README section "Choose whether a model runs".
 
 * **screamingface:** the E4b gate fallback runs only on the Cases where the gate takes it (E4c, `OME-1291`). An `sf.JudgePick` or `sf.Synthesize` in `otherwise=` makes no call when the gate keeps the majority or the number is in the abstain band, and its failure fails only the Cases that take it. The cost of a gated recipe goes down, and its operation list changes: the fallback operation is not in the Cases that did not run it. A url4 that an E4b SDK compiled runs as before, with the fallback on every Case.
+
+* **screamingface:** the Engine now runs every `evaluate` as a Run it drives (`OME-1837`). The
+  Client sends the evaluation once and follows it on one connection; it starts no Candidate
+  itself. `evaluate` therefore needs an Engine that runs Runs: an older Engine raises
+  `EngineCapabilityError` with the upgrade to make, and an Engine with Runs off raises
+  `ExecutionError("runs_off")` (an evaluation no longer runs without a Run). `Run.wait()` now
+  follows the Run and returns its `Report` (it returned the `Run`, and took `timeout=`).
+
+* **screamingface:** `run_transport` on `Client` and `AsyncClient` takes a transport that follows
+  a Run (`OME-1837`): `register_run`, `follow_run`, `cancel_run` and `close`, the shape of the
+  `SyncRunTransport` and `AsyncRunTransport` protocols. A custom transport that ran one Candidate
+  at a time with `run()` and `cancel_active()` no longer works, since the Engine runs every
+  Candidate: `Client(run_transport=...)` and `AsyncClient(run_transport=...)` now raise
+  `TypeError` naming the methods it lacks.
 
 * **screamingface:** `evaluate` no longer captures a pinned cache by default. Capture is now
   opt-in: pass `capture=True` to `sf.evaluate`, `Client.evaluate` or `AsyncClient.evaluate` to
@@ -201,6 +236,8 @@
 
 * **screamingface:** keep the members that a judge scores high enough (E4b): `sf.Fanout(m) >> sf.Judge(j, rubric=r) >> sf.Filter(where=sf.signal("score:judge") >= 7) >> sf.Synthesize(w)`. One judge call scores every member, and the Filter keeps each member whose score passes, in author order; the writer gets the input of the block and the kept members. A `score:judge` comparison with no `sf.Judge` in the block, or a `sf.Judge` that no step reads, raises `ValueError` before any call. No Engine change.
 
+* **screamingface:** add `Client.route_answer(profile, input)` and the `sf.RoutedAnswer` type (`OME-1823`). The call sends one question to a routing profile the Engine declares, such as `expert_router_v1`, through the Engine's `/route-answer`. The Engine classifies the question with the profile's classifier, takes the one label with the highest score and asks that label's model once. `RoutedAnswer` holds the answer, the selected label and model, the classifier's scores in its order, and the profile's ID, `revision`, `policy` and `contract`. The SDK checks the whole result: the expected object, contract and policy, the profile asked for, a `sha256:` revision, unique labels with finite scores in `[0, 1]`, and a selected label that alone holds the highest score; anything else raises `ExecutionError(code="engine_contract_error")`. The call asks the Engine to wait at most 60 s, reads for 75 s and is never re-sent, with the same artifact and sign-in rules as `classify`. An error is `retryable` only when nothing ran: the Engine was not reached, an ingress rate limit, or `routing_preflight_unavailable`. A `503` is not retryable here, with or without `Retry-After`, because asking again may bill the classifier and the selected model again. A `PlanningError(code="routing_profile_not_found")` carries the same hint: the Engine answers an unknown profile and a model the caller lost access to after the classifier ran with one `404`, so the two cannot be told apart. Sync only: there is no `sf.route_answer` and no `AsyncClient.route_answer`. `classify` is unchanged. **Requires an SF Engine that serves `/route-answer`.**
+
 * **screamingface:** add `cases=[3, 17, 42]` to `sf.evaluate`, `Client.evaluate` and `AsyncClient.evaluate` (OME-1739): a run on a fixed list of Case ids, for example a development set and a held-out set, instead of `limit=`'s first N. A Case id is the Case's position in the Benchmark, 1 to N. The SDK posts the list to the Engine's selection route and refuses before any model call when the Engine does not echo it back, so an older Engine never runs and bills every Case. `Report.selected_cases` and `CandidateResult.selected_cases` name the Cases scored, ascending, and `Report.selection_fingerprint` is the `sha256:` of the sorted ids joined by commas, for a paper to cite. A run whose graded Cases differ from the list is refused. A selected run can't be submitted to the leaderboard. A list equal to Cases 1 to N is the same run as `limit=N`. Refused before anything is sent: `cases=` with `limit=`, an empty list, ids that are not whole numbers, below 1 or repeated, more than 1,000 ids, and `cases=` with a complete URL4 or a replay. **Requires an SF Engine with the Case selection route (OME-1739).**
 
 * **screamingface:** read the judge scores with a lower number as better (E4b): `sf.Judge(j, rubric=r) >> sf.ArgMin("score:judge")` returns the original text of the member with the lowest score, for a rubric such as an error count; a tie goes to the first member in author order. The combine step is `best_holder@1 {"order":"min"}`, so no Engine change is needed. `sf.Rank(k, by="score:judge", order="min")` keeps the lowest scores. The rubric says which way is better: the judge template is neutral. `Url4(...).to_python()` rebuilds the step.
@@ -290,6 +327,16 @@
   An Engine that does not record Runs runs every `evaluate` as before, with one
   `EvaluationWarning`, and `Report.run_id` is `None`. The local Engine of `screamingface up`
   keeps its Runs in `engine.sqlite3` in the data directory.
+
+* **screamingface:** `evaluate(..., detach=True, deadline=timedelta(...))` returns the
+  evaluation's `sf.runs.Run` at once, and the Engine runs it whether or not the notebook stays
+  (`OME-1837`). `sf.runs.get(run_id).wait()` and `.report()` give its Report from any machine,
+  built from the Engine's records exactly as the evaluation that started it built its own,
+  reusing the results already saved here. `Run` gains `detached`,
+  `deadline_at` and `stopped_by`, and `refresh_async()`, `progress_async()`, `wait_async()`,
+  `report_async()` and `cancel_async()` for async code. A Run an `AsyncClient` returns is read
+  through that AsyncClient, so its synchronous methods raise `TypeError`. A detached evaluation
+  refuses `on_event` and `progress`, which only a follower could show.
 
 ### Features
 * **screamingface:** read benchmark datasets from a separate folder. `screamingface up --benchmark-assets-dir PATH` points the Engine's `URL4_BENCHMARK_ASSETS` at `PATH` instead of `<data-dir>/benchmark-assets`, so an app can ship the datasets read-only in its bundle. A missing folder fails `up` before any service starts. The running stack records the folder in `runtime.json`; `status --json` (new `benchmark_assets_dir` key) and `doctor` (a `benchmark assets dir` line) report it and the bundle status from it, and `restart` keeps it. `prepare` still writes to the data directory and refuses the option. Without the option nothing changes.

@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any
 from aigateway.core.content_parts import check_messages
 from aigateway.core.parameter_discovery import DiscoveryError, DiscoveryPostClient
 from aigateway.core.plugin_base import ModelEntry, ProviderPluginBase
+from aigateway.core.upstream_attempts import LITELLM_HTTP
 
 from .discovery import (
     discover_ollama_models,
@@ -38,6 +39,7 @@ _OLLAMA_MEDIA_ROLES = frozenset({"system", "user", "assistant", "tool"})
 
 class OllamaProviderPlugin(ProviderPluginBase):
     custom_llm_provider = "ollama"
+    upstream_send_path = LITELLM_HTTP
     provider_display_name = "Ollama"
 
     def register_models(self) -> list[ModelEntry]:

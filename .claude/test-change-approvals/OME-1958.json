@@ -1,0 +1,22 @@
+{
+  "issue": "OME-1958",
+  "branch": "OME-1958-regrade-safety",
+  "approver": "FilipBolt: Yes, update those tests (2026-11-20 conversation); implementation of expected-target safety explicitly approved",
+  "date": "2026-11-20",
+  "scope": "Update fake regraders to accept/prove expected targets, reject invalid complete JSON tails, supply explicit zero-count source metadata, and snapshot the two optional API arguments. Existing retry, unresolved-outcome and process-lock assertions remain.",
+  "reason": "Owner-approved six safety fixes require stricter target, evidence and recovery contracts. Snapshot is updated with the documented public API addition and changelog.",
+  "files": {
+    "packages/screamingface/tests/unit/test_regrade_batch_script.py": {
+      "base_blob": "078cb5b01b837db6373e1470974d050e06c16688",
+      "approved_blob": "1e586617cb3e004fe95e6f5f710a567a2230da05"
+    },
+    "packages/screamingface/tests/unit/test_regrade_batch_safety.py": {
+      "base_blob": "adc327ff28f65fb09299533d9b0ef69b3162c67b",
+      "approved_blob": "35abf033354de8f64d3db5f2febf55c21e3a0371"
+    },
+    "packages/screamingface/tests/public_surface_snapshot.json": {
+      "base_blob": "40070d67538814ab70f4f4033382af8dddba8246",
+      "approved_blob": "cc6e32c7294c58fe167cd57a9e853b2ab4cb1410"
+    }
+  }
+}

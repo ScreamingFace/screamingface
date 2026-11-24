@@ -14,7 +14,7 @@ from importlib.metadata import PackageNotFoundError, version
 # parameter named `json`, so the module name is shadowed inside exactly the functions most
 # likely to want it. Importing the one callable under its own name removes the trap.
 from json import dumps as _json_dumps
-from typing import TYPE_CHECKING, NoReturn
+from typing import TYPE_CHECKING, NoReturn, cast
 from urllib.parse import quote, urlsplit
 from uuid import UUID
 
@@ -67,6 +67,7 @@ _SUBMIT_OPERATION = "submit a score to"
 _EDIT_OPERATION = "edit a score on"
 _EVENTS_OPERATION = "read score metadata events from"
 _RECORD_OPERATION = "record a reproduction on"
+_REGRADE_OPERATION = "re-grade a score on"
 # WHY a 409 is retryable on these two and not elsewhere: the board answers it when it changed under
 # the request (a resubmit race, or its visibility flipping), and a retry sees one consistent view.
 _CONFLICT_HINTS = {_SUBMIT_OPERATION: "Retry the submission.", _EDIT_OPERATION: "Retry the edit."}
@@ -95,6 +96,15 @@ _STATUS_CODES: dict[str, dict[int, str]] = {
         403: "reproduction_forbidden",
         409: "reproduction_conflict",
         422: "invalid_reproduction",
+    },
+    # FEATURE (OME-1909): the names of a re-grade refusal that carries no code of its own (a string
+    # `detail`); a coded refusal keeps the board's code (`_regrade_refusal`).
+    _REGRADE_OPERATION: {
+        400: "invalid_regrade",
+        401: "scoreboard_authentication_required",
+        403: "regrade_forbidden",
+        409: "regrade_conflict",
+        422: "invalid_regrade",
     },
 }
 
@@ -197,6 +207,12 @@ class Leaderboards:
 
         return published_score_sync(self._request, self._scoreboard_url, score_id)
 
+    def _public_score(self, score_id: UUID | str) -> PublishedScore:
+        """The public read of one score alone: the only source a re-grade may have (OME-1909)."""
+        from screamingface._scoreboard.replay_reads import public_score_sync
+
+        return public_score_sync(self._request, self._scoreboard_url, score_id)
+
     def get_score(self, score_id: UUID | str) -> LeaderboardScore:
         selected = _score_id(score_id)
         return _decode_score(
@@ -276,6 +292,27 @@ class Leaderboards:
             replay_safe=True,
             missing=("unknown_score", f"Score {str(selected)!r} was not found"),
             operation=_RECORD_OPERATION,
+        )
+
+    def _submit_regrade(
+        self, source: UUID | str, candidate_result: CandidateResult
+    ) -> LeaderboardScore:
+        """Post a re-grade of `source` and return the new entry. Internal: `regrade` calls it."""
+        selected: UUID = _score_id(source)
+        return _decode_score(
+            scoreboard_url=self._scoreboard_url,
+            payload=_sync_json(
+                self._request,
+                self._scoreboard_url,
+                "POST",
+                f"{_SCORES_PATH}/{selected}/regrades",
+                json=_submission(candidate_result),
+                # WHY safe to re-send: the board allows one re-grade per source, so a repeated POST
+                # is answered 409 `already_regraded` naming the first, never a second entry.
+                replay_safe=True,
+                missing=_unknown_regrade_source(selected),
+                operation=_REGRADE_OPERATION,
+            ),
         )
 
 
@@ -365,6 +402,12 @@ class AsyncLeaderboards:
 
         return await published_score_async(self._request, self._scoreboard_url, score_id)
 
+    async def _public_score(self, score_id: UUID | str) -> PublishedScore:
+        """Async twin of the sync `_public_score`."""
+        from screamingface._scoreboard.replay_reads import public_score_async
+
+        return await public_score_async(self._request, self._scoreboard_url, score_id)
+
     async def get_score(self, score_id: UUID | str) -> LeaderboardScore:
         selected = _score_id(score_id)
         return _decode_score(
@@ -446,6 +489,33 @@ class AsyncLeaderboards:
             operation=_RECORD_OPERATION,
         )
 
+    async def _submit_regrade(
+        self, source: UUID | str, candidate_result: CandidateResult
+    ) -> LeaderboardScore:
+        """Async twin of the sync `_submit_regrade`."""
+        selected: UUID = _score_id(source)
+        return _decode_score(
+            scoreboard_url=self._scoreboard_url,
+            payload=await _async_json(
+                self._request,
+                self._scoreboard_url,
+                "POST",
+                f"{_SCORES_PATH}/{selected}/regrades",
+                json=_submission(candidate_result),
+                replay_safe=True,
+                missing=_unknown_regrade_source(selected),
+                operation=_REGRADE_OPERATION,
+            ),
+        )
+
+
+def _unknown_regrade_source(score_id: UUID) -> tuple[str, str]:
+    """The board's 404 for a re-grade source: unknown, or on a private board (OME-894)."""
+    return (
+        "unknown_score",
+        f"Score {str(score_id)!r} was not found, or it is on a private board",
+    )
+
 
 def _sync_json(
     request: Callable[..., httpx.Response],
@@ -516,6 +586,8 @@ def _response_json(
             status=404,
             permanent=True,
         )
+    if not response.is_success and operation == _REGRADE_OPERATION:
+        raise _regrade_refusal(response, scoreboard_url)
     if not response.is_success:
         details = _error_details(response)
         suffix = f" ({details})" if isinstance(details, str) and details else ""
@@ -547,6 +619,76 @@ def _error_details(response: httpx.Response) -> object:
         if text is not None:
             return text
     return payload
+
+
+_UNAUTHORIZED: int = 401
+#: Re-grade refusals that clear when the deployment catches up, never by changing the entry.
+_ENVIRONMENT_REFUSALS: frozenset[str] = frozenset(
+    {"not_allowed", "regrade_unavailable", "not_current_revision"}
+)
+
+
+def _regrade_refusal(response: httpx.Response, scoreboard_url: str) -> LeaderboardError:
+    """The board's refusal of a re-grade, under the board's own code when it names one (OME-1909).
+
+    WHY its own path: one status carries several refusals here (403 `regrade_unavailable` or
+    `not_allowed`; 409 `not_current_revision`, `already_regraded` or `already_on_board`), and a
+    batch of re-grades must tell them apart by code, never by message text. A refusal with no code
+    (a string `detail`: an untrusted peer, a visibility change) keeps its status's name.
+    INVARIANT: a refusal about THIS entry is permanent (`already_regraded` too: it names the
+    re-grade that won). A refusal about the environment is retryable, because it clears without
+    touching the entry: no identity yet (401), the caller not yet on the board's re-grade list
+    (`not_allowed`), re-grades switched off (`regrade_unavailable`), or the board not yet on the
+    new revision (`not_current_revision`, before the seed runs). So are an uncoded 409 (the board
+    changed mid-request), a 429 and a 5xx. Example: a batch run before the infra list is deployed
+    logs every entry `not_allowed`, retryable, and the next run re-grades them all.
+    """
+    status: int = response.status_code
+    details: object = _error_details(response)
+    suffix: str = f" ({details})" if isinstance(details, str) and details else ""
+    coded: Mapping[str, object] | None = _coded_detail(response)
+    code: str = _status_code(status, _REGRADE_OPERATION) if coded is None else str(coded["code"])
+    conflict: bool = status == 409 and coded is None
+    environment: bool = status == _UNAUTHORIZED or code in _ENVIRONMENT_REFUSALS
+    return LeaderboardError(
+        f"Could not {_REGRADE_OPERATION} the Scoreboard: HTTP {status}{suffix}",
+        scoreboard_url=scoreboard_url,
+        code=code,
+        status=status,
+        permanent=status < 500 and status != 429 and not conflict and not environment,
+        details=details,
+        hint="Retry the re-grade." if conflict else None,
+        existing_score_id=(
+            _existing_score_id(coded) if coded is not None and code == "already_regraded" else None
+        ),
+    )
+
+
+def _coded_detail(response: httpx.Response) -> Mapping[str, object] | None:
+    """The board's `{code, message, ...}` refusal detail, or None for any other body."""
+    try:
+        payload: object = response.json()
+    except ValueError:
+        return None
+    detail: object = payload.get("detail") if isinstance(payload, Mapping) else None
+    if (
+        isinstance(detail, Mapping)
+        and isinstance(detail.get("code"), str)
+        and isinstance(detail.get("message"), str)
+    ):
+        return cast(Mapping[str, object], detail)
+    return None
+
+
+def _existing_score_id(detail: Mapping[str, object]) -> UUID | None:
+    """The re-grade an `already_regraded` refusal names; None when the board named none."""
+    value: object = detail.get("existing_score_id")
+    if not isinstance(value, str):
+        return None
+    try:
+        return UUID(value)
+    except ValueError:
+        return None
 
 
 def _detail_text(detail: object) -> str | None:
@@ -667,9 +809,20 @@ def _decode_score(payload: object, scoreboard_url: str | None = None) -> Leaderb
             benchmark_revision=_optional_text(
                 root.get("benchmark_revision"), "Leaderboard score benchmark_revision"
             ),
+            # FEATURE (OME-1909): the board names a re-grade's source; absent on any other row.
+            regraded_from=_optional_uuid(
+                root.get("regraded_from"), "Leaderboard score regraded_from"
+            ),
         )
     except (TypeError, ValueError) as exc:
         _invalid(str(exc), exc)
+
+
+def _optional_uuid(value: object, name: str) -> UUID | None:
+    """An optional UUID field read from its text, or None when the board omits it."""
+
+    text: str | None = _optional_text(value, name)
+    return None if text is None else UUID(text)
 
 
 def _decode_metadata_events(payload: object) -> tuple[ScoreMetadataEvent, ...]:
@@ -838,8 +991,32 @@ def _submission(
         payload["cache_saved_cost_archive_usd"] = _cost_text(
             candidate_result.cache_saved_cost_archive_usd
         )
+    payload.update(_graded_questions(candidate_result))
     payload.update(_capture_fields(candidate_result))
     return payload
+
+
+def _graded_questions(candidate_result: CandidateResult) -> dict[str, object]:
+    """How many of the run's Cases got a grade, sent only when at least one did not.
+
+    A Case goes ungraded when the Candidate call errors or times out, or the judge gives no
+    readable verdict. `total_questions` counts every selected Case, failed ones included, so
+    without this count a run that failed on 20 of 525 Cases reaches the leaderboard looking
+    complete. Example: 525 selected, 505 graded -> `{"graded_questions": 505}`.
+
+    INVARIANT: the count is the result's own gradeable count, the figure its `coverage` is
+    validated against, so the leaderboard and the local report cannot disagree. `coverage`
+    itself is no substitute: it is rounded to 4 places, so a few failed Cases on a large
+    Benchmark round to exactly 1.0.
+
+    INVARIANT: omitted for a fully graded run rather than sent as the total, like `paper_url`,
+    so that payload is unchanged and a leaderboard that predates the field refuses only the
+    partly graded runs.
+    """
+    graded: int = candidate_result.cases._gradeable_count()
+    if graded == len(candidate_result.cases):
+        return {}
+    return {"graded_questions": graded}
 
 
 def _client_info() -> dict[str, object]:

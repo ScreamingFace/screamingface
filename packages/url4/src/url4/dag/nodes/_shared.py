@@ -38,6 +38,7 @@ from url4.wire.subrequest import strip_transport_params
 from url4.dag.node import (  # isort: skip
     RDS_STRICT,
     ExecutionContext,
+    NoElement,
     Payload,
     SourceFailure,
 )
@@ -52,12 +53,12 @@ def _as_text(value: Payload) -> str:
 def _frame(inputs: Mapping[str, Payload], ctx: ExecutionContext) -> Context:
     """Turn ``bind:``/``pos:`` reference-edge inputs into a scope frame.
 
-    A :class:`SourceFailure` dependency contributes no binding — the failed
-    optional source's ``$name`` stays unbound and substitutes verbatim.
+    A :class:`SourceFailure` or :class:`NoElement` (an absent C19 source) dependency binds
+    nothing — that source's ``$name`` stays unbound and substitutes verbatim.
     """
     bindings: dict[str, str] = {}
     for role, value in inputs.items():
-        if isinstance(value, SourceFailure):
+        if isinstance(value, (SourceFailure, NoElement)):
             continue
         if role.startswith("bind:"):
             bindings[role[5:]] = _as_text(value)
@@ -224,7 +225,7 @@ def _gather(
     g = _Gathered([], {}, [])
     for i, (name, instrumental) in enumerate(slots):
         value = inputs[f"{prefix}:{i}"]
-        if isinstance(value, SourceFailure):
+        if isinstance(value, (SourceFailure, NoElement)):  # INVARIANT (C19): absent, not failed
             continue
         if isinstance(value, list):
             _gather_expanded(g, value, name, instrumental)

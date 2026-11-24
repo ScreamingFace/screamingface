@@ -154,9 +154,12 @@ async def test_run_registration_checks_credits_once_before_registration(monkeypa
     async def check_async(client, selected):
         check(client, selected)
 
+    class _Registered:
+        id = "run_" + "a" * 32
+
     def create(*args):
         seen.append("register")
-        return runs.Unavailable("test")
+        return _Registered()
 
     async def create_async(*args):
         return create(*args)
@@ -174,11 +177,11 @@ async def test_run_registration_checks_credits_once_before_registration(monkeypa
         else Url4CloudTransport("http://localhost:9100")
     )
     try:
-        with pytest.warns(EvaluationWarning, match="not recorded"):
-            if isinstance(transport, AsyncUrl4CloudTransport):
-                await transport.open_run("test", 1, candidates)
-            else:
-                transport.open_run("test", 1, candidates)
+        # E5 P2: an evaluation is registered as a Run with every start (`register_run`).
+        if isinstance(transport, AsyncUrl4CloudTransport):
+            await transport.register_run(None, candidates)
+        else:
+            transport.register_run(None, candidates)
         assert seen == ["credits", "register"]
     finally:
         if isinstance(transport, AsyncUrl4CloudTransport):

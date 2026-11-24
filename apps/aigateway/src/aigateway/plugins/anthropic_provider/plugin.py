@@ -22,6 +22,7 @@ from aigateway.core.plugin_base import (
     ProviderPluginBase,
 )
 from aigateway.core.standard_parameters import tool_parameter_observations
+from aigateway.core.upstream_attempts import LITELLM_HTTP
 from aigateway.plugins.taxonomy import (
     CacheReference,
     ProviderUsageAccountingEvidence,
@@ -82,6 +83,7 @@ _INPUT_MODALITY_FAMILIES: tuple[tuple[str, tuple[InputModality, ...]], ...] = (
 
 class AnthropicProviderPlugin(ProviderPluginBase[AnthropicPluginSettings]):
     custom_llm_provider = "anthropic"
+    upstream_send_path = LITELLM_HTTP
     provider_display_name = "Anthropic"
     settings_cls = AnthropicPluginSettings
 

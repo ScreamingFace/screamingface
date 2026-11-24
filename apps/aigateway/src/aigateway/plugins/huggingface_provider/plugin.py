@@ -38,6 +38,7 @@ from aigateway.core.standard_parameters import (
     direct_parameter_observations,
     tool_parameter_observations,
 )
+from aigateway.core.upstream_attempts import LITELLM_HTTP
 
 from .api_key_validation import HuggingFaceApiKeyValidator
 from .discovery import (
@@ -81,6 +82,7 @@ def _credential_service_for(credential_name: str) -> str:
 
 class HuggingFaceProviderPlugin(ProviderPluginBase[HuggingFacePluginSettings]):
     custom_llm_provider = "huggingface"
+    upstream_send_path = LITELLM_HTTP
     provider_display_name = "Hugging Face"
     settings_cls = HuggingFacePluginSettings
 

@@ -10,7 +10,6 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from functools import partial
 from typing import Any
 
 import httpx
@@ -26,10 +25,11 @@ from aigateway.core.api_key_validation_http import (
     ValidationHttpSession,
 )
 
-from .classification import classification_request, decode_scores
+from .classification import classifier_exchange
 from .completion import decode_completion
-from .definitions import ChatTarget, ClassificationTarget, EndpointDefinition
+from .definitions import ChatTarget, ChoiceTarget, EndpointDefinition, Target
 from .request import chat_request
+from .systemone import probe_choice
 
 _READINESS = ApiKeyValidationStage.READINESS
 # WHY no `max_tokens` and no `stream`: the probe is exactly the request an ordinary chat sends when
@@ -48,14 +48,21 @@ _FAILURE_STATES = {
 
 
 def _probe(
-    target: ChatTarget | ClassificationTarget,
+    target: Target,
 ) -> tuple[dict[str, Any], Callable[[str | None, bytes], object | None]]:
-    """The probe request of the target's task, and the decoder dispatch reads its answer with."""
-    if isinstance(target, ClassificationTarget):
-        return classification_request(_PING_TEXT), partial(
-            decode_scores, envelope=target.response_envelope
-        )
-    return chat_request(target, _PING), decode_completion
+    """The probe request of the target's input, and the decoder dispatch reads its answer with.
+
+    # INVARIANT (C7): a probe stays within the target's declared limits, so readiness never asks
+    # what a classification could not.
+    """
+    if isinstance(target, ChoiceTarget):
+        return classifier_exchange(target, probe_choice(target.limits))
+    if isinstance(target, ChatTarget):
+        return chat_request(target, _PING), decode_completion
+    limits = target.limits
+    return classifier_exchange(
+        target, _PING_TEXT[: limits.max_text_chars] if limits else _PING_TEXT
+    )
 
 
 def _classify(

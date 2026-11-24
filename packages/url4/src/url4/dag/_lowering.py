@@ -37,7 +37,6 @@ from functools import partial
 
 from url4.core.blob_ref import address_of, token_address
 from url4.core.descriptor_head import deferrable_group, is_processed_group
-from url4.core.errors import ParseError
 from url4.core.grammar import parse as grammar_parse
 from url4.core.intent import code_pointer_of
 from url4.core.nodes import (
@@ -68,8 +67,8 @@ from url4.core.parser import (
     strip_one_paren_layer,
 )
 from url4.dag.semantics.ensemble import find_references
-from url4.dag.source_scan import holds_holdings_ref
 
+from url4.dag._at_most_one_texts import check_target, read_source_list  # isort: skip
 from url4.dag._descriptor import _lower_source, slot_identity  # isort: skip
 from url4.dag._code_wiring import (  # isort: skip
     call_intent,
@@ -228,21 +227,10 @@ def _wire_context_slots(
 
 
 def _context_slots(context: str | None, registry: LoweringRegistry) -> list[_Slot] | None:
-    # INVARIANT (spec §5.6.3.1/.2): a holdings ref ("@") in a call's context is
-    # scoped to the RECEIVING route and travels in the q= payload verbatim —
-    # never resolved caller-side. Decided by the run-start scan's own predicate
-    # (parsed segments, OME-1945): an "@" inside a URL or quoted text lowers like
-    # any source, so lowering and the attachment scan never disagree.
-    if context is None or not context.strip() or holds_holdings_ref(context):
-        return None
-    try:
-        segments = [seg.strip() for seg in split_top_level_commas(context)]
-        return [_slot_from_text(seg, registry) for seg in segments if seg] or None
-    except ParseError:
-        # WHY fallback, not error: the ABNF's source-list is the canonical
-        # reading, but a call's parens have carried free prose since v1 —
-        # an unparseable context is prose by construction and ships verbatim.
-        return None
+    # WHY the shared reader: the C19 entry check reads a context the same way, each segment with
+    # `deferrable_group` first, so a context is prose, a source list or a C19 refusal alike in
+    # both (holdings refs ship verbatim, OME-1945).
+    return read_source_list(context, lambda segment: _slot_from_text(segment, registry))
 
 
 def _build_ctx_nodes(slots: list[_Slot], outer: Edges) -> list[DagNode]:
@@ -619,5 +607,8 @@ def compile_expression(
     """
     registry = registry if registry is not None else default_registry()
     if isinstance(target, str):
+        if not bare_root_ok:  # WHY: a spawned fragment's target or processor was checked first
+            check_target(target)  # C19, before lowering: every node and the url4 kept as text
         return Graph(_compile_text(target, registry, bare_root_ok=bare_root_ok), registry=registry)
+    check_target(target)  # C19: a tree skips the parser, so its form is checked before lowering
     return Graph(registry.lower(target, {}), registry=registry)

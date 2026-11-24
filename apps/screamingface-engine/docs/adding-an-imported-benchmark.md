@@ -307,7 +307,7 @@ Four things differ from an inspect_evals import:
   builder adds `task_source=<sha256 over the package's .py files, vendor/ included>`. Any
   edit to the loader, the reply reader, a scorer or the vendored code moves the fingerprint and
   its `test_benchmark_fingerprints` literal, which is the review act: a grading rule can never
-  change unseen under a published score. The published id holds ([Changing a Benchmark's published revision](#changing-a-benchmarks-published-revision)).
+  change unseen under a published score. The published id moves only if a grade changes ([Changing a Benchmark's published revision](#changing-a-benchmarks-published-revision)).
 - **The Task file opens with `# pyright: reportMissingImports=false`** and the WHY comment
   every other module in the plugin carries (copy `scorer_adapter.py`'s header). CI typechecks
   the Engine without the inspect extra, so a bare `from inspect_ai import Task` fails there
@@ -346,11 +346,16 @@ Seen on 2026-10-07; neither is a repo change.
 
 ## Changing a Benchmark's published revision
 
-**A Benchmark's published revision is hand-set, and it moves only when the Benchmark
-fundamentally changes, never as a side effect of a code change (OME-1610).** Submissions and
-the leaderboard group results by this id, so moving it hides every result recorded under the
-old one. That happened to draco-3pass in OME-1527: its scorer moved to a new file, its exam
-stayed byte-identical, and its leaderboard emptied.
+**A Benchmark's published revision is hand-set, and it moves whenever what its scores mean
+changes: its Cases or its grading. It never moves as a side effect of a code change that leaves
+every grade the same (OME-1610).** Submissions and the leaderboard group results by this id, and
+each board shows only its current one, so a score always names the grading that produced it.
+That is also why a needless move costs: draco-3pass in OME-1527 moved its scorer to a new file,
+its exam and grades stayed byte-identical, and its leaderboard emptied.
+
+A move no longer has to empty a board. A **re-grade** (OME-1909) replays an old entry's pinned
+cache, the stored model replies of its run, under the new id at no model cost, and submits the
+result as a new entry linked to the old one.
 
 Every Benchmark therefore carries two ids:
 
@@ -359,7 +364,7 @@ Every Benchmark therefore carries two ids:
 | What it is | the id in the Benchmark's routes and `Benchmark.revision`; results key on it | the hash of everything that defines the Benchmark: the Case Digest, the scorer's source, the judge and its params, the pinned packages, the protocol constants |
 | Set by | hand: `published_revision=` on the row (medxpert: `REVISION` in its `definition.py`) | computed at assembly; never published |
 | Pinned in | `tests/unit/inspect/test_published_revisions.py` (medxpert: `tests/unit/test_medxpert_migration_golden.py` and the routes in `tests/fixtures/early_grade_compatibility.json`) | `tests/unit/inspect/test_benchmark_fingerprints.py` |
-| Moves when | a deliberate bump, signed off by the owner | any input changes, a pure code move included |
+| Moves when | the Cases or the grading change, or the Benchmark is new; a deliberate bump, signed off by the owner | any input changes, a pure code move included |
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 440}}}%%
@@ -374,36 +379,47 @@ flowchart TB
   end
   KEY ~~~ s1
   s1["🤖 A change to the Benchmark's inputs turns its fingerprint test red<br/>e.g. paws: fingerprint 8f4e0e9c… → 992540ea…"]
-  s2["👤 Did the Case set change?<br/>a refactor, a code move, a grading fix adopted from inspect_evals or a package bump keeps the same Cases"]
-  s3["✅ Same Cases: update only the fingerprint literal<br/>e.g. paws keeps publishing 8f4e0e9c…; every result stays visible"]
-  s4["👤 Changed Cases or a new Benchmark: run the bump command and get the owner's sign-off<br/>just engine benchmark-bump worldsense"]
-  s5["⚠️ Edit the lines it prints, add a CHANGELOG line, post to the team<br/>old results stop showing; submissions under the old id are outdated"]
+  s2["👤 Did the Cases or any grade change?<br/>a refactor, a code move or a package bump that leaves every grade the same changes neither"]
+  s3["✅ Only code moved: update only the fingerprint literal<br/>e.g. a scorer moved to a new file, as draco-3pass's did in OME-1527; every result stays visible"]
+  s4["👤 Changed Cases, changed grading or a new Benchmark: run the bump command and get the owner's sign-off<br/>e.g. OME-1907 reads ANSWER: $B as B on 47 rows · just engine benchmark-bump mmlu_pro"]
+  s5["⚠️ Edit the lines it prints, add a CHANGELOG line, post to the team<br/>old results leave the board until re-graded under the new id"]
+  s6["🤖 After the deploy, re-grade every old entry that has a pinned cache (OME-1909)<br/>an entry with no pinned cache needs a fresh run"]
   s1 -- "the developer reads the test message" --> s2
-  s2 -- "same Cases" --> s3
-  s2 -- "fundamental change" --> s4
+  s2 -- "only code moved" --> s3
+  s2 -- "Cases or grading changed" --> s4
   s4 -- "owner signs off in the PR" --> s5
+  s5 -- "the PR deploys" --> s6
   classDef auto fill:#1e3a8a,stroke:#4a7fd4,color:#dbeafe
   classDef human fill:#78350f,stroke:#f5a524,color:#fef3c7
   classDef good fill:#14532d,stroke:#30a46c,color:#dcfce7
   classDef bad fill:#7f1d2b,stroke:#e5484d,color:#ffe8ea
-  class k1,s1 auto
+  class k1,s1,s6 auto
   class k2,s2,s4 human
   class k3,s3 good
   class k4,s5 bad
   style KEY fill:#111827,stroke:#4b5563,color:#e5e7eb
 ```
 
-**The bar for a move is a fundamental change: a changed Case set, or a new Benchmark** (owner
-decision, 2026-10-22: revisions are frozen, because people build on a Benchmark's scores across
-months). Everything else holds the id:
+**The bar for a move is a change to what a score means: a changed Case set, a changed grading
+rule, or a new Benchmark** (owner decision, 2026-11-17, replacing the 2026-10-22 rule that only a
+changed Case set moved the id). Everything else holds it:
 
-- **Same Cases, changed code** (a refactor, a code move, a package bump): update only the
-  fingerprint literal, and say in the PR why the exam is unchanged.
-- **Same Cases, changed grading** (a fix adopted from inspect_evals): hold the id and update only
-  the fingerprint literal. OME-1701 held paws, boolq, chembench, infinite_bench_math_find, math
-  and aime24/25/26 this way.
-- **Changed Cases**: the id moves. OME-1701 moved worldsense, stereoset and onet_m6 when their
-  Case sets changed.
+- **Same Cases, same grades, changed code** (a refactor, a code move, a package bump): update only
+  the fingerprint literal, and say in the PR why every grade is unchanged. A replay of the old
+  golden that grades identically is the evidence; without it, treat the change as a grading change.
+- **Same Cases, changed grading** (a scorer, reply reader, judge or judge-parameter change, a fix
+  adopted from inspect_evals included): the id moves, and the old entries are re-graded onto the
+  new one. OME-1907's 47 rows move this way (OME-1958). Before 2026-11-17 such fixes held the id: OME-1701
+  held paws, boolq, chembench, infinite_bench_math_find, math and aime24/25/26.
+  One named exception since (owner, 2026-11-20): hle and hle_diamond held their id when OME-1939
+  raised the same judge's `max_tokens` from 32,768 to 131,072. Only the about 1.5% of Cases
+  whose judge ran out before writing a grade can change, and only upward, so old entries can
+  read at most about 1.5 points low; and a re-grade cannot move them, because the judge request
+  changed and every judged Case misses the pinned cache. A judge whose request changes can be
+  re-graded only once sending chosen judge calls live is built (OME-1979).
+- **Changed Cases**: the id moves. A re-grade cannot move these entries, since their old replies
+  answer a different exam. OME-1701 moved worldsense, stereoset and onet_m6 when their Case sets
+  changed.
 
 `just engine benchmark-bump <key>` (from the repo root) prints the WARNING, both ids and every
 line to edit for both paths. It never edits a file: the move is a hand edit in a reviewed PR. A
@@ -415,14 +431,23 @@ move ships with:
    migration golden and the early-grade fixture), and in `test_benchmark_fingerprints.py`.
 3. A line in the Engine's `CHANGELOG.md` naming the Benchmark, the old and new id, and why.
 4. A post to the team, so the people using the Benchmark hear it from us first.
+5. When only the grading changed, the old id and its Case Digest on the row, as the line the bump
+   command prints, e.g. `regradable_from=(("8f4e0e9c0864a6e7", "<case digest>"),),` (OME-1909).
+   Without it every re-grade onto the new id is refused, and assembly refuses a digest the Cases
+   no longer compute. That digest is today's, so it catches a Case change made after the bump;
+   an earlier one, under a held id, is caught when the old score's pinned cache misses. A row
+   that already lists pairs keeps them and adds this one. Hand-built
+   Benchmarks (medxpert) have no `regradable_from` path yet: their old entries need a fresh run.
+6. After the deploy, a re-grade of every old entry that has a pinned cache (OME-1909), so the
+   board under the new id is not left empty.
 
 **A new Benchmark** sets `published_revision` to the fingerprint it computes on the day it is
 added (the bump command prints it) and pins both ids. `test_published_revision.py` refuses a
 catalogue row without one.
 
 **For coding agents:** never change a published revision to make a test green. A red
-fingerprint test means "say whether the Cases changed", not "move the id". If you cannot tell,
-stop and ask the owner.
+fingerprint test means "say whether the Cases or any grade changed", not "move the id". If you
+cannot tell, stop and ask the owner.
 
 ## When the tool refuses
 
