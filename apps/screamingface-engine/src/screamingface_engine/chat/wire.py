@@ -170,8 +170,8 @@ class ChatCompletionRequest(_Wire):
     """One chat completion request as the client sends it.
 
     Sampling and other unknown fields (temperature, max_tokens, store, metadata,
-    parallel_tool_calls, tool_choice and so on) are dropped at validation. n, logprobs, modalities
-    and audio are kept only so the route can refuse them.
+    parallel_tool_calls, tool_choice and so on) are dropped at validation. n, logprobs, modalities,
+    audio and functions are kept only so the route can refuse them.
     """
 
     model: str = Field(min_length=1)
@@ -183,6 +183,7 @@ class ChatCompletionRequest(_Wire):
     logprobs: bool | None = None
     modalities: list[str] | None = None
     audio: dict[str, Any] | None = None
+    functions: list[Any] | None = None
 
     @field_validator("tools")
     @classmethod

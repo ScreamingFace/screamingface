@@ -283,6 +283,9 @@ caller's identity and aigateway decides, including whether an absent identity is
 This route is compatible with the OpenAI chat-completions API. The Engine runs an ensemble as one
 model. Tools that speak the OpenAI API (the OpenAI SDKs, opencode, pi) can call it. The route is
 next to `GET /v1/models`, and that route does not change.
+Tool calls are turned off for now: a request with `tools` or `functions`, a `tool` message or an
+assistant message with `tool_calls` gets 400 `tools_not_available` before a run. The check is
+fixed (`rest/chat_body.py::_tool_use`); the tool code behind it stays.
 User guide: <https://docs.screamingface.ai/sf-client/guides/openai-api>.
 Design: `docs/spec/2026-11-17-engine-openai-chat-endpoint/` (path from the repo root).
 

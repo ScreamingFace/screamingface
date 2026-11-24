@@ -13,6 +13,7 @@ import pytest
 from _chat_app import ToolCatalog, answered, body, chat_app, error, post
 from _chat_corpus import corpus
 from _chat_final_world import TOOL
+from _chat_tools_reachable import tools_reachable  # noqa: F401
 
 from screamingface_engine.chat.recipe import RecipeRefusal, check_recipe
 

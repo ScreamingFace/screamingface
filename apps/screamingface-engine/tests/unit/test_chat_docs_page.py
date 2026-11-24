@@ -33,9 +33,9 @@ LIMITS: dict[str, tuple[str, ...]] = {
         "same route with the same parameters",
         "finish_reason is stop",
     ),
-    "tools-final-model-step": ("must end in a model step", "such as Vote"),
-    "tools-cascade-gate": ("refuses each Cascade and each Gate", "Cascade abstains"),
-    "tools-unique-final-step": ("final step of the recipe must be unique",),
+    # Tool calls are turned off (prd/tool-calls.md section 0, 2026-11-24). The limits of a
+    # request with tools left the page with them; they come back when tool calls are on again.
+    "tools-not-available": ("Tool calls are not available yet", "400 tools_not_available"),
     "corrective-loop": ("refuses a recipe with a corrective loop",),
     "benchmark-linked": ("refuses a benchmark-linked expression", "Candidate URL4"),
     "shared-cache": (
@@ -71,12 +71,6 @@ LIMITS: dict[str, tuple[str, ...]] = {
         "576 prompt tokens",
         "16 prompt tokens with web_search=false",
     ),
-    "tools-final-step-search": (
-        "the final step searches only when the provider does the search itself",
-        "400 recipe_not_supported",
-    ),
-    "engine-search-tools": ("call one of your tools by name", "web_search=false"),
-    "pictures-with-tools": ("final model must be able to read pictures",),
     "error-envelope": ("OpenAI error envelope", "x-should-retry"),
     "other-api-formats": ("Claude Code and Codex need other API formats",),
 }

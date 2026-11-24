@@ -82,7 +82,7 @@ CHAT_RESPONSES: dict[int | str, dict[str, Any]] = {
         },
     },
     400: _error(
-        "`invalid_request`, `unsupported_parameter`, `unsupported_content`, "
+        "`invalid_request`, `unsupported_parameter`, `tools_not_available`, `unsupported_content`, "
         "`recipe_invalid`, `recipe_not_supported`, `final_step_not_model` or "
         "`model_does_not_support_tools`."
     ),

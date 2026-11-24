@@ -550,6 +550,29 @@ spec is `docs/spec/2026-11-17-engine-openai-chat-endpoint/`.
 - **Not done:** stop point S4 (the manual run with pi and opencode), and the deploy checks
   (the PR body lists them).
 
+## Tool calls are turned off (2026-11-24, owner order)
+
+Team feedback through the owner: disable tool use for now and give a proper error. Owner answers
+of 2026-11-24: the Engine and the SDK refuse; declared tools and tool turns count; a fixed
+refusal with no switch; the tool code stays. PRD `tool-calls.md` §0, scenario TC-S23, test TC-23.
+
+- `rest/chat_body.py::_tool_use`: a request with `tools` or `functions` (at least one item), a
+  `tool` message, or an assistant message with tool calls gets 400 `tools_not_available` with
+  `param`, before a run, a blob write and a catalogue read. `invalid_request` and
+  `unsupported_parameter` come first.
+- `rest/chat_errors.py`: one fixed message. `chat/wire.py`: the request keeps `functions` only
+  so the route can refuse it. `rest/chat_openapi.py`: the 400 text names the code.
+- Tests: `tests/unit/test_chat_completions_tools_off.py` (new). The 21 route tests of the tool
+  code (`test_chat_completions_tools.py`, `test_chat_tools_colon_model.py`,
+  `test_chat_recipe_unique_final.py`, `tests/integration/test_chat_tools_sdk.py`) run with the
+  check removed by a test-only fixture (`tests/unit/_chat_tools_reachable.py`). No test was
+  removed, and no setting removes the check in a deployment.
+- Docs: the guide page says that tool calls are not available; the six limits of a request with
+  tools left the page; `tests/unit/test_chat_docs_page.py` follows. The README has the rule.
+- Effect on the open stop point S4 (manual run with pi and opencode): these agents send tools
+  with each request, so they get the error until tool calls are on again.
+- The SDK part and the full record are in `docs/work/2026-11-18-sdk-model-inference.md` (U11).
+
 ## Outcome (state on 2026-11-18: the PR is open; the work is NOT closed)
 
 - **Actual files:** 174 files against origin/main `07b49059f`: 64 under

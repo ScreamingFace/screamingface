@@ -39,6 +39,9 @@ FIXED_MESSAGES: dict[str, str] = {
     "invalid_request": "the request body is not valid",
     "unsupported_parameter": "this parameter is not supported",
     "unsupported_content": "only inline data: URIs are supported for pictures and files",
+    "tools_not_available": (
+        "tool calls are not available yet; remove the tools and the tool messages from the request"
+    ),
     "model_not_found": "the model is not known",
     "catalog_unavailable": "the model catalog is not available",
     "overloaded": "the server is at capacity; retry shortly",

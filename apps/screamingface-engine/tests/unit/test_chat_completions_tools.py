@@ -23,6 +23,7 @@ from _chat_app import (
     stored_record,
 )
 from _chat_corpus import corpus
+from _chat_tools_reachable import tools_reachable  # noqa: F401
 
 from screamingface_engine.catalog.port import CatalogUnavailable
 from screamingface_engine.chat.recipe import (

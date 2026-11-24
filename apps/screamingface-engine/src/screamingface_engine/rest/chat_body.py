@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+from collections.abc import Iterator
 from typing import Any
 
 from pydantic import ValidationError
@@ -22,10 +23,12 @@ from screamingface_engine.chat.input import (
     encode_chat_input,
 )
 from screamingface_engine.chat.wire import (
+    AssistantMessage,
     ChatCompletionRequest,
     ChatMessage,
     FilePart,
     ImagePart,
+    ToolMessage,
     UserMessage,
 )
 from screamingface_engine.rest.chat_errors import ChatError
@@ -227,6 +230,9 @@ def _checked(raw: bytes) -> ChatBody:
     refused = _unsupported_parameter(parsed)
     if refused is not None:
         raise ChatError(400, "unsupported_parameter", param=refused)
+    tool_use = _tool_use(parsed)
+    if tool_use is not None:
+        raise ChatError(400, "tools_not_available", param=tool_use)
     remote = _remote_part(parsed.messages)
     if remote is not None:
         raise ChatError(400, "unsupported_content", param=remote)
@@ -262,6 +268,29 @@ def _unsupported_parameter(request: ChatCompletionRequest) -> str | None:
         ("audio", request.audio is not None),
     )
     return next((name for name, refuse in refused if refuse), None)
+
+
+def _tool_use(request: ChatCompletionRequest) -> str | None:
+    """TC-S23: the first place of the request that declares or uses a tool, or None.
+
+    WHY: tool calls are turned off for now (owner decision of 2026-11-24, prd/tool-calls.md
+    section 0). This check is fixed: no setting turns it off. The tool code behind it stays, and
+    no request can reach it. `tools: []` and `functions: []` declare no tool (TC-S13).
+    """
+    if request.tools:
+        return "tools"
+    if request.functions:
+        return "functions"
+    return next(_tool_turns(request.messages), None)
+
+
+def _tool_turns(messages: list[ChatMessage]) -> Iterator[str]:
+    """The place of each message that is a tool result or that has tool calls."""
+    for index, message in enumerate(messages):
+        if isinstance(message, ToolMessage):
+            yield f"messages[{index}]"
+        elif isinstance(message, AssistantMessage) and message.tool_calls:
+            yield f"messages[{index}].tool_calls"
 
 
 def _remote_part(messages: list[ChatMessage]) -> str | None:

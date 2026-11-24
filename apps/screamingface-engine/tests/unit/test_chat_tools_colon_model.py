@@ -26,6 +26,7 @@ from _chat_final_world import (
     tool_call,
     tools_world,
 )
+from _chat_tools_reachable import tools_reachable  # noqa: F401
 from _chat_world import chat_store, ingest_chat_input, run_turn
 
 from screamingface_engine.chat import wire

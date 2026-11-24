@@ -346,18 +346,25 @@ const errorEnvelope = `{
     <h2>Tools</h2>
 
     <p>
-      You can send <code>tools</code> with the request. The last model step of the recipe decides
-      which tool to call. The Engine runs no tool. Your client runs the tool and sends the result
-      back in the next request, as a <code>tool</code> message. The steps before the last step do
-      not get the tools. They see the conversation and the tool list as text, with a note that tells
-      them not to call a tool.
+      Tool calls are not available yet. The Engine refuses a request that declares or uses a tool,
+      before a run starts and before a cost. The answer is HTTP 400 with the code
+      <code>tools_not_available</code>, and <code>param</code> names the place. These requests get
+      the error:
     </p>
 
+    <ul>
+      <li><code>tools</code> with at least one item.</li>
+      <li><code>functions</code> with at least one item.</li>
+      <li>
+        <code>messages</code> with a <code>tool</code> message, or with an assistant message that
+        has <code>tool_calls</code>.
+      </li>
+    </ul>
+
     <p>
-      With tools, the final step searches the web only when the provider of its route does the
-      search. A final step on a route that searches with the Engine tools does not search. When such
-      a final step sets <code>web_search=true</code>, the Engine refuses the recipe with 400
-      <code>recipe_not_supported</code>.
+      <code>tools: []</code> declares no tool and is accepted. <code>tool_choice</code> and
+      <code>function_call</code> are ignored. A coding agent that sends its tools with each request
+      (for example pi or opencode) gets this error until tool calls are on again.
     </p>
 
     <h2>Errors</h2>
@@ -384,8 +391,9 @@ const errorEnvelope = `{
           <td>400</td>
           <td>
             <code>invalid_request</code>, <code>unsupported_parameter</code>,
-            <code>unsupported_content</code>, <code>recipe_invalid</code>,
-            <code>recipe_not_supported</code>, <code>final_step_not_model</code>,
+            <code>tools_not_available</code>, <code>unsupported_content</code>,
+            <code>recipe_invalid</code>, <code>recipe_not_supported</code>,
+            <code>final_step_not_model</code>,
             <code>model_does_not_support_tools</code>
           </td>
           <td>
@@ -497,6 +505,12 @@ const errorEnvelope = `{
         <code>max_tokens</code> and the others) and <code>tool_choice</code>. Set them in the
         recipe.
       </li>
+      <li data-limit="tools-not-available">
+        Tool calls are not available yet. The Engine refuses a request with <code>tools</code> or
+        <code>functions</code>, a <code>tool</code> message, or an assistant message with
+        <code>tool_calls</code>. The answer is 400 <code>tools_not_available</code>, and no run
+        starts.
+      </li>
       <li data-limit="unknown-fields">The Engine ignores unknown top-level request fields.</li>
       <li data-limit="usage-sum">
         <code>usage</code> is the sum of the whole ensemble. Thus, a context meter in an agent reads
@@ -509,20 +523,6 @@ const errorEnvelope = `{
         member and the final step use the same route with the same parameters. The Engine identifies
         a step by its route and its parameters. In these cases, <code>finish_reason</code> is
         <code>stop</code>.
-      </li>
-      <li data-limit="tools-final-model-step">
-        With tools, the recipe must end in a model step (a model, a synthesizer or a writer). The
-        Engine refuses a static reducer at the end, such as Vote.
-      </li>
-      <li data-limit="tools-cascade-gate">
-        With tools, the Engine refuses each Cascade and each Gate that ends in a reducer step. Add a
-        final model stage (<code>cascade &gt;&gt; model</code> in code), or use a Gate with recipe
-        branches. With <code>cascade &gt;&gt; model</code>, the final model answers also when the
-        Cascade abstains.
-      </li>
-      <li data-limit="tools-unique-final-step">
-        With tools, the final step of the recipe must be unique. The Engine refuses a final binding
-        that names more than one step.
       </li>
       <li data-limit="corrective-loop">The Engine refuses a recipe with a corrective loop.</li>
       <li data-limit="benchmark-linked">
@@ -595,19 +595,6 @@ const errorEnvelope = `{
         Web search adds tokens and cost to each step that searches. For example, on 2026-11-18 one
         cheap model got a one-word question. It used 576 prompt tokens with search on and 16 prompt
         tokens with <code>web_search=false</code>.
-      </li>
-      <li data-limit="tools-final-step-search">
-        With tools, the final step searches only when the provider does the search itself. When the
-        final step sets <code>web_search=true</code> on a route that searches with the Engine tools,
-        the answer is 400 <code>recipe_not_supported</code>.
-      </li>
-      <li data-limit="engine-search-tools">
-        A step that searches with the Engine tools can try to call one of your tools by name. It
-        cannot, and the step can then fail. Set <code>web_search=false</code> on the members when
-        you use tools.
-      </li>
-      <li data-limit="pictures-with-tools">
-        With pictures and tools, the final model must be able to read pictures.
       </li>
       <li data-limit="error-envelope">
         Errors use the OpenAI error envelope. The <code>x-should-retry</code> header tells the

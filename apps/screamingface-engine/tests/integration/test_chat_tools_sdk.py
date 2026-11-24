@@ -36,6 +36,7 @@ from screamingface_engine.catalog.port import (
     compute_etag,
 )
 from screamingface_engine.config import Settings
+from screamingface_engine.rest import chat_body
 from screamingface_engine.runner.main import build_executor
 from screamingface_engine.world.config import AigatewaySection, ModelSpec, WorldConfig
 from screamingface_engine.world.models.registry import encode_route_id
@@ -208,6 +209,17 @@ def _stack(tmp_path: Path, gateway: _Gateway, *, keepalive_s: float) -> Iterator
     app.router.on_shutdown.append(client.aclose)
     with TestClient(app) as http:
         yield _Stack(app, http, gateway)
+
+
+@pytest.fixture(autouse=True)
+def tools_reachable(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Remove the fixed tool refusal of the chat route for the tests of this module.
+
+    WHY: tool calls are turned off at the boundary (rest/chat_body.py::_tool_use, owner decision
+    of 2026-11-24). The tool loop behind the check stays, and these tests keep it correct. This
+    is a test seam only; no setting removes the check in a deployment.
+    """
+    monkeypatch.setattr(chat_body, "_tool_use", lambda request: None)
 
 
 @pytest.fixture
