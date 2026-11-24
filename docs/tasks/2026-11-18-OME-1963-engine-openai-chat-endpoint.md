@@ -24,3 +24,7 @@ the final step, and the OpenAI error envelope.
 - Ledger: `docs/work/2026-11-17-engine-openai-chat-endpoint.md`
 - The same PR has the docs page (`OME-1964`) and the repo script changes (`OME-1965`).
 - Deploy order: workers first, then the App.
+- **Changed on 2026-11-24 (owner order):** tool calls are turned off for now. A request with
+  `tools` or `functions`, a `tool` message or an assistant message with tool calls gets 400
+  `tools_not_available` before a run. The refusal is fixed, with no setting; the tool code of
+  the final step stays (PRD `tool-calls.md` section 0).

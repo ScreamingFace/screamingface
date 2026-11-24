@@ -21,3 +21,6 @@ the Python examples and check that the page states each limit.
 - Spec: `docs/spec/2026-11-17-engine-openai-chat-endpoint/prd/docs.md`
 - Ledger: `docs/work/2026-11-17-engine-openai-chat-endpoint.md` (unit U7)
 - Not checked: the pi and opencode examples against the clients (the page says so).
+- **Changed on 2026-11-24 (owner order):** the Tools section of the page now says that tool calls
+  are not available (400 `tools_not_available`). The six limits of a request with tools left the
+  page; one new limit names the refusal.

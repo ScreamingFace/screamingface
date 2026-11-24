@@ -327,6 +327,12 @@ docs examples run in tests.
   the tests "call the inner functions or are removed"; I kept the route tests with a test-only
   fixture, because the route checks of the tool code have no other caller.
 
+- **2026-11-24 — before the push.** MI-28 (`tests/e2e/test_model_inference_local_engine.py`)
+  had a case that sent tools to a real local Engine. It is now the refusal case: the SDK raises
+  `tools_not_available` before a request, and a raw POST to the real Engine gets HTTP 400 with
+  the same code. Run with Docker and `SCREAMINGFACE_TEST_E2E=1`: 3 of 3 pass. The mirrors of
+  `OME-2005`, `OME-1963` and `OME-1964` have the notes of U10 and U11.
+
 ## Outcome (fill at the end — required before COMMIT)
 
 Not started.

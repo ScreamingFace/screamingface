@@ -26,6 +26,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any
 
+import httpx
 import pytest
 from harness._gating import require_e2e_stack
 from harness.fake_gateway import FakeGateway
@@ -200,21 +201,27 @@ def test_model_inference_with_the_real_local_engine_plain_call(local_engine: _Lo
     assert local_engine.fake.refusals == ()
 
 
-def test_model_inference_with_the_real_local_engine_tool_call(local_engine: _LocalEngine) -> None:
-    # MI-S3: the model per call, with one client tool; the answer is the tool call.
+def test_tool_use_is_refused_by_the_sdk_and_by_the_real_local_engine(
+    local_engine: _LocalEngine,
+) -> None:
+    # MI-S3 is off: tool calls are turned off for now (contracts C1.8, D26; Engine TC-S23).
+    messages = [{"role": "user", "content": "What is the weather in Paris?"}]
     with sf.Client(engine_url=local_engine.engine_url) as client:
-        reply = client.chat.completions.create(
-            model=TOOL_MODEL,
-            messages=[{"role": "user", "content": "What is the weather in Paris?"}],
-            tools=[TOOL],
-        )
+        with pytest.raises(sf.PlanningError) as raised:
+            client.chat.completions.create(model=TOOL_MODEL, messages=messages, tools=[TOOL])
+    assert raised.value.code == "tools_not_available"
+    assert raised.value.details == {"param": "tools"}
 
-    assert reply.text is None
-    assert reply.choices[0].finish_reason == "tool_calls"
-    assert reply.tool_calls is not None
-    call = reply.tool_calls[0]
-    assert call.function.name == "get_weather"
-    assert json.loads(call.function.arguments) == json.loads(ARGUMENTS)
+    # The real Engine gives the same code to a client that is not the SDK, and starts no run.
+    response = httpx.post(
+        f"{local_engine.engine_url}/v1/chat/completions",
+        json={"model": TOOL_MODEL, "messages": messages, "tools": [TOOL]},
+        timeout=30.0,
+    )
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "tools_not_available"
+    assert response.json()["error"]["param"] == "tools"
+    assert response.headers["x-should-retry"] == "false"
     assert local_engine.fake.refusals == ()
 
 
