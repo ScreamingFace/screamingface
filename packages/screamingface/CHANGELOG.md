@@ -8,11 +8,6 @@
   were graded (`graded_questions`), so the leaderboard can show "505 / 525 graded" beside the
   score. A fully graded run submits exactly what it did before.
 
-* `sf.InferenceClient(model=None, *, client=None)` calls an ensemble as a chat model, with the call
-  path of the OpenAI client: `client.chat.completions.create(...)`. The model is a recipe, a
-  `sf.Url4`, URL4 text or a gateway model id. You can give it on the client or on each call. The
-  reply has the OpenAI field names (`ChatCompletion`) and the short forms `reply.text`,
-
 * Each recipe has `chat`, so you can call an ensemble as a chat model with the call path of the
   OpenAI client: `recipe.chat.completions.create(...)`. `sf.Client().chat` and
   `sf.AsyncClient().chat` have the same path with `model` as a required keyword
