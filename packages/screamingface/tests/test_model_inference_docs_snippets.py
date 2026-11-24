@@ -40,7 +40,6 @@ RUN = (
     "plain_call.py",
     "openai_form.py",
     "model_per_call.py",
-    "tools.py",
     "stream.py",
     "async_call.py",
     "endpoint_openai.py",
@@ -136,18 +135,6 @@ def test_model_per_call(
 
     assert capsys.readouterr().out.splitlines() == [f"{model} Hello" for model in models]
     assert [sent_body(request)["model"] for request in _chat(requests)] == models
-
-
-def test_tools(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
-    requests: list[httpx.Request] = []
-    with recording_client(_engine(TOOL), requests) as client:
-        _use(monkeypatch, client)
-        ns = _run("tools.py")
-
-    assert capsys.readouterr().out.splitlines() == ["get_weather {'city': 'Paris'}"]
-    chat = sent_body(_chat(requests)[0])
-    assert chat["messages"] == ns["messages"]
-    assert chat["tools"] == ns["tools"]
 
 
 def test_stream(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
@@ -252,15 +239,14 @@ def test_candidate_url4(
 def test_openai_one_line(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """MI-45 (D18): the snippet makes its client with the OpenAI arguments, and the tool loop of
-    the OpenAI docs runs with no other change."""
+    """MI-45 (D18): the snippet makes its client with the OpenAI arguments, and a conversation
+    that keeps the reply message runs with no other change."""
     requests: list[httpx.Request] = []
-    tool, text = _engine(TOOL), _engine(TEXT)
+    answer = _engine(TEXT)
 
     def respond(request: httpx.Request) -> httpx.Response:
         requests.append(request)
-        asked = any(item.get("role") == "tool" for item in sent_body(request)["messages"])
-        return text(request) if asked else tool(request)
+        return answer(request)
 
     real = sf.Client
 
@@ -280,15 +266,22 @@ def test_openai_one_line(
         ns = _run("openai_one_line.py")
     ns["client"].close()
 
-    assert capsys.readouterr().out.splitlines() == ["Hello", "5"]
+    assert capsys.readouterr().out.splitlines() == ["Hello", "Hello", "5"]
     assert sorted(str(item.message).split("'")[1] for item in record) == ["api_key", "temperature"]
     first, second = (sent_body(request) for request in _chat(requests))
     assert first["model"] == second["model"] == "openrouter/openai/gpt-5.5"
     assert "temperature" not in first
-    assert second["messages"][1] == {
-        "role": "assistant",
-        "content": None,
-        "tool_calls": [TOOL_CALL],
-    }
-    assert second["messages"][2]["content"] == "Sunny in Paris"
+    assert second["messages"] == [
+        {"role": "user", "content": QUESTION},
+        {"role": "assistant", "content": "Hello"},
+        {"role": "user", "content": "And of Italy?"},
+    ]
     assert all("sk-..." not in str(request.headers) for request in requests)
+
+
+def test_no_snippet_declares_a_tool() -> None:
+    """MI-50 (D26): tool calls are turned off, so no docs example of the chat calls uses one."""
+    for name in RUN:
+        text = (SNIPPETS / name).read_text(encoding="utf-8")
+        assert "tools" not in text, name
+        assert "tool_calls" not in text, name

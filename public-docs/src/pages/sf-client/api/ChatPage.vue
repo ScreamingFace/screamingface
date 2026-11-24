@@ -9,7 +9,6 @@ import {
 import plainCallExample from '@/snippets/chat/plain_call.py?raw'
 import openaiFormExample from '@/snippets/chat/openai_form.py?raw'
 import modelPerCallExample from '@/snippets/chat/model_per_call.py?raw'
-import toolsExample from '@/snippets/chat/tools.py?raw'
 import streamExample from '@/snippets/chat/stream.py?raw'
 import asyncCallExample from '@/snippets/chat/async_call.py?raw'
 import endpointOpenaiExample from '@/snippets/chat/endpoint_openai.py?raw'
@@ -155,7 +154,7 @@ sf.chat.endpoint(model)`
       For code that uses chat completions, change <code>openai.OpenAI(...)</code> to
       <code>sf.Client(...)</code>, or <code>openai.AsyncOpenAI(...)</code> to
       <code>sf.AsyncClient(...)</code>. The lines below the client line do not change: the call
-      path, the reply fields, the tool loop that appends <code>reply.choices[0].message</code> to
+      path, the reply fields, a conversation that appends <code>reply.choices[0].message</code> to
       <code>messages</code>, the stream loop, and <code>model_dump()</code>,
       <code>model_dump_json()</code> and <code>to_json()</code> on a reply. An OpenAI attribute that
       the Engine never sets, for example <code>usage.prompt_tokens_details</code> or
@@ -227,9 +226,10 @@ sf.chat.endpoint(model)`
         below.
       </li>
       <li>
-        The old function keywords. <code>functions</code> and <code>function_call</code> with a
-        value raise <code>PlanningError</code> (<code>unsupported_parameter</code>). Use
-        <code>tools</code>.
+        Tools. Tool calls are not available yet. A call with <code>tools</code> or
+        <code>functions</code>, or with a tool turn in <code>messages</code>, raises
+        <code>PlanningError</code> (<code>tools_not_available</code>). See "Tools are not available
+        yet" below.
       </li>
       <li>
         The other OpenAI APIs. The client has no <code>client.responses</code>,
@@ -253,15 +253,38 @@ sf.chat.endpoint(model)`
       can give a different model.
     </p>
 
-    <h2>Messages and tools</h2>
-
-    <CodeBlock :code="toolsExample" language="python" />
+    <h2>Messages</h2>
 
     <p>
       Give exactly one of <code>prompt</code> and <code>messages</code>. If not, the call raises
       <code>TypeError</code>. An empty <code>messages</code> raises <code>ValueError</code>. The SDK
-      sends <code>messages</code> and <code>tools</code> with no change. The Engine checks their
-      shape. A reply with tool calls and no text has <code>content</code> <code>None</code>.
+      sends <code>messages</code> with no change. The Engine checks their shape.
+    </p>
+
+    <h2>Tools are not available yet</h2>
+
+    <p>
+      Tool calls are turned off for now. A call that declares or uses a tool raises
+      <code>PlanningError</code> with the code <code>tools_not_available</code>, before a request
+      and before a cost. <code>error.details["param"]</code> names the place. These calls get the
+      error:
+    </p>
+
+    <ul>
+      <li><code>tools</code> with at least one item.</li>
+      <li><code>functions</code> with at least one item (the old OpenAI keyword).</li>
+      <li>
+        <code>messages</code> with a <code>tool</code> message, or with an assistant message that
+        has <code>tool_calls</code>.
+      </li>
+    </ul>
+
+    <p>
+      <code>tools=[]</code> and <code>tools=None</code> declare no tool and are accepted.
+      <code>tool_choice</code> and <code>function_call</code> are accepted and not sent, with an
+      <code>IgnoredParameterWarning</code>. The Engine has the same check for each other client: it
+      answers HTTP 400 with the code <code>tools_not_available</code> and starts no run. The reply
+      types keep <code>tool_calls</code>, which is <code>None</code>.
     </p>
 
     <h2>Stream the reply</h2>
@@ -387,11 +410,19 @@ sf.chat.endpoint(model)`
           </td>
         </tr>
         <tr>
-          <td><code>messages</code>, <code>tools</code></td>
+          <td><code>messages</code></td>
           <td>
-            The OpenAI messages and tools, as a list or another iterable. The SDK sends them with no
-            change. An item of <code>messages</code> can also be the message object of a reply
+            The OpenAI messages, as a list or another iterable. The SDK sends them with no change.
+            An item can also be the message object of a reply
             (<code>reply.choices[0].message</code>).
+          </td>
+        </tr>
+        <tr>
+          <td><code>tools</code></td>
+          <td>
+            Not available yet. A value with at least one item raises
+            <code>PlanningError</code> (<code>tools_not_available</code>). <code>None</code> and an
+            empty value are accepted.
           </td>
         </tr>
         <tr>
@@ -423,8 +454,8 @@ sf.chat.endpoint(model)`
             stops when the first chunk comes. The SDK checks the limit at each line from the Engine,
             so the error can come up to one keep-alive interval (15 s by default) late. The value
             must be more than 0. An <code>httpx.Timeout</code> is also accepted; the SDK uses its
-            <code>read</code> value. <code>None</code> (the default) means the value of the client. If
-            you gave none, only the limit of the Engine applies.
+            <code>read</code> value. <code>None</code> (the default) means the value of the client.
+            If you gave none, only the limit of the Engine applies.
           </td>
         </tr>
         <tr>
@@ -445,9 +476,8 @@ sf.chat.endpoint(model)`
             <code>prompt_cache_options</code>, <code>prompt_cache_retention</code>,
             <code>safety_identifier</code>, <code>verbosity</code>, <code>moderation</code>) is also
             accepted and not sent, with an <code>IgnoredParameterWarning</code>.
-            <code>n</code> above 1, <code>logprobs=True</code>, <code>audio</code> with a value,
-            <code>modalities</code> with <code>"audio"</code>, and <code>functions</code> or
-            <code>function_call</code> with a value raise <code>PlanningError</code> with
+            <code>n</code> above 1, <code>logprobs=True</code>, <code>audio</code> with a value and
+            <code>modalities</code> with <code>"audio"</code> raise <code>PlanningError</code> with
             the code <code>unsupported_parameter</code>. Any other name raises
             <code>TypeError</code>.
           </td>

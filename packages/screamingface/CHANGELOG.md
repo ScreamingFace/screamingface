@@ -33,12 +33,18 @@
   accepts the message object of a reply (`reply.choices[0].message`), `messages` and `tools`
   accept each iterable, `timeout` accepts an `httpx.Timeout`, and each other keyword of the
   OpenAI `create` (`extra_headers`, `extra_query`, `extra_body` and so on) is accepted and
-  not sent. `functions` and `function_call` with a value raise `PlanningError`
-  (`unsupported_parameter`). The reply types have `model_dump()`, `model_dump_json()` and
+  not sent. The reply types have `model_dump()`, `model_dump_json()` and
   `to_json()`, and the OpenAI attributes that the Engine never sets (for example
   `usage.prompt_tokens_details`) with the value `None`. Not in this change: a map of OpenAI
   model names, the OpenAI error classes, and the other OpenAI APIs (`client.responses`,
   `client.embeddings`).
+
+* Tool calls are not available yet. A chat call that declares or uses a tool raises
+  `PlanningError` with the code `tools_not_available`, before a request: `tools` or `functions`
+  with at least one item, a `tool` message, or an assistant message with `tool_calls`.
+  `error.details["param"]` names the place. `tools=[]` and `tools=None` are accepted;
+  `tool_choice` and `function_call` are accepted and not sent. The Engine has the same check for
+  each other client (HTTP 400, `tools_not_available`). The reply types keep `tool_calls`.
 
 * Re-grading accepts `expected_target_revision` on sync and async clients. A catalogue or
   replay result on another revision is refused before submission (`regrade_target_mismatch`).

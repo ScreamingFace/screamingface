@@ -47,6 +47,9 @@ def test_the_section_names_the_api() -> None:
         'sf.Client(api_key="sk-...")',
         "model_dump()",
         "client.responses",
+        # U11 (D26): tool calls are turned off.
+        "tools_not_available",
+        "Tools are not available yet",
     ):
         assert phrase in section, phrase
 

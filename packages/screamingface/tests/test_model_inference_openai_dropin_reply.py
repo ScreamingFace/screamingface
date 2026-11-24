@@ -41,7 +41,6 @@ from screamingface.chat_completion import (
     ChatToolCall,
     ChatUsage,
 )
-from screamingface.errors import PlanningError
 from screamingface.inference import AsyncCompletions, Completions, RecipeCompletions
 from screamingface.warnings import IgnoredParameterWarning
 
@@ -77,7 +76,9 @@ NONE_ATTRIBUTES: dict[type, tuple[str, ...]] = {
 
 def _tool_reply() -> ChatCompletion:
     with recording_client(answers(sse(TOOL_STREAM)), []) as client:
-        return client.chat.completions.create(model=MODEL, messages=MESSAGES, tools=[TOOL])
+        # WHY no tools=: a call with tools is refused for now (C1.8); the mock Engine answers with
+        # a tool call, so the reply types of a tool call stay covered.
+        return client.chat.completions.create(model=MODEL, messages=MESSAGES)
 
 
 def _chunks() -> list[ChatCompletionChunk]:
@@ -125,19 +126,30 @@ def _no_none(value: Any) -> Any:
 
 def test_the_reply_message_is_a_valid_item_of_messages() -> None:
     requests: list[httpx.Request] = []
-    with recording_client(answers(sse(TOOL_STREAM), sse(reply_body())), requests) as client:
-        first = client.chat.completions.create(model=MODEL, messages=MESSAGES, tools=[TOOL])
-        messages = [*MESSAGES, first.choices[0].message, TOOL_RESULT]
-        second = client.chat.completions.create(model=MODEL, messages=messages, tools=[TOOL])
+    follow_up = {"role": "user", "content": "And in Lyon?"}
+    with recording_client(answers(sse(reply_body("Sunny")), sse(reply_body())), requests) as client:
+        first = client.chat.completions.create(model=MODEL, messages=MESSAGES)
+        messages = [*MESSAGES, first.choices[0].message, follow_up]
+        second = client.chat.completions.create(model=MODEL, messages=messages)
 
     assert second.text == "Hello"
     # INVARIANT (D23): the wire form of the OpenAI SDK for its own message object.
     assert sent_body(requests[1])["messages"] == [
         MESSAGES[0],
+        {"role": "assistant", "content": "Sunny"},
+        follow_up,
+    ]
+    assert messages[1] is first.choices[0].message
+
+
+def test_a_reply_message_with_tool_calls_has_the_openai_wire_form() -> None:
+    # WHY at the helper: a call with a tool turn is refused for now (C1.8, D27).
+    message = _tool_reply().choices[0].message
+    assert chat_messages(None, [*MESSAGES, message, TOOL_RESULT]) == [
+        MESSAGES[0],
         {"role": "assistant", "content": None, "tool_calls": [TOOL_CALL]},
         TOOL_RESULT,
     ]
-    assert messages[1] is first.choices[0].message
 
 
 @pytest.mark.parametrize(
@@ -172,9 +184,9 @@ def test_messages_and_tools_accept_each_iterable() -> None:
     assert chat_tools(items([TOOL])) == [TOOL]
     assert chat_tools(items([])) is None
     with recording_client(ok, requests := []) as client:
-        client.chat.completions.create(model=MODEL, messages=items(MESSAGES), tools=items([TOOL]))
+        client.chat.completions.create(model=MODEL, messages=items(MESSAGES), tools=items([]))
     assert sent_body(requests[0])["messages"] == MESSAGES
-    assert sent_body(requests[0])["tools"] == [TOOL]
+    assert "tools" not in sent_body(requests[0])
 
 
 @pytest.mark.parametrize(
@@ -303,7 +315,7 @@ def test_the_new_openai_keywords_warn_and_are_not_sent() -> None:
         with pytest.warns(IgnoredParameterWarning) as record:
             client.chat.completions.create(model=MODEL, messages=MESSAGES, **IGNORED)
         with pytest.warns(IgnoredParameterWarning) as none_record:
-            client.chat.completions.create("Hello", model=MODEL, functions=None, function_call=None)
+            client.chat.completions.create("Hello", model=MODEL, functions=[], function_call="auto")
 
     assert sorted(str(item.message).split("'")[1] for item in record) == sorted(IGNORED)
     assert len(none_record) == 2
@@ -314,23 +326,3 @@ def test_the_new_openai_keywords_warn_and_are_not_sent() -> None:
     assert extra.url == plain.url
     assert "x-secret-header" not in extra.headers
     assert "s3cret-value" not in extra.content.decode() + str(extra.url) + str(extra.headers)
-
-
-@pytest.mark.parametrize(
-    ("name", "value"),
-    [
-        ("functions", [{"name": "get_weather", "parameters": {"type": "object"}}]),
-        ("functions", []),
-        ("function_call", "auto"),
-        ("function_call", {"name": "get_weather"}),
-    ],
-)
-def test_the_old_function_keywords_are_refused(name: str, value: Any) -> None:
-    requests: list[httpx.Request] = []
-    with recording_client(ok, requests) as client:
-        with pytest.raises(PlanningError) as error:
-            client.chat.completions.create(model=MODEL, messages=MESSAGES, **{name: value})
-
-    assert error.value.code == "unsupported_parameter"
-    assert error.value.details == {"param": name}
-    assert requests == []

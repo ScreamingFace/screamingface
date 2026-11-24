@@ -103,8 +103,6 @@ def test_each_parameter_gives_one_warning() -> None:
         ("logprobs", True),
         ("audio", {"voice": "alloy", "format": "wav"}),
         ("modalities", ["text", "audio"]),
-        ("functions", [{"name": "f"}]),
-        ("function_call", "auto"),
     ],
 )
 def test_refused_parameters_raise(name: str, value: object) -> None:

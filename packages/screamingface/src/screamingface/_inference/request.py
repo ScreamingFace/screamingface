@@ -25,7 +25,7 @@ from screamingface._evaluation.candidate import (
     recipes_need_operators,
 )
 from screamingface._evaluation.operators import _OperatorCatalog
-from screamingface._inference.parameters import KNOWN_PARAMETERS, check_other
+from screamingface._inference.parameters import KNOWN_PARAMETERS, check_other, refuse_tool_use
 from screamingface._inference.trace import new_trace_context
 from screamingface.chat_completion import ChatMessage
 from screamingface.client import _use_cache_value
@@ -351,6 +351,7 @@ __all__ = [
     "chat_tools",
     "check_options",
     "check_other",
+    "refuse_tool_use",
     "check_retries",
     "model_source",
     "model_text",

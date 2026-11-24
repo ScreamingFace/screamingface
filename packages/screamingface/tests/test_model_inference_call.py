@@ -27,6 +27,7 @@ from _chat_frames import TOOL_CALL, TRACE_ID, engine_stream, info, wire
 import screamingface as sf
 from screamingface import _default_client
 from screamingface._evaluation.candidate import compile_candidate
+from screamingface._inference.request import INCLUDE_USAGE, chat_body
 from screamingface.chat_completion import (
     ChatCompletion,
     ChatFunctionCall,
@@ -99,9 +100,12 @@ def test_messages_and_tools_are_sent_unchanged() -> None:
     ]
     requests: list[httpx.Request] = []
     with recording_client(ok, requests) as client:
-        client.chat.completions.create(messages=messages, tools=tools, model="openrouter/a")
+        client.chat.completions.create(messages=messages, model="openrouter/a")
 
-    body = sent_body(requests[0])
+    assert sent_body(requests[0])["messages"] == messages
+    # WHY at the helper: a call with tools is refused for now (C1.8, D26). The body builder still
+    # sends the tools with no change, for the time when tool calls are on again.
+    body = chat_body("openrouter/a", messages, tools, stream_options=INCLUDE_USAGE)
     assert body["messages"] == messages
     assert body["tools"] == tools
 

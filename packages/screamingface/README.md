@@ -1757,29 +1757,24 @@ print(reply.choices[0].message.content, reply.usage.total_tokens)
 
 For code that uses chat completions, you change the line that makes the client: `openai.OpenAI(...)` becomes `sf.Client(...)`, and `openai.AsyncOpenAI(...)` becomes `sf.AsyncClient(...)`. The calls below that line keep their form. Only the parts in the last paragraph of this section need a change by hand. The two clients accept the arguments of the OpenAI client. `api_key` is accepted, but the client does not keep it and does not send it. `base_url` is the Engine URL, with or without `/v1`. `timeout` and `max_retries` are the defaults of the chat calls of that client. Each other OpenAI argument (`organization`, `project`, `default_headers`, `http_client` and so on) is accepted and not used. An argument that the client does not use gives an `IgnoredParameterWarning` when it has a value.
 
-The tool loop of the OpenAI docs runs as it is: you can append `reply.choices[0].message` to `messages`. A reply has `model_dump()`, `model_dump_json()` and `to_json()`. An OpenAI attribute that the Engine never sets, for example `usage.prompt_tokens_details`, is `None`. The other keywords of the OpenAI `create` (`extra_headers`, `extra_query`, `extra_body` and so on) are accepted and not sent.
+A conversation keeps its form: you can append `reply.choices[0].message` to `messages`. A reply has `model_dump()`, `model_dump_json()` and `to_json()`. An OpenAI attribute that the Engine never sets, for example `usage.prompt_tokens_details`, is `None`. The other keywords of the OpenAI `create` (`extra_headers`, `extra_query`, `extra_body` and so on) are accepted and not sent.
 
-You change these parts by hand: the model name (`model="gpt-4o"` is not a gateway model id), the error classes (a failed call raises a ScreamingFace error, not an `openai` error), and the old keywords `functions` and `function_call` (use `tools`). The client has only chat completions: it has no `client.responses` and no `client.embeddings`.
+You change these parts by hand: the model name (`model="gpt-4o"` is not a gateway model id), the error classes (a failed call raises a ScreamingFace error, not an `openai` error), and tool calls (they are not available yet; see below). The client has only chat completions: it has no `client.responses` and no `client.embeddings`.
 
-### Messages and tools
+### Messages
+
+Give a prompt or `messages`, not both. The SDK sends `messages` with no change.
+
+### Tools are not available yet
 
 ```python
-reply = ensemble.chat.completions.create(
-    messages=[{"role": "user", "content": "What is the weather in Paris?"}],
-    tools=[
-        {
-            "type": "function",
-            "function": {
-                "name": "get_weather",
-                "parameters": {"type": "object", "properties": {"city": {"type": "string"}}},
-            },
-        }
-    ],
-)
-print(reply.tool_calls)
+try:
+    ensemble.chat.completions.create("What is the weather in Paris?", tools=[weather_tool])
+except sf.PlanningError as error:
+    print(error.code, error.details)  # tools_not_available {'param': 'tools'}
 ```
 
-Give a prompt or `messages`, not both. The SDK sends `messages` and `tools` with no change.
+Tool calls are turned off for now. A call with `tools` or `functions` (at least one item), or with a tool turn in `messages` (a `tool` message, or an assistant message with `tool_calls`), raises `PlanningError` with the code `tools_not_available`. The error comes before a request and before a cost. `tools=[]` and `tools=None` are accepted. The Engine has the same check for each other OpenAI client.
 
 ### Stream the reply
 

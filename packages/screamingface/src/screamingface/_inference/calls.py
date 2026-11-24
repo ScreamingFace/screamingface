@@ -26,6 +26,7 @@ from screamingface._inference.request import (
     model_source,
     model_text,
     model_text_async,
+    refuse_tool_use,
     timeout_seconds,
 )
 from screamingface._inference.transport import (
@@ -75,6 +76,8 @@ def _checked(
         max_retries=max_retries,
         timeout=timeout,
     )
+    # WHY before check_other: a call that raises gives no warning (C1.2).
+    refuse_tool_use(messages_list, tools_list)
     check_other(other, stacklevel=_CALLER_STACKLEVEL)
 
     def build(text: str, max_retries: int, timeout: float | None) -> ChatCall:

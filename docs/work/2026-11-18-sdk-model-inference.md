@@ -304,6 +304,29 @@ docs examples run in tests.
   eslint, type-check and build green. Not run: MI-28 against a real Engine (no wire change in
   this unit) and a paid call.
 
+- **2026-11-24 — U11: tool calls are turned off (local, not pushed).** Team feedback F4 through
+  the owner: disable tool use for now and give a proper error. Owner answers Q12 to Q14 (spec
+  §5.7): the Engine and the SDK refuse; declared tools and tool turns count; a fixed refusal
+  with no switch, and the tool code stays. Spec §5.7 (D26 to D30), contracts C1.8, test plan
+  MI-47 to MI-50, plan U11; Engine PRD `tool-calls.md` §0 (TC-S23, TC-23).
+  SDK: `refuse_tool_use` in `_inference/parameters.py`, called by the shared checks before the
+  warnings: `PlanningError`, code `tools_not_available`, `details["param"]`. `functions` with an
+  item gets the same error; `function_call` now only warns, as `tool_choice` (D29 replaces that
+  part of D25). New test file `test_model_inference_tools_off.py`. Tests changed because their
+  call is now refused (all are files of this PR; no assertion on the wire is weaker):
+  `test_messages_and_tools_are_sent_unchanged` checks the tools at the body builder;
+  the two-client program of MI-40 is a conversation with no tool; the reply-message tests use a
+  text reply at the call and the tool form at the helper; `test_tools` of the docs snippets is
+  removed with its snippet. Engine: `_tool_use` at the boundary (`rest/chat_body.py`) answers
+  400 `tools_not_available` before a run, a blob write and a catalogue read; the request model
+  keeps `functions` so the route can refuse it. 21 route tests of the tool code (4 files) run
+  with the check removed by the test-only fixture `tests/unit/_chat_tools_reachable.py`; no test
+  was removed. Docs: the Chat API page, the OpenAI guide page (the six limits of a request with
+  tools left the page; one new limit), the two READMEs, the SDK changelog; the snippet
+  `tools.py` is removed. Deviation from the answer of Q14 to report: the owner option said that
+  the tests "call the inner functions or are removed"; I kept the route tests with a test-only
+  fixture, because the route checks of the tool code have no other caller.
+
 ## Outcome (fill at the end — required before COMMIT)
 
 Not started.

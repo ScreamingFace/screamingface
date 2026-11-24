@@ -20,7 +20,7 @@ import httpx
 import openai
 import pytest
 from _chat_engine import ENGINE_URL, ok, sent_body, sse
-from _chat_frames import META, TOOL_CALL, USAGE, engine_stream, info, wire
+from _chat_frames import META, USAGE, engine_stream, info, wire
 
 import screamingface as sf
 from screamingface._inference.client_options import IGNORED_CLIENT_OPTIONS
@@ -29,10 +29,7 @@ from screamingface.warnings import IgnoredParameterWarning
 KEY = "sk-test-do-not-send-1234567890"
 MODEL = "openrouter/a"
 BASE_URL = f"{ENGINE_URL}/v1"
-TOOLS = [
-    {"type": "function", "function": {"name": "get_weather", "parameters": {"type": "object"}}}
-]
-ANSWER = "Sunny in Paris"
+FIRST, SECOND = "Paris", "Rome"
 
 
 def _engine(requests: list[httpx.Request]) -> Any:
@@ -41,20 +38,14 @@ def _engine(requests: list[httpx.Request]) -> Any:
     def respond(request: httpx.Request) -> httpx.Response:
         requests.append(request)
         body = json.loads(request.content)
-        if any(item.get("role") == "tool" for item in body["messages"]):
-            message: dict[str, Any] = {"role": "assistant", "content": ANSWER}
-            payloads = engine_stream(message, "stop")
-            finish = "stop"
-        else:
-            message = {"role": "assistant", "content": None, "tool_calls": [TOOL_CALL]}
-            payloads = engine_stream({"role": "assistant"}, "tool_calls", tool_calls=(TOOL_CALL,))
-            finish = "tool_calls"
+        text = FIRST if len(body["messages"]) == 1 else SECOND
+        message: dict[str, Any] = {"role": "assistant", "content": text}
         if body.get("stream"):
-            return sse(wire(payloads))
+            return sse(wire(engine_stream(message, "stop")))
         plain = {
             **META,
             "object": "chat.completion",
-            "choices": [{"index": 0, "message": message, "finish_reason": finish}],
+            "choices": [{"index": 0, "message": message, "finish_reason": "stop"}],
             "usage": dict(USAGE),
             "screamingface": info(),
         }
@@ -74,18 +65,19 @@ def _options(handler: Any = ok) -> dict[str, Any]:
 
 
 def program(client: Any) -> dict[str, Any]:
-    """The tool loop of the OpenAI docs, a second call and a stream loop."""
+    """Two turns that keep the reply message in the conversation, and a stream loop.
 
-    messages: list[Any] = [{"role": "user", "content": "What is the weather in Paris?"}]
+    AIDEV-NOTE: the program has no tools. Tool calls are turned off for now (C1.8, D26); the
+    test of that error is tests/test_model_inference_tools_off.py.
+    """
+
+    messages: list[Any] = [{"role": "user", "content": "What is the capital of France?"}]
     first = client.chat.completions.create(
-        model=MODEL, messages=messages, tools=TOOLS, temperature=0.2, max_tokens=64
+        model=MODEL, messages=messages, temperature=0.2, max_tokens=64
     )
-    message = first.choices[0].message
-    messages.append(message)
-    for call in message.tool_calls:
-        city = json.loads(call.function.arguments)["city"]
-        messages.append({"role": "tool", "tool_call_id": call.id, "content": f"Sunny in {city}"})
-    second = client.chat.completions.create(model=MODEL, messages=messages, tools=TOOLS)
+    messages.append(first.choices[0].message)
+    messages.append({"role": "user", "content": "And of Italy?"})
+    second = client.chat.completions.create(model=MODEL, messages=messages)
     stream = client.chat.completions.create(model=MODEL, messages=messages, stream=True)
     pieces = [chunk.choices[0].delta.content or "" for chunk in stream if chunk.choices]
     return _summary(first, second, pieces)
@@ -94,16 +86,13 @@ def program(client: Any) -> dict[str, Any]:
 async def aprogram(client: Any) -> dict[str, Any]:
     """program() with the async client."""
 
-    messages: list[Any] = [{"role": "user", "content": "What is the weather in Paris?"}]
+    messages: list[Any] = [{"role": "user", "content": "What is the capital of France?"}]
     first = await client.chat.completions.create(
-        model=MODEL, messages=messages, tools=TOOLS, temperature=0.2, max_tokens=64
+        model=MODEL, messages=messages, temperature=0.2, max_tokens=64
     )
-    message = first.choices[0].message
-    messages.append(message)
-    for call in message.tool_calls:
-        city = json.loads(call.function.arguments)["city"]
-        messages.append({"role": "tool", "tool_call_id": call.id, "content": f"Sunny in {city}"})
-    second = await client.chat.completions.create(model=MODEL, messages=messages, tools=TOOLS)
+    messages.append(first.choices[0].message)
+    messages.append({"role": "user", "content": "And of Italy?"})
+    second = await client.chat.completions.create(model=MODEL, messages=messages)
     stream = await client.chat.completions.create(model=MODEL, messages=messages, stream=True)
     pieces = [chunk.choices[0].delta.content or "" async for chunk in stream if chunk.choices]
     return _summary(first, second, pieces)
@@ -114,7 +103,8 @@ def _summary(first: Any, second: Any, pieces: list[str]) -> dict[str, Any]:
     usage = second.usage
     return {
         "finish": first.choices[0].finish_reason,
-        "tool": (message.tool_calls[0].id, message.tool_calls[0].function.name),
+        "first": message.content,
+        "tool_calls": message.tool_calls,
         "function_call": message.function_call,
         "answer": second.choices[0].message.content,
         "tokens": (usage.prompt_tokens, usage.completion_tokens, usage.total_tokens),
@@ -128,17 +118,18 @@ def _summary(first: Any, second: Any, pieces: list[str]) -> dict[str, Any]:
 
 
 EXPECTED = {
-    "finish": "tool_calls",
-    "tool": ("call_1", "get_weather"),
+    "finish": "stop",
+    "first": FIRST,
+    "tool_calls": None,
     "function_call": None,
-    "answer": ANSWER,
+    "answer": SECOND,
     "tokens": (3, 2, 5),
     "token_details": None,
     "logprobs": None,
     "fingerprint": None,
-    "dumped": ANSWER,
+    "dumped": SECOND,
     "json": "stop",
-    "stream": ANSWER,
+    "stream": SECOND,
 }
 
 
@@ -149,7 +140,7 @@ def _same_wire(theirs: list[httpx.Request], ours: list[httpx.Request]) -> None:
         assert sent_body(our)["model"] == sent_body(their)["model"] == MODEL
         # INVARIANT (D23): the reply message that the program appended has the same wire form.
         assert sent_body(our)["messages"] == sent_body(their)["messages"]
-        assert sent_body(our).get("tools") == sent_body(their).get("tools")
+        assert "tools" not in sent_body(our)
         assert KEY not in our.content.decode()
         assert all(KEY not in value for value in our.headers.values())
 
@@ -306,7 +297,7 @@ def test_api_key_is_in_no_request_no_attribute_and_no_repr(
             sf.Client(api_key=KEY, engine_url=ENGINE_URL, **_options(_engine(requests))) as client,
             sf.Client(api_key=provider, base_url=BASE_URL, **_options(_engine(requests))) as other,
         ):
-            client.chat.completions.create("Hello", model=MODEL, tools=TOOLS)
+            client.chat.completions.create("Hello", model=MODEL)
             other.chat.completions.create("Hello", model=MODEL)
             endpoint = client.chat.endpoint(MODEL)
             shown = repr(client) + repr(vars(client)) + repr(endpoint) + repr(client.chat)

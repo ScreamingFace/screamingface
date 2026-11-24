@@ -25,7 +25,6 @@ API_SNIPPETS = (
     "plain_call.py",
     "openai_form.py",
     "model_per_call.py",
-    "tools.py",
     "stream.py",
     "async_call.py",
     "endpoint_openai.py",
@@ -79,3 +78,12 @@ def test_api_page_states_the_one_line_change_and_its_limits() -> None:
         "functions",
     ):
         assert phrase in source, phrase
+
+
+def test_api_page_says_that_tools_are_not_available() -> None:
+    """MI-50 (D26 to D28): the page names the error and shows no tools example."""
+    source = API_PAGE.read_text(encoding="utf-8")
+    assert "Tools are not available yet" in source
+    assert "tools_not_available" in source
+    assert "snippets/chat/tools.py" not in source
+    assert not (SNIPPETS / "tools.py").exists()

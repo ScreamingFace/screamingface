@@ -8,12 +8,14 @@ cannot do is refused. Each other name is a TypeError.
 from __future__ import annotations
 
 import warnings
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from types import MappingProxyType
 from typing import Any, Final
 
 from screamingface.errors import PlanningError
 from screamingface.warnings import IgnoredParameterWarning
+
+TOOLS_NOT_AVAILABLE: Final = "tools_not_available"
 
 # WHY: the keywords of the OpenAI create that are not model parameters of a recipe (D25). Their
 # warning does not point to sf.Model(params=...), because that advice does not apply to them.
@@ -75,9 +77,6 @@ _REFUSED: Final[Mapping[str, Callable[[Any], bool]]] = MappingProxyType(
         "logprobs": lambda value: value is True,
         "audio": lambda value: value is not None,
         "modalities": lambda value: isinstance(value, list | tuple) and "audio" in value,
-        # WHY: a call must not lose its tools with only a warning (P4, D25).
-        "functions": lambda value: value is not None,
-        "function_call": lambda value: value is not None,
     }
 )
 
@@ -96,6 +95,9 @@ def check_other(other: Mapping[str, Any], *, stacklevel: int = 3) -> None:
     unknown = [name for name in other if name not in KNOWN_PARAMETERS]
     if unknown:
         raise TypeError(f"create() got an unexpected keyword argument {unknown[0]!r}")
+    if other.get("functions"):
+        # WHY: functions is the old OpenAI keyword that declares tools (D26).
+        raise _tools_not_available("functions")
     for name, value in other.items():
         refuse = _REFUSED.get(name)
         if refuse is not None and refuse(value):
@@ -119,4 +121,41 @@ def check_other(other: Mapping[str, Any], *, stacklevel: int = 3) -> None:
         warnings.warn(text, IgnoredParameterWarning, stacklevel=stacklevel)
 
 
-__all__ = ["KNOWN_PARAMETERS", "OPENAI_ONLY_PARAMETERS", "check_other"]
+def refuse_tool_use(messages: Sequence[Mapping[str, Any]], tools: Sequence[Any] | None) -> None:
+    """Refuse a chat call that declares or uses a tool (contracts C1.8, D26 to D28).
+
+    WHY: tool calls are turned off for now (owner decision of 2026-11-24). The check is fixed: no
+    setting turns it off. The Engine has the same check, so each OpenAI client gets the same code.
+    The tool code of the SDK (the reply types, the stream chunks) stays.
+    """
+
+    if tools:
+        raise _tools_not_available("tools")
+    for index, message in enumerate(messages):
+        if message.get("role") == "tool":
+            raise _tools_not_available(f"messages[{index}]")
+        if message.get("role") == "assistant" and message.get("tool_calls"):
+            raise _tools_not_available(f"messages[{index}].tool_calls")
+
+
+def _tools_not_available(param: str) -> PlanningError:
+    what = (
+        f"Remove {param!r} from the call."
+        if not param.startswith("messages")
+        else f"Remove the tool messages and the tool calls from 'messages' ({param})."
+    )
+    return PlanningError(
+        f"Tool calls are not available yet. {what}",
+        code=TOOLS_NOT_AVAILABLE,
+        permanent=True,
+        details={"param": param},
+    )
+
+
+__all__ = [
+    "KNOWN_PARAMETERS",
+    "OPENAI_ONLY_PARAMETERS",
+    "TOOLS_NOT_AVAILABLE",
+    "check_other",
+    "refuse_tool_use",
+]
