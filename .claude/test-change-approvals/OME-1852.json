@@ -2,13 +2,13 @@
   "issue": "OME-1852",
   "branch": "OME-1852-fusion-pareto-markers",
   "approver": "Filip Boltuzic",
-  "date": "2026-11-20",
-  "reason": "Owner approved both edits as pure additions matching established precedent: _PUBLIC_BOARD_ENTRY_FIELDS gains one new entry (candidate_kind) the same way on_pareto_frontier and openness were added before it, with the same kind of explanatory comment; the two describePoint() golden strings in pareto-chart-launch-copy.test.js (an unrelated earlier ticket about axis-tick wording) gain '; type Unknown' to match the new accessible-text requirement. Nothing removed or weakened in either file.",
+  "date": "2026-11-24",
+  "reason": "Owner approved both edits as pure additions matching established precedent: _PUBLIC_BOARD_ENTRY_FIELDS gains one new entry (candidate_kind) the same way on_pareto_frontier and openness were added before it, with the same kind of explanatory comment; the two describePoint() golden strings in pareto-chart-launch-copy.test.js (an unrelated earlier ticket about axis-tick wording) gain '; type Unknown' to match the new accessible-text requirement. Nothing removed or weakened in either file. Re-confirmed 2026-11-24 after rebasing onto current main: base/approved blobs for test_leaderboard_routes.py recomputed against the merged content; the test.js entry's blobs were unaffected by the rebase and are unchanged.",
   "approval_record": "docs/work/2026-11-19-OME-1852-fusion-pareto-markers.md",
   "files": {
     "apps/scoreboard/tests/unit/test_leaderboard_routes.py": {
-      "base_blob": "5fba35f392b2c9b6265a3e38bcd90bb403496e86",
-      "approved_blob": "5b649ef259bdef36451de3d336f6b4a697221e28"
+      "base_blob": "bf65156273068c639f8d383032178276cf918183",
+      "approved_blob": "8df5ee75c103e2834e03b2277ed14f2b47165204"
     },
     "apps/scoreboard/tests/portal/pareto-chart-launch-copy.test.js": {
       "base_blob": "b15336dc323a5e77f24477498a9f5f3d0dd73590",
