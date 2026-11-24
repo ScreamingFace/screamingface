@@ -1,0 +1,14 @@
+{
+  "issue": "OME-1942",
+  "branch": "OME-1942-pdf-filename",
+  "approver": "Sergey Bershadsky (owner)",
+  "date": "2026-11-17",
+  "scope": "four expected file parts in test_attachment_parts.py gain \"filename\": \"attachment.pdf\" (the two-attachment order test, the multi-turn Case test, the synthesizer picture-case test and the fusion blob-reader test); no assertion removed or weakened; two new tests appended",
+  "reason": "owner decision 2026-11-17 (session quiz 'Approve the 4 edits'): those tests pinned a PDF file part with no filename, which is the OME-1942 bug itself; OpenAI models ignore or reject an unnamed file part, so every file part now carries a filename",
+  "files": {
+    "apps/screamingface-engine/tests/unit/test_attachment_parts.py": {
+      "base_blob": "24fd1c8ed97f5a06a9a931211dcfbd7f5ff4da57",
+      "approved_blob": "65e0769e6413e46f026653c76ec84b670fb8a63c"
+    }
+  }
+}
