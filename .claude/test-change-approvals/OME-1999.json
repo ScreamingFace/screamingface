@@ -1,0 +1,13 @@
+{
+  "issue": "OME-1999",
+  "branch": "OME-1999-leaderboard-graded-case-count",
+  "approver": "Filip Boltuzic",
+  "date": "2026-11-23",
+  "reason": "Owner approved replacing a regex substring check with a structured class-list membership check in gradedLines() (tests/portal/graded-note.test.js), per the user's own global CLAUDE.md rule against regex/substring checks over data a structured check can parse instead. Same assertions, same coverage \u2014 only the mechanism changed, from /\\bgraded-line\\b/.test(child.className) to child.className.split(/\\s+/).includes(\"graded-line\").",
+  "files": {
+    "apps/scoreboard/tests/portal/graded-note.test.js": {
+      "base_blob": "45ac4da55f750075abcd34ecb95b213984f611d4",
+      "approved_blob": "01911974532591cfd7ed67269b56146638905686"
+    }
+  }
+}

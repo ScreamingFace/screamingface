@@ -4,6 +4,10 @@
 
 ### Added
 
+* A leaderboard submission from a run that failed to grade some of its Cases now says how many
+  were graded (`graded_questions`), so the leaderboard can show "505 / 525 graded" beside the
+  score. A fully graded run submits exactly what it did before.
+
 * Re-grading accepts `expected_target_revision` on sync and async clients. A catalogue or
   replay result on another revision is refused before submission (`regrade_target_mismatch`).
   The batch verifies returned score evidence and preserves unresolved journal state through
