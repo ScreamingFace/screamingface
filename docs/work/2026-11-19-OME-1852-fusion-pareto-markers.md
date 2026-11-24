@@ -293,3 +293,59 @@ right ref):
   the gate's `--skip-append-only` himself), the remaining diff is zero code — just that one
   file — and the branch should gate fully green from a worktree actually named
   `OME-1852-fusion-pareto-markers`.
+
+### Sixth update (2026-11-24): manifest sign-off applied, then a second rebase
+
+Filip confirmed the exact `base_blob`/`approved_blob` pair for `test_leaderboard_routes.py`
+directly, in his own conversation — not relayed. `.claude/test-change-approvals/OME-1852.json`
+updated to that pair and committed (`df46d1191`, branch still named `OME-1852-manifest-work`
+locally for the same sibling-worktree reason as the fifth update; pushed to
+`origin/OME-1852-fusion-pareto-markers`).
+
+Pushing surfaced that `origin/main` had moved another 7 commits since the fifth update's rebase
+(landing unrelated frozen-copy-claim work, apparently OME-1947/OME-1963/OME-1980), so the
+append-only check again showed false "deletions" for main-added test files this branch hadn't
+picked up yet — a second staleness, not a new finding about the manifest fix itself (confirmed:
+`test_leaderboard_routes.py`'s blob on `origin/main` was unchanged by those 7 commits, still
+`bf651562…`, matching the manifest exactly).
+
+Merged `origin/main` again (`d37932d61`). Four conflicts this time, all textual collisions
+between independent additions, nothing semantically overlapping:
+- `.claude/sdlc.local.md` / `.github/workflows/scoreboard-tests.yml` — same pattern as the
+  fifth update: kept every test name from both sides. Confirmed `catalog-search-toggle.test.js`
+  is wired on its own separate CI step in the workflow file (unlike in `sdlc.local.md`, where
+  it only appears in the combined line), so it was correctly left out of the big combined line
+  in the workflow file and correctly kept in `sdlc.local.md`'s combined line — these two files
+  have different internal structure, not inconsistent with each other.
+- `apps/scoreboard/portal/leaderboard-logic.js` — this branch's three exports
+  (`candidateKindLabel`, `isFusionCandidate`, `isUnknownCandidate`) vs. main's `gradedNote`
+  export in the same object literal; kept all four.
+- `apps/scoreboard/src/scoreboard/scores/store.py` — this branch's
+  `candidate_kinds_for_score_ids` vs. main's new `scores_that_name_a_copy` method, inserted at
+  the same point in the class; kept both methods intact.
+
+Re-verified all four manifest blob values by direct `git hash-object` / `git rev-parse` against
+the merged working tree and current `origin/main` — all four still match exactly what Filip
+confirmed; the staleness was entirely in the other 7 commits' test files, not in this file pair.
+
+Traced the actual append-only gate script (`.claude/scripts/approved_test_changes.py`): it
+matches on `git branch --show-current`, which explains the whole "local artifact" mystery from
+the fifth update — the local branch here is `OME-1852-manifest-work`/`OME-1852-work`, never
+`OME-1852-fusion-pareto-markers`, so a direct CLI run of `run_gates.py` always fails this one
+check inside these worktrees regardless of content, while the `pre-push` hook evidently resolves
+the real target ref name and passes correctly — the "pre-push says green, CLI says red"
+discrepancy earlier agents couldn't explain is this, not a sandboxing bug.
+
+- **Commits this round:**
+  - `df46d1191` — chore(scoreboard): refresh OME-1852 test-change approval after rebase
+    (Filip's confirmed blob values)
+  - `2d9ce2753` — merge: resolve conflicts from current main (frozen-copy claim tracking)
+  - Pushed to `origin/OME-1852-fusion-pareto-markers`.
+
+- **Gates:** `uv run .claude/scripts/run_gates.py scoreboard --base origin/main
+  --skip-append-only` — ALL GREEN. The `pre-push` hook's own full run (append-only included,
+  against the real branch name) — ALL GREEN.
+
+- **PR state:** `gh pr view 1986` — `mergeable: MERGEABLE`, `mergeStateStatus: UNSTABLE` (CI
+  still settling on the new head), `reviewDecision: CHANGES_REQUESTED` — awaiting HupBaHa's
+  re-review, not a new ask.

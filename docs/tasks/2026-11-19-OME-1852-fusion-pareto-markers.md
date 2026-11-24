@@ -40,13 +40,18 @@ This round: merged current main (conflicts resolved, keeping every target test o
 sides), fixed both P2s with new regression tests, reconfirmed every other gate green against
 real `origin/main`. Pushed to `origin/OME-1852-fusion-pareto-markers`.
 
-Still blocked on exactly one thing: `.claude/test-change-approvals/OME-1852.json`'s
-`tests/unit/test_leaderboard_routes.py` entry is stale against the rebased main (its
-`base_blob` no longer matches main's current blob for that file) and needs Filip's own direct
-sign-off to update — no agent may write/regenerate that file. Full detail, including the
-exact base/approved blob hashes the entry needs, in the ledger's "Fifth update".
+## Status (2026-11-24)
 
-Close this mirror and the Linear issue once that sign-off lands, CI is green, and the PR is
+Filip confirmed the manifest values directly; `.claude/test-change-approvals/OME-1852.json`
+updated and committed. Pushing surfaced main had moved another 7 commits, requiring a second
+rebase — resolved (four more textual-only conflicts, nothing semantic). All gates green,
+including the append-only check via the real branch name (confirmed through the `pre-push`
+hook, which resolves it correctly unlike a direct CLI run from these differently-named
+worktrees). PR `mergeable: MERGEABLE`. Full detail in the ledger's "Sixth update".
+
+Still waiting on: HupBaHa's re-review (not a new ask — same review, now addressed).
+
+Close this mirror and the Linear issue once re-review lands, CI is green, and the PR is
 squash-merged.
 
 ## Ledger
