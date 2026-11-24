@@ -253,3 +253,39 @@ one-line `colab_transport.py` pointer fix, both already landed; untouched this r
   decision — add a `.cjs` branch alongside the existing `.js`-under-`tests/` case, or leave the
   local append-only gate permanently unable to approve this file. Not a merge-round blocker;
   flagging again because this round's investigation reconfirmed it independently of branch name.
+
+### Round 4 (2026-11-24): the `.cjs` matcher gap, resolved narrowly
+
+Filip chose the narrow fix: extend the matcher to recognize `.cjs`, not the fuller `OME-1709`
+scope (new approval-test discovery, CI wiring for the approval tests themselves — `OME-1709`
+covers that and stays parked; a comment was left there pointing at this narrower landing instead
+of silently expanding its scope).
+
+- `.claude/scripts/approved_test_changes.py`'s `approved_unsupported_change`: suffix check
+  widened from `suffix == ".js"` to `suffix in {".js", ".cjs"}` (one line), same `_under_tests`
+  guard, same fail-closed byte-exact matcher — no other behavior changed.
+- New `.claude/scripts/tests/test_approved_cjs_change.py`, mirroring the existing
+  `test_approved_ts_change.py` pattern exactly (synthetic git repo, not this repo's real
+  history): exact approval passes; an extra edit, a second existing `.cjs` test, a wrong branch,
+  and a wrong base blob all correctly fail; a `.cjs` file outside `tests/` is never approvable
+  even with a manifest entry for it (served-asset safety, mirrors why `.js` is scoped the same
+  way). 6/6 pass (`uv run --script .claude/scripts/tests/test_approved_cjs_change.py -v`).
+- **Not wired into any gate or CI job** — confirmed (again) that none of the three existing
+  sibling test files (`test_approved_ts_change.py`, `test_approved_py_json_change.py`,
+  `test_approved_url4_change.py`) are either; this is `OME-1709`'s own stated problem
+  (`run_gates.py repo` is supposed to run all of them per its acceptance criteria, but currently
+  doesn't), pre-existing and explicitly out of scope for this narrow landing.
+- Verified end to end: `tests/browser/analytics-colab.test.cjs` now passes
+  `approved_unsupported_change` given the already-landed `OME-1974.json` manifest — confirmed by
+  direct interpreter inspection of the loaded module (ruled out a stale `__pycache__` first) and
+  by the fact the only remaining real-world failure reproduces the exact same known branch-name
+  artifact as every other round in this session (this worktree's local branch can't be named
+  `OME-1974-colab-analytics-status` because another worktree,
+  `.claude/worktrees/colab-analytics-status`, already holds that name) — not a flaw in the fix,
+  confirmed by `git worktree list`.
+- `run_gates.py screamingface --base origin/main --skip-append-only`: ALL GREEN (same hiccup as
+  Round 3, same fix: `uv sync --extra notebook` from inside `packages/screamingface`, not a
+  merge/fix artifact).
+- **Commit**: this ledger entry + the matcher/test files, on branch
+  `OME-1974-colab-analytics-status` (pushed from a worktree locally named
+  `OME-1974-manifest-work` for the reason above — push targets the correct remote ref).
