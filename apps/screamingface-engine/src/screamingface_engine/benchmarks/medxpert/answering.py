@@ -36,9 +36,9 @@ def extract_choice_letter(
 ) -> str | None:
     """The committed letter, or ``None`` when the model committed to nothing.
 
-    Port of the official ``answer_cleansing()`` zero-shot branch: cut everything before the
-    trigger if the model echoed it, strip the echo phrases, then take the FIRST letter inside
-    this row's option range.
+    Port of the official ``answer_cleansing()`` zero-shot branch: if the model echoed the
+    trigger, keep only the text between its first and second occurrence, strip the echo
+    phrases, then take the FIRST letter inside this row's option range.
 
     INVARIANT: returns ``None`` rather than guessing. Callers turn that into an empty answer,
     which the grader scores wrong — the official empty-prediction verdict. A parser that guessed
@@ -48,10 +48,14 @@ def extract_choice_letter(
     text = (completion or "").strip()
     if not text:
         return None
+    # WHY `split(...)[1]` with no maxsplit (OME-1980): the harness keeps only the text between
+    # the FIRST and SECOND occurrence, so "the answer is clear: the answer is D" commits to
+    # nothing, not to D. Official lines: https://github.com/TsinghuaC3I/MedXpertQA/blob/5f1db162d0d2b03d62da2d4fe086076a36105e18/eval/utils.py#L53
+    # and #L56.
     if trigger and trigger in text:
-        text = text.split(trigger, 1)[1].strip()
+        text = text.split(trigger)[1].strip()
     elif " answer is " in text:
-        text = text.split(" answer is ", 1)[1].strip()
+        text = text.split(" answer is ")[1].strip()
     for phrase in _UNWANTED_PHRASES:
         text = text.replace(phrase, "")
 

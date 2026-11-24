@@ -3,19 +3,25 @@
 FEATURE: expert-level medical multiple choice — 2,450 questions, one letter each, graded by
 string comparison. The first benchmark whose grading spends NO judge tokens.
 
-INVARIANT — the exchange is TWO candidate invocations. Turn 1 reasons freely; turn 2 sends only
-the trigger, so the model completes "…the answer is ___" and its commitment comes FIRST. That
-message layout, not any instruction, is what makes the official first-match extraction correct.
-A one-shot prompt with the trigger appended produces letter-LAST essays that the same parser
-misreads: measured at 35.5% against a true 70.2%.
+INVARIANT — the exchange is TWO candidate invocations. Turn 1 reasons freely; turn 2 (the
+commit) CONTINUES that chat (OME-1980): the turn-1 prompt as the user, the Candidate's own turn-1
+answer as the assistant, then only the trigger, so the model completes "…the answer is ___" and
+its commitment comes FIRST. That message layout, the official harness's, not any instruction, is
+what makes the official first-match extraction correct. Sent as one new user message holding
+the reasoning (before OME-1980), the model explained again and its first stray capital was
+graded: an external researcher lost 475 of 2,450 Cases.
 
-NAMED DEVIATION — the two-turn exchange is imposed at the CANDIDATE BOUNDARY. The Engine invokes
-`$candidate` as an opaque recipe (`ensemble/policy.py`: the client compiles the whole candidate
-expression, the Engine "contributes generic invocation"), so a benchmark cannot reach inside a
-Fusion. For a solo model this reproduces the official protocol exactly. For a Fusion it does not:
-a per-member implementation runs two-turn inside each member and shows the synthesiser their full
-analyses, which is not expressible here. Fusion numbers from this benchmark are therefore not
-comparable to a per-member implementation, and the description says so.
+WHO COMMITS — the one model call that wrote the turn-1 answer (a Fusion's synthesizer, without
+its synthesis prompt); any other recipe runs whole on the chat (`commit.commit_recipe`).
+
+NAMED DEVIATIONS — (1) the two-turn exchange is imposed at the CANDIDATE BOUNDARY: a Fusion's
+members reason once, on turn 1, and never see turn 2; a per-member implementation would run two
+turns inside each member. Fusion numbers are therefore not comparable to such an implementation,
+and the description says so. (2) Sampling and the system message are the Candidate's own, not
+the harness's (temperature 0, seed 0, 2048 or 8192 tokens; "You are a helpful medical
+assistant."): today's reasoning models reject temperature 0 or run out of tokens at 2048, and
+keeping the system message keeps turn 1 byte-identical across revisions, so reruns replay it from
+the cache (owner's call, OME-1980).
 
 References:
     - Paper: https://arxiv.org/abs/2501.18362
@@ -120,7 +126,7 @@ FINGERPRINT = compute_revision()
 #: edited to make a red fingerprint test green; it moves only on a fundamental change, after
 #: ``just engine benchmark-bump medxpert`` and with the owner's sign-off
 #: (``docs/adding-an-imported-benchmark.md``, "Changing a Benchmark's published revision").
-REVISION = "490235dc9a53b7d9"
+REVISION = "952ea002b0f5e3b0"
 
 _ROUTES = benchmark_routes(BENCHMARK_ID, REVISION)
 ROUTE_PREFIX = _ROUTES.prefix
@@ -128,9 +134,12 @@ CASES_ROUTE = _ROUTES.cases
 CHECK_ROUTE = _ROUTES.check
 CASE_GRADE_ROUTE = _ROUTES.case_evaluation
 AGGREGATE_ROUTE = _ROUTES.aggregate
-#: Turns turn 1's result record into the text turn 2 carries (OME-1786). MedXpertQA's own route:
-#: the shared layout has no such address, because no other hand-built Benchmark has a turn 2.
-REASONING_TEXT_ROUTE = f"{ROUTE_PREFIX}/reasoning-text"
+#: Turns turn 1's result record into the chat turn 2 continues (OME-1786, OME-1980). MedXpertQA's
+#: own routes: the shared layout has no such address, because no other hand-built Benchmark has a
+#: turn 2.
+COMMIT_CHAT_ROUTE = f"{ROUTE_PREFIX}/commit-chat"
+#: Reads the Candidate's recipe text and names who answers turn 2 (OME-1980).
+COMMIT_RECIPE_ROUTE = f"{ROUTE_PREFIX}/commit-recipe"
 
 
 def _build(selection: int | CaseSelection) -> Node:
@@ -160,27 +169,40 @@ def _build(selection: int | CaseSelection) -> Node:
     )
     # Between the turns — turn 1 resolves to the Candidate's whole result record: its answer
     # text plus the Engine's notes on the call (status, finish reason, and the accounting:
-    # tokens, cost, latency, attempts, cache hit or miss). This route keeps the answer text only.
-    # INVARIANT (OME-1786): turn 2 reads `$reasoning_text`, never `$reasoning`. The accounting
-    # differs between a live call and a cache hit, so a record in the prompt changed turn 2's
-    # bytes on every rerun: the AI Gateway's request cache missed and the commit was billed again.
-    reasoning_text = RelExpr(
-        path=REASONING_TEXT_ROUTE,
-        context="$reasoning",
+    # tokens, cost, latency, attempts, cache hit or miss). This route keeps the answer text only
+    # and writes the chat turn 2 continues: the turn-1 prompt (user), that answer (assistant),
+    # the trigger (user), the official harness's four-message layout with our system message.
+    # INVARIANT (OME-1786): the record never reaches the prompt. Its accounting differs between
+    # a live call and a cache hit, so a record in the prompt changed turn 2's bytes on every
+    # rerun: the AI Gateway's request cache missed and the commit was billed again.
+    commit_chat = RelExpr(
+        path=COMMIT_CHAT_ROUTE,
+        context=render(
+            struct(
+                {
+                    "prompt": "$item.cot_prompt",
+                    "reasoning": "$reasoning",
+                    "trigger": "$item.trigger",
+                }
+            )
+        ),
         intent=Text("$item.id"),
     )
-    # Turn 2 — the commit. Its input carries the question and turn 1's reasoning text, and ends
-    # on the trigger; the model finishes that sentence, so the letter leads.
-    # WHY `candidate_call` (the bare call) and not `candidate()`: `$reasoning` resolves only as
-    # a DIRECT sibling of the binding — inside `candidate()`'s wrapper group the reference ships
-    # to the model verbatim, and the commit loses the turn-1 essay (OME-1126).
+    # Who answers turn 2 (OME-1980): the one model that wrote the turn-1 answer (a Fusion's
+    # synthesizer), else the whole Candidate. WHY a route and not this builder: the protocol is
+    # built before any Candidate exists; only a step during the run can read its recipe.
+    commit_recipe = RelExpr(path=COMMIT_RECIPE_ROUTE, context="$candidate", intent=Text(""))
+    # Turn 2 — the commit, continuing the chat; the model finishes the trigger, so the letter
+    # leads. WHY `candidate_call` (the bare call) and not `candidate()`: `$commit_chat` and
+    # `$commit_recipe` resolve only as DIRECT siblings of the bindings — inside `candidate()`'s
+    # wrapper group the reference ships to the model verbatim (OME-1126).
     commit = candidate_call(
-        {"question": "$item.input", "reasoning": "$reasoning_text", "trigger": "$item.trigger"},
+        "$commit_chat",
         case_id="$item.id",
         case_index="$index",
         case_count=str(selected.count),
         web_search=CANDIDATE_WEB_SEARCH,
-        binding="$candidate",
+        binding="$commit_recipe",
     )
     checked = expr(
         src(
@@ -215,12 +237,13 @@ def _build(selection: int | CaseSelection) -> Node:
                 candidate_invocation=commit,
                 grading=checked,
                 case_id="$item.id",
-                # Turn 1 lives here so both the commit envelope and the check read the SAME
-                # real reasoning (see the INVARIANT on `reasoning` above). The text route
-                # follows it as a direct sibling, the only place `$reasoning` resolves.
+                # Turn 1 lives here so both the commit chat and the check read the SAME
+                # real reasoning (see the INVARIANT on `reasoning` above). The chat and recipe
+                # routes follow it as direct siblings, the only place `$reasoning` resolves.
                 bindings=(
                     src(reasoning, name="reasoning", weight=0.0),
-                    src(reasoning_text, name="reasoning_text", weight=0.0),
+                    src(commit_chat, name="commit_chat", weight=0.0),
+                    src(commit_recipe, name="commit_recipe", weight=0.0),
                 ),
             ),
             aggregate_route=AGGREGATE_ROUTE,
@@ -250,11 +273,13 @@ def install_medxpert(node: Url4Node, assets: Path) -> None:
 #: scoring path, and describing it here cost a user ~11 points on a prose commit.
 ANSWER_FORMAT: str = (
     "Answer format: after its reasoning, the model gets a second turn asking it to finish "
-    "'Therefore, among A through J, the answer is' with one option letter. The grader reads "
-    "that reply the way the official MedXpertQA harness does: it keeps the text after 'the "
-    "answer is' if the reply repeats it, then takes the first capital option letter standing "
-    "on its own. So 'D', '(D)', '**D**', 'the answer is D' and 'the answer is D. B would be "
-    "wrong.' all count as D, and a reply with no option letter, such as 'not sure', scores 0. "
+    "'Therefore, among A through J, the answer is' with one option letter, as the next message "
+    "of its own chat. The grader reads that reply the way the official MedXpertQA harness does: "
+    "if the reply repeats 'the answer is', it keeps only the text between the first and second "
+    "time, then takes the first capital option letter standing on its own. So 'D', '(D)', "
+    "'**D**', 'the answer is D' and 'the answer is D. B would be wrong.' all count as D, 'the "
+    "answer is clear: the answer is D' commits to nothing, and a reply with no option letter, "
+    "such as 'not sure', scores 0. "
     "A reply that opens in prose commits its first stray capital: 'A humeral shaft fracture, "
     "so D' counts as A, and a standalone 'I' counts as I. Recipe authors: make the commit "
     "reply the letter alone."
@@ -269,10 +294,12 @@ MEDXPERT = Benchmark(
         "against the published key, so no judge tokens are spent. Benchmark score = plain "
         "accuracy over every case run, reported beside the fraction actually answered — a case "
         "the model leaves unanswered, or that fails, counts as wrong. "
-        "The two-turn exchange is applied at the candidate boundary, which reproduces the "
-        "official protocol for a single model; for a fusion the exchange wraps the whole "
-        "ensemble rather than each member, so those numbers are not comparable to a per-member "
-        "implementation. " + ANSWER_FORMAT
+        "The two-turn exchange is applied at the candidate boundary: the commit continues the "
+        "model's own chat, the official harness's message layout. For a fusion, the members "
+        "reason once and the synthesizer alone commits, so those numbers are not comparable to a "
+        "per-member implementation. Sampling (temperature, seed, token "
+        "cap) and the system message are the candidate's own, not the harness's temperature 0, "
+        "seed 0, 2,048-token cap and medical-assistant system message. " + ANSWER_FORMAT
     ),
     revision=REVISION,
     case_count=CASE_COUNT,
@@ -284,8 +311,8 @@ MEDXPERT = Benchmark(
         # See FAILURE_POLICY (OME-1642).
         failure_policy=FAILURE_POLICY,
         # WHY "multi_turn": the benchmark invokes the Candidate twice per Case — reason, then
-        # commit. Declared because it doubles the invocation cost and changes what a Fusion entrant
-        # is asked to do (the exchange wraps the ensemble, not each member).
+        # commit. Declared because it adds an invocation and changes what a Fusion entrant is
+        # asked to do (its synthesizer alone commits, OME-1980).
         interaction="multi_turn",
         # Expert-level medical questions frontier models still visibly fail (OME-1257).
         difficulty="hard",
@@ -338,8 +365,9 @@ __all__ = [
     "CASE_COUNT",
     "CASE_GRADE_ROUTE",
     "CHECK_ROUTE",
+    "COMMIT_CHAT_ROUTE",
+    "COMMIT_RECIPE_ROUTE",
     "MEDXPERT",
-    "REASONING_TEXT_ROUTE",
     "REVISION",
     "compute_revision",
     "install_medxpert",

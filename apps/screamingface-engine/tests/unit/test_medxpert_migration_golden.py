@@ -30,8 +30,10 @@ from url4.peer.server import Request
 # Captured 2026-09-21 from the pre-migration benchmark (base of this branch); moved once on
 # 2026-10-19 when medxpert declared withhold (OME-1642: the failure policy is identity), and on
 # 2026-11-21 from 1e5a3b8a461a52f7 when turn 2 began to carry turn 1's answer text in place of
-# its whole result record (OME-1786: the turn-2 prompt bytes changed on every Case).
-_GOLDEN_REVISION = "490235dc9a53b7d9"
+# its whole result record (OME-1786: the turn-2 prompt bytes changed on every Case), and on
+# 2026-11-24 from 490235dc9a53b7d9 when turn 2 began to continue the Candidate's chat and the
+# reader began to stop at a second trigger (OME-1980).
+_GOLDEN_REVISION = "952ea002b0f5e3b0"
 
 _OPTIONS = {"A": "aspirin", "B": "heparin", "C": "warfarin", "D": "apixaban", "E": "alteplase"}
 _QUESTION = "Which agent is indicated? Answer Choices: " + " ".join(
