@@ -338,7 +338,14 @@ New test files only; every prior test stays unchanged except the approved snapsh
   `public_surface_snapshot.json` `cc6e32c7294c58fe167cd57a9e853b2ab4cb1410` ->
   `e5b423b7e322f7c164b2bcadf6d173c12c871c63`, exactly the `RoutedAnswer` class with its
   `__init__`, the root export and `Client.route_answer`.
-- **Commits:** pending.
+- **Commits:** three on `OME-1822-routing-pilot-landing`: `11debbb00` (the Engine route),
+  `2ebf9daef` (`Client.route_answer`) and `f136c92e1` (the spec, plan and ledger).
+  [PR #2016](https://github.com/ScreamingFace/screamingface/pull/2016) (head `f136c92e1` on
+  `de16e8e94`) was squash-merged on 2026-11-24 as `343aea663`, after `gateway-code-provenance`
+  (`afe8ec8ea`). The PR head did not contain `afe8ec8ea`; on `main` at `343aea663`, which holds
+  both, the Engine run passed on Python 3.12 and 3.13 with the image build, and E2E Replay,
+  ScreamingFace Tests and CodeQL passed. OME-1822 and OME-1823 stay In Progress: Phases 5 and 6
+  are pending.
 - **Gates:** on base `de16e8e94` with the landing manifests installed,
   `run_gates.py screamingface-engine --base origin/main` and
   `run_gates.py screamingface --base origin/main`, with no step skipped: ALL GATES GREEN on
@@ -353,7 +360,9 @@ New test files only; every prior test stays unchanged except the approved snapsh
   known risk. Until then, the connector's model-call log line and `observation.failed()` can
   record an upstream `detail.code`, such as a private deployment ID, an origin with a port, or an
   `hf_`, `ghp_` or `sk_live_` token, for any chat, classification or frozen-copy call. The
-  route's own answer, run events and runner log are closed here (spec 3.5, 9).
+  route's own answer, run events and runner log are closed here (spec 3.5, 9). Released on
+  2026-11-24: `gateway-code-provenance` merged first, as `afe8ec8ea`
+  ([PR #2025](https://github.com/ScreamingFace/screamingface/pull/2025)).
 - **Not claimed:** live and hosted qualification. Local in-process evidence does not establish
   hosted Linux, NATS and JetStream execution; no Router Recipe, Fusion or live claim.
 - **Deviations:**

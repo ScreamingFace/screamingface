@@ -1,9 +1,9 @@
 ---
 ticket: OME-2010   # Engine; sibling OME-2011 (Gateway) lands in the same PR
 stack: screamingface-engine, aigateway
-status: in_progress   # planned | in_progress | done | blocked
+status: done
 started: 2026-11-23
-finished:
+finished: 2026-11-24
 ---
 
 # gateway-code-provenance — lift only Gateway-owned codes from an upstream error body
@@ -177,9 +177,16 @@ refused-key stop). It changes the Engine's `world/connector.py` (lines move by 7
   `.claude/test-change-approvals/OME-2010.json` pins these six transitions. Mirrors:
   `docs/tasks/2026-11-24-OME-2010-gateway-code-provenance.md` and
   `docs/tasks/2026-11-24-OME-2011-gateway-error-code-vocabulary.md`.
-- **Commits:** three on `OME-2010-gateway-code-provenance`: the Gateway check, the Engine rule
-  with the approved test changes and the manifest, and these docs. Their shas go in the close
-  comment.
+- **Commits:** three on `OME-2010-gateway-code-provenance`: `90a802351` (the Gateway check),
+  `42fc07fa2` (the Engine rule with the approved test changes and the manifest) and `86810b93e`
+  (these docs). [PR #2025](https://github.com/ScreamingFace/screamingface/pull/2025) (head
+  `86810b93e` on `d37932d61`) was squash-merged on 2026-11-24 as `afe8ec8ea`. At that head all
+  27 CI checks passed; 4 path-filtered jobs were skipped. On `main` at `afe8ec8ea`, AI Gateway
+  Tests, E2E Replay and CodeQL passed; its Engine run was cancelled by the next push. At
+  `343aea663`, which holds this unit and the BYOM routing pilot (PR #2016) together, the Engine
+  run passed on Python 3.12 and 3.13 with the image build, and E2E Replay, ScreamingFace Tests
+  and CodeQL passed. The Linear close comments are posted and OME-2010 and OME-2011 are Done.
+  No hosted readiness claim.
 - **Gates (2026-11-24, on `d37932d61`, after the approval):**
   - aigateway, `run_gates.py aigateway --base origin/main`: all gates green on 3.13 (append-only
     check, ruff check, ruff format, pyright, `check_no_enterprise.py`, pytest with coverage).
