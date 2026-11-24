@@ -26,7 +26,7 @@ def _section() -> str:
 
 def test_each_code_block_of_the_section_compiles() -> None:
     blocks = _CODE.findall(_section())
-    assert len(blocks) == 6
+    assert len(blocks) == 7
     for block in blocks:
         compile(block, "README.md", "exec")
 
@@ -42,6 +42,11 @@ def test_the_section_names_the_api() -> None:
         "sf.AsyncClient()",
         ".chat.endpoint()",
         "IgnoredParameterWarning",
+        # U10 (D18): the one-line change from the OpenAI SDK.
+        "openai.OpenAI(...)",
+        'sf.Client(api_key="sk-...")',
+        "model_dump()",
+        "client.responses",
     ):
         assert phrase in section, phrase
 

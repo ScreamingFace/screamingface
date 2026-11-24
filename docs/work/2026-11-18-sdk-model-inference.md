@@ -269,6 +269,41 @@ docs examples run in tests.
   MI-28 against a real local Engine: 3 passed. Pushed to PR #1937 on 2026-11-23 on the
   owner's word ("yes, push it and update the PR"); the PR title and body were updated after the push.
 
+- **2026-11-24 — U10 planned: the one-line change from the OpenAI SDK.** Team feedback F3
+  through the owner: `openai.OpenAI(…)` to `screamingface.Client(…)` must be the only change. I ran
+  typical OpenAI code against `sf.Client` on a mock Engine: the constructor arguments, the tool
+  loop that appends the reply message, `model_dump()`, 8 reply attributes and 14 call keywords
+  failed. Owner answers Q8 to Q11 (spec §5.6): no model name map; `api_key` accepted and never
+  sent, `base_url` = the Engine URL; no error classes; chat completions only. Spec §5.6 (D18 to
+  D25), contracts C1.7, test plan MI-40 to MI-46, plan U10. Planned files: the two client
+  constructors, `_inference/client_options.py` (new), `_inference/request.py`,
+  `_inference/calls.py`, `chat_completion.py`, `_chat_dump.py` (new), `inference.py`,
+  `chat.py`, two new test files, the docs page and one snippet, README, changelog, the
+  snapshot.
+
+- **2026-11-24 — U10 done (local, not pushed).** RED first: MI-40 to MI-44 in three new test
+  files (`test_model_inference_openai_dropin.py`, `..._limits.py`, `..._reply.py`); they failed
+  on the missing module. GREEN by one Haiku implementer with a full spec (source files only), then
+  an Opus design review: no STRUCTURAL finding; 2 BUG, 3 LOCAL, 9 NIT. Fixed by me: a bad
+  `engine_url` or `scoreboard_url` now raises before a warning; `base_url` uses the shared
+  origin check and removes `/v1` from the path only (a host with the name `v1` is valid); the 13
+  OpenAI-only keywords have their own warning text, with no `sf.Model(params=...)` advice; the
+  call builder is typed again; one WHY text for the `None` attributes; the tests for these;
+  README wording. New modules: `_inference/client_options.py`, `_inference/parameters.py` (the
+  parameter policy moved out of `request.py`, which was at 447 lines), `_chat_dump.py`. Not
+  changed (review notes): a create keyword with the value `None` still warns (the rule of D4; the
+  spec now states the difference to D22); a traceback of a failed constructor holds its
+  arguments, as in each Python call. Deviations from the plan: the test of the defaults is a
+  third file (the 450-line rule); two test bugs of mine were fixed after the first run (the
+  timeout assertions need the fake clock; one explicit `openai` import for pyright). The approval
+  record has the new snapshot blob (the surface change is the owner request of 2026-11-24).
+  Check with the probe of the planning step: the constructor arguments, the tool loop,
+  `model_dump()`, the reply attributes and the call keywords pass; the lines that still fail are
+  the limits of Q10 and Q11 and the refused `functions` keywords. Gates with no skip: SDK green
+  (8,482 tests, coverage gate, append-only with the approval record); public-docs oxlint,
+  eslint, type-check and build green. Not run: MI-28 against a real Engine (no wire change in
+  this unit) and a paid call.
+
 ## Outcome (fill at the end — required before COMMIT)
 
 Not started.

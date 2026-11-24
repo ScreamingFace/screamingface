@@ -24,6 +24,22 @@
   `ChatStream`, `AsyncChatStream`, `InferenceInfo`, `FinalStep`, `IgnoredParameterWarning`, and
   the module `chat`. New member: `chat` on each recipe class, on `Client` and on `AsyncClient`.
 
+* `sf.Client` and `sf.AsyncClient` accept the arguments of the OpenAI client, so code that
+  uses chat completions needs a change only in the line that makes the client
+  (`openai.OpenAI(...)` to `sf.Client(...)`). `api_key` is accepted, not kept and not sent.
+  `base_url` is the Engine URL, with or without `/v1`. `timeout` and `max_retries` are the
+  defaults of the chat calls of the client. Each other OpenAI argument is accepted and not used;
+  an argument that is not used gives an `IgnoredParameterWarning`. In `create`, `messages`
+  accepts the message object of a reply (`reply.choices[0].message`), `messages` and `tools`
+  accept each iterable, `timeout` accepts an `httpx.Timeout`, and each other keyword of the
+  OpenAI `create` (`extra_headers`, `extra_query`, `extra_body` and so on) is accepted and
+  not sent. `functions` and `function_call` with a value raise `PlanningError`
+  (`unsupported_parameter`). The reply types have `model_dump()`, `model_dump_json()` and
+  `to_json()`, and the OpenAI attributes that the Engine never sets (for example
+  `usage.prompt_tokens_details`) with the value `None`. Not in this change: a map of OpenAI
+  model names, the OpenAI error classes, and the other OpenAI APIs (`client.responses`,
+  `client.embeddings`).
+
 * Re-grading accepts `expected_target_revision` on sync and async clients. A catalogue or
   replay result on another revision is refused before submission (`regrade_target_mismatch`).
   The batch verifies returned score evidence and preserves unresolved journal state through

@@ -10,7 +10,6 @@ them, so the IgnoredParameterWarning names the line of the caller (see _CALLER_S
 from __future__ import annotations
 
 from collections.abc import Callable, Coroutine, Mapping
-from functools import partial
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit
@@ -27,6 +26,7 @@ from screamingface._inference.request import (
     model_source,
     model_text,
     model_text_async,
+    timeout_seconds,
 )
 from screamingface._inference.transport import (
     open_chat_stream,
@@ -37,6 +37,8 @@ from screamingface._inference.transport import (
 from screamingface.chat_completion import AsyncChatStream, ChatCompletion, ChatStream
 
 if TYPE_CHECKING:
+    import httpx
+
     from screamingface.client import AsyncClient, Client
     from screamingface.inference import InferenceEndpoint
 
@@ -54,10 +56,10 @@ def _checked(
     stream: bool,
     stream_options: Mapping[str, Any] | None,
     use_cache: bool,
-    max_retries: int,
-    timeout: float | None,
+    max_retries: int | None,
+    timeout: float | httpx.Timeout | None,
     other: Mapping[str, Any],
-) -> tuple[ModelSource, Callable[[str], ChatCall]]:
+) -> tuple[ModelSource, Callable[[str, int, float | None], ChatCall]]:
     """Check the arguments of one chat call; give its model source and its call builder (C1.2).
 
     It sends no request and takes no client, so an argument error makes no default client.
@@ -74,17 +76,33 @@ def _checked(
         timeout=timeout,
     )
     check_other(other, stacklevel=_CALLER_STACKLEVEL)
-    build = partial(
-        chat_call,
-        messages=messages_list,
-        tools=tools_list,
-        stream=stream,
-        stream_options=stream_options,
-        use_cache=use_cache,
-        max_retries=max_retries,
-        timeout=timeout,
-    )
+
+    def build(text: str, max_retries: int, timeout: float | None) -> ChatCall:
+        # WHY at the send: the limits can come from the client (D21).
+        return chat_call(
+            text,
+            messages=messages_list,
+            tools=tools_list,
+            stream=stream,
+            stream_options=stream_options,
+            use_cache=use_cache,
+            max_retries=max_retries,
+            timeout=timeout,
+        )
+
     return source, build
+
+
+def _limits(
+    client: Client | AsyncClient, max_retries: int | None, timeout: object
+) -> tuple[int, float | None]:
+    """The retry count and the time limit of one call: the value of the call, or else the default
+    of its client (C1.7, D21)."""
+
+    return (
+        client._chat_max_retries if max_retries is None else max_retries,
+        client._chat_timeout if timeout is None else timeout_seconds(timeout),
+    )
 
 
 def create_sync(
@@ -97,8 +115,8 @@ def create_sync(
     stream: bool,
     stream_options: Mapping[str, Any] | None,
     use_cache: bool,
-    max_retries: int,
-    timeout: float | None,
+    max_retries: int | None,
+    timeout: float | httpx.Timeout | None,
     other: Mapping[str, Any],
 ) -> ChatCompletion | ChatStream:
     """Check and send one chat call with a sync Client (contracts C1.2).
@@ -127,7 +145,8 @@ def create_sync(
     # INVARIANT: a closed client raises its RuntimeError before a request and before the
     # catalogue load.
     client._require_open()
-    call = build(model_text(source, client._operator_catalog.load))
+    text = model_text(source, client._operator_catalog.load)
+    call = build(text, *_limits(client, max_retries, timeout))
     if stream:
         return open_chat_stream(client._engine_post_stream, client.engine_url, call)
     return send_chat(client._engine_post_stream, client.engine_url, call)
@@ -143,8 +162,8 @@ def create_async(
     stream: bool,
     stream_options: Mapping[str, Any] | None,
     use_cache: bool,
-    max_retries: int,
-    timeout: float | None,
+    max_retries: int | None,
+    timeout: float | httpx.Timeout | None,
     other: Mapping[str, Any],
 ) -> Coroutine[Any, Any, ChatCompletion | AsyncChatStream]:
     """Check one chat call and give the coroutine that sends it (contracts C1.2).
@@ -166,19 +185,24 @@ def create_async(
         other=other,
     )
     client._require_open()
-    return _create_async(client, source, build, stream=stream)
+    return _create_async(
+        client, source, build, stream=stream, max_retries=max_retries, timeout=timeout
+    )
 
 
 async def _create_async(
     client: AsyncClient,
     source: ModelSource,
-    build: Callable[[str], ChatCall],
+    build: Callable[[str, int, float | None], ChatCall],
     *,
     stream: bool,
+    max_retries: int | None,
+    timeout: float | httpx.Timeout | None,
 ) -> ChatCompletion | AsyncChatStream:
     """The async half of create_async: the catalogue load, the compile and the send (C1.2)."""
 
-    call = build(await model_text_async(source, client._operator_catalog.load))
+    text = await model_text_async(source, client._operator_catalog.load)
+    call = build(text, *_limits(client, max_retries, timeout))
     if stream:
         return await open_chat_stream_async(client._engine_post_stream, client.engine_url, call)
     return await send_chat_async(client._engine_post_stream, client.engine_url, call)

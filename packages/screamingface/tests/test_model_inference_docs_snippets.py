@@ -28,6 +28,7 @@ from _endpoint_access import TOKEN_HEADER, hosted_client, signed_in
 import screamingface as sf
 from screamingface import _default_client
 from screamingface._evaluation.candidate import compile_candidate
+from screamingface.warnings import IgnoredParameterWarning
 
 REPO = Path(__file__).resolve().parents[3]
 DOCS = REPO / "public-docs"
@@ -44,6 +45,7 @@ RUN = (
     "async_call.py",
     "endpoint_openai.py",
     "candidate_url4.py",
+    "openai_one_line.py",
 )
 TEXT = engine_stream({"role": "assistant", "content": "Hello"}, "stop")
 TOOL = engine_stream({"role": "assistant"}, "tool_calls", tool_calls=(TOOL_CALL,))
@@ -245,3 +247,48 @@ def test_candidate_url4(
     assert out.rstrip("\n") == compile_candidate(ns["recipe"]).url4
     assert out.startswith("(")
     assert _chat(requests) == []
+
+
+def test_openai_one_line(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """MI-45 (D18): the snippet makes its client with the OpenAI arguments, and the tool loop of
+    the OpenAI docs runs with no other change."""
+    requests: list[httpx.Request] = []
+    tool, text = _engine(TOOL), _engine(TEXT)
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        asked = any(item.get("role") == "tool" for item in sent_body(request)["messages"])
+        return text(request) if asked else tool(request)
+
+    real = sf.Client
+
+    def make(**options: Any) -> sf.Client:
+        # WHY: the real constructor runs with the options of the snippet; the test adds only the
+        # mock Engine.
+        return real(
+            engine_url=ENGINE_URL,
+            scoreboard_url="http://scoreboard.test",
+            http_transport=httpx.MockTransport(respond),
+            save_results=False,
+            **options,
+        )
+
+    monkeypatch.setattr(sf, "Client", make)
+    with pytest.warns(IgnoredParameterWarning) as record:
+        ns = _run("openai_one_line.py")
+    ns["client"].close()
+
+    assert capsys.readouterr().out.splitlines() == ["Hello", "5"]
+    assert sorted(str(item.message).split("'")[1] for item in record) == ["api_key", "temperature"]
+    first, second = (sent_body(request) for request in _chat(requests))
+    assert first["model"] == second["model"] == "openrouter/openai/gpt-5.5"
+    assert "temperature" not in first
+    assert second["messages"][1] == {
+        "role": "assistant",
+        "content": None,
+        "tool_calls": [TOOL_CALL],
+    }
+    assert second["messages"][2]["content"] == "Sunny in Paris"
+    assert all("sk-..." not in str(request.headers) for request in requests)

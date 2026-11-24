@@ -29,6 +29,7 @@ API_SNIPPETS = (
     "stream.py",
     "async_call.py",
     "endpoint_openai.py",
+    "openai_one_line.py",
 )
 
 
@@ -58,3 +59,23 @@ def test_pages_have_no_old_name(page: Path) -> None:
     assert "chat.complete(" not in source
     assert "InferenceClient" not in source
     assert "inference-client" not in source
+
+
+def test_api_page_states_the_one_line_change_and_its_limits() -> None:
+    """MI-45 (D18 to D25): the page shows the change of the client line and says what does not
+    change with it."""
+    source = API_PAGE.read_text(encoding="utf-8")
+    for phrase in (
+        "Move from the OpenAI SDK",
+        "openai.OpenAI(...)",
+        "sf.Client(...)",
+        "openai.AsyncOpenAI(...)",
+        "api_key",
+        "base_url",
+        "model_dump()",
+        # The limits (ans:Q8, Q10, Q11).
+        "client.responses",
+        "openai.RateLimitError",
+        "functions",
+    ):
+        assert phrase in source, phrase

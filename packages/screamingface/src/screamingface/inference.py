@@ -10,14 +10,21 @@ screamingface._inference.calls, so the checks and the send are the same on each 
 
 from __future__ import annotations
 
-from collections.abc import Coroutine, Mapping, Sequence
+from collections.abc import Coroutine, Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal, overload
 
 from screamingface._inference.calls import create_async, create_sync, endpoint_async, endpoint_sync
-from screamingface.chat_completion import AsyncChatStream, ChatCompletion, ChatStream
+from screamingface.chat_completion import (
+    AsyncChatStream,
+    ChatCompletion,
+    ChatMessage,
+    ChatStream,
+)
 
 if TYPE_CHECKING:
+    import httpx
+
     from screamingface.client import AsyncClient, Client
     from screamingface.recipe import Recipe
     from screamingface.url4 import Url4
@@ -59,13 +66,13 @@ class Completions:
         prompt: str | None = None,
         *,
         model: Recipe | Url4 | str,
-        messages: Sequence[Mapping[str, Any]] | None = None,
-        tools: Sequence[Mapping[str, Any]] | None = None,
+        messages: Iterable[Mapping[str, Any] | ChatMessage] | None = None,
+        tools: Iterable[Mapping[str, Any]] | None = None,
         stream: Literal[False] = False,
         stream_options: Mapping[str, Any] | None = None,
         use_cache: bool = True,
-        max_retries: int = 0,
-        timeout: float | None = None,
+        max_retries: int | None = None,
+        timeout: float | httpx.Timeout | None = None,
         **other: Any,
     ) -> ChatCompletion: ...
     @overload
@@ -74,13 +81,13 @@ class Completions:
         prompt: str | None = None,
         *,
         model: Recipe | Url4 | str,
-        messages: Sequence[Mapping[str, Any]] | None = None,
-        tools: Sequence[Mapping[str, Any]] | None = None,
+        messages: Iterable[Mapping[str, Any] | ChatMessage] | None = None,
+        tools: Iterable[Mapping[str, Any]] | None = None,
         stream: Literal[True],
         stream_options: Mapping[str, Any] | None = None,
         use_cache: bool = True,
-        max_retries: int = 0,
-        timeout: float | None = None,
+        max_retries: int | None = None,
+        timeout: float | httpx.Timeout | None = None,
         **other: Any,
     ) -> ChatStream: ...
     @overload
@@ -89,13 +96,13 @@ class Completions:
         prompt: str | None = None,
         *,
         model: Recipe | Url4 | str,
-        messages: Sequence[Mapping[str, Any]] | None = None,
-        tools: Sequence[Mapping[str, Any]] | None = None,
+        messages: Iterable[Mapping[str, Any] | ChatMessage] | None = None,
+        tools: Iterable[Mapping[str, Any]] | None = None,
         stream: bool,
         stream_options: Mapping[str, Any] | None = None,
         use_cache: bool = True,
-        max_retries: int = 0,
-        timeout: float | None = None,
+        max_retries: int | None = None,
+        timeout: float | httpx.Timeout | None = None,
         **other: Any,
     ) -> ChatCompletion | ChatStream: ...
     def create(
@@ -103,13 +110,13 @@ class Completions:
         prompt: str | None = None,
         *,
         model: Recipe | Url4 | str,
-        messages: Sequence[Mapping[str, Any]] | None = None,
-        tools: Sequence[Mapping[str, Any]] | None = None,
+        messages: Iterable[Mapping[str, Any] | ChatMessage] | None = None,
+        tools: Iterable[Mapping[str, Any]] | None = None,
         stream: bool = False,
         stream_options: Mapping[str, Any] | None = None,
         use_cache: bool = True,
-        max_retries: int = 0,
-        timeout: float | None = None,
+        max_retries: int | None = None,
+        timeout: float | httpx.Timeout | None = None,
         **other: Any,
     ) -> ChatCompletion | ChatStream:
         """Send one chat call and give its reply (contracts C1.2).
@@ -118,6 +125,7 @@ class Completions:
         keyword, as in the OpenAI client. ``prompt`` is a short form of one user message; it is
         not in the OpenAI SDK, which takes ``messages`` only. With stream=True the call returns
         a ChatStream that is open at its first chunk.
+        max_retries and timeout default to the values of the client.
 
         Raises:
             TypeError: an argument has the wrong type, or a keyword is unknown.
@@ -158,13 +166,13 @@ class AsyncCompletions:
         prompt: str | None = None,
         *,
         model: Recipe | Url4 | str,
-        messages: Sequence[Mapping[str, Any]] | None = None,
-        tools: Sequence[Mapping[str, Any]] | None = None,
+        messages: Iterable[Mapping[str, Any] | ChatMessage] | None = None,
+        tools: Iterable[Mapping[str, Any]] | None = None,
         stream: Literal[False] = False,
         stream_options: Mapping[str, Any] | None = None,
         use_cache: bool = True,
-        max_retries: int = 0,
-        timeout: float | None = None,
+        max_retries: int | None = None,
+        timeout: float | httpx.Timeout | None = None,
         **other: Any,
     ) -> Coroutine[Any, Any, ChatCompletion]: ...
     @overload
@@ -173,13 +181,13 @@ class AsyncCompletions:
         prompt: str | None = None,
         *,
         model: Recipe | Url4 | str,
-        messages: Sequence[Mapping[str, Any]] | None = None,
-        tools: Sequence[Mapping[str, Any]] | None = None,
+        messages: Iterable[Mapping[str, Any] | ChatMessage] | None = None,
+        tools: Iterable[Mapping[str, Any]] | None = None,
         stream: Literal[True],
         stream_options: Mapping[str, Any] | None = None,
         use_cache: bool = True,
-        max_retries: int = 0,
-        timeout: float | None = None,
+        max_retries: int | None = None,
+        timeout: float | httpx.Timeout | None = None,
         **other: Any,
     ) -> Coroutine[Any, Any, AsyncChatStream]: ...
     @overload
@@ -188,13 +196,13 @@ class AsyncCompletions:
         prompt: str | None = None,
         *,
         model: Recipe | Url4 | str,
-        messages: Sequence[Mapping[str, Any]] | None = None,
-        tools: Sequence[Mapping[str, Any]] | None = None,
+        messages: Iterable[Mapping[str, Any] | ChatMessage] | None = None,
+        tools: Iterable[Mapping[str, Any]] | None = None,
         stream: bool,
         stream_options: Mapping[str, Any] | None = None,
         use_cache: bool = True,
-        max_retries: int = 0,
-        timeout: float | None = None,
+        max_retries: int | None = None,
+        timeout: float | httpx.Timeout | None = None,
         **other: Any,
     ) -> Coroutine[Any, Any, ChatCompletion | AsyncChatStream]: ...
     def create(
@@ -202,13 +210,13 @@ class AsyncCompletions:
         prompt: str | None = None,
         *,
         model: Recipe | Url4 | str,
-        messages: Sequence[Mapping[str, Any]] | None = None,
-        tools: Sequence[Mapping[str, Any]] | None = None,
+        messages: Iterable[Mapping[str, Any] | ChatMessage] | None = None,
+        tools: Iterable[Mapping[str, Any]] | None = None,
         stream: bool = False,
         stream_options: Mapping[str, Any] | None = None,
         use_cache: bool = True,
-        max_retries: int = 0,
-        timeout: float | None = None,
+        max_retries: int | None = None,
+        timeout: float | httpx.Timeout | None = None,
         **other: Any,
     ) -> Coroutine[Any, Any, ChatCompletion | AsyncChatStream]:
         """Send one chat call and give a coroutine of its reply (contracts C1.2).
@@ -216,6 +224,7 @@ class AsyncCompletions:
         This is a plain def: each argument error is raised by this call, before a coroutine
         exists (MI-24). The await raises the network and Engine errors. The rules of
         ``model`` are those of Completions.create.
+        max_retries and timeout default to the values of the client.
 
         Raises:
             TypeError: an argument has the wrong type, or a keyword is unknown.
@@ -309,13 +318,13 @@ class RecipeCompletions:
         self,
         prompt: str | None = None,
         *,
-        messages: Sequence[Mapping[str, Any]] | None = None,
-        tools: Sequence[Mapping[str, Any]] | None = None,
+        messages: Iterable[Mapping[str, Any] | ChatMessage] | None = None,
+        tools: Iterable[Mapping[str, Any]] | None = None,
         stream: Literal[False] = False,
         stream_options: Mapping[str, Any] | None = None,
         use_cache: bool = True,
-        max_retries: int = 0,
-        timeout: float | None = None,
+        max_retries: int | None = None,
+        timeout: float | httpx.Timeout | None = None,
         **other: Any,
     ) -> ChatCompletion: ...
     @overload
@@ -323,13 +332,13 @@ class RecipeCompletions:
         self,
         prompt: str | None = None,
         *,
-        messages: Sequence[Mapping[str, Any]] | None = None,
-        tools: Sequence[Mapping[str, Any]] | None = None,
+        messages: Iterable[Mapping[str, Any] | ChatMessage] | None = None,
+        tools: Iterable[Mapping[str, Any]] | None = None,
         stream: Literal[True],
         stream_options: Mapping[str, Any] | None = None,
         use_cache: bool = True,
-        max_retries: int = 0,
-        timeout: float | None = None,
+        max_retries: int | None = None,
+        timeout: float | httpx.Timeout | None = None,
         **other: Any,
     ) -> ChatStream: ...
     @overload
@@ -337,26 +346,26 @@ class RecipeCompletions:
         self,
         prompt: str | None = None,
         *,
-        messages: Sequence[Mapping[str, Any]] | None = None,
-        tools: Sequence[Mapping[str, Any]] | None = None,
+        messages: Iterable[Mapping[str, Any] | ChatMessage] | None = None,
+        tools: Iterable[Mapping[str, Any]] | None = None,
         stream: bool,
         stream_options: Mapping[str, Any] | None = None,
         use_cache: bool = True,
-        max_retries: int = 0,
-        timeout: float | None = None,
+        max_retries: int | None = None,
+        timeout: float | httpx.Timeout | None = None,
         **other: Any,
     ) -> ChatCompletion | ChatStream: ...
     def create(
         self,
         prompt: str | None = None,
         *,
-        messages: Sequence[Mapping[str, Any]] | None = None,
-        tools: Sequence[Mapping[str, Any]] | None = None,
+        messages: Iterable[Mapping[str, Any] | ChatMessage] | None = None,
+        tools: Iterable[Mapping[str, Any]] | None = None,
         stream: bool = False,
         stream_options: Mapping[str, Any] | None = None,
         use_cache: bool = True,
-        max_retries: int = 0,
-        timeout: float | None = None,
+        max_retries: int | None = None,
+        timeout: float | httpx.Timeout | None = None,
         **other: Any,
     ) -> ChatCompletion | ChatStream:
         """Send one chat call to the recipe through the default client (contracts C1.2).
@@ -364,6 +373,7 @@ class RecipeCompletions:
         The recipe is the model, so this method has no ``model`` parameter: a ``model=``
         keyword raises TypeError. A recipe with a corrective loop raises PlanningError
         (recipe_not_supported) here, before a request.
+        max_retries and timeout default to the values of the client.
 
         Raises:
             TypeError: an argument has the wrong type, or a keyword is unknown.

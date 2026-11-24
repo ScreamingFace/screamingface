@@ -7,14 +7,16 @@ D15). ``sf.chat.completions.create(model=..., ...)`` and ``sf.chat.endpoint(mode
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping
 from typing import TYPE_CHECKING, Any, Literal, overload
 
 from screamingface._inference.calls import create_sync, endpoint_sync
-from screamingface.chat_completion import ChatCompletion, ChatStream
+from screamingface.chat_completion import ChatCompletion, ChatMessage, ChatStream
 from screamingface.inference import InferenceEndpoint
 
 if TYPE_CHECKING:
+    import httpx
+
     from screamingface.recipe import Recipe
     from screamingface.url4 import Url4
 
@@ -28,13 +30,13 @@ class _DefaultCompletions:
         prompt: str | None = None,
         *,
         model: Recipe | Url4 | str,
-        messages: Sequence[Mapping[str, Any]] | None = None,
-        tools: Sequence[Mapping[str, Any]] | None = None,
+        messages: Iterable[Mapping[str, Any] | ChatMessage] | None = None,
+        tools: Iterable[Mapping[str, Any]] | None = None,
         stream: Literal[False] = False,
         stream_options: Mapping[str, Any] | None = None,
         use_cache: bool = True,
-        max_retries: int = 0,
-        timeout: float | None = None,
+        max_retries: int | None = None,
+        timeout: float | httpx.Timeout | None = None,
         **other: Any,
     ) -> ChatCompletion: ...
     @overload
@@ -43,13 +45,13 @@ class _DefaultCompletions:
         prompt: str | None = None,
         *,
         model: Recipe | Url4 | str,
-        messages: Sequence[Mapping[str, Any]] | None = None,
-        tools: Sequence[Mapping[str, Any]] | None = None,
+        messages: Iterable[Mapping[str, Any] | ChatMessage] | None = None,
+        tools: Iterable[Mapping[str, Any]] | None = None,
         stream: Literal[True],
         stream_options: Mapping[str, Any] | None = None,
         use_cache: bool = True,
-        max_retries: int = 0,
-        timeout: float | None = None,
+        max_retries: int | None = None,
+        timeout: float | httpx.Timeout | None = None,
         **other: Any,
     ) -> ChatStream: ...
     @overload
@@ -58,13 +60,13 @@ class _DefaultCompletions:
         prompt: str | None = None,
         *,
         model: Recipe | Url4 | str,
-        messages: Sequence[Mapping[str, Any]] | None = None,
-        tools: Sequence[Mapping[str, Any]] | None = None,
+        messages: Iterable[Mapping[str, Any] | ChatMessage] | None = None,
+        tools: Iterable[Mapping[str, Any]] | None = None,
         stream: bool,
         stream_options: Mapping[str, Any] | None = None,
         use_cache: bool = True,
-        max_retries: int = 0,
-        timeout: float | None = None,
+        max_retries: int | None = None,
+        timeout: float | httpx.Timeout | None = None,
         **other: Any,
     ) -> ChatCompletion | ChatStream: ...
     def create(
@@ -72,18 +74,19 @@ class _DefaultCompletions:
         prompt: str | None = None,
         *,
         model: Recipe | Url4 | str,
-        messages: Sequence[Mapping[str, Any]] | None = None,
-        tools: Sequence[Mapping[str, Any]] | None = None,
+        messages: Iterable[Mapping[str, Any] | ChatMessage] | None = None,
+        tools: Iterable[Mapping[str, Any]] | None = None,
         stream: bool = False,
         stream_options: Mapping[str, Any] | None = None,
         use_cache: bool = True,
-        max_retries: int = 0,
-        timeout: float | None = None,
+        max_retries: int | None = None,
+        timeout: float | httpx.Timeout | None = None,
         **other: Any,
     ) -> ChatCompletion | ChatStream:
         """Send one chat call with the default client and give its reply (contracts C1.2).
 
         The arguments and the result are those of ``sf.Client().chat.completions.create``.
+        max_retries and timeout default to the values of the client.
 
         Raises:
             TypeError: an argument has the wrong type, or a keyword is unknown.

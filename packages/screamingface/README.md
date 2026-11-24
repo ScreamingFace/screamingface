@@ -1741,6 +1741,26 @@ reply = sf.chat.completions.create("Hello", model=ensemble)  # the default clien
 
 `client.chat` has the call path of the OpenAI client, so code written for the OpenAI client needs a change only in the line that makes the client. `model` is a required keyword. It can be a recipe, a `sf.Url4`, URL4 text (a string that starts with `(`) or a gateway model id such as `"openrouter/a"`. An evaluation URL4, for example `report.candidates["name"].url4`, also works: the SDK sends its candidate. The module `sf.chat` is the same as `client.chat` with the default client.
 
+### Move from the OpenAI SDK
+
+```python
+# Before: client = openai.OpenAI(api_key="sk-...")
+client = sf.Client(api_key="sk-...")  # the key is accepted, not kept and not sent
+
+reply = client.chat.completions.create(
+    model="openrouter/a",
+    messages=[{"role": "user", "content": "Hello"}],
+    temperature=0.2,
+)
+print(reply.choices[0].message.content, reply.usage.total_tokens)
+```
+
+For code that uses chat completions, you change the line that makes the client: `openai.OpenAI(...)` becomes `sf.Client(...)`, and `openai.AsyncOpenAI(...)` becomes `sf.AsyncClient(...)`. The calls below that line keep their form. Only the parts in the last paragraph of this section need a change by hand. The two clients accept the arguments of the OpenAI client. `api_key` is accepted, but the client does not keep it and does not send it. `base_url` is the Engine URL, with or without `/v1`. `timeout` and `max_retries` are the defaults of the chat calls of that client. Each other OpenAI argument (`organization`, `project`, `default_headers`, `http_client` and so on) is accepted and not used. An argument that the client does not use gives an `IgnoredParameterWarning` when it has a value.
+
+The tool loop of the OpenAI docs runs as it is: you can append `reply.choices[0].message` to `messages`. A reply has `model_dump()`, `model_dump_json()` and `to_json()`. An OpenAI attribute that the Engine never sets, for example `usage.prompt_tokens_details`, is `None`. The other keywords of the OpenAI `create` (`extra_headers`, `extra_query`, `extra_body` and so on) are accepted and not sent.
+
+You change these parts by hand: the model name (`model="gpt-4o"` is not a gateway model id), the error classes (a failed call raises a ScreamingFace error, not an `openai` error), and the old keywords `functions` and `function_call` (use `tools`). The client has only chat completions: it has no `client.responses` and no `client.embeddings`.
+
 ### Messages and tools
 
 ```python

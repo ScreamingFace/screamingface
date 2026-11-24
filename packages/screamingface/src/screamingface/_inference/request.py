@@ -1,8 +1,8 @@
 """Call a recipe, a URL4 or a gateway model as an OpenAI-style chat model (the chat calls).
 
 FEATURE: SDK model inference (docs/spec/2026-11-18-sdk-model-inference, contracts C1.1, C1.2 and
-C2.1), unit U4. The module holds the model rule, the compile step, the argument checks, the
-parameter policy and the request of one chat call.
+C2.1), unit U4. The module holds the model rule, the compile step, the argument checks and
+the request of one chat call. The parameter policy is in _inference/parameters.py.
 INVARIANT: no I/O. The only request is the operator catalogue load that the caller gives to
 model_text.
 """
@@ -10,12 +10,12 @@ model_text.
 from __future__ import annotations
 
 import math
-import warnings
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Iterable, Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any, Final
 
+import httpx
 from url4 import Expression, Source, Text, Url4Error, build
 
 from screamingface._evaluation.candidate import (
@@ -25,60 +25,24 @@ from screamingface._evaluation.candidate import (
     recipes_need_operators,
 )
 from screamingface._evaluation.operators import _OperatorCatalog
+from screamingface._inference.parameters import KNOWN_PARAMETERS, check_other
 from screamingface._inference.trace import new_trace_context
+from screamingface.chat_completion import ChatMessage
 from screamingface.client import _use_cache_value
 from screamingface.corrective import CorrectiveLoop, SelfCorrective
 from screamingface.errors import PlanningError
 from screamingface.recipe import Recipe
 from screamingface.reducer import Reducer
 from screamingface.url4 import Url4, _benchmark_id
-from screamingface.warnings import IgnoredParameterWarning
 
 type ModelSource = str | Recipe
 """A str is the model text to send as it is. A Recipe is a lowered recipe with a reducer, which
 compiles at each call."""
 
-# WHY: the set of names that the SDK accepts (C1.2). 'audio' and 'modalities' are in it because the
-# Engine knows them (E/rest/chat_body.py _unsupported_parameter): a value that the Engine refuses
-# raises PlanningError through _REFUSED, and a value with no effect is ignored with the warning.
-KNOWN_PARAMETERS: Final[frozenset[str]] = frozenset(
-    {
-        "temperature",
-        "max_tokens",
-        "max_completion_tokens",
-        "top_p",
-        "stop",
-        "seed",
-        "response_format",
-        "tool_choice",
-        "parallel_tool_calls",
-        "presence_penalty",
-        "frequency_penalty",
-        "logit_bias",
-        "top_logprobs",
-        "reasoning_effort",
-        "user",
-        "metadata",
-        "store",
-        "service_tier",
-        "n",
-        "logprobs",
-        "audio",
-        "modalities",
-    }
-)
-
-# WHY: the same rule as the Engine (E/rest/chat_body.py _unsupported_parameter).
-_REFUSED: Final[Mapping[str, Callable[[Any], bool]]] = MappingProxyType(
-    {
-        "n": lambda value: isinstance(value, int) and not isinstance(value, bool) and value > 1,
-        "logprobs": lambda value: value is True,
-        "audio": lambda value: value is not None,
-        "modalities": lambda value: isinstance(value, list | tuple) and "audio" in value,
-    }
-)
 INCLUDE_USAGE: Final[Mapping[str, Any]] = MappingProxyType({"include_usage": True})
 _CANDIDATE: Final = "candidate"
+_MESSAGES_FORM: Final = "messages must be an iterable of dicts or reply messages"
+_TOOLS_FORM: Final = "tools must be an iterable of dicts"
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -209,7 +173,7 @@ async def model_text_async(
     return model_text(source, lambda: catalog)
 
 
-def chat_messages(prompt: object, messages: object) -> list[dict[str, Any]]:
+def chat_messages(prompt: object, messages: object) -> list[dict[str, Any]]:  # noqa: PLR0912 - one branch per item kind
     """The messages of one chat call: the prompt as one user message, or the messages (C1.2)."""
 
     if (prompt is None) == (messages is None):
@@ -218,7 +182,20 @@ def chat_messages(prompt: object, messages: object) -> list[dict[str, Any]]:
         if not isinstance(prompt, str):
             raise TypeError("prompt must be a str")
         return [{"role": "user", "content": prompt}]
-    return _mappings(messages, "messages", allow_empty=False)
+    items = _items(messages, _MESSAGES_FORM)
+    if not items:
+        raise ValueError("messages must not be empty")
+    # WHY: each item is a shallow copy, so the values are sent with no change (C1.2). A reply
+    # message becomes its OpenAI wire form (D23), so the program can append it.
+    result: list[dict[str, Any]] = []
+    for item in items:
+        if isinstance(item, Mapping):
+            result.append(dict(item))
+        elif isinstance(item, ChatMessage):
+            result.append(_message_param(item))
+        else:
+            raise TypeError(_MESSAGES_FORM)
+    return result
 
 
 def chat_tools(tools: object) -> list[dict[str, Any]] | None:
@@ -226,18 +203,30 @@ def chat_tools(tools: object) -> list[dict[str, Any]] | None:
 
     if tools is None:
         return None
-    return _mappings(tools, "tools", allow_empty=True) or None
+    items = _items(tools, _TOOLS_FORM)
+    if not all(isinstance(item, Mapping) for item in items):
+        raise TypeError(_TOOLS_FORM)
+    return [dict(item) for item in items] or None
 
 
-def _mappings(value: object, name: str, *, allow_empty: bool) -> list[dict[str, Any]]:
-    if isinstance(value, str | bytes) or not isinstance(value, Sequence):
-        raise TypeError(f"{name} must be a list of dicts")
-    if not all(isinstance(item, Mapping) for item in value):
-        raise TypeError(f"{name} must be a list of dicts")
-    if not value and not allow_empty:
-        raise ValueError(f"{name} must not be empty")
-    # WHY: each item is a shallow copy; the values do not change (C1.2: sent with no change).
-    return [dict(item) for item in value]
+def _message_param(message: ChatMessage) -> dict[str, Any]:
+    """The wire form of a reply message, as the OpenAI SDK sends its own message object (D23)."""
+
+    param: dict[str, Any] = {"role": message.role, "content": message.content}
+    if message.tool_calls:
+        param["tool_calls"] = [call.to_dict() for call in message.tool_calls]
+    if message.refusal is not None:
+        param["refusal"] = message.refusal
+    return param
+
+
+def _items(value: object, form: str) -> list[Any]:
+    """The items of an iterable argument. A str, bytes or Mapping is not one (C1.7). The
+    argument form is the error text."""
+
+    if isinstance(value, str | bytes | Mapping) or not isinstance(value, Iterable):
+        raise TypeError(form)
+    return list(value)
 
 
 def check_options(
@@ -261,8 +250,9 @@ def check_options(
         stream_options.get("include_usage", False), bool
     ):
         raise TypeError("stream_options['include_usage'] must be a bool")
-    _check_retries(max_retries)
-    _check_timeout(timeout)
+    if max_retries is not None:
+        check_retries(max_retries)
+    timeout_seconds(timeout)
 
 
 def _require_bool(value: object, name: str) -> None:
@@ -270,52 +260,27 @@ def _require_bool(value: object, name: str) -> None:
         raise TypeError(f"{name} must be a bool")
 
 
-def _check_retries(value: object) -> None:
+def timeout_seconds(value: object) -> float | None:
+    """The limit of one chat call in seconds, or None for no limit of the SDK (C1.2, D21)."""
+
+    if value is None:
+        return None
+    # WHY: the OpenAI clients take an httpx.Timeout. Its read value is the wait for the answer.
+    if isinstance(value, httpx.Timeout):
+        return timeout_seconds(value.read)
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise TypeError("timeout must be a number of seconds, an httpx.Timeout or None")
+    if not math.isfinite(value) or value <= 0:
+        raise ValueError("timeout must be a finite number of seconds above 0")
+    return float(value)
+
+
+def check_retries(value: object) -> int:
     if isinstance(value, bool) or not isinstance(value, int):
         raise TypeError("max_retries must be an int")
     if value < 0:
         raise ValueError("max_retries must be 0 or more")
-
-
-def _check_timeout(value: object) -> None:
-    if value is None:
-        return
-    if isinstance(value, bool) or not isinstance(value, int | float):
-        raise TypeError("timeout must be a number of seconds or None")
-    if not math.isfinite(value) or value <= 0:
-        raise ValueError("timeout must be a finite number of seconds above 0")
-
-
-def check_other(other: Mapping[str, Any], *, stacklevel: int = 3) -> None:
-    """Apply the parameter policy to the other keywords of one chat call (P4).
-
-    Order: an unknown name raises TypeError first, then a refused value raises PlanningError,
-    then each known name gives one warning. So a call that raises gives no warning.
-    AIDEV-NOTE: stacklevel counts from this function (2 is the caller of check_other). The
-    default 3 names the caller of that caller. create_call in _inference/calls.py passes 4, so
-    the warning names the line of the user on each chat surface. Do not call it through another
-    helper.
-    """
-
-    unknown = [name for name in other if name not in KNOWN_PARAMETERS]
-    if unknown:
-        raise TypeError(f"create() got an unexpected keyword argument {unknown[0]!r}")
-    for name, value in other.items():
-        refuse = _REFUSED.get(name)
-        if refuse is not None and refuse(value):
-            raise PlanningError(
-                f"The SF Engine does not support the chat parameter {name!r} with this value",
-                code="unsupported_parameter",
-                permanent=True,
-                details={"param": name},
-            )
-    for name in other:
-        warnings.warn(
-            f"The SF Engine ignores the chat parameter {name!r}, so the call does not send it. "
-            "Set model parameters on the recipe with sf.Model(..., params=...).",
-            IgnoredParameterWarning,
-            stacklevel=stacklevel,
-        )
+    return value
 
 
 def chat_body(
@@ -386,8 +351,10 @@ __all__ = [
     "chat_tools",
     "check_options",
     "check_other",
+    "check_retries",
     "model_source",
     "model_text",
     "model_text_async",
+    "timeout_seconds",
     "url4_text",
 ]

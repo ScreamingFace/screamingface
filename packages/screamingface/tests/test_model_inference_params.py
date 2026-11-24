@@ -5,8 +5,10 @@ from __future__ import annotations
 import re
 import warnings
 
+import httpx
 import pytest
 
+from screamingface._inference.parameters import OPENAI_ONLY_PARAMETERS
 from screamingface._inference.request import (
     INCLUDE_USAGE,
     KNOWN_PARAMETERS,
@@ -43,6 +45,20 @@ SAMPLE: dict[str, object] = {
     "logprobs": False,
     "audio": None,
     "modalities": ["text"],
+    # U10 (D25): the other keywords of the OpenAI create.
+    "extra_headers": {"x": "y"},
+    "extra_query": {"a": "b"},
+    "extra_body": {"k": 1},
+    "prediction": {"type": "content", "content": "x"},
+    "web_search_options": {},
+    "prompt_cache_key": "k",
+    "prompt_cache_options": {},
+    "prompt_cache_retention": "24h",
+    "safety_identifier": "u",
+    "verbosity": "low",
+    "moderation": {},
+    "functions": None,
+    "function_call": None,
 }
 TOOL = {"type": "function", "function": {"name": "get_weather", "parameters": {"type": "object"}}}
 M1 = {"role": "system", "content": "Be short."}
@@ -67,7 +83,8 @@ def test_known_parameter_warns_and_is_not_sent(name: str) -> None:
     assert len(record) == 1
     message = str(record[0].message)
     assert name in message
-    assert "sf.Model(" in message
+    # D25: the advice applies to a model parameter, not to a keyword that only OpenAI has.
+    assert ("sf.Model(" in message) == (name not in OPENAI_ONLY_PARAMETERS)
 
 
 def test_each_parameter_gives_one_warning() -> None:
@@ -86,6 +103,8 @@ def test_each_parameter_gives_one_warning() -> None:
         ("logprobs", True),
         ("audio", {"voice": "alloy", "format": "wav"}),
         ("modalities", ["text", "audio"]),
+        ("functions", [{"name": "f"}]),
+        ("function_call", "auto"),
     ],
 )
 def test_refused_parameters_raise(name: str, value: object) -> None:
@@ -170,6 +189,9 @@ def test_argument_errors(build: object, error: type[Exception]) -> None:
 def test_valid_options_give_no_error() -> None:
     check_options(**BASE_OPTIONS)
     check_options(**{**BASE_OPTIONS, "timeout": 5, "max_retries": 2})
+    # U10 (D21): None means the default of the client; an httpx.Timeout is a valid timeout.
+    check_options(**{**BASE_OPTIONS, "max_retries": None})
+    check_options(**{**BASE_OPTIONS, "timeout": httpx.Timeout(30.0)})
 
 
 def test_body_has_the_c2_1_shape() -> None:

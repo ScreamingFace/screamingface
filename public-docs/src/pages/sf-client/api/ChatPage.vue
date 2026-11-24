@@ -13,6 +13,7 @@ import toolsExample from '@/snippets/chat/tools.py?raw'
 import streamExample from '@/snippets/chat/stream.py?raw'
 import asyncCallExample from '@/snippets/chat/async_call.py?raw'
 import endpointOpenaiExample from '@/snippets/chat/endpoint_openai.py?raw'
+import openaiOneLineExample from '@/snippets/chat/openai_one_line.py?raw'
 
 const chatSig = `# On each recipe: sync, with the default client
 recipe.chat.completions.create(
@@ -23,7 +24,7 @@ recipe.chat.completions.create(
     stream=False,
     stream_options=None,
     use_cache=True,
-    max_retries=0,
+    max_retries=None,
     timeout=None,
     **other,
 )
@@ -145,6 +146,103 @@ sf.chat.endpoint(model)`
       client. Code written for the OpenAI client needs a change only in the line that makes the
       client. A call with no <code>model</code> raises <code>TypeError</code> before a request.
     </p>
+
+    <h2>Move from the OpenAI SDK</h2>
+
+    <CodeBlock :code="openaiOneLineExample" language="python" />
+
+    <p>
+      For code that uses chat completions, change <code>openai.OpenAI(...)</code> to
+      <code>sf.Client(...)</code>, or <code>openai.AsyncOpenAI(...)</code> to
+      <code>sf.AsyncClient(...)</code>. The lines below the client line do not change: the call
+      path, the reply fields, the tool loop that appends <code>reply.choices[0].message</code> to
+      <code>messages</code>, the stream loop, and <code>model_dump()</code>,
+      <code>model_dump_json()</code> and <code>to_json()</code> on a reply. An OpenAI attribute that
+      the Engine never sets, for example <code>usage.prompt_tokens_details</code> or
+      <code>choice.logprobs</code>, is <code>None</code>.
+    </p>
+
+    <p>The two clients accept the arguments of the OpenAI client:</p>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Argument</th>
+          <th>What the client does</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>api_key</code></td>
+          <td>
+            Accepted. The client does not keep it and does not send it, and it gives an
+            <code>IgnoredParameterWarning</code>. The client signs in to the Engine itself. Store a
+            provider key with <code>sf.connect(...)</code>. The SDK does not read
+            <code>OPENAI_API_KEY</code>.
+          </td>
+        </tr>
+        <tr>
+          <td><code>base_url</code></td>
+          <td>
+            The Engine URL, with or without the path <code>/v1</code>. It is the same value as
+            <code>endpoint().base_url</code>. Give it or <code>engine_url</code>, not both. A URL
+            with another path raises <code>ValueError</code>.
+          </td>
+        </tr>
+        <tr>
+          <td><code>timeout</code>, <code>max_retries</code></td>
+          <td>
+            The defaults of the chat calls of this client. A value on the call replaces the default
+            for that call. With no value, the SDK does not retry and has no time limit of its own.
+            <code>timeout</code> can be a number of seconds or an <code>httpx.Timeout</code>; from
+            an <code>httpx.Timeout</code> the SDK uses the <code>read</code> value.
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <code>organization</code>, <code>project</code>, <code>default_headers</code>,
+            <code>default_query</code>, <code>http_client</code>, <code>webhook_secret</code>,
+            <code>websocket_base_url</code>, <code>admin_api_key</code>,
+            <code>workload_identity</code>, <code>provider</code>
+          </td>
+          <td>
+            Accepted and not used. Each one that has a value gives an
+            <code>IgnoredParameterWarning</code>.
+          </td>
+        </tr>
+      </tbody>
+    </table>
+
+    <p>These parts of OpenAI code need a change by hand:</p>
+
+    <ul>
+      <li>
+        The model name. The SDK sends <code>model</code> with no change, so
+        <code>model="gpt-4o"</code> is not a model id of the gateway. Give a gateway model id, for
+        example <code>"openrouter/openai/gpt-5.5"</code>, or a recipe.
+      </li>
+      <li>
+        The error classes. A failed call raises a ScreamingFace error, not
+        <code>openai.RateLimitError</code> or <code>openai.APIError</code>. See "Errors and retries"
+        below.
+      </li>
+      <li>
+        The old function keywords. <code>functions</code> and <code>function_call</code> with a
+        value raise <code>PlanningError</code> (<code>unsupported_parameter</code>). Use
+        <code>tools</code>.
+      </li>
+      <li>
+        The other OpenAI APIs. The client has no <code>client.responses</code>,
+        <code>client.embeddings</code> or <code>client.completions</code>, and
+        <code>chat.completions</code> has no <code>parse()</code>, <code>stream()</code> or
+        <code>with_raw_response</code>.
+      </li>
+      <li>
+        The parameters that the Engine does not use. A sampling parameter and an OpenAI request
+        option (<code>extra_headers</code>, <code>extra_query</code>, <code>extra_body</code>) are
+        accepted and not sent. Each one gives a warning.
+      </li>
+    </ul>
 
     <h2>The default client: sf.chat</h2>
 
@@ -290,7 +388,11 @@ sf.chat.endpoint(model)`
         </tr>
         <tr>
           <td><code>messages</code>, <code>tools</code></td>
-          <td>The OpenAI messages and tools. The SDK sends them with no change.</td>
+          <td>
+            The OpenAI messages and tools, as a list or another iterable. The SDK sends them with no
+            change. An item of <code>messages</code> can also be the message object of a reply
+            (<code>reply.choices[0].message</code>).
+          </td>
         </tr>
         <tr>
           <td><code>stream</code></td>
@@ -309,7 +411,10 @@ sf.chat.endpoint(model)`
         </tr>
         <tr>
           <td><code>max_retries</code></td>
-          <td>An integer of 0 or more. The default is 0. See the retry rules below.</td>
+          <td>
+            An integer of 0 or more. <code>None</code> (the default) means the value of the client,
+            which is 0 if you gave none. See the retry rules below.
+          </td>
         </tr>
         <tr>
           <td><code>timeout</code></td>
@@ -317,7 +422,9 @@ sf.chat.endpoint(model)`
             The limit in seconds for the full call, all tries included. For a stream, the limit
             stops when the first chunk comes. The SDK checks the limit at each line from the Engine,
             so the error can come up to one keep-alive interval (15 s by default) late. The value
-            must be more than 0. <code>None</code> means that only the limit of the Engine applies.
+            must be more than 0. An <code>httpx.Timeout</code> is also accepted; the SDK uses its
+            <code>read</code> value. <code>None</code> (the default) means the value of the client. If
+            you gave none, only the limit of the Engine applies.
           </td>
         </tr>
         <tr>
@@ -332,8 +439,15 @@ sf.chat.endpoint(model)`
             <code>store</code>, <code>service_tier</code>, <code>n=1</code>,
             <code>logprobs=False</code>) is accepted but not sent. It gives an
             <code>IgnoredParameterWarning</code> that points to <code>sf.Model(params=...)</code>.
-            <code>n</code> above 1, <code>logprobs=True</code>, <code>audio</code> with a value and
-            <code>modalities</code> with <code>"audio"</code> raise <code>PlanningError</code> with
+            Each other keyword of the OpenAI <code>create</code> (<code>extra_headers</code>,
+            <code>extra_query</code>, <code>extra_body</code>, <code>prediction</code>,
+            <code>web_search_options</code>, <code>prompt_cache_key</code>,
+            <code>prompt_cache_options</code>, <code>prompt_cache_retention</code>,
+            <code>safety_identifier</code>, <code>verbosity</code>, <code>moderation</code>) is also
+            accepted and not sent, with an <code>IgnoredParameterWarning</code>.
+            <code>n</code> above 1, <code>logprobs=True</code>, <code>audio</code> with a value,
+            <code>modalities</code> with <code>"audio"</code>, and <code>functions</code> or
+            <code>function_call</code> with a value raise <code>PlanningError</code> with
             the code <code>unsupported_parameter</code>. Any other name raises
             <code>TypeError</code>.
           </td>

@@ -2,6 +2,9 @@
 
 FEATURE: SDK model inference (docs/spec/2026-11-18-sdk-model-inference, contracts C1.3 and C1.4).
 The field names are those of the OpenAI objects (ans:Q2).
+WHY the ClassVar[None] attributes: they are OpenAI attributes that the Engine never sets. OpenAI
+code that reads them gets None (contracts C1.7, D24). They are not dataclass fields, so the
+constructor, the equality and to_dict() do not change.
 """
 
 from __future__ import annotations
@@ -10,16 +13,20 @@ from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
 from dataclasses import dataclass
 from decimal import Decimal
 from types import TracebackType
-from typing import Self
+from typing import ClassVar, Self
+
+from screamingface._chat_dump import OpenAIDump
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class ChatUsage:
+class ChatUsage(OpenAIDump):
     """The token counts of one reply, as the OpenAI ``usage`` object (contracts C1.3)."""
 
     prompt_tokens: int
     completion_tokens: int
     total_tokens: int
+    prompt_tokens_details: ClassVar[None] = None
+    completion_tokens_details: ClassVar[None] = None
 
     def to_dict(self) -> dict[str, object]:
         """The usage as a new JSON-ready dict with the OpenAI keys."""
@@ -32,7 +39,7 @@ class ChatUsage:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class ChatFunctionCall:
+class ChatFunctionCall(OpenAIDump):
     """The function of one tool call, as the OpenAI ``function`` object (contracts C1.3)."""
 
     name: str
@@ -45,7 +52,7 @@ class ChatFunctionCall:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class ChatToolCall:
+class ChatToolCall(OpenAIDump):
     """One tool call of a reply, as an OpenAI ``tool_calls`` item (contracts C1.3)."""
 
     id: str
@@ -59,7 +66,7 @@ class ChatToolCall:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class ChatDeltaToolCall:
+class ChatDeltaToolCall(OpenAIDump):
     """One tool call of a streamed delta, as an OpenAI ``tool_calls`` item (contracts C1.3).
 
     OpenAI loops that collect tool calls read ``index`` to join the parts of one call.
@@ -82,7 +89,7 @@ class ChatDeltaToolCall:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class FinalStep:
+class FinalStep(OpenAIDump):
     """The model step that ended the run, as the screamingface ``final_step`` (contracts C1.3)."""
 
     binding: str
@@ -100,7 +107,7 @@ class FinalStep:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class InferenceInfo:
+class InferenceInfo(OpenAIDump):
     """The screamingface object of a reply: the status, the cost and the trace (contracts C1.3)."""
 
     status: str
@@ -124,13 +131,16 @@ class InferenceInfo:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class ChatMessage:
+class ChatMessage(OpenAIDump):
     """The message of one choice, as an OpenAI ``message`` object (contracts C1.3)."""
 
     role: str
     content: str | None
     tool_calls: tuple[ChatToolCall, ...] | None
     refusal: str | None
+    function_call: ClassVar[None] = None
+    audio: ClassVar[None] = None
+    annotations: ClassVar[None] = None
 
     def to_dict(self) -> dict[str, object]:
         """The message as a new JSON-ready dict with the OpenAI keys."""
@@ -148,12 +158,13 @@ class ChatMessage:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class ChatChoice:
+class ChatChoice(OpenAIDump):
     """One choice of a reply, as an OpenAI ``choices`` item (contracts C1.3)."""
 
     index: int
     message: ChatMessage
     finish_reason: str
+    logprobs: ClassVar[None] = None
 
     def to_dict(self) -> dict[str, object]:
         """The choice as a new JSON-ready dict with the OpenAI keys."""
@@ -166,7 +177,7 @@ class ChatChoice:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class ChatCompletion:
+class ChatCompletion(OpenAIDump):
     """One chat reply, as an OpenAI ``chat.completion`` object (contracts C1.3)."""
 
     id: str
@@ -176,6 +187,9 @@ class ChatCompletion:
     choices: tuple[ChatChoice, ...]
     usage: ChatUsage
     screamingface: InferenceInfo
+    system_fingerprint: ClassVar[None] = None
+    service_tier: ClassVar[None] = None
+    moderation: ClassVar[None] = None
 
     @property
     def text(self) -> str | None:
@@ -220,13 +234,14 @@ class ChatCompletion:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class ChatDelta:
+class ChatDelta(OpenAIDump):
     """The delta of one streamed choice, as an OpenAI ``delta`` object (contracts C1.3)."""
 
     role: str | None
     content: str | None
     tool_calls: tuple[ChatDeltaToolCall, ...] | None
     refusal: str | None
+    function_call: ClassVar[None] = None
 
     def to_dict(self) -> dict[str, object]:
         """The delta as a new JSON-ready dict with the OpenAI keys."""
@@ -244,12 +259,13 @@ class ChatDelta:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class ChatChunkChoice:
+class ChatChunkChoice(OpenAIDump):
     """One choice of a streamed chunk, as an OpenAI ``choices`` item (contracts C1.3)."""
 
     index: int
     delta: ChatDelta
     finish_reason: str | None
+    logprobs: ClassVar[None] = None
 
     def to_dict(self) -> dict[str, object]:
         """The choice as a new JSON-ready dict with the OpenAI keys."""
@@ -262,7 +278,7 @@ class ChatChunkChoice:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class ChatCompletionChunk:
+class ChatCompletionChunk(OpenAIDump):
     """One chunk of a streamed reply, as an OpenAI ``chat.completion.chunk`` (contracts C1.3)."""
 
     id: str
@@ -272,6 +288,9 @@ class ChatCompletionChunk:
     choices: tuple[ChatChunkChoice, ...]
     usage: ChatUsage | None
     screamingface: InferenceInfo | None
+    system_fingerprint: ClassVar[None] = None
+    service_tier: ClassVar[None] = None
+    moderation: ClassVar[None] = None
 
     @property
     def text(self) -> str:
