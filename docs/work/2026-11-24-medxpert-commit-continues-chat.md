@@ -78,3 +78,11 @@ byte-identical and reruns replay it from the AI Gateway's shared cache.
   by the pre-push gate: the stage map lists the two new routes, the canonical url4 hash is
   re-pinned, the frozen-copy test counts member C's failure once (it is no longer called on
   turn 2), and the local-model Fusion test expects null accounting on the copied member rows.
+- **Review round 1 (2026-11-24):** the turn-1 answer is stripped before it becomes the assistant
+  turn (the harness's `response.strip()`), so a whitespace-only answer drops the message too;
+  copied member rows now carry their turn-1 accounting, because the SDK's per-member and per-Case
+  cost views read "unknown" on a null row and the run total comes from its own usage frame, so
+  nothing is counted twice; an empty prompt or trigger fails as `benchmark_definition_error`, not
+  `candidate_contract_error`; the commit-recipe route logs which path ran; the description says
+  "a fusion closed by a synthesizer model"; a new end-to-end test runs a recipe the shortcut
+  cannot lift; the local-model Fusion test is back to its original assertion.

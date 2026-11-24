@@ -121,11 +121,4 @@ async def test_local_models_run_as_fusion_members_and_synthesizer_in_a_benchmark
     assert set(operations) == {"op_model_1", "op_model_2", "op_model_3", "op_synthesis_1"}
     assert set(seen) == set(raw_models)
     assert all(operation["output"] == "B" for operation in operations.values())
-    # OME-1980: the synthesizer alone answers the commit turn, so only its row carries the
-    # commit's accounting; each member's row is its turn-1 answer, copied as evidence only (its
-    # cost stays on turn 1, never counted twice).
-    assert operations["op_synthesis_1"]["accounting"] is not None
-    assert all(
-        operations[member]["accounting"] is None
-        for member in ("op_model_1", "op_model_2", "op_model_3")
-    )
+    assert all(operation["accounting"] is not None for operation in operations.values())

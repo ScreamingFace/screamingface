@@ -24,15 +24,21 @@ import httpx
 import pytest
 
 from screamingface_engine.benchmarks import BenchmarkRegistry, link_candidate
-from screamingface_engine.benchmarks.contract import CANDIDATE_INPUT_SCHEMA
+from screamingface_engine.benchmarks.contract import (
+    CANDIDATE_INPUT_SCHEMA,
+    encode_candidate_invocation,
+)
 from screamingface_engine.benchmarks.medxpert.commit import commit_chat, commit_recipe
-from screamingface_engine.benchmarks.medxpert.definition import MEDXPERT
+from screamingface_engine.benchmarks.medxpert.definition import COMMIT_CHAT_ROUTE, MEDXPERT
 from screamingface_engine.benchmarks.medxpert.prepare import emit
+from screamingface_engine.benchmarks.medxpert.runtime import _commit_chat
 from screamingface_engine.combine.endpoint import COMBINE_ROUTE
 from screamingface_engine.runner.main import build_executor
 from screamingface_engine.world.config import AigatewaySection, ModelSpec, WorldConfig
+from url4.core.errors import ResolutionError
 from url4.core.nodes import Expression, RelExpr, Source, Text
 from url4.core.parser import build
+from url4.peer.server import Request
 from url4.streaming.interfaces import Completed
 
 _PROMPT = "Q: Case one: pick B\nA: Let's think step by step."
@@ -171,11 +177,39 @@ def test_the_commit_chat_is_the_harness_four_message_layout_without_the_system_m
     }
 
 
-def test_an_empty_turn_one_answer_leaves_out_the_assistant_message() -> None:
-    """Owner's call (OME-1980): some providers refuse an empty assistant message."""
-    chat: dict[str, Any] = json.loads(commit_chat(_PROMPT, "", _TRIGGER))
+@pytest.mark.parametrize("answer", ["", "  \n"], ids=["empty", "whitespace-only"])
+def test_an_empty_turn_one_answer_leaves_out_the_assistant_message(answer: str) -> None:
+    """Owner's call (OME-1980): some providers refuse an empty assistant message.
+
+    A whitespace-only answer is empty too: the harness strips every reply before it becomes the
+    assistant turn, and a provider refuses a blank message like an empty one.
+    """
+    chat: dict[str, Any] = json.loads(commit_chat(_PROMPT, answer, _TRIGGER))
 
     assert [m["role"] for m in chat["messages"]] == ["user", "user"]
+
+
+def test_the_assistant_turn_is_stripped_like_the_harness_strips_it() -> None:
+    """The harness sends `response.strip()` as the assistant turn (eval/main.py, 5f1db162)."""
+    chat: dict[str, Any] = json.loads(commit_chat(_PROMPT, "\n B is right. \n", _TRIGGER))
+
+    assert chat["messages"][1] == {"role": "assistant", "content": "B is right."}
+
+
+def test_a_broken_case_row_is_the_benchmarks_fault_not_the_candidates() -> None:
+    """INVARIANT: an empty prompt or trigger comes from this Benchmark's own rows.
+
+    Blaming the Candidate (`candidate_contract_error`) would send a researcher to debug a
+    recipe that did nothing wrong.
+    """
+    context: str = json.dumps(
+        {"prompt": "", "reasoning": encode_candidate_invocation("B.", "stop", None), "trigger": "T"}
+    )
+
+    with pytest.raises(ResolutionError) as refused:
+        _commit_chat(Request(path=COMMIT_CHAT_ROUTE, context=context, intent="1", params={}))
+
+    assert refused.value.code == "benchmark_definition_error"
 
 
 # --- the whole Case on the production executor ------------------------------------------------
@@ -288,8 +322,8 @@ async def test_a_fusion_commits_with_its_synthesizer_alone_and_keeps_every_membe
 
     Members here would answer A on turn 2. The synthesizer answers B. Before OME-1980 the whole
     Fusion ran again (6 calls for this two-member Fusion); now turn 2 is one call, the members
-    cannot overturn the answer, and the graded record still shows each member's turn-1 answer,
-    as evidence only (their cost stays on turn 1).
+    cannot overturn the answer, and the graded record still shows each member's turn-1 row with
+    what its one call cost, so the SDK's per-member cost view stays known.
     """
     _assets(tmp_path)
     gateway = RecordingGateway()
@@ -305,7 +339,7 @@ async def test_a_fusion_commits_with_its_synthesizer_alone_and_keeps_every_membe
     rows = {row["operation_id"]: row for row in case["operations"]}
     assert list(rows) == ["op_model_1", "op_model_2", "op_synthesis_1"]
     assert rows["op_model_1"]["output"] == "Reasoning... so the answer is B."
-    assert rows["op_model_1"]["accounting"] is None
+    assert rows["op_model_1"]["accounting"] is not None
     assert rows["op_synthesis_1"]["output"] == "B"
 
 
@@ -346,3 +380,31 @@ async def test_turn_one_sends_the_bytes_the_leaderboard_entries_were_cached_unde
         json.dumps(turn_one, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
     assert digest == _TURN_ONE_DIGEST_AT_1E5A3B8A
+
+
+#: A recipe the shortcut cannot lift: its result comes from a nested group, not a root model
+#: step, the shape of a corrective loop or any step the Engine cannot see inside.
+_NESTED = (
+    "(wrap_1:0.0:(model_1:0.0:/prov/solo($input)!'Answer the question.')!'$model_1')!'$wrap_1'"
+)
+
+
+@pytest.mark.asyncio
+async def test_a_recipe_the_shortcut_cannot_lift_commits_whole_on_the_same_chat(
+    tmp_path: Path,
+) -> None:
+    """INVARIANT: the whole-recipe path still reaches the Candidate route and continues the chat.
+
+    Every recipe that is not one model call (Vote, Gate, a corrective loop) takes this path; it
+    was the only path before OME-1980, so a break in how the returned text reaches the Candidate
+    route must fail here, not pass silently.
+    """
+    _assets(tmp_path)
+    gateway = RecordingGateway()
+
+    result: dict[str, Any] = await _run(_NESTED, gateway, tmp_path)
+
+    assert len(gateway.calls) == 2
+    (commit,) = gateway.commits()
+    assert [m["role"] for m in commit["messages"]] == ["system", "user", "assistant", "user"]
+    assert result["score"] == 1.0

@@ -295,11 +295,12 @@ MEDXPERT = Benchmark(
         "accuracy over every case run, reported beside the fraction actually answered — a case "
         "the model leaves unanswered, or that fails, counts as wrong. "
         "The two-turn exchange is applied at the candidate boundary: the commit continues the "
-        "model's own chat, the official harness's message layout. For a fusion, the members "
-        "reason once and the synthesizer alone commits, so those numbers are not comparable to a "
-        "per-member implementation. Sampling (temperature, seed, token "
-        "cap) and the system message are the candidate's own, not the harness's temperature 0, "
-        "seed 0, 2,048-token cap and medical-assistant system message. " + ANSWER_FORMAT
+        "model's own chat, the official harness's message layout. For a fusion closed by a "
+        "synthesizer model, the members reason once and the synthesizer alone commits; any other "
+        "recipe commits whole. Fusion numbers are not comparable to a per-member "
+        "implementation. Sampling (temperature, seed, token cap) and the system message are the "
+        "candidate's own, not the harness's temperature 0, seed 0, 2,048-token cap and "
+        "medical-assistant system message. " + ANSWER_FORMAT
     ),
     revision=REVISION,
     case_count=CASE_COUNT,

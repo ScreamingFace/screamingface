@@ -52,17 +52,22 @@ def commit_chat(prompt: str, answer: str, trigger: str) -> str:
     """The chat turn 2 sends, as a candidate-input envelope.
 
     Messages, in the official harness's order: the turn-1 prompt (user), the Candidate's own
-    turn-1 answer (assistant), the trigger (user). An empty answer (a refusal, an empty reply,
-    or an abstain) leaves the assistant message out, because some providers refuse an empty
+    turn-1 answer (assistant, stripped as the harness strips it), the trigger (user). An empty
+    or whitespace-only answer (a refusal, an empty reply, or an abstain) leaves the assistant
+    message out, because some providers refuse an empty
     one; the model then gets one cold chance to commit (owner's call on OME-1980).
 
     INVARIANT: the bytes depend only on the three texts, so a rerun sends the same turn 2 and
     the AI Gateway's request cache serves it (OME-1786).
     """
 
+    # WHY strip: the harness strips the reply before it becomes the assistant turn
+    # (https://github.com/TsinghuaC3I/MedXpertQA/blob/5f1db162d0d2b03d62da2d4fe086076a36105e18/eval/main.py#L91-L92),
+    # and a whitespace-only message is refused like an empty one.
+    reply: str = answer.strip()
     messages: list[dict[str, str]] = [{"role": "user", "content": prompt}]
-    if answer:
-        messages.append({"role": "assistant", "content": answer})
+    if reply:
+        messages.append({"role": "assistant", "content": reply})
     messages.append({"role": "user", "content": trigger})
     return json.dumps(
         {"schema": CANDIDATE_INPUT_SCHEMA, "messages": messages},

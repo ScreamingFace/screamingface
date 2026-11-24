@@ -14,6 +14,7 @@ benchmark's grading is free.
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Callable, Mapping
 from dataclasses import replace
 from pathlib import Path
@@ -64,6 +65,8 @@ from screamingface_engine.benchmarks.shared_grading.serving import (
 )
 from url4.core.errors import ResolutionError
 from url4.peer.server import Request, Url4Node
+
+_LOG = logging.getLogger(__name__)
 
 
 def install(node: Url4Node, root: Path) -> None:
@@ -197,6 +200,8 @@ def _commit_chat(request: Request) -> str:
     reasoning it never wrote.
     """
 
+    # The prompt and trigger come from this Benchmark's own Case rows: a fault there is the
+    # Benchmark's, never the Candidate's.
     try:
         payload: dict[str, Any] = json_object(request.context, "MedXpertQA commit chat")
         if tuple(payload) != ("prompt", "reasoning", "trigger"):
@@ -204,6 +209,9 @@ def _commit_chat(request: Request) -> str:
         prompt, record, trigger = payload["prompt"], payload["reasoning"], payload["trigger"]
         if not isinstance(prompt, str) or not isinstance(trigger, str) or not prompt or not trigger:
             raise ValueError("commit chat prompt and trigger must be non-empty text")
+    except (TypeError, ValueError) as exc:
+        raise _definition_error(f"MedXpertQA commit chat: {exc}") from exc
+    try:
         answer: str = decode_candidate_invocation_record(record).output
     except (TypeError, ValueError) as exc:
         # The same code the Engine gives a Candidate whose record it cannot encode.
@@ -235,7 +243,14 @@ def _commit_recipe_endpoint(node: Url4Node) -> Callable[[Request], str]:
                 permanent=True,
             )
         models: frozenset[str] = node_model_routes(node)
-        return commit_recipe(request.context, lambda path: path in models)
+        recipe: str = commit_recipe(request.context, lambda path: path in models)
+        # WHY a log line: a recipe the shortcut cannot lift runs whole with no error, which for a
+        # Fusion means members billed twice again. This says which path ran, never the recipe.
+        _LOG.info(
+            "MedXpertQA commit turn: %s",
+            "one model" if recipe != request.context else "whole recipe",
+        )
+        return recipe
 
     return endpoint
 
@@ -245,12 +260,14 @@ def _with_turn_one_rows(commit: CandidateAnswer, turn_one: object) -> CandidateA
 
     FEATURE (OME-1980): when one model writes the commit (a Fusion's synthesizer), the members
     are not called on turn 2, so the commit's record holds only ``op_synthesis_1``. The members'
-    turn-1 answers are copied in, in turn 1's order, so the graded record still shows every
-    member.
+    turn-1 rows are copied in, in turn 1's order, so the graded record still shows every member
+    and what its one call cost (the SDK's per-member and per-Case cost views read "unknown" for
+    a row with no accounting).
 
-    INVARIANT: a copied row is evidence only: its output and finish reason. Its accounting,
-    charges and combine/decision evidence stay on turn 1, where the calls were made and paid, so
-    the Case's cost is never counted twice. A row the commit ran itself is never replaced.
+    INVARIANT: a copied row carries its output, finish reason and accounting, never budget
+    charges or combine/decision evidence. Copying the accounting counts nothing twice: the run's
+    cost comes from its own usage total, not from these rows, and each member made exactly one
+    call. A row the commit ran itself is never replaced.
 
     Worked example: turn 1 [op_model_1 "A", op_model_2 "D", op_synthesis_1 "...D"], commit
     [op_synthesis_1 "D."] → [op_model_1 "A", op_model_2 "D", op_synthesis_1 "D."].
@@ -266,7 +283,7 @@ def _with_turn_one_rows(commit: CandidateAnswer, turn_one: object) -> CandidateA
             operation_id=row.operation_id,
             output=row.output,
             finish_reason=row.finish_reason,
-            accounting=None,
+            accounting=row.accounting,
         )
         for row in earlier
     ]
