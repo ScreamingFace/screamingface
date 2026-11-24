@@ -3,6 +3,35 @@
 **Source:** ans:Q5, ans:Q6, ans:Q8, ans:Q9, ans:Q14 · **Priority:** P1 (agents need it)
 **Lifecycle:** planned · **Owner:** unassigned
 
+## 0. Tool calls are turned off for now (2026-11-24)
+
+Team feedback through the owner (verbatim): "disable the tool usage feature for now. So we must
+provide a proper error if someone tries to use / declare tools for now." Owner answers of
+2026-11-24 (ledger of `docs/spec/2026-11-18-sdk-model-inference/00-overview.md` §5.7):
+the Engine and the SDK refuse; declared tools and tool turns count; a fixed refusal with no
+switch, and the tool code stays.
+
+- **TC-S23** `[stated owner 2026-11-24]`. Given a request that declares or uses a tool, when the
+  boundary checks it, then the answer is HTTP 400, code `tools_not_available`, type
+  `invalid_request_error`, `x-should-retry: false`, with the fixed message, and `param` names
+  the first place. No run starts, no blob is written and the model catalogue is not read. A
+  request with `stream: true` gets the same JSON answer.
+  - Tool use is: `tools` with at least one item (`param` `tools`); `functions` with at least
+    one item (`functions`) `[proposed]`; a `tool` message (`messages[i]`); an assistant message
+    with at least one item in `tool_calls` (`messages[i].tool_calls`).
+  - Not tool use: `tools: []` or `null` (TC-S13), `functions: []`, `tool_calls: []` or `null`,
+    `tool_choice`, `function_call`, `parallel_tool_calls`. They are accepted as before.
+  - Order: `invalid_request` (a wrong shape) and `unsupported_parameter` come before this check.
+- The check is fixed: `rest/chat_body.py::_tool_use`. No setting turns it off
+  `[stated owner 2026-11-24]`.
+- The tool code stays (the final-step route, the views, the recipe checks, the wire types), and
+  no request can reach it. Its route tests run with the check removed by a test-only fixture
+  (`tests/unit/_chat_tools_reachable.py`) `[proposed]`. The scenarios below (TC-S1 to TC-S22)
+  describe that code; they do not describe the route of today.
+- Test: TC-23, `tests/unit/test_chat_completions_tools_off.py`.
+- To turn tool calls on again: remove the check and its test, remove the fixture, and put the
+  docs sections back.
+
 ## 1. Summary and user story
 
 As a coding agent, I send my tools with each request. I want the last model step of the ensemble

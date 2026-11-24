@@ -150,6 +150,24 @@ also meet that criteria". Answers Q8 to Q11. Contracts: C1.7, D18 to D25.
 - After the build: the surface snapshot and its blob in the approval record (MI-46); the SDK
   gates; an Opus design review. No push before the owner's word.
 
+### U11 — Tool calls are turned off (spec §5.7; Engine PRD `tool-calls.md` §0)
+
+Owner request of 2026-11-24 (team feedback F4). Answers Q12 to Q14. Contracts: C1.8, D26 to D30;
+Engine scenario TC-S23.
+
+- Engine: a fixed check at the boundary (`rest/chat_body.py::_tool_use`) answers 400
+  `tools_not_available` before a run; one fixed message; the request model keeps `functions` so
+  the route can refuse it; the OpenAPI text names the code. Test TC-23. The route tests of the
+  tool code (4 files, 21 tests) run with the check removed by a test-only fixture.
+- SDK: `refuse_tool_use` in `S/_inference/parameters.py`, called by the shared checks before the
+  warnings; `functions` with an item gets the same error. Tests MI-47 to MI-49; the tests that
+  sent tools through a call follow D30.
+- Docs: the Chat API page and the OpenAI guide page say that tool calls are not available; the
+  snippet `tools.py` is removed; `openai_one_line.py` has no tool; the two READMEs and the SDK
+  changelog follow (MI-50).
+- After the build: the gates of the Engine, the SDK and the docs site. No push before the owner's
+  word.
+
 ## 3. Gates for each unit
 
 - SDK: `uv run --script .claude/scripts/run_gates.py screamingface --base origin/main` (ruff,

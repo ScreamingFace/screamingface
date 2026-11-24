@@ -63,7 +63,7 @@ one name on one object. So the mode follows the client that the object holds: wi
 awaitable. Typed overloads on the client type give exact types. There is no `acomplete` and no
 second public class.
 
-The answers Q8 to Q11 (2026-11-24) are in §5.6.
+The answers Q8 to Q11 (2026-11-24) are in §5.6. The answers Q12 to Q14 (2026-11-24) are in §5.7.
 
 ## 4. Inventory
 
@@ -266,6 +266,37 @@ Not in this change:
 - The OpenAI options on `sf.configure()`. The criterion is about the client line.
 
 The contract is `contracts.md` C1.7. The tests are MI-40 to MI-46 in `test-plan.md`.
+
+### 5.7 Team feedback (2026-11-24): tool calls are turned off for now
+
+F4 (through the owner, verbatim): "Another feedback that I got was to disable the tool usage
+feature for now. So we must provide a proper error if someone tries to use / declare tools for
+now."
+
+Facts of the code: the Engine route of PR #1937 has a full tool-call feature (the final-step
+route; 16 test files), and the SDK sends `tools` to it. The docs of the two show tools.
+
+Owner answers (2026-11-24):
+
+| Id | Question | Answer (verbatim option) |
+|---|---|---|
+| Q12 | Where must tools be refused? | "Engine and SDK": the Engine answers HTTP 400 before a run; the SDK raises the same error before it sends a request |
+| Q13 | Which requests count as tool use? | "Declared tools and tool turns": `tools=` with at least one item, and a conversation that has a tool message or an assistant message with `tool_calls`. `tools=[]` stays accepted. `tool_choice` stays ignored |
+| Q14 | How must the feature be turned off? | "Fixed refusal, no switch": the request is always refused. The tool code stays but nothing can reach it; its tests call the inner functions or are removed |
+
+| Id | Decision | Tag |
+|---|---|---|
+| D26 | A chat call that declares or uses a tool raises `PlanningError`, code `tools_not_available`, permanent, with `details["param"]`. It comes from the call itself, before a default client is made, before a request and before a warning. The Engine answers HTTP 400 with the same code for each other client (Engine PRD `tool-calls.md` §0, TC-S23) | [stated ans:Q12] |
+| D27 | Tool use is: `tools` with at least one item; a `tool` message; an assistant message (a dict or a `ChatMessage`) with at least one tool call. `tools=[]`, `tools=None` and an empty iterable are not tool use | [stated ans:Q13] |
+| D28 | The refusal is fixed. No setting, argument or environment variable turns it off. The tool code stays: the `tools` parameter, the reply types and the stream chunks. A reply with a tool call is still read | [stated ans:Q14] |
+| D29 | `functions` with at least one item is refused in the same way (it is the old OpenAI keyword that declares tools). `function_call` is a choice keyword, as `tool_choice`: accepted, not sent, one warning. This replaces the `functions` and `function_call` rule of D25 | [proposed] |
+| D30 | A test that sent tools through a call now uses the inner function (the body builder, the message helper), or it has no `tools=` and the mock Engine gives the tool call. The docs show no tools example: the snippet `tools.py` is removed and `openai_one_line.py` has a conversation with no tool | [stated ans:Q14], detail [proposed] |
+
+Effect on §5.6: the criterion D18 still holds for code with no tools. The tool loop of the OpenAI
+docs is now one of the parts that need a change by hand; the test MI-40 runs a conversation with
+no tool, and MI-47 pins the error.
+
+The contract is `contracts.md` C1.8. The tests are MI-47 to MI-50 in `test-plan.md`.
 
 ### 5.3 Not in this work
 

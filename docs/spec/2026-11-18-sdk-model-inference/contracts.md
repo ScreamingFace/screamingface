@@ -6,7 +6,9 @@ One section for each connection of the inventory. Tags as in `00-overview.md` §
 
 Rewritten on 2026-11-23 for D13 to D17 (overview §5.5). There is no `sf.InferenceClient`.
 C1.7 (2026-11-24, D18 to D25) adds the OpenAI client form; where it changes C1.2 or C1.3, C1.7
-is the authority.
+is the authority. C1.8 (2026-11-24, D26 to D30) turns tool calls off; where C1.2 or C1.7 says
+that `tools` is sent or that `functions` is refused with `unsupported_parameter`, C1.8 is the
+authority.
 
 ### C1.1 The three surfaces
 
@@ -277,6 +279,31 @@ Changes to the reply types (C1.3) `[proposed D24]`:
   `exclude_none=True`, no key with the value `None` at each depth),
   `model_dump_json(*, indent=None, exclude_none=False)` and `to_json(*, indent=2)` (JSON text
   of that dict, not ASCII-escaped).
+
+### C1.8 Tool calls are turned off (D26 to D30, overview §5.7)
+
+Each of the four surfaces applies this check in the shared implementation, after the argument
+checks of C1.2 and before the warnings of `**other`:
+
+| Call | Result |
+|---|---|
+| `tools` with at least one item | `PlanningError`, code `tools_not_available`, `details == {"param": "tools"}` |
+| `functions` with at least one item `[proposed D29]` | the same, `param` `functions` |
+| `messages[i]` has the role `tool` | the same, `param` `messages[i]` |
+| `messages[i]` is an assistant message with at least one tool call (a dict, or a `ChatMessage`) | the same, `param` `messages[i].tool_calls` |
+| `tools=[]`, `tools=None`, an empty iterable; `tool_calls` `None` or empty | accepted; `tools` is not sent |
+| `tool_choice`, `function_call`, `parallel_tool_calls`, `functions=[]` or `None` | accepted, not sent, one `IgnoredParameterWarning` each |
+
+- The error is permanent. Its text starts with "Tool calls are not available yet." and names the
+  argument to remove.
+- It is an argument error in the sense of C1.2: the call itself raises it, also in async mode; no
+  default client is made; no request is sent; no warning is given.
+- The check is fixed `[stated ans:Q14]`. The SDK has no switch for it.
+- The Engine has the same check (HTTP 400 `tools_not_available`). If the SDK check and the
+  Engine check differ, the caller gets the Engine answer as `PlanningError` with the same code
+  (C2.4).
+- The reply types and the stream types do not change. `reply.tool_calls` is `None` for each
+  reply of an Engine with the check.
 
 ## C2 — SDK chat call → Engine: `POST /v1/chat/completions`
 
