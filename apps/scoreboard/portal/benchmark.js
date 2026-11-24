@@ -190,6 +190,19 @@
     return td;
   }
 
+  // A quiet second line under the score when the run failed on some of its Cases, e.g.
+  // "505 / 525 graded". Same second-line pattern as the open/closed verdict in the Backends cell,
+  // and not its own column for the same reason: another column pushes "Run Locally" off-screen.
+  // The wording decision lives in leaderboard-logic.js; a row with no count adds nothing.
+  function appendGradedNote(td, entry) {
+    var note = L.gradedNote(entry);
+    if (note === null) return td;
+    var line = P.el("span", "graded-line meta", note.text);
+    line.title = note.title;
+    td.appendChild(line);
+    return td;
+  }
+
   // The Run column: Copy url4 for reusing the recipe live, and, for a fully captured run when the
   // switch is on, Reproduce stacked under it, copying the replay snippet. Same button recipe and
   // the same copied/failed feedback for both; no new colour.
@@ -267,7 +280,7 @@
       backendsTd.appendChild(renderOpenness(entry));
       tr.appendChild(backendsTd);
       tr.appendChild(P.el("td", null, P.formatAuthors(entry.authors)));
-      tr.appendChild(renderScoreCell(entry.score, barMin, barMax));
+      tr.appendChild(appendGradedNote(renderScoreCell(entry.score, barMin, barMax), entry));
       // WHY the title: the cell rounds to cents, but the frontier compares the full stored
       // Decimal — so two rows inside one cent render identically while only one is marked. The
       // exact figure has to be recoverable, or the board contradicts itself with nothing on the

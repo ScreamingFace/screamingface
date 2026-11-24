@@ -293,6 +293,31 @@
     };
   }
 
+  // The note beside a score when a run failed on some of its Cases, or null for no note.
+  //
+  // A run selects `total_questions` Cases, and a Case goes ungraded when the Candidate call
+  // errors or times out, or the judge gives no readable verdict. `graded_questions` is how many
+  // got a grade. Example: 525 selected, 505 graded -> "505 / 525 graded", 20 failed.
+  //
+  // Null means "say nothing", and that covers three different rows on purpose: a fully graded
+  // run, a row with no count (an older client, or a row from before the field), and a count the
+  // API could not have stored. Absent never reads as "0 failed", and 0 graded is a real count.
+  function gradedNote(row) {
+    var total = row && row.total_questions;
+    var graded = row && row.graded_questions;
+    if (!_isCount(total) || !_isCount(graded) || graded >= total) return null;
+    var failed = total - graded;
+    return {
+      text: graded.toLocaleString("en-US") + " / " + total.toLocaleString("en-US") + " graded",
+      title: failed.toLocaleString("en-US") + " of " + total.toLocaleString("en-US") +
+        " Cases failed and " + (failed === 1 ? "was" : "were") + " not graded",
+    };
+  }
+
+  function _isCount(value) {
+    return typeof value === "number" && isFinite(value) && Math.floor(value) === value && value >= 0;
+  }
+
   // The "N% open" card, from GET /v1/leaderboard/{id}/frontier.
   //
   // Never state a percentage the API did not measure. `open_share: null` means the
@@ -393,5 +418,6 @@
     candidateKindLabel: candidateKindLabel,
     isFusionCandidate: isFusionCandidate,
     isUnknownCandidate: isUnknownCandidate,
+    gradedNote: gradedNote,
   };
 });

@@ -79,6 +79,9 @@ ENGINE_ERROR_CODES: frozenset[str] = frozenset(
         # (OME-1307) — a replay the frozen copy cannot answer. Each raise site uses a fixed message
         # and interpolates nothing, and `_raise_for_status` never lifts the text of the upstream
         # response that triggered it.
+        # AIDEV-NOTE: OME-1947 — the gateway's 410 `frozen_copy_expired` leaves the engine as
+        # `frozen_copy_unavailable` with a second fixed text, capture_outcomes.REPLAY_EXPIRED_TEXT.
+        # The gateway code is never an engine code, so it is not in this set.
         "frozen_copy_miss",
         "frozen_copy_unavailable",
         # world/connector.py::_raise_for_status via
@@ -94,6 +97,10 @@ ENGINE_ERROR_CODES: frozenset[str] = frozenset(
         # world/branch.py DECIDE via benchmarks/failure_classes.py::signal_missing (E4c) — a
         # recipe-otherwise Gate read a missing number. One fixed message plus the gate id.
         "signal_missing",
+        # world/refused_key_stop.py (OME-1989) — a run stopped because the provider refuses the
+        # key. Fixed messages plus the Engine's own model id and a count, never the gateway's
+        # code or text.
+        "provider_key_refused",
     }
 )
 

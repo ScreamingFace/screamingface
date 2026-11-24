@@ -85,22 +85,36 @@ def tool_lookup_path(copy_id: str) -> str:
 # codes with a fixed message each: nothing of the gateway's text is carried.
 REPLAY_MISS = "frozen_copy_miss"
 REPLAY_UNAVAILABLE = "frozen_copy_unavailable"
+# INVARIANT (OME-1947): the gateway's 410 code for an expired copy, never a code that leaves the
+# engine. The engine fails the case with REPLAY_UNAVAILABLE and REPLAY_EXPIRED_TEXT.
+REPLAY_EXPIRED = "frozen_copy_expired"
+REPLAY_EXPIRED_TEXT = (
+    "the frozen copy expired: no leaderboard score used it in its retention period, "
+    "and the gateway deleted its answers"
+)
+_REFUSAL_CODES: dict[int, frozenset[str]] = {
+    404: frozenset({REPLAY_MISS, REPLAY_UNAVAILABLE}),
+    410: frozenset({REPLAY_EXPIRED}),
+}
 
 
 def replay_refusal_code(status: int, payload: object) -> str | None:
     """The replay code a gateway response states, or ``None`` when it is not a replay refusal.
 
-    Only a 404 can be one. ``detail.code`` names it. A 404 whose ``detail`` is exactly the
-    framework's own "Not Found" is a gateway without the replay routes (design §9, older than B1):
-    the copy cannot be served, so it reads as unavailable. Any other 404 is a captured error.
+    A 404 can carry ``frozen_copy_miss`` or ``frozen_copy_unavailable``, and a 410 can carry
+    ``frozen_copy_expired`` (OME-1947). ``detail.code`` names it. A 404 whose ``detail`` is exactly
+    the framework's own "Not Found" is a gateway without the replay routes (design §9, older than
+    B1): the copy cannot be served, so it reads as unavailable. Any other status or code is not a
+    replay refusal.
     """
-    if status != 404 or not isinstance(payload, dict):
+    accepted = _REFUSAL_CODES.get(status)
+    if accepted is None or not isinstance(payload, dict):
         return None
     detail = payload.get("detail")
-    if detail == "Not Found":
+    if status == 404 and detail == "Not Found":
         return REPLAY_UNAVAILABLE
     code = detail.get("code") if isinstance(detail, dict) else None
-    return code if code in (REPLAY_MISS, REPLAY_UNAVAILABLE) else None
+    return code if code in accepted else None
 
 
 def request_digest(payload: Mapping[str, object]) -> str:
@@ -315,6 +329,8 @@ __all__ = [
     "CASE_KEY_HEADER",
     "FROZEN_COPIES_PATH",
     "FROZEN_COPY_HEADER",
+    "REPLAY_EXPIRED",
+    "REPLAY_EXPIRED_TEXT",
     "REPLAY_FIELD",
     "REPLAY_MISS",
     "REPLAY_UNAVAILABLE",

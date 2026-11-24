@@ -50,6 +50,14 @@ config:
   # reserved for /readyz, so the budget is replicas x (dbPoolMaxsize + 1). Ignored for SQLite.
   dbPoolMinsize: 1
   dbPoolMaxsize: 5
+  # Frozen copy claims (OME-1947). The scoreboard claims the frozen copy of each new submit that
+  # names one, so that the gateway keeps it. At each start, it also claims the copy of each
+  # stored Score. An empty gatewayUrl (default) turns the claims off.
+  # When you set gatewayUrl, also set gatewayActor, or the service does not start. Set the
+  # gateway URL only after the claim route test of DEPLOYMENT.md passes.
+  gatewayUrl: ""
+  gatewayActor: ""
+  gatewayTimeoutS: 5
 
 cors:
   origins:

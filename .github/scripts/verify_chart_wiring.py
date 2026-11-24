@@ -1982,6 +1982,22 @@ for label, extra in (("default", ()), ("prod", SCOREBOARD_PROD_ARGS)):
         f"scoreboard ({label} values): the ConfigMap renders SCOREBOARD_REGRADE_IDENTITIES, "
         "empty by default, so nobody may re-grade until an environment names them",
     )
+    # OME-1947: the frozen copy claim settings reach the pod, and a chart with no override makes
+    # no claim (an empty URL turns the claims off in the app).
+    claim_keys = (
+        "SCOREBOARD_GATEWAY_URL",
+        "SCOREBOARD_GATEWAY_ACTOR",
+        "SCOREBOARD_GATEWAY_TIMEOUT_S",
+    )
+    check(
+        all(key in scoreboard_config for key in claim_keys),
+        f"scoreboard ({label} values): the ConfigMap sets the three frozen copy claim keys",
+    )
+    if label == "default":
+        check(
+            scoreboard_config.get("SCOREBOARD_GATEWAY_URL") == "",
+            "scoreboard (default values): the gateway URL is empty, so the service makes no claim",
+        )
 
 # OME-1909: the list renders as the comma-separated text the app's `regrade_identities` parser
 # splits (`config.py`), so each email a values file names reaches the app as one identity.

@@ -417,6 +417,143 @@ deliberate — it should be easier to postpone a rollback than to destroy a chal
 private, so a rollback target that understands `visibility` already exists in `helm history`. The
 preflight cannot check this for you — it sees the database, not the release history.
 
+## Frozen copy claims (OME-1947)
+
+The scoreboard sends a claim to the AI Gateway for the frozen copy (the pinned cache) of each
+new submit that names one. At each start, the scoreboard also sends a claim for the copy of each
+stored Score (the claim pass). The gateway keeps a claimed copy. With no gateway URL, the
+scoreboard makes no claim and works as before.
+
+### Settings
+
+| Chart value (`config:`) | Variable | Default | Meaning |
+|---|---|---|---|
+| `gatewayUrl` | `SCOREBOARD_GATEWAY_URL` | empty | The address of the AI Gateway service in the cluster, for example `http://<gateway-service>.<namespace>.svc:<port>`. Empty means no claim. |
+| `gatewayActor` | `SCOREBOARD_GATEWAY_ACTOR` | empty | The email that the scoreboard sends in `X-User-Email`. It must be in `AIGW_FROZEN_COPY_CLAIM_EMAILS` of the gateway. It must be an address that cannot log in through Cloudflare Access. Set it when the URL is set. Without it, the service does not start. |
+| `gatewayTimeoutS` | `SCOREBOARD_GATEWAY_TIMEOUT_S` | `5` | The time limit in seconds for one claim call. The scoreboard does not retry. |
+
+`values-prod.yaml` does not set these values. The infrastructure repo sets them.
+
+The egress rule of this chart already permits the call. The NetworkPolicy of the gateway must
+admit the scoreboard pods. Add one `networkPolicy.allowFrom` element with the namespace selector
+and the pod selector of the scoreboard.
+
+### Before you set the gateway URL
+
+Release the gateway with the claim route first. A gateway with no claim route answers `404` with
+no code. Then each submit with a pinned cache gets `503`.
+
+Then do step 1 of the release checks. From a scoreboard pod, send a claim for a random UUID:
+
+```bash
+kubectl -n "$NAMESPACE" exec "deploy/$DEPLOYMENT" -- python -c '
+import sys, uuid, httpx
+r = httpx.post(f"{sys.argv[1]}/v1/frozen-copies/{uuid.uuid4()}/claim",
+               headers={"X-User-Email": sys.argv[2]}, timeout=5)
+print(r.status_code, r.text)' "$GATEWAY_URL" "$GATEWAY_ACTOR"
+```
+
+The answer must be `404` with `frozen_copy_not_found`. This answer proves the URL, the
+NetworkPolicy and the claim list.
+A `403`, `401` or `503` means that the gateway refuses the actor or the peer.
+Do not set `gatewayUrl` until the answer is correct.
+
+### What a submit gets
+
+A submit that names a frozen copy sends the claim before the Score is stored.
+
+| Gateway answer | Submit answer |
+|---|---|
+| Sealed (first or repeated claim) | The Score is stored. |
+| Expired | `422` `frozen_copy_expired` |
+| Not sealed, abandoned, or not known | `422` `frozen_copy_unavailable` |
+| Any other answer, a timeout, or a connection error | `503` `frozen_copy_check_unavailable` with `Retry-After: 5` |
+
+A `422` is permanent. The user must run the evaluation again.
+The SDK sends the submit again after a `503`.
+A submit with no frozen copy makes no claim.
+
+### The claim pass at start
+
+When the gateway URL is set, each scoreboard pod starts one background task at each start. The
+task reads each Score that names a frozen copy, on all boards, public and private. It sends one
+claim for each copy, one call at a time. The start and `/readyz` do not wait for the task.
+
+- A second pass, from a second pod or from a new start, gets `already` for each copy. This is
+  correct.
+- If the gateway does not answer one claim, the pass stops. The task waits 10 minutes. Then it
+  starts a new pass from the first Score.
+- If a different error stops the pass, for example a database error, the task also waits 10
+  minutes and starts a new pass.
+- The task ends after one complete pass. It does not run again until the next start.
+- At shutdown, the scoreboard stops the task, then closes the claim client, then closes the
+  database.
+- With no gateway URL, the scoreboard starts no task.
+
+A result that is not `claimed` or `already` does not change the Score. The Score stays on the
+board, and the scoreboard deletes nothing. The WARNING record of the pass gives the list of these
+Scores to the owner.
+
+### Log records
+
+A submit writes two WARNING records:
+
+- `no gateway URL: no claim for frozen copy <id>`: The scoreboard has no gateway URL and stored
+  a Score that names a copy with no claim.
+- `frozen copy claim refused: result=<result> frozen_copy_id=<id>`: The claim did not give
+  `claimed` or `already`. `<result>` is `not_sealed`, `abandoned`, `expired`, `not_found` or
+  `unavailable`.
+
+The claim pass writes these records:
+
+- INFO `claim pass done: scores=<n> results=<counts>`: The pass is complete. `<counts>` is a JSON
+  object with the count of each result, for example `{"already": 375, "claimed": 1}`.
+- WARNING `claim pass: <n> scores name a frozen copy that is not kept: <list>`: One or more
+  results are not `claimed` or `already`. `<list>` is a JSON list with `score_id`,
+  `frozen_copy_id` and `result` for each such Score. The pass writes one record, not one record
+  for each Score.
+- WARNING `claim pass stopped: the gateway did not answer; next pass in 600 s`: One claim got the
+  result `unavailable`. Examine the gateway, its claim list and the NetworkPolicy.
+- ERROR `claim pass stopped: error=<type>; next pass in 600 s`: An error that is not a gateway
+  error stopped the pass. `<type>` is the type of the error. If the type is a database error,
+  for example `OperationalError`, examine the database. For a different type, the cause can be a
+  defect in the scoreboard. Tell the owners of the scoreboard.
+
+The records contain no email.
+
+### The command `claim_copies`
+
+The command does the work of the claim pass one time, by hand. Use it to see the result for each
+copy, or to claim the copies with no restart. You can run it again at any time.
+
+```bash
+kubectl -n "$NAMESPACE" exec "deploy/$DEPLOYMENT" -- python -m scoreboard.claim_copies --dry-run
+kubectl -n "$NAMESPACE" exec "deploy/$DEPLOYMENT" -- python -m scoreboard.claim_copies
+```
+
+The command writes one JSON line for each Score that names a copy, with `score_id`,
+`frozen_copy_id` and `result`. Then it writes one summary line with the number of Scores and the
+count of each result, for example `{"scores": 376, "results": {"already": 376}}`.
+
+With `--dry-run`, the command lists each Score that names a copy and sends no claim. The
+`result` of each line is then `null`.
+
+| Exit status | Meaning |
+|---|---|
+| `0` | Each copy is `claimed` or `already`, or the run is a dry run. |
+| `1` | The gateway did not answer. The command stopped at that Score. Run it again later. |
+| `2` | `SCOREBOARD_GATEWAY_URL` is empty. The command sent no claim. |
+| `3` | One or more copies have a different result. The lines show these Scores. |
+
+If the command writes a Python traceback and exits with status `1`, the gateway is not the
+cause. A different error stopped the command, for example a database error. Examine the
+traceback. The command sent no claim after the error.
+
+### Release checks
+
+For the full release checks, see section 5.2 of
+`docs/spec/2026-11-16-frozen-copy-retention/test-plan.md`.
+
 ## Troubleshooting
 
 Inspect resources:

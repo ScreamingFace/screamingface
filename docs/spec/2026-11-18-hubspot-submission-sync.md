@@ -246,11 +246,16 @@ deleted after (Bennett's rule).
 
 ## Accepted risks (Filip, 2026-11-23, after review of #1981)
 
-1. **A duplicate SOTA card is possible but bounded.** HubSpot documents creating a deal with its
-   contact association in one request, but promises neither that both commit together nor that
-   the association reads back at once. If a create's response is lost and the retry (at least 5
-   minutes later) does not see the card, a second card is created. The next run then finds two
-   cards, writes nothing more, and marks the person `ambiguous_card` for someone to merge.
+1. **A duplicate SOTA card is possible and not reliably detected.** HubSpot documents creating a
+   deal with its contact association in one request, but promises neither that both commit
+   together nor that the association reads back at once. If a create's response is lost and the
+   retry (at least 5 minutes later) does not see the card, a second card is created and the
+   retry marks the person's rows `sent`. The duplicate surfaces only when that person submits
+   again (the run then finds two cards, writes nothing, and marks `ambiguous_card` for someone
+   to merge) or in a HubSpot audit. A first card whose association was never saved is invisible
+   to the sync entirely. (Corrected 2026-11-23 from "the next run finds two cards", per
+   Dmitry's approval of #1981.) Operations watch for duplicates on the 😱 SOTA board; the first
+   one seen reopens the stable-identity question below.
    Rejected fixes: a unique integration-owned deal property (needs a schema change by the
    program team, a backfill onto existing cards, and about half a day of code) and a
    `create_unknown` state (parks rows until a person resolves them). Revisit if a duplicate is

@@ -1,4 +1,4 @@
-"""The frozen-copy store: open, capture, seal and replay lookup (OME-1307, design §3 and §4).
+"""The frozen-copy store: open, capture, seal, claim and replay lookup (OME-1307, design §3 and §4).
 
 INVARIANT (F1): an entry is only inserted into an ``open`` copy. The status is re-read under a row
 lock inside the insert's own transaction, so a seal that lands between the route's check and the
@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import logging
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Literal
 from uuid import UUID
@@ -28,6 +29,7 @@ from aigateway.core.request_cache.canonical import canonical_digest
 from .models import STATUS_OPEN, STATUS_SEALED, FrozenCopy, FrozenCopyEntry
 
 __all__ = [
+    "ClaimOutcome",
     "FrozenCopyEntryTooLarge",
     "FrozenCopySealed",
     "FrozenCopyStore",
@@ -50,6 +52,14 @@ class FrozenCopySealed(Exception):
 
 class FrozenCopyEntryTooLarge(Exception):
     """Request plus response JSON is over the per-entry cap (design F3)."""
+
+
+@dataclass(frozen=True, slots=True)
+class ClaimOutcome:
+    """The copy after a claim. ``first`` is True only when this call set ``claimed_at``."""
+
+    copy: FrozenCopy
+    first: bool
 
 
 def request_digest(kind: EntryKind, request: Any, attempt: int | None = None) -> str:
@@ -121,8 +131,9 @@ class FrozenCopyStore:
     ) -> FrozenCopy | None:
         """Seal the owner's copy; ``None`` for an unknown copy or a non-owner (no leak).
 
-        Q28: the first seal stores ``provenance``. A repeat seal returns the sealed copy unchanged,
-        so it keeps the first provenance.
+        Q28: the first seal stores ``provenance``. A copy that is not open (a repeat seal, or a copy
+        the sweep made ``abandoned`` or ``expired``) is returned unchanged, so a sealed copy keeps
+        the first provenance.
         """
         async with in_transaction():
             copy = (
@@ -132,7 +143,7 @@ class FrozenCopyStore:
             )
             if copy is None:
                 return None
-            if copy.status == STATUS_SEALED:
+            if copy.status != STATUS_OPEN:
                 return copy
             copy.entries = await FrozenCopyEntry.filter(frozen_copy_id=copy.id).count()
             copy.provenance = provenance
@@ -140,6 +151,26 @@ class FrozenCopyStore:
             copy.sealed_at = datetime.now(UTC)
             await copy.save(update_fields=["entries", "provenance", "status", "sealed_at"])
             return copy
+
+    async def claim(self, copy_id: UUID) -> ClaimOutcome | None:
+        """Claim the copy for a Score (OME-1947, contracts K4); ``None`` for an unknown copy.
+
+        Only a ``sealed`` copy with no claim gets ``claimed_at``. Each other copy comes back with
+        no change and ``first=False``. This method does not apply the expiry rule.
+
+        INVARIANT: the status is read under the row lock of the copy, in the same transaction as
+        the write, so a claim and a sweep of one copy cannot both change it.
+        """
+        async with in_transaction():
+            copy = await FrozenCopy.filter(id=copy_id).select_for_update().first()
+            if copy is None:
+                return None
+            if copy.status != STATUS_SEALED or copy.claimed_at is not None:
+                return ClaimOutcome(copy=copy, first=False)
+            copy.claimed_at = datetime.now(UTC)
+            await copy.save(update_fields=["claimed_at"])
+        logger.info("frozen copy claimed copy=%s", copy.id)
+        return ClaimOutcome(copy=copy, first=True)
 
     async def capture(
         self,

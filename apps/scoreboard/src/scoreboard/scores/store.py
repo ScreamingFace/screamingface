@@ -190,6 +190,7 @@ def _score_to_schema(model: Score) -> ScoreSchema:
         score=model.score,
         total_questions=model.total_questions,
         correct_questions=model.correct_questions,
+        graded_questions=model.graded_questions,
         ran_with_providers=model.ran_with_providers,
         ran_at_local=model.ran_at_local,
         client_name=model.client_name,
@@ -631,6 +632,9 @@ def _submission_to_kwargs(submission: ScoreSubmission, content_hash: str) -> dic
         "score": submission.score,
         "total_questions": submission.total_questions,
         "correct_questions": submission.correct_questions,
+        # Deliberately absent from _content_hash, like `correct_questions`: how many Cases one
+        # execution managed to grade is not what the recipe is.
+        "graded_questions": submission.graded_questions,
         # INVARIANT: derived from `models` when present, so the two stored fields cannot
         # contradict each other. `_content_hash` below still reads the WIRE value.
         "ran_with_providers": _derived_providers(submission),
@@ -1055,6 +1059,7 @@ def _build_leaderboard_query(
             scores.benchmark_revision,
             scores.score,
             scores.total_questions,
+            scores.graded_questions,
             scores.ran_with_providers,
             scores.submitted_at,
             scores.submitted_by,
@@ -1099,6 +1104,7 @@ def _build_leaderboard_query(
             ranked.benchmark_revision,
             ranked.score,
             ranked.total_questions,
+            ranked.graded_questions,
             ranked.ran_with_providers,
             ranked.submitted_at,
             ranked.submitted_by,
@@ -2619,6 +2625,21 @@ class ScoreStore:
             str(row["id"]): classify_candidate_kind(row["metadata"])
             for row in await _chunked_values(score_ids, "id", "metadata", connection=connection)
         }
+
+    async def scores_that_name_a_copy(self) -> list[tuple[str, str]]:
+        """The (score id, frozen copy id) of each Score that names a frozen copy (OME-1947).
+
+        All boards, with no filter on the board, in the order of the score id. The claim pass at
+        start and `python -m scoreboard.claim_copies` send one claim for each row (contracts.md K9).
+
+        INVARIANT: selects the two ids and nothing else; the pass needs no other field.
+        """
+        rows = await (
+            Score.filter(frozen_copy_id__isnull=False)
+            .order_by("id")
+            .values_list("id", "frozen_copy_id")
+        )
+        return [(str(score_id), str(copy_id)) for score_id, copy_id in rows]
 
     async def frontier_history_inputs(
         self,

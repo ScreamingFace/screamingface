@@ -69,6 +69,9 @@ class RankedLeaderboardEntry(BaseModel):
     benchmark_revision: str | None
     score: float
     total_questions: int
+    # Mirrors `LeaderboardStoreEntry.graded_questions`, excluded when absent for the same reason.
+    # WHY a default here: `_ranked_entry` splats the entry's dump, which omits an absent count.
+    graded_questions: int | None = Field(default=None, exclude_if=lambda value: value is None)
     ran_with_providers: list[str]
     submitted_at: datetime
     submitted_by: SubmittedBy

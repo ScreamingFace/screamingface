@@ -1,0 +1,14 @@
+{
+  "issue": "OME-1989",
+  "branch": "OME-1989-stop-run-on-refused-key",
+  "approver": "Khoa Duy Nguyen (owner)",
+  "date": "2026-11-21",
+  "scope": "one entry added: provider_key_refused joins ALLOWLISTED_CODES, the hand-kept second copy of ENGINE_ERROR_CODES",
+  "reason": "OME-1989 adds the engine-authored run-level code provider_key_refused; the allowlist is meant to fail until a new code is copied into it",
+  "files": {
+    "apps/screamingface-engine/tests/unit/test_terminal_error_detail.py": {
+      "base_blob": "09661f820a3bb970ba9b7a2bbca5e8b8869ca1aa",
+      "approved_blob": "1001a18151b9e53577501621baff48838428ea9c"
+    }
+  }
+}

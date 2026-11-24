@@ -98,6 +98,21 @@ class Settings(BaseSettings):
     :mod:`aigateway.core.auth.admin`.
     """
 
+    frozen_copy_claim_emails: Annotated[frozenset[str], NoDecode] = Field(
+        default=frozenset(), validation_alias="AIGW_FROZEN_COPY_CLAIM_EMAILS"
+    )
+
+    frozen_copy_claim_networks: Annotated[tuple[IPv4Network | IPv6Network, ...], NoDecode] = Field(
+        default=(), validation_alias="AIGW_FROZEN_COPY_CLAIM_NETWORKS"
+    )
+    """Peers that may call the frozen copy claim route, and no other route (OME-1947).
+
+    WHY a separate list: a peer on `allowed_networks` may name any user in `X-User-Email` on every
+    authenticated route. The scoreboard is outside the mesh and must reach the claim route; with its
+    pods on `allowed_networks`, a fault in the scoreboard could act as any user. A peer on this list
+    is trusted by `require_copy_claimer` only, and `current_account` never reads it.
+    """
+
     jwt_ttl_seconds: int = Field(default=86_400, validation_alias="AIGATEWAY_JWT_TTL_SECONDS")
     public_url: str | None = Field(default=None, validation_alias="AIGATEWAY_PUBLIC_URL")
 
@@ -202,6 +217,23 @@ class Settings(BaseSettings):
         ),
         gt=0,
         validation_alias="AIGW_FROZEN_COPY_MAX_ENTRY_BYTES",
+    )
+
+    # FEATURE (OME-1947): the frozen copy retention sweep. It has no switch: each gateway always
+    # runs it (owner decision Q22). Interval = time between two periodic runs; idle time = an open
+    # copy with no new entry for this long becomes `abandoned`; budget = most entries one run
+    # deletes.
+    # AIDEV-NOTE: advice, not a check (the idle time has no lower limit tied to the engine, Q18):
+    # keep the idle time above the engine run deadline (16 hours), or the sweep abandons the copy
+    # of a run that is still in progress (spec prd/copy-sweep.md section 4.1).
+    frozen_copy_sweep_interval_seconds: int = Field(
+        default=3600, ge=60, validation_alias="AIGW_FROZEN_COPY_SWEEP_INTERVAL_SECONDS"
+    )
+    frozen_copy_open_idle_seconds: int = Field(
+        default=86_400, gt=0, validation_alias="AIGW_FROZEN_COPY_OPEN_IDLE_SECONDS"
+    )
+    frozen_copy_sweep_max_entries: int = Field(
+        default=100_000, ge=1, validation_alias="AIGW_FROZEN_COPY_SWEEP_MAX_ENTRIES"
     )
 
     # Admin cache-snapshot upload cap (OME-952): the COMPRESSED archive size accepted by
@@ -331,7 +363,7 @@ class Settings(BaseSettings):
             )
         return self
 
-    @field_validator("allowed_networks", mode="before")
+    @field_validator("allowed_networks", "frozen_copy_claim_networks", mode="before")
     @classmethod
     def _parse_allowed_networks(cls, value: object) -> object:
         """Parse the comma-separated CIDR list.
@@ -346,7 +378,7 @@ class Settings(BaseSettings):
             ip_network(entry, strict=True) for part in value.split(",") if (entry := part.strip())
         )
 
-    @field_validator("admin_emails", mode="before")
+    @field_validator("admin_emails", "frozen_copy_claim_emails", mode="before")
     @classmethod
     def _parse_admin_emails(cls, value: object) -> object:
         """Parse the comma-separated address list into a case-folded set.
