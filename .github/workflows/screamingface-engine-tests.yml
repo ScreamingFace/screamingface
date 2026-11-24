@@ -72,7 +72,7 @@ jobs:
       # WHY pin helm: the chart tests run `helm install --dry-run=client` to read NOTES.txt.
       # The runner's preinstalled Helm v3 still dials a cluster for that ("Kubernetes cluster
       # unreachable"); Helm v4 renders it offline. Same action as the `chart` job below.
-      - uses: azure/setup-helm@v5.0.1
+      - uses: azure/setup-helm@v5.1.0
         with:
           version: v4.3.2  # OME-1983: never the action's fallback
       # WHY before `uv sync`: sync SILENTLY regenerates a stale lock, so a lockfile that no
@@ -264,7 +264,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: azure/setup-helm@v5.0.1
+      - uses: azure/setup-helm@v5.1.0
         with:
           version: v4.3.2  # OME-1983: never the action's fallback
       # `helm lint` alone reported "0 chart(s) failed" on a chart that cannot render at all —
