@@ -14,6 +14,7 @@ import sys
 import threading
 import time
 import types
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, cast
 
 import pytest
@@ -309,3 +310,44 @@ def test_import_offer_without_an_ipython_shell_is_harmless(monkeypatch):
     monkeypatch.setattr(builtins, "get_ipython", lambda: None, raising=False)
     monkeypatch.setattr(prompt, "offer", lambda: None)
     prompt.offer_at_import()
+
+
+# --- D4: a concurrent async settle bounds at BRIDGE_TIMEOUT, not ceil(N / executor-threads) ----
+# WHY: `_settle_async` awaited `asyncio.to_thread(...)` with no outer bound (review of PR #1952,
+# OME-1974). Concurrent calls queued on the default executor instead of each bounding
+# independently: 20 concurrent calls against a small executor took 20s, not ~5s.
+
+
+@pytest.mark.usefixtures("browser")
+def test_concurrent_async_settles_bound_at_bridge_timeout_not_per_call(cell):
+    cell.events_delay = 30.0  # never answers within BRIDGE_TIMEOUT
+    prompt.offer_and_settle()
+    cell.calls.clear()
+    # WHY these sizes: the fixed wait bounds each call at ~BRIDGE_TIMEOUT regardless of N (all
+    # calls start their `wait_for` together), while the old, unbounded code pays
+    # ceil(concurrency / workers) * BRIDGE_TIMEOUT. A wide concurrency/workers ratio keeps that
+    # unbounded floor (20s) far above even a heavily scheduler-delayed bounded run, so this
+    # assertion stays reliable under parallel test-suite load (xdist) without needing a tight
+    # real-time tolerance.
+    concurrency, workers = 8, 2
+
+    @tracking.tracked("evaluation")
+    async def finished(owner, candidates):
+        return types.SimpleNamespace(ok=True)
+
+    async def run_all():
+        executor = ThreadPoolExecutor(max_workers=workers)
+        asyncio.get_running_loop().set_default_executor(executor)
+        try:
+            await asyncio.gather(
+                *(finished(_Owner(), "url4://candidate") for _ in range(concurrency))
+            )
+        finally:
+            executor.shutdown(wait=False)
+
+    start = time.monotonic()
+    asyncio.run(run_all())
+    elapsed = time.monotonic() - start
+    unbounded_floor = (concurrency / workers) * colab.BRIDGE_TIMEOUT
+    assert elapsed < colab.BRIDGE_TIMEOUT + 4.0, elapsed
+    assert elapsed < unbounded_floor - 5.0, elapsed

@@ -83,10 +83,15 @@ def _settle(record: tuple[Coordinator, Operation] | None, outcome: str | None) -
 async def _settle_async(record: tuple[Coordinator, Operation] | None, outcome: str | None) -> None:
     if record is None or outcome in (None, "cancelled") or wiring.origin() != "colab":
         return
+    from screamingface._analytics.colab import BRIDGE_TIMEOUT
+
     try:
-        # WHY: the bounded wait must not block the caller's event loop.
-        await asyncio.to_thread(_settle, record, outcome)
-    except RuntimeError:
+        # WHY: the bounded wait must not block the caller's event loop, and must stay bounded
+        # at the caller even when concurrent calls queue on the executor (same pattern as
+        # before_evaluation_async). A timed-out background thread still finishes its own
+        # bounded flush(); it is never cancelled.
+        await asyncio.wait_for(asyncio.to_thread(_settle, record, outcome), timeout=BRIDGE_TIMEOUT)
+    except (RuntimeError, TimeoutError):
         _LOG.debug("Analytics delivery wait skipped")
 
 

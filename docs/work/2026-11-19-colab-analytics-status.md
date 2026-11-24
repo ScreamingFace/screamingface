@@ -113,3 +113,62 @@ that from enabling tracking.
   - The new test file avoids re-importing fixtures under their own names, because the
     pre-commit ruff (0.14.0) flags that pattern. It also flags it in existing files, which
     were not touched.
+
+## Round 2 — review fixes for PR #1952 (2026-11-23)
+
+sergio-bershadsky requested changes on PR #1952 (2 blockers). Both reproduced first, then fixed.
+
+- **Blocker 1 — `tests/browser/analytics-colab.test.cjs` read the wrong module.** The bridge
+  script moved to `colab_transport.py` in round 1, but the test still read `colab.py` and split
+  on `_SCRIPT = r"""`, so `source` was `undefined` and all 12 tests failed at load
+  (`TypeError: Cannot read properties of undefined (reading 'split')`). Fix: point the test at
+  `colab_transport.py`. Verified: `node --test tests/browser/analytics-colab.test.cjs` — 12/12
+  pass. Added `node --test tests/browser/analytics-colab.test.cjs` as its own CI step in
+  `.github/workflows/screamingface-tests.yml` and as a gate in the `screamingface` card of
+  `.claude/sdlc.local.md`.
+  - **Not committed yet.** This edits an existing, already-committed test file, so the
+    append-only gate requires a `.claude/test-change-approvals/OME-1974.json` manifest, and
+    that manifest needs Filip's own direct sign-off (confirmed by the coordinating session —
+    not something an agent writes on his behalf). The manifest entry this needs:
+    `issue: "OME-1974"`, `branch: "OME-1974-colab-analytics-status"`,
+    `files["packages/screamingface/tests/browser/analytics-colab.test.cjs"]`:
+    `base_blob: ea3570c8356aa95a4e41504585aba2160723dbfc` (blob at the branch's current HEAD,
+    `465ad4a4b`), `approved_blob: 4797c577fd92c628b49e705b94d87b3ea7eb871c` (blob with the
+    one-line fix, verified locally). Format follows existing manifests, e.g.
+    `.claude/test-change-approvals/OME-1918.json`.
+  - **Gate gap found while checking this**: `.claude/scripts/approved_test_changes.py`'s
+    `approved_unsupported_change` only recognizes `.ts`/`.tsx`, `.js` under `tests/`, and
+    `.json`/`.url4` fixtures under `tests/` — not `.cjs`. Confirmed by running
+    `append_only_check` directly against this diff: it fails with
+    `M  tests/browser/analytics-colab.test.cjs  (existing test artifact is unsupported or
+    unparseable)` even though the fix is correct and the browser test itself passes. A
+    correctly-formed `OME-1974.json` manifest will not be enough on its own — the matcher
+    also needs a `.cjs` branch (mirroring the existing `.js`-under-`tests/` case) before the
+    gate can approve this file. Left unchanged pending Filip's decision; flagged in the
+    handback report rather than edited unilaterally, since it's the fail-closed test-change
+    gate itself.
+- **Blocker 2 — no outer bound on the async delivery wait.** `tracking.py`'s `_settle_async`
+  awaited `asyncio.to_thread(_settle, ...)` with no `asyncio.wait_for`, so concurrent calls
+  queued on the asyncio default executor instead of each bounding independently at
+  `BRIDGE_TIMEOUT` (reviewer measured 20 concurrent calls taking 20s). Fixed by wrapping the
+  `to_thread` call in `asyncio.wait_for(..., timeout=BRIDGE_TIMEOUT)` and catching
+  `TimeoutError` alongside the existing `RuntimeError`, mirroring
+  `prompt.before_evaluation_async`. Added
+  `test_concurrent_async_settles_bound_at_bridge_timeout_not_per_call` (new test, appended to
+  `tests/test_analytics_colab_in_cell.py`): 4 concurrent `@tracked` async calls against a
+  2-thread default executor and a bridge that never answers. Verified both directions —
+  temporarily reverted the fix via a tagged `git stash` entry and confirmed the test fails at
+  ~10.0 s (`ceil(4/2) * BRIDGE_TIMEOUT`, the old queueing behavior), then restored the fix and
+  confirmed it passes at ~5.1 s. This file edit is a pure addition (new import, new test
+  function appended at the end) so it is not blocked by the append-only gate.
+- **Full suite**: `uv sync --extra notebook` then `uv run pytest tests/ -n auto --dist
+  worksteal --cov=screamingface --cov-fail-under=95 -q` — see commit message / handback for the
+  result recorded at commit time. `ruff check`, `ruff format --check`, `pyright` all clean.
+- **Not done this round** (optional per the review, skipped to keep scope to the two
+  blockers): the sync `_settle(record, ok=True)` success-path test, the `clear()`/`_done()`
+  test, and the spec/plan wording fix for `exchange()`'s timeout marker vs. a raised
+  `TimeoutError`.
+- **Status**: blocker 2 fully fixed, tested, and ready to commit. Blocker 1's code fix is
+  verified locally but NOT committed — waiting on Filip's sign-off on the
+  `.claude/test-change-approvals/OME-1974.json` manifest (and, per the gate gap above,
+  possibly a `.cjs` matcher change too) before it can pass CI's append-only check.
