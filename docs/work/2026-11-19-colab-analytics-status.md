@@ -289,3 +289,55 @@ of silently expanding its scope).
 - **Commit**: this ledger entry + the matcher/test files, on branch
   `OME-1974-colab-analytics-status` (pushed from a worktree locally named
   `OME-1974-manifest-work` for the reason above — push targets the correct remote ref).
+
+### Round 5 (2026-11-24): the Round 2 concurrency test was genuinely flaky in CI — root-caused and fixed
+
+CI on PR #1952 went red on both Python legs after Round 4's push:
+`test_concurrent_async_settles_bound_at_bridge_timeout_not_per_call` failed with `elapsed`
+~10.0s against a `BRIDGE_TIMEOUT(5.0) + 4.0` = 9.0s tolerance, on both 3.12 and 3.13, in the
+same CI run. 7936/7937 other tests passed clean on each leg.
+
+**Root cause, not CI-load jitter**: the test measured `elapsed` around the *entire*
+`asyncio.run(run_all())` call, including event-loop teardown. `asyncio.run()` calls
+`loop.shutdown_default_executor()` on close, which does `executor.shutdown(wait=True)` on
+the custom `ThreadPoolExecutor` set as the loop's default — **regardless of** the test's own
+`executor.shutdown(wait=False)` in `run_all()`'s `finally` block; calling `shutdown` twice is
+harmless, but the second (automatic) call's `wait=True` still blocks.
+
+Mechanism: with `concurrency=8, workers=2`, all 8 `asyncio.wait_for(..., BRIDGE_TIMEOUT)` calls
+start their own ~5s clock at t≈0 (via `gather`). At t≈5s, workers 1–2 finish their real
+blocking `flush()` (itself internally bounded at `BRIDGE_TIMEOUT` via
+`threading.Condition.wait_for`, confirmed by reading `ColabBridge.flush`/`_drain` in
+`colab.py`) and become free; at the same instant, the other 6 wait_for timeouts fire and
+attempt to cancel their still-queued (not yet started) executor futures. This is a genuine
+race: if the executor dispatches a freed worker to one of those queued items before its
+asyncio-level cancellation takes effect, that item actually starts its own real ~5s blocking
+wait — orphaned from the async side (which already moved on via `TimeoutError`), but very
+much alive at the OS thread level. `asyncio.run()`'s automatic `wait=True` teardown then
+blocks for that straggler to finish, adding a second ~5s wait to anything timed around the
+whole call. Locally (less scheduler contention) the cancel-wins-the-race outcome dominated
+(~5–6.5s observed in Round 2); in GitHub's shared CI runner, the dispatch-wins-the-race
+outcome dominated on both legs (~10.0s both times) — not random flakiness, a real race whose
+odds differ by environment.
+
+**Fix**: moved the `time.monotonic()` start/stop to wrap only `await asyncio.gather(...)`
+inside `run_all()` (which now returns the elapsed float), not the surrounding `asyncio.run()`
+call. This measures exactly the bound the test asserts on and is no longer affected by
+unrelated executor-teardown blocking. Verified: 5/5 passes locally
+(`pytest tests/test_analytics_colab_in_cell.py::test_concurrent_async_settles_bound_at_bridge_timeout_not_per_call`
+run individually), 3/3 passes under `pytest tests/ -n auto --dist worksteal -k
+test_concurrent_async_settles_bound_at_bridge_timeout_not_per_call` (xdist parallel load, to
+approximate CI contention).
+
+**No test-change approval needed for this edit**: `test_analytics_colab_in_cell.py` does not
+exist on `origin/main` at all (git reports it `A`, added, not `M`, modified, relative to the
+gate's comparison base) — it was created entirely within this unit of work. The append-only
+gate only protects content that existed at `base`; a file that's net-new relative to `main`
+is unaffected regardless of how many commits on this branch have already touched it. Confirmed
+by `git diff --name-status origin/main -- <path>` and by `run_gates.py screamingface --base
+origin/main` reporting only the already-known `analytics-colab.test.cjs` branch-name artifact,
+nothing new.
+
+- `run_gates.py screamingface --base origin/main --skip-append-only`: ALL GREEN.
+- **Commit**: this ledger entry + the `run_all`/`test_concurrent_async_settles_...` edit, on
+  `OME-1974-colab-analytics-status`.

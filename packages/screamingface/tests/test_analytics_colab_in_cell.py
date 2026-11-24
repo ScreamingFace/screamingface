@@ -335,19 +335,27 @@ def test_concurrent_async_settles_bound_at_bridge_timeout_not_per_call(cell):
     async def finished(owner, candidates):
         return types.SimpleNamespace(ok=True)
 
-    async def run_all():
+    async def run_all() -> float:
         executor = ThreadPoolExecutor(max_workers=workers)
         asyncio.get_running_loop().set_default_executor(executor)
         try:
+            # WHY measure only `gather`, not the surrounding `asyncio.run`: a queued call that
+            # loses its cancel-vs-dispatch race starts its real blocking wait right as `gather`
+            # returns. `asyncio.run`'s own teardown then calls `shutdown_default_executor()`,
+            # which does `executor.shutdown(wait=True)` on this executor regardless of the
+            # `wait=False` below — silently re-adding a second real BRIDGE_TIMEOUT wait to
+            # anything timed around the whole `asyncio.run` call (observed in CI: a consistent
+            # ~2x BRIDGE_TIMEOUT, not scheduler jitter). Timing only `gather` measures the bound
+            # this test actually asserts on and ignores unrelated executor tear-down.
+            start = time.monotonic()
             await asyncio.gather(
                 *(finished(_Owner(), "url4://candidate") for _ in range(concurrency))
             )
+            return time.monotonic() - start
         finally:
             executor.shutdown(wait=False)
 
-    start = time.monotonic()
-    asyncio.run(run_all())
-    elapsed = time.monotonic() - start
+    elapsed = asyncio.run(run_all())
     unbounded_floor = (concurrency / workers) * colab.BRIDGE_TIMEOUT
     assert elapsed < colab.BRIDGE_TIMEOUT + 4.0, elapsed
     assert elapsed < unbounded_floor - 5.0, elapsed
