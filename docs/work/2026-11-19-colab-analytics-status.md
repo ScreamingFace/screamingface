@@ -172,3 +172,84 @@ sergio-bershadsky requested changes on PR #1952 (2 blockers). Both reproduced fi
   verified locally but NOT committed — waiting on Filip's sign-off on the
   `.claude/test-change-approvals/OME-1974.json` manifest (and, per the gate gap above,
   possibly a `.cjs` matcher change too) before it can pass CI's append-only check.
+
+## Round 3 — merge origin/main into this branch (2026-11-24)
+
+Branch was 78 commits behind `origin/main` (merge-base `336499abb`). Task: catch this branch
+(backing PR #1952) up with `origin/main`, which had landed two large unrelated features since
+the fork (Nov 19) — a "detached runs" feature (`tests/test_run_*.py`, `tests/test_runs_*.py`)
+and a regrade-batch rewrite (`tests/unit/test_regrade*.py`) — without losing or corrupting this
+branch's own `_analytics/` work. Starting head: `a157d55f8` (the Round 2 manifest sign-off and
+one-line `colab_transport.py` pointer fix, both already landed; untouched this round).
+
+- **Scope check before merging.** Diffed this branch's own commits
+  (`336499abb..a157d55f8`) against `origin/main`'s commits over the same base and confirmed the
+  only files touched on both sides were mechanical: `.claude/sdlc.local.md` (both append a line
+  to the `screamingface` gate list), `.github/workflows/screamingface-tests.yml` (both append a
+  CI step), and `packages/screamingface/src/screamingface/{__init__.py,client.py,
+  _default_client.py}` (this branch adds the `offer_at_import` rename and the `tracked`
+  decorator calls; main adds the `RoutedAnswer` export and the `detach=` overloads on
+  `evaluate`/`areplay`). None of this branch's `_analytics/*.py`, `test_analytics_colab_in_cell.py`
+  or `analytics-colab.test.cjs` were touched by main. Confirmed the premise rather than assuming
+  it: this branch's analytics work and main's two unrelated features don't semantically overlap.
+- **`git merge origin/main --no-edit`: zero conflicts.** The merge (`7dfe9bc38`, parents
+  `a157d55f8` + `7c961e092`) resolved every shared file automatically — no `<<<<<<<` markers
+  anywhere (confirmed by
+  `grep -rn "^<<<<<<<\|^=======$\|^>>>>>>>" --include="*.py" --include="*.js" --include="*.cjs"
+  --include="*.md" --include="*.yml" .`, zero hits). Spot-checked the mechanically-shared files
+  after the merge to confirm both sides' additions survived, not just git's silence:
+  - `.claude/sdlc.local.md`: both the `node --test tests/browser/analytics-colab.test.cjs` line
+    (this branch) and main's lines are present.
+  - `.github/workflows/screamingface-tests.yml`: same — both CI steps present.
+  - `__init__.py`: both `from screamingface.routing import RoutedAnswer` (main) and
+    `from screamingface._analytics.prompt import offer_at_import as _offer_analytics` (this
+    branch) present, plus `"RoutedAnswer"` in `__all__`.
+  - `client.py`: `from screamingface._analytics.tracking import tracked` (this branch) and the
+    new `detach=` overloads + `_detached_run`/`_deadline_seconds`/`_detached_options` helpers
+    (main) both present; `@tracked("evaluation")` still decorates the `evaluate`/`aevaluate`
+    methods that gained the `detach` parameter. Read `tracking.py`'s `_begin`/`_prepare`: it only
+    inspects the call's `args`/`kwargs` and the client's `_engine_url` to start/stop an analytics
+    operation around the call — it doesn't branch on return type, so wrapping a method that can
+    now return a `Run` instead of a `Report` (detach path) is not a logical conflict, just two
+    independent decorators/signatures on the same function.
+  - No other file had conflict-adjacent mechanics worth independent verification beyond the
+    gates below.
+- **Verification — `run_gates.py screamingface --base origin/main --skip-append-only`: ALL GATES
+  GREEN** (ruff check, ruff format, pyright, full pytest suite with `-n auto --dist worksteal`
+  and `--cov-fail-under=95`, both `node --test` suites, `check_notebooks.py`, `uv build`,
+  `check_distribution.py`). One environment-only hiccup on the first run: this worktree's
+  `.venv` was missing the `notebook` extra (`ipywidgets`/`anywidget`/`ipyevents`), which failed
+  `pyright` on 17 pre-existing `_ui/*` files unrelated to this branch; `uv sync --extra notebook`
+  (the same command CI's workflow runs before `check_notebooks.py`) fixed it, then pyright was
+  clean. Not a merge artifact.
+- **Verification — `run_gates.py screamingface --base origin/main` (append-only included):
+  fails on exactly one file**, `tests/browser/analytics-colab.test.cjs`, reported as
+  `(existing test artifact is unsupported or unparseable)`. Investigated rather than assuming
+  this was only the branch-name mismatch the task anticipated (local branch here is
+  `OME-1974-rebase-work`, not `OME-1974-colab-analytics-status`): read
+  `.claude/scripts/approved_test_changes.py`'s `approved_unsupported_change` and confirmed its
+  suffix gate (`{".ts", ".tsx"}`, or `.js`/`.json`/`.url4` under `tests/`) returns `None` for a
+  `.cjs` path *before it ever reads the manifest or compares branch names* — this is the exact
+  `.cjs`-matcher gap the Round 2 section above already flagged to Filip and left unresolved
+  ("pending Filip's decision"). It is not new, and it is not purely the branch-name artifact:
+  even on a worktree named exactly `OME-1974-colab-analytics-status`, this same file would still
+  fail the append-only check today, because the suffix check short-circuits first. Confirmed the
+  landed manifest (`.claude/test-change-approvals/OME-1974.json`) and the file on disk still
+  match byte-for-byte (`base_blob`/`approved_blob` against `git rev-parse origin/main:<path>`
+  and `git hash-object <path>` — both match exactly), so the approval itself is intact; only the
+  gate's `.cjs` support is missing. No other file is flagged — `git diff --name-status
+  origin/main..HEAD -- '*/tests/*' | grep '^M'` shows only this one modified test file, so there
+  is no new genuinely-offending file from the merge. CI does not run `run_gates.py` or this
+  append-only check directly (`.github/workflows/screamingface-tests.yml` has no reference to
+  it); CI's own gates (ruff/pyright/pytest/node --test steps) are all green per the above, so
+  this gap does not block CI. Left `approved_test_changes.py` unchanged, per the standing rule
+  that the fail-closed test-change gate itself is not mine to edit.
+- **No stray conflict markers**: confirmed repo-wide (see command above), zero hits.
+- **Commit**: merge commit `7dfe9bc38` (`Merge remote-tracking branch 'origin/main' into
+  OME-1974-rebase-work`, auto-generated message, no conflicts to describe) plus this ledger
+  entry committed separately.
+- **Outstanding for Filip**: the `.cjs` matcher gap in
+  `.claude/scripts/approved_test_changes.py` (same one flagged in Round 2) still needs a
+  decision — add a `.cjs` branch alongside the existing `.js`-under-`tests/` case, or leave the
+  local append-only gate permanently unable to approve this file. Not a merge-round blocker;
+  flagging again because this round's investigation reconfirmed it independently of branch name.
