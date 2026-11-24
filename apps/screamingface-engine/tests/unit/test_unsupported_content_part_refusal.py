@@ -66,7 +66,7 @@ def test_permanence_is_kept_not_forced() -> None:
 @pytest.mark.parametrize(
     ("status", "code", "permanent"),
     [
-        (422, "provider_refused", True),
+        (422, "unsupported_message", True),
         (400, "bad_request", True),
         (413, "request_too_large", True),
         (429, "rate_limited", False),

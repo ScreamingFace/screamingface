@@ -84,12 +84,12 @@ async def test_a_candidate_call_the_gateway_rate_limited_once_is_answered(
 async def test_a_candidate_call_failing_on_every_try_still_fails_as_temporary(
     _waits: list[float],
 ) -> None:
-    gateway = Gateway([error(502, "bad_gateway")])
+    gateway = Gateway([error(502, "provider_error")])
 
     _tally, answer, failure = await _candidate_call(gateway)
 
     assert answer is None and failure is not None
-    assert failure.code == "bad_gateway"
+    assert failure.code == "provider_error"
     assert failure.permanent is False, "the Case still reports a temporary infrastructure failure"
     assert len(gateway.calls(CHAT)) == policy.CANDIDATE_CALL_RETRIES + 1 == 3
     assert _waits == [10.0, 30.0]

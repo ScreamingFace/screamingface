@@ -1,0 +1,129 @@
+"""Every error code the AI Gateway declares, as the Engine lifts it (gateway code provenance).
+
+FEATURE: Gateway code provenance (`docs/spec/2026-11-23-gateway-code-provenance.md`, 3.3).
+`world/connector.py::_upstream_code` lifts a Gateway body's `detail.code` only when it is in
+`GATEWAY_CODES`. Any other code, from a proxy, a provider or an unreviewed Gateway build, takes
+`aigateway_http_<status>`, so it never reaches a log line, an observation or a report.
+
+INVARIANT: `GATEWAY_CODES == (codes | retired) - ENGINE_RESERVED_CODES` of the Gateway's
+`apps/aigateway/tests/fixtures/gateway_error_codes/codes.json`, pinned by
+`tests/unit/test_gateway_codes_parity.py`. A Gateway change that writes a new code adds it there
+and here in one PR; until the Engine deploys, that code reports as `aigateway_http_<status>`.
+WHY a literal and not the fixture: the Engine artifact does not ship the Gateway's tests.
+"""
+
+from __future__ import annotations
+
+_WRITTEN = frozenset(
+    {
+        "account_activation_required",
+        "account_deactivated",
+        "account_not_found",
+        "admission_capacity_reached",
+        "api_key_expired",
+        "api_key_invalid",
+        "api_key_no_quota",
+        "api_key_not_supported",
+        "api_key_permission_denied",
+        "api_key_validation_misconfigured",
+        "api_key_validation_rate_limited",
+        "api_key_validation_unavailable",
+        "auth_required",
+        "bad_request",
+        "cache_job_not_found",
+        "cache_load_in_progress",
+        "cache_manifest_too_large",
+        "cache_upload_bad_mode",
+        "cache_upload_too_large",
+        "cache_upload_unsupported_database",
+        "caller_deadline_exceeded",
+        "classifier_limit_exceeded",
+        "client_disconnected",
+        "codex_model_unsupported",
+        "connection_activation_failed",
+        "connection_ambiguous",
+        "connection_conflict",
+        "connection_not_active",
+        "connection_not_api_key",
+        "connection_not_found",
+        "connection_not_oauth",
+        "credential_authority_unavailable",
+        "credential_pair_ambiguous",
+        "credential_pair_unresolved",
+        "credential_publication_superseded",
+        "credential_store_read_unavailable",
+        "credential_store_unavailable",
+        "defaults_not_accepted",
+        "dynamic_admission_disabled",
+        "dynamic_admission_unsupported",
+        "frozen_copy_expired",
+        "frozen_copy_not_found",
+        "frozen_copy_not_sealed",
+        "frozen_copy_sealed",
+        "gateway_internal_error",
+        "incompatible_parameters",
+        "insufficient_credits",
+        "invalid_api_key",
+        "invalid_credential_request",
+        "invalid_credentials",
+        "invalid_excluded_domains",
+        "invalid_max_results",
+        "invalid_model",
+        "invalid_model_id",
+        "invalid_provisioning_token",
+        "invalid_redirect_uri",
+        "invalid_request",
+        "invalid_target",
+        "invalid_timeout_budget",
+        "label_conflict",
+        "label_required",
+        "legacy_profile_api_retired",
+        "malformed_call_key",
+        "model_not_found",
+        "model_not_on_openrouter",
+        "oauth_loopback_unavailable",
+        "openrouter_catalog_unavailable",
+        "profile_not_found",
+        "profile_pending_auth",
+        "provider_disabled",
+        "provider_does_not_use_oauth",
+        "provider_error",
+        "provider_execution_timeout",
+        "provider_mismatch",
+        "provider_not_credentialed",
+        "provider_queue_timeout",
+        "provider_unavailable",
+        "rate_limited",
+        "request_too_large",
+        "streaming_not_supported",
+        "unknown_provider",
+        "unknown_state",
+        "unknown_tool",
+        "unsafe_openai_environment",
+        "unsupported_content_part",
+        "unsupported_credential_fields",
+        "unsupported_input",
+        "unsupported_message",
+        "unsupported_model_variant",
+        "unsupported_parameters",
+        "upstream_refresh_failed",
+        "x_profile_unsupported",
+    }
+)
+
+# WHY kept: each was written by a Gateway build on `main` after frozen-copy capture began
+# (`f06860621`) and is no longer written. A sealed copy keeps its captured detail with no end
+# date, so a replay can still return any of them.
+_RETIRED = frozenset(
+    {
+        "credential_write_conflict",
+        "invalid_profile_defaults",
+        "profile_auth_conflict",
+        "profile_conflict",
+        "profile_index_conflict",
+    }
+)
+
+GATEWAY_CODES: frozenset[str] = _WRITTEN | _RETIRED
+
+__all__ = ["GATEWAY_CODES"]

@@ -396,10 +396,10 @@ async def test_unregistered_model_id_fails_before_any_completion_call() -> None:
 @pytest.mark.parametrize(
     ("status", "detail", "expected_permanent"),
     [
-        (401, {"code": "invalid_credential", "message": "bad token"}, True),
-        (402, {"code": "quota_exceeded", "message": "no budget"}, True),
+        (401, {"code": "auth_required", "message": "bad token"}, True),
+        (402, {"code": "insufficient_credits", "message": "no budget"}, True),
         (429, {"code": "rate_limited", "message": "slow down"}, False),
-        (503, {"code": "upstream_unavailable", "message": "down"}, False),
+        (503, {"code": "provider_unavailable", "message": "down"}, False),
     ],
 )
 async def test_aigateway_http_errors_map_to_resolution_error(

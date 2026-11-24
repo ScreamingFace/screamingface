@@ -104,6 +104,7 @@ from screamingface_engine.world.config import ModelSpec, WorldConfigError, provi
 from screamingface_engine.world.errors import RunnerRequestError
 from screamingface_engine.world.fresh_judge_retry import scope_for_this_send
 from screamingface_engine.world.fusion_context import fusion_picture_messages
+from screamingface_engine.world.gateway_codes import GATEWAY_CODES
 from screamingface_engine.world.model_response import (
     Choice,
     parse_choice,
@@ -2038,9 +2039,19 @@ class _GatewayRefusal(ResolutionError):
 
 
 def _upstream_code(detail: dict[str, Any], code: str) -> str:
-    """The gateway detail's own `code`, unless it names an engine-reserved one (OME-941)."""
+    """The gateway detail's own `code` when the Gateway declares it, else `code`.
+
+    INVARIANT (gateway code provenance): only a code in `GATEWAY_CODES` is lifted, so a body from
+    a proxy, a provider or an unreviewed Gateway build cannot put a key, an origin or a private ID
+    into the log line, the observation or the report. The reserved check (OME-941) stays as a
+    guard; the parity test already keeps the two sets disjoint.
+    """
     upstream_code = detail.get("code")
-    if isinstance(upstream_code, str) and upstream_code not in ENGINE_RESERVED_CODES:
+    if (
+        isinstance(upstream_code, str)
+        and upstream_code in GATEWAY_CODES
+        and upstream_code not in ENGINE_RESERVED_CODES
+    ):
         return upstream_code
     return code
 
@@ -2050,7 +2061,7 @@ def _refusal_detail(
 ) -> tuple[str, str, str | None, GatewayContentPartRefusal | None]:
     """The `code`, `message`, plain-text `detail` and translated refusal of a 4xx/5xx answer.
 
-    A `detail` object gives the code (never one in `ENGINE_RESERVED_CODES`), the message and,
+    A `detail` object gives the code (only one in `GATEWAY_CODES`), the message and,
     for the gateway's one translated code (spec #1450 §4), the `intent_error` it maps to; a
     `detail` string is kept as the plain text. Anything else keeps the status-based defaults.
     """
@@ -2086,8 +2097,9 @@ def _raise_for_status(resp: httpx.Response, *, logprobs_requested: bool = False)
     message, and the message here is upstream text. So an upstream (or a proxy in front of
     aigateway, which this module already treats as an assumed threat) that answers
     `{"detail": {"code": "malformed_source", …}}` keeps the engine-authored
-    `aigateway_http_<status>` code instead, and its text stays unvouched. Every other upstream
-    code still passes through unchanged — that vocabulary is what the failure report reads.
+    `aigateway_http_<status>` code instead, and its text stays unvouched. Of the other codes,
+    only one the Gateway declares (`GATEWAY_CODES`) passes through unchanged; any other keeps
+    `aigateway_http_<status>` too.
 
     FEATURE (E4b part 3, C4): a call that asked for token log-probabilities (`logprobs_requested`)
     and that the gateway refused with HTTP 404 `unsupported_parameters` fails as

@@ -98,7 +98,7 @@ async def test_replay_404_miss_and_unavailable_fail_the_case_with_their_codes(
             httpx.Response(
                 500, headers=_CAPTURED, json={"detail": {"code": "boom", "message": "m"}}
             ),
-            "boom",
+            "aigateway_http_500",
             False,
         ),
         (httpx.Response(502, headers=_CAPTURED, text="bad gateway"), "aigateway_http_502", False),
