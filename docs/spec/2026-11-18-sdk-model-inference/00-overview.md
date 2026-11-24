@@ -63,6 +63,8 @@ one name on one object. So the mode follows the client that the object holds: wi
 awaitable. Typed overloads on the client type give exact types. There is no `acomplete` and no
 second public class.
 
+The answers Q8 to Q11 (2026-11-24) are in §5.6.
+
 ## 4. Inventory
 
 | Kind | Item | State | Tag |
@@ -209,6 +211,61 @@ Trade-offs that the owner accepted:
   prompt). `client.chat.completions.create(model="id")` sends the id with no change.
 
 The contracts are in `contracts.md` C1 (rewritten). The tests are MI-36 to MI-39 in `test-plan.md`.
+
+### 5.6 Team feedback (2026-11-24): the one-line change from the OpenAI SDK
+
+F3 (a colleague, through the owner, verbatim): "Andrew’s ideal is minimum friction such that
+someone using another library, like the OpenAI library, could make a 1 line change
+(openai.OpenAI(…) --> screamingface.Client(…)) and their code would keep working as is". The owner
+asked me to add this approach.
+
+I ran normal OpenAI SDK code against `sf.Client` with only the client line changed (a mock
+Engine; `openai==2.54.0` for the comparison). These lines failed:
+
+| OpenAI code | Result before this change |
+|---|---|
+| `Client(api_key=...)`, `base_url=`, `timeout=`, `max_retries=`, `organization=`, `project=`, `default_headers=`, `http_client=` | `TypeError` |
+| `messages.append(reply.choices[0].message)` (the tool loop of the OpenAI docs) | `TypeError` |
+| `messages=` as a generator | `TypeError` |
+| `reply.model_dump()`, `.model_dump_json()`, `.to_json()` | `AttributeError` |
+| `usage.prompt_tokens_details`, `choice.logprobs`, `message.function_call`, `reply.system_fingerprint` and 4 more | `AttributeError` |
+| `extra_headers=`, `extra_query=`, `extra_body=`, `timeout=httpx.Timeout(...)` and 10 more call keywords | `TypeError` |
+
+Owner answers (2026-11-24):
+
+| Id | Question | Answer (verbatim option) |
+|---|---|---|
+| Q8 | A model name that is not a ScreamingFace id (`model="gpt-4o"`) | "No mapping": the name is sent as it is; the user changes each `model=` value |
+| Q9 | The constructor arguments `api_key=` and `base_url=` | "Key ignored, base_url = Engine": `api_key` is accepted, never sent, one warning; `base_url` is the Engine URL in the OpenAI form (with `/v1`) |
+| Q10 | OpenAI error classes (`openai.RateLimitError` and so on) | "Nothing now": the errors stay as they are; no docs table |
+| Q11 | `client.responses`, `client.embeddings`, `completions.parse()`, `with_raw_response` | "Chat completions only": the docs list the surfaces that do not exist |
+
+| Id | Decision | Tag |
+|---|---|---|
+| D18 | The criterion: for code that uses chat completions, the line that makes the client is the only line that changes (`openai.OpenAI(...)` to `screamingface.Client(...)`, `openai.AsyncOpenAI(...)` to `screamingface.AsyncClient(...)`). A test runs one program with the two clients and compares the results. Limits: the model name (Q8), the error classes (Q10), the other APIs (Q11) | [stated F3] [stated ans:Q8] [stated ans:Q10] [stated ans:Q11] |
+| D19 | `sf.Client` and `sf.AsyncClient` accept `api_key=`. The client does not keep the value, does not send it, does not call it and does not show it. A value that is not `None` gives one `IgnoredParameterWarning`. The SDK does not read `OPENAI_API_KEY` | [stated ans:Q9] |
+| D20 | `base_url=` is the Engine URL in the OpenAI form: an origin, with or without the path `/v1`. It is the value that `endpoint().base_url` gives. `base_url` together with an `engine_url` that is not the default gives `TypeError`. A URL with another path gives `ValueError` | [stated ans:Q9], rules [proposed] |
+| D21 | `timeout=` and `max_retries=` on the constructor are the defaults of the chat calls of that client. A value on the call replaces the default for that call. The defaults of the SDK stay: no retry (D5) and no limit of the SDK. `timeout` is also accepted as an `httpx.Timeout`; the SDK uses its `read` value as the limit of the full call | [proposed] |
+| D22 | Each other public option of the OpenAI constructor (`organization`, `project`, `webhook_secret`, `websocket_base_url`, `default_headers`, `default_query`, `http_client`, `admin_api_key`, `workload_identity`, `provider`) is accepted, is not used, and gives one `IgnoredParameterWarning` when its value is not `None`. Each other keyword is a `TypeError`, as today. This is the rule of D4 for the constructor | [proposed] |
+| D23 | `messages` accepts a reply message object (`ChatMessage`) as an item, and `messages` and `tools` accept each iterable. So the tool loop of the OpenAI docs runs with no change | [proposed] |
+| D24 | The reply types get the OpenAI attributes that the Engine never sets, with the value `None`, and the methods `model_dump()`, `model_dump_json()` and `to_json()` | [proposed] |
+| D25 | `create` accepts each keyword of the OpenAI `chat.completions.create` of `openai==2.54.0`. The 11 new names (`extra_headers`, `extra_query`, `extra_body`, `prediction`, `web_search_options`, `prompt_cache_key`, `prompt_cache_options`, `prompt_cache_retention`, `safety_identifier`, `verbosity`, `moderation`) follow D4: accepted, not sent, one warning. `functions` and `function_call` with a value give `PlanningError`, code `unsupported_parameter`: a call must not lose its tools with only a warning (P4). The user changes them to `tools` | [proposed] |
+
+Two tests compare the SDK with the installed `openai` package (the dev dependency of P16): each
+public parameter of the OpenAI constructor and of the OpenAI `create` is accepted by the SDK,
+and each field of the OpenAI reply objects is an attribute of the SDK reply objects. A later
+`openai` version that adds a name makes these tests fail, so the gap is seen.
+
+Not in this change:
+
+- A map from OpenAI model names to ScreamingFace models `[stated ans:Q8]`.
+- OpenAI error classes, and a `status_code` on the SDK errors `[stated ans:Q10]`.
+- `client.responses`, `client.embeddings`, `client.completions`, `completions.parse()`,
+  `completions.stream()`, `with_raw_response`, `with_streaming_response`,
+  `client.with_options()`, `client.api_key` `[stated ans:Q11]`.
+- The OpenAI options on `sf.configure()`. The criterion is about the client line.
+
+The contract is `contracts.md` C1.7. The tests are MI-40 to MI-46 in `test-plan.md`.
 
 ### 5.3 Not in this work
 

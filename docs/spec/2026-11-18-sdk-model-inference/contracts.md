@@ -5,6 +5,8 @@ One section for each connection of the inventory. Tags as in `00-overview.md` §
 ## C1 — caller → `recipe.chat`, `client.chat` and `sf.chat` (Python API)
 
 Rewritten on 2026-11-23 for D13 to D17 (overview §5.5). There is no `sf.InferenceClient`.
+C1.7 (2026-11-24, D18 to D25) adds the OpenAI client form; where it changes C1.2 or C1.3, C1.7
+is the authority.
 
 ### C1.1 The three surfaces
 
@@ -214,6 +216,67 @@ name of the package `[stated D16]`. The namespace classes (`Chat`, `Completions`
 `AsyncCompletions`, `RecipeChat`, `RecipeCompletions`) are not top-level names; a caller who
 needs them for a type annotation imports them from `screamingface.inference`. The snapshot also
 gets the new member `chat` of `Client`, `AsyncClient` and each recipe class.
+
+### C1.7 The OpenAI client form (D18 to D25, overview §5.6)
+
+```python
+class Client:                                        # the same on AsyncClient
+    def __init__(
+        self,
+        *,
+        engine_url: str = DEFAULT_ENGINE_URL,
+        ...,                                         # the parameters of today, no change
+        base_url: str | httpx.URL | None = None,     # D20
+        api_key: object = None,                      # D19
+        timeout: float | httpx.Timeout | None = None,  # D21
+        max_retries: int = 0,                        # D21
+        **openai_options: Any,                       # D22
+    ) -> None: ...
+```
+
+- **`base_url`** `[stated ans:Q9]`. A string or an `httpx.URL`. The SDK removes white space at
+  the two ends, each `/` at the end, and then one path `/v1`. The result must be an HTTP(S)
+  origin with no credentials, no other path, no query and no fragment; if not, `ValueError`.
+  Another type: `TypeError`. `base_url` together with an `engine_url` that is not the default:
+  `TypeError`. `client.engine_url` is the origin.
+- **`api_key`** `[stated ans:Q9]`. Each value is accepted. INVARIANT: the value is in no
+  attribute of the client, in no request (URL, header, body), in no warning text and in no
+  `repr`. A callable is not called. `None` gives no warning.
+- **`timeout`, `max_retries`** `[proposed D21]`. The same checks as on the call (C1.2). They
+  apply only to the chat calls of this client; each other call of the client keeps its limits.
+  From an `httpx.Timeout` the SDK takes `read` (`None` means no limit of the SDK).
+- **`**openai_options`** `[proposed D22]`. The fixed list of D22. A name that is not in the
+  list: `TypeError` with the text of Python (`... got an unexpected keyword argument 'x'`).
+- Order: the SDK raises each argument error of the constructor (also for `engine_url` and
+  `scoreboard_url`) before it makes a connection pool and before it gives a warning. Each warning is an `IgnoredParameterWarning` that names the option and the line of
+  the caller.
+
+Changes to `create` (C1.2), on each of the four surfaces:
+
+- `messages: Iterable[Mapping[str, Any] | ChatMessage] | None`, `tools: Iterable[Mapping[str, Any]] | None`
+  `[proposed D23]`. A string, bytes or a mapping is not a list of messages (`TypeError`). A
+  `ChatMessage` item is sent as the OpenAI SDK sends its message object: `role` and `content`
+  always, `tool_calls` only when it has an item, `refusal` only when it is not `None`.
+- `max_retries: int | None = None` and `timeout: float | httpx.Timeout | None = None`. `None`
+  means the value of the client (D21).
+- `**other` `[proposed D25]`: the list of C1.2 gets the 11 ignored names of D25, and
+  `functions` and `function_call`, which are refused when their value is not `None`. The warning
+  of these 13 names does not point to `sf.Model(params=...)`, because they are not model
+  parameters of a recipe. As for each name of C1.2, a keyword with the value `None` also gives
+  the warning (the constructor options of D22 do not: there `None` is the OpenAI default).
+
+Changes to the reply types (C1.3) `[proposed D24]`:
+
+- Class attributes with the value `None` (they are not dataclass fields, so the constructor,
+  the equality and `to_dict()` do not change): `ChatCompletion.system_fingerprint`,
+  `.service_tier`, `.moderation`; `ChatChoice.logprobs`; `ChatMessage.function_call`, `.audio`,
+  `.annotations`; `ChatUsage.prompt_tokens_details`, `.completion_tokens_details`;
+  `ChatCompletionChunk.system_fingerprint`, `.service_tier`, `.moderation`; `ChatChunkChoice.logprobs`;
+  `ChatDelta.function_call`.
+- Each reply type gets `model_dump(*, exclude_none=False)` (the dict of `to_dict()`; with
+  `exclude_none=True`, no key with the value `None` at each depth),
+  `model_dump_json(*, indent=None, exclude_none=False)` and `to_json(*, indent=2)` (JSON text
+  of that dict, not ASCII-escaped).
 
 ## C2 — SDK chat call → Engine: `POST /v1/chat/completions`
 

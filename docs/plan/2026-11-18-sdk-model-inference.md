@@ -127,6 +127,29 @@ parallel workers using haiku to implement it". Contracts: C1 (rewritten), D13 to
 - After the build: the approval record gets the new blob of the surface snapshot; MI-28 runs
   again; the local playground notebook follows. No push before the owner's word.
 
+### U10 — The one-line change from the OpenAI SDK (spec §5.6)
+
+Owner request of 2026-11-24 (team feedback F3): "Could you add that approach as well so we can
+also meet that criteria". Answers Q8 to Q11. Contracts: C1.7, D18 to D25.
+
+- Code: a new module `S/_inference/client_options.py` (the checks of `base_url`, `api_key`,
+  `timeout`, `max_retries` and the ignored options; one function for the two clients). The two
+  client constructors call it first and keep two private values (the chat defaults).
+  `S/_inference/request.py`: `messages` and `tools` as iterables, a `ChatMessage` item, the
+  timeout of an `httpx.Timeout`, `max_retries=None`, the new names of the parameter list.
+  `S/_inference/calls.py`: the call takes the defaults of its client after the argument checks.
+  `S/chat_completion.py` and a new module `S/_chat_dump.py`: the `None` attributes and the three
+  dump methods. The `create` signatures of the four surfaces follow. No change in the transport,
+  the frames, the error map or the Engine.
+- Tests first (RED): MI-40 to MI-44 in `tests/test_model_inference_openai_dropin.py` and
+  `tests/test_model_inference_openai_dropin_reply.py`; the sample of
+  `tests/test_model_inference_params.py` gets the new names. All these files are new in this PR.
+- Docs: a section "Move from the OpenAI SDK" on the Chat API page with the snippet
+  `openai_one_line.py` and the list of limits; the parameter table; the README section; the
+  changelog entry (MI-45).
+- After the build: the surface snapshot and its blob in the approval record (MI-46); the SDK
+  gates; an Opus design review. No push before the owner's word.
+
 ## 3. Gates for each unit
 
 - SDK: `uv run --script .claude/scripts/run_gates.py screamingface --base origin/main` (ruff,
