@@ -19,6 +19,7 @@ deliberately kept OUT of the ``conftest`` compatibility allowlist.
 from __future__ import annotations
 
 import json
+import logging
 
 import httpx
 import pytest
@@ -146,6 +147,81 @@ def test_connection_create_transport_error_is_sanitized_and_writes_nothing(
     assert _KEY_A not in resp.text
     assert [r.method for r in anthropic_transport.requests] == ["GET"]
     assert authenticated_client.get("/v1/oauth/connections").json()["connections"] == []
+
+
+_REFUSAL_LOGGER = "aigateway.routes.api_key_validation"
+
+
+def _refusal_lines(caplog: pytest.LogCaptureFixture) -> list[tuple[int, str]]:
+    """The (level, message) of every line the validation route logged."""
+    return [
+        (record.levelno, record.getMessage())
+        for record in caplog.records
+        if record.name == _REFUSAL_LOGGER
+    ]
+
+
+def test_an_unavailable_validation_logs_which_call_failed(
+    authenticated_client, anthropic_transport, caplog: pytest.LogCaptureFixture
+) -> None:
+    """INVARIANT: a 503 on connecting a key names the failing call in the gateway log.
+
+    The check is two outbound calls, and `unavailable` and `misconfigured` both answer 503. A
+    client that flattens the response body leaves a bare 503 in the access log; a paid smoke
+    press died on one with no way to tell which call failed (run 45538646440). Here the first
+    call (authentication) returns a body that is not JSON.
+    """
+    anthropic_transport.queue = [httpx.Response(200, content=b"not-json")]
+
+    with caplog.at_level(logging.INFO, logger=_REFUSAL_LOGGER):
+        resp = _create_connection(authenticated_client, api_key=_KEY_A, label="work")
+
+    assert resp.status_code == 503
+    assert _refusal_lines(caplog) == [
+        (
+            logging.WARNING,
+            "api_key_validation_refused provider=anthropic state=unavailable "
+            "stage=authentication probe_model=claude-haiku-4-5 retryable=True",
+        )
+    ]
+
+
+def test_a_rejected_key_logs_at_info_and_never_the_key_or_the_provider_text(
+    authenticated_client, anthropic_transport, caplog: pytest.LogCaptureFixture
+) -> None:
+    """INVARIANT: the line holds gateway-authored values only.
+
+    A bad key is the key owner's to fix, so it is INFO, not a warning for the operator. The
+    provider's own words ("bad key") and the key itself must never reach the log.
+    """
+    anthropic_transport.queue = [_auth_reject()]
+
+    with caplog.at_level(logging.DEBUG):
+        resp = _create_connection(authenticated_client, api_key=_KEY_A, label="work")
+
+    assert resp.status_code == 422
+    assert _refusal_lines(caplog) == [
+        (
+            logging.INFO,
+            "api_key_validation_refused provider=anthropic state=invalid "
+            "stage=authentication probe_model=claude-haiku-4-5 retryable=False",
+        )
+    ]
+    assert _KEY_A not in caplog.text
+    assert "bad key" not in caplog.text
+
+
+def test_a_valid_key_logs_no_refusal(
+    authenticated_client, anthropic_transport, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A key that passes both calls writes nothing: the line means a refusal, always."""
+    anthropic_transport.queue = [_auth_ok(), _readiness_ok()]
+
+    with caplog.at_level(logging.DEBUG, logger=_REFUSAL_LOGGER):
+        resp = _create_connection(authenticated_client, api_key=_KEY_A, label="work")
+
+    assert resp.status_code == 201, resp.text
+    assert _refusal_lines(caplog) == []
 
 
 # --- Writer 2: connection replace -----------------------------------------------
