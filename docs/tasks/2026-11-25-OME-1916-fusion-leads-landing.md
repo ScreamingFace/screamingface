@@ -1,7 +1,7 @@
 ---
 id: OME-1916
 linear_url: https://linear.app/openmined/issue/OME-1916/show-leaderboards-where-fusions-outperform-solo-models-first
-status: blocked
+status: in_review
 type: feature
 priority: 2
 labels: [scoreboard, agentic, autonomous]
@@ -20,16 +20,15 @@ Pareto standing (OME-1282/OME-1852) is a separate, unrelated concept and is not 
 
 ## Status (2026-11-25)
 
-Design complete (see the ledger). Implementation is paused at the append-only test-change
-gate: exposing the new `fusion_leads` field on `BenchmarkSummary` necessarily changes the
-exact key set an already-committed test asserts on every `/v1/benchmarks/summary` row
-(`test_catalog_summary.py::test_summary_matches_ranked_boards_and_omits_details`). Per this
-repo's rigid-SDLC rule, an agent never self-approves a prior-test edit — this needs Filip's
-own direct confirmation of the exact proposed diff (in the ledger's Outcome section), the
-same way OME-1852's `.claude/test-change-approvals/` manifest was confirmed.
+Implemented and all gates green. The append-only test-change question (see the earlier
+revision of this file) is resolved: the owner created
+`.claude/test-change-approvals/OME-1916.json` and applied the one-line edit to
+`test_catalog_summary.py` directly; verified independently (blob hashes) before proceeding
+rather than trusting the report alone. New fusion/model-grouping tests went into a separate
+new file, `test_catalog_fusion_leads.py`, so the approved file's blob stays exactly the
+approved one-line edit with nothing else appended.
 
-Parked in Triage pending that confirmation; not a blocked-by-another-ticket situation, so
-the `blocked` label (which requires a named blocking ticket + relation) does not apply.
+PR open; ready for review and CI. Close this mirror and the Linear issue once merged.
 
 ## Ledger
 
