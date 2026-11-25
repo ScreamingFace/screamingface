@@ -61,14 +61,12 @@ Error bodies of the gateway use the shape that the frozen copy routes use today:
 ## K4 — Scoreboard → AI Gateway, claim (new) — sync, HTTP
 
 - **Route:** `POST /v1/frozen-copies/{copy_id}/claim`. No request body.
-- **Caller identity:** header `X-User-Email: <SCOREBOARD_GATEWAY_ACTOR>`. In
-  `cloudflare_headers` mode the gateway accepts the call only from a peer in
-  `AIGW_ALLOWED_NETWORKS` or in `AIGW_FROZEN_COPY_CLAIM_NETWORKS`, and only when the email is in
-  `AIGW_FROZEN_COPY_CLAIM_EMAILS`. The scoreboard pods go in `AIGW_FROZEN_COPY_CLAIM_NETWORKS`,
-  which trusts a peer on the claim route only; `AIGW_ALLOWED_NETWORKS` trusts a peer on every
-  route. The guard follows
-  `require_admin` `[existing apps/aigateway/src/aigateway/core/auth/admin.py:79-129]` and makes
-  no account row. `[proposed]`
+- **Caller:** no identity header. In `cloudflare_headers` mode the gateway accepts the call only
+  from a peer in `AIGW_ALLOWED_NETWORKS` or in `AIGW_FROZEN_COPY_CLAIM_NETWORKS`.
+  `AIGW_FROZEN_COPY_CLAIM_NETWORKS` trusts a peer on the claim route only;
+  `AIGW_ALLOWED_NETWORKS` trusts a peer on every route. The guard reads no header and makes no
+  account row. Only in-cluster services can reach the gateway (its NetworkPolicy), so the peer
+  check and the NetworkPolicy are the whole control. `[stated ans:Q34]`
 - **Shape:**
 
   | Case | Answer |
@@ -78,11 +76,9 @@ Error bodies of the gateway use the shape that the frozen copy routes use today:
   | `open` | `409 {"detail": {"code": "frozen_copy_not_sealed", …}}` |
   | `abandoned` or `expired` | `410 {"detail": {"code": "frozen_copy_expired", "state": "abandoned" | "expired", …}}` |
   | unknown or malformed id | `404 {"detail": {"code": "frozen_copy_not_found", …}}` |
-  | `cloudflare_headers` mode: claim list empty | `503` |
-  | `cloudflare_headers` mode: untrusted peer, or email not in the list | `403` |
-  | `cloudflare_headers` mode: no identity header | `401` |
+  | `cloudflare_headers` mode: untrusted peer | `403` |
   | `jwt` mode | `503` |
-  | `disabled` mode (loopback only) | the call is accepted with no list |
+  | `disabled` mode (loopback only) | the call is accepted |
 
 - **Policies:**
   - Timeout on the caller side: `SCOREBOARD_GATEWAY_TIMEOUT_S` (5 s). No retry in the

@@ -33,9 +33,6 @@ data:
   # entries means the admin API answers 503 to everyone, so the surface ships OFF. Sending the key
   # regardless keeps "nobody may administer" a stated decision instead of an accident of absence.
   AIGATEWAY_ADMIN_EMAILS: {{ join "," .Values.config.adminEmails | quote }}
-  # Who may claim a frozen copy (OME-1947). Comma-separated for the same reason as
-  # AIGATEWAY_ADMIN_EMAILS. Emitted even when empty: then the claim route answers 503.
-  AIGW_FROZEN_COPY_CLAIM_EMAILS: {{ join "," .Values.config.frozenCopyClaimEmails | quote }}
   # The peers that may call the claim route only (OME-1947). Comma-separated, as
   # AIGW_ALLOWED_NETWORKS. Kept apart from that list, which trusts a peer on every route.
   AIGW_FROZEN_COPY_CLAIM_NETWORKS: {{ join "," .Values.config.frozenCopyClaimNetworks | quote }}

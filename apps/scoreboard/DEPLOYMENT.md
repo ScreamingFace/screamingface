@@ -429,10 +429,13 @@ scoreboard makes no claim and works as before.
 | Chart value (`config:`) | Variable | Default | Meaning |
 |---|---|---|---|
 | `gatewayUrl` | `SCOREBOARD_GATEWAY_URL` | empty | The address of the AI Gateway service in the cluster, for example `http://<gateway-service>.<namespace>.svc:<port>`. Empty means no claim. |
-| `gatewayActor` | `SCOREBOARD_GATEWAY_ACTOR` | empty | The email that the scoreboard sends in `X-User-Email`. It must be in `AIGW_FROZEN_COPY_CLAIM_EMAILS` of the gateway. It must be an address that cannot log in through Cloudflare Access. Set it when the URL is set. Without it, the service does not start. |
 | `gatewayTimeoutS` | `SCOREBOARD_GATEWAY_TIMEOUT_S` | `5` | The time limit in seconds for one claim call. The scoreboard does not retry. |
 
 `values-prod.yaml` does not set these values. The infrastructure repo sets them.
+
+The claim has no identity header. The gateway accepts a claim from a peer in its trusted networks
+(`AIGW_ALLOWED_NETWORKS` or `AIGW_FROZEN_COPY_CLAIM_NETWORKS`). The NetworkPolicy of the gateway
+is the boundary.
 
 The egress rule of this chart already permits the call. The NetworkPolicy of the gateway must
 admit the scoreboard pods. Add one `networkPolicy.allowFrom` element with the namespace selector
@@ -448,14 +451,14 @@ Then do step 1 of the release checks. From a scoreboard pod, send a claim for a 
 ```bash
 kubectl -n "$NAMESPACE" exec "deploy/$DEPLOYMENT" -- python -c '
 import sys, uuid, httpx
-r = httpx.post(f"{sys.argv[1]}/v1/frozen-copies/{uuid.uuid4()}/claim",
-               headers={"X-User-Email": sys.argv[2]}, timeout=5)
-print(r.status_code, r.text)' "$GATEWAY_URL" "$GATEWAY_ACTOR"
+r = httpx.post(f"{sys.argv[1]}/v1/frozen-copies/{uuid.uuid4()}/claim", timeout=5)
+print(r.status_code, r.text)' "$GATEWAY_URL"
 ```
 
 The answer must be `404` with `frozen_copy_not_found`. This answer proves the URL, the
-NetworkPolicy and the claim list.
-A `403`, `401` or `503` means that the gateway refuses the actor or the peer.
+NetworkPolicy and the trusted networks of the gateway.
+A `403` means that the gateway does not trust the peer. Examine the NetworkPolicy and the network
+lists of the gateway. A `503` means that the gateway runs in `jwt` mode, where the claim route is off.
 Do not set `gatewayUrl` until the answer is correct.
 
 ### What a submit gets
@@ -513,7 +516,7 @@ The claim pass writes these records:
   `frozen_copy_id` and `result` for each such Score. The pass writes one record, not one record
   for each Score.
 - WARNING `claim pass stopped: the gateway did not answer; next pass in 600 s`: One claim got the
-  result `unavailable`. Examine the gateway, its claim list and the NetworkPolicy.
+  result `unavailable`. Examine the gateway, its network lists and the NetworkPolicy.
 - ERROR `claim pass stopped: error=<type>; next pass in 600 s`: An error that is not a gateway
   error stopped the pass. `<type>` is the type of the error. If the type is a database error,
   for example `OperationalError`, examine the database. For a different type, the cause can be a

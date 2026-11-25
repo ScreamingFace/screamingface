@@ -196,14 +196,13 @@ does the same pass by hand.
 - **C13. The caller of the claim route is not allowed.** `[stated ans:Q14]` H×L Must
   - Given the gateway runs in `cloudflare_headers` mode
   - When a call comes from a peer in neither `AIGW_ALLOWED_NETWORKS` nor
-    `AIGW_FROZEN_COPY_CLAIM_NETWORKS`, or with an email that is not in
-    `AIGW_FROZEN_COPY_CLAIM_EMAILS`
-  - Then the gateway answers 403 and changes nothing. With an empty list it answers 503. With
-    no identity header it answers 401.
+    `AIGW_FROZEN_COPY_CLAIM_NETWORKS`
+  - Then the gateway answers 403 and changes nothing. The gateway reads no identity header on
+    this route. `[stated ans:Q34]`
   - Given the gateway runs in `jwt` mode, it answers 503, as the admin routes do
     `[existing apps/aigateway/src/aigateway/core/auth/admin.py:104-105]`.
   - Given the gateway runs in `disabled` mode (loopback only, local development), it accepts
-    the call with no list. `[proposed]`
+    the call. `[proposed]`
 - **C14. A bad copy id.** `[implied]` L×M Must
   - Given a claim for an id that is not a UUID
   - Then the gateway answers 404 `frozen_copy_not_found`. (The scoreboard already refuses a
@@ -291,35 +290,26 @@ The value of `capture_status` in the submit does not change this table. `[stated
 
 | Setting | Service | Type | Default | Source |
 |---|---|---|---|---|
-| `AIGW_FROZEN_COPY_CLAIM_EMAILS` | gateway | comma list of emails | empty | `[stated ans:Q14]` |
 | `AIGW_FROZEN_COPY_CLAIM_NETWORKS` | gateway | comma list of CIDR networks; peers trusted on the claim route only | empty | `[proposed]` (review fix 2026-11-23) |
 | `SCOREBOARD_GATEWAY_URL` | scoreboard | string | empty (claims off) | `[proposed]` |
-| `SCOREBOARD_GATEWAY_ACTOR` | scoreboard | email | none; necessary when the URL is set | `[proposed]` |
 | `SCOREBOARD_GATEWAY_TIMEOUT_S` | scoreboard | float | `5.0` | `[proposed]` |
 
-- Declare the gateway list as `admin_emails` is declared (`NoDecode`, lower case)
-  `[existing apps/aigateway/src/aigateway/config.py:88-89]`
-  `[existing apps/aigateway/src/aigateway/config.py:349-364]`.
 - The scoreboard settings go into `Settings` with the `SCOREBOARD_` prefix
   `[existing apps/scoreboard/src/scoreboard/config.py:37-39]`, the chart `config:` block
   `[existing apps/scoreboard/charts/scoreboard/values.yaml:30-48]` and its ConfigMap template.
   The chart checks (the three keys are in the ConfigMap; the default URL is empty) go into
   `.github/scripts/verify_chart_wiring.py`. The scoreboard tests have no Helm test and no YAML
   library, and this spec adds none. `[proposed]`
-- The scoreboard refuses to start when the URL is set and the actor is empty. `[proposed]`
 
 ### 4.2 Security
 
-- **Least privilege.** The claim route has its own list of allowed emails. The scoreboard's
-  actor is not in `AIGATEWAY_ADMIN_EMAILS`. `[stated ans:Q14]`
-- **The actor address** must be one that cannot log in through Cloudflare Access, so that no
-  person can present it from outside the cluster. `[proposed]`
-- **Trust.** The gateway believes `X-User-Email` only from a peer in its trusted networks, and
-  only pods that its NetworkPolicy admits can connect
+- **No caller address** (owner decision 2026-11-25, Q34). The claim route has no list of
+  allowed emails, and the scoreboard sends no identity header. Users never reach the gateway:
+  only the pods that its NetworkPolicy admits can connect
   `[existing apps/aigateway/charts/aigateway/templates/networkpolicy.yaml:2-4]`. The scoreboard
-  pod must be added as a client (`00-overview.md` §7.3). Each pod that the policy admits (the
-  runner pods also) can send the actor header. This is the same exposure that the admin routes
-  have today. `[implied]`
+  pod must be added as a client (`00-overview.md` §7.3). Each admitted pod (the runner pods
+  also) can claim; a fixed address would not stop them, because each of them can send any
+  header. `[stated ans:Q34]`
 - **What a claim can do.** A claim can only keep a sealed copy. It cannot read an entry, and it
   cannot delete. A wrong claim costs storage only. `[implied]`
 - **A user can keep a copy with a refused submit** (C10). This needs a valid submit body and
@@ -385,9 +375,9 @@ Test files: `apps/aigateway/tests/unit/test_frozen_copy_claim.py`,
 | K-2 | gateway: a second claim answers 200 `already: true` and keeps the first `claimed_at` (C3) | unit | `[implied]` | H×M | return when `claimed_at` is set |
 | K-3 | gateway: a claim of an `expired` copy answers 410 with `state: expired` and changes nothing (C5) | unit | `[stated ans:Q2]` | H×M | status check under the lock |
 | K-4 | gateway: a claim of an `open` copy answers 409 `frozen_copy_not_sealed`; of an `abandoned` copy 410 `state: abandoned`; of an unknown or malformed id 404 `frozen_copy_not_found` (C6, C14) | unit | `[stated ans:Q10]` | H×M | one branch for each state |
-| K-5 | gateway, `cloudflare_headers` mode: an email outside the claim list answers 403; an empty list 503; no header 401; an untrusted peer 403 (C13) | unit | `[stated ans:Q14]` | H×L | new dependency modeled on `require_admin` |
-| K-6 | gateway: `jwt` mode answers 503; `disabled` mode accepts the call with an empty list (C13) | unit | `[proposed]` | M×M | mode branches |
-| K-7 | gateway: an email in `AIGATEWAY_ADMIN_EMAILS` only cannot claim, and an email in the claim list only cannot call an admin route | unit | `[stated ans:Q14]` | H×L | two separate lists |
+| K-5 | gateway, `cloudflare_headers` mode: an untrusted peer answers 403; a trusted peer with no identity header gets the claim answer (C13) | unit | `[stated ans:Q34]` | H×L | peer check only |
+| K-6 | gateway: `jwt` mode answers 503; `disabled` mode accepts the call (C13) | unit | `[proposed]` | M×M | mode branches |
+| K-7 | (removed by Q34: the claim route has no address list) | — | `[stated ans:Q34]` | — | — |
 | K-8 | scoreboard client: a 200 with `status: "sealed"` and `already` as a boolean, 404 `frozen_copy_not_found`, 409, 410 (both states) each map to one typed result; a 200 with an empty object, with a different `status`, with an `already` that is not a boolean or with a different `id`, a 404 with no code or with `detail: "Not Found"`, a 401, a 403, a 5xx, a timeout and a connection error all map to `unavailable` (C7) | unit | `[proposed]` | H×M | small class over `httpx.AsyncClient` with a mock transport; one lookup table on the status with `detail.code`, `detail.state` or the 200 body; each answer that is not in the table is `unavailable` |
 | K-9 | submit: an `expired` result answers 422 `frozen_copy_expired`, and the store is not called (C5) | integration | `[stated ans:Q2]` | H×M | claim before `store.submit` |
 | K-10 | submit: `not_sealed`, `abandoned` and `not_found` each answer 422 `frozen_copy_unavailable`, and the store is not called (C6) | integration | `[stated ans:Q10]` | H×M | one refusal branch |
@@ -397,7 +387,7 @@ Test files: `apps/aigateway/tests/unit/test_frozen_copy_claim.py`,
 | K-14 | submit: a store refusal after a claim makes no second gateway call (C10) | integration | `[proposed]` | M×M | no compensation code |
 | K-15 | submit: a repeat with the same key claims again and answers 200 (C12) | integration | `[implied]` | M×M | claim is before the store's replay check |
 | K-16 | submit: with no gateway URL, a Score with a `frozen_copy_id` is stored and one WARNING record says that it has no claim (C9) | integration | `[proposed]` | H×M | log in the helper |
-| K-17 | the scoreboard refuses to start with a URL and no actor (§4.1) | unit | `[proposed]` | M×L | validator in `Settings` |
+| K-17 | (removed by Q34: the scoreboard has no actor setting) | — | `[stated ans:Q34]` | — | — |
 | K-18 | command: sends a claim for each copy that a Score names, public and private boards, and prints one line each (C4) | integration | `[implied]` | H×M | one query with no visibility filter |
 | K-19 | command: a second run reports `already` for each copy (C4) | integration | `[implied]` | M×M | uses C3 |
 | K-20 | command: a result that is not `claimed` or `already` is printed, the run continues, and the exit status is 3 (C15) | integration | `[proposed]` | H×L | collect, then exit |
@@ -422,9 +412,8 @@ Test files: `apps/aigateway/tests/unit/test_frozen_copy_claim.py`,
 - **Gateway route.** `POST /v1/frozen-copies/{copy_id}/claim` in
   `apps/aigateway/src/aigateway/routes/frozen_copies.py`. Shape in `contracts.md` K4. The guard
   is a new dependency in `core/auth/` that follows `require_admin` step by step
-  `[existing apps/aigateway/src/aigateway/core/auth/admin.py:79-129]`, with the claim list in
-  place of the admin list, and with the difference for `disabled` mode of C13. It makes no
-  account row.
+  `[existing apps/aigateway/src/aigateway/core/auth/admin.py:79-129]` for the mode and peer
+  checks only: it reads no identity header and has no list (Q34). It makes no account row.
 - **Scoreboard client.** A small class (for example `CopyClaims`) that owns one
   `httpx.AsyncClient`. Make it in `create_app`, put it on `app.state` as `score_store` is
   `[existing apps/scoreboard/src/scoreboard/main.py:186-190]`, and close it in the lifespan

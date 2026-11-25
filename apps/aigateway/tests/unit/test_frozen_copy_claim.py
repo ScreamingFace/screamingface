@@ -1,5 +1,8 @@
 """The frozen copy claim route and its guard
 (OME-1947, contracts K4, prd/score-claim.md K-1 to K-7).
+
+WHY no address in the guard tests: owner decision 2026-11-25. In `cloudflare_headers` mode the
+claim route trusts the peer network only. It reads no identity header and has no address list.
 """
 
 from __future__ import annotations
@@ -32,13 +35,11 @@ def _claim_client(
     client,
     *,
     peer: str = "10.1.2.3",
-    claimers: frozenset[str] | None = None,
     admins: frozenset[str] = frozenset(),
 ) -> TestClient:
     settings = _settings_of(client)
     settings.auth_mode = "cloudflare_headers"
     settings.allowed_networks = (POD_NETWORK,)
-    settings.frozen_copy_claim_emails = frozenset({CLAIMER}) if claimers is None else claimers
     settings.admin_emails = admins
     return TestClient(client.app, client=(peer, 50000))
 
@@ -164,54 +165,72 @@ def test_k4_an_unknown_and_a_malformed_id_get_the_same_404(
     }
 
 
-def test_k5_the_address_case_does_not_matter(authenticated_client: TestClient) -> None:
+def test_k5_a_trusted_peer_with_no_identity_header_may_claim(
+    authenticated_client: TestClient,
+) -> None:
     client = authenticated_client
     copy_id = _new_copy(client)
     claimer = _claim_client(client)
 
-    resp = claimer.post(_claim_path(copy_id), headers={"X-User-Email": "ScoreBoard@OpenMined.ORG"})
+    resp = claimer.post(_claim_path(copy_id))
 
     assert resp.status_code == 200
+    assert resp.json()["id"] == copy_id
+    assert resp.json()["already"] is False
+    assert _read_copy(client, copy_id).claimed_at is not None
 
 
-def test_k5_an_address_outside_the_claim_list_gets_403(authenticated_client: TestClient) -> None:
+def test_k5_a_trusted_peer_with_no_identity_header_gets_the_404_for_an_unknown_id(
+    authenticated_client: TestClient,
+) -> None:
+    claimer = _claim_client(authenticated_client)
+
+    resp = claimer.post(_claim_path(str(uuid4())))
+
+    assert resp.status_code == 404
+    assert resp.json()["detail"]["code"] == "frozen_copy_not_found"
+
+
+@pytest.mark.parametrize(
+    "headers",
+    [
+        {},
+        {"X-User-Email": CLAIMER},
+        {"X-User-Email": "ScoreBoard@OpenMined.ORG"},
+        {"X-User-Email": OUTSIDER},
+        {"X-User-Email": ADMIN},
+        {"X-User-Email": "   "},
+    ],
+)
+def test_k5_the_identity_header_does_not_change_the_answer(
+    authenticated_client: TestClient, headers: dict[str, str]
+) -> None:
+    client = authenticated_client
+    sealed_id = _new_copy(client)
+    open_id = _new_copy(client, seal=False)
+    claimer = _claim_client(client, admins=frozenset({ADMIN}))
+
+    sealed = claimer.post(_claim_path(sealed_id), headers=headers)
+    unknown = claimer.post(_claim_path(str(uuid4())), headers=headers)
+    not_sealed = claimer.post(_claim_path(open_id), headers=headers)
+
+    assert sealed.status_code == 200
+    assert sealed.json()["already"] is False
+    assert unknown.status_code == 404
+    assert not_sealed.status_code == 409
+
+
+def test_k5_an_untrusted_peer_gets_403_with_no_identity_header(
+    authenticated_client: TestClient,
+) -> None:
     client = authenticated_client
     copy_id = _new_copy(client)
-    claimer = _claim_client(client)
+    claimer = _claim_client(client, peer=UNTRUSTED_PEER)
 
-    resp = claimer.post(_claim_path(copy_id), headers={"X-User-Email": OUTSIDER})
+    resp = claimer.post(_claim_path(copy_id))
 
     assert resp.status_code == 403
     assert _read_copy(client, copy_id).claimed_at is None
-
-
-def test_k5_an_empty_claim_list_gets_503(authenticated_client: TestClient) -> None:
-    client = authenticated_client
-    copy_id = _new_copy(client)
-    claimer = _claim_client(client, claimers=frozenset())
-
-    resp = claimer.post(_claim_path(copy_id), headers={"X-User-Email": CLAIMER})
-
-    assert resp.status_code == 503
-
-
-def test_k5_the_empty_list_is_checked_before_the_peer(authenticated_client: TestClient) -> None:
-    client = authenticated_client
-    copy_id = _new_copy(client)
-    claimer = _claim_client(client, claimers=frozenset(), peer=UNTRUSTED_PEER)
-
-    resp = claimer.post(_claim_path(copy_id), headers={"X-User-Email": CLAIMER})
-
-    assert resp.status_code == 503
-
-
-def test_k5_no_identity_header_gets_401(authenticated_client: TestClient) -> None:
-    client = authenticated_client
-    copy_id = _new_copy(client)
-    claimer = _claim_client(client)
-
-    assert claimer.post(_claim_path(copy_id)).status_code == 401
-    assert claimer.post(_claim_path(copy_id), headers={"X-User-Email": "   "}).status_code == 401
 
 
 def test_k5_an_untrusted_peer_gets_403_with_a_listed_address(
@@ -245,7 +264,8 @@ def test_k5_a_claim_makes_no_account_row(authenticated_client: TestClient) -> No
     claimer = _claim_client(client, admins=frozenset({ADMIN}))
 
     assert claimer.post(_claim_path(copy_id), headers={"X-User-Email": CLAIMER}).status_code == 200
-    assert claimer.post(_claim_path(copy_id), headers={"X-User-Email": OUTSIDER}).status_code == 403
+    assert claimer.post(_claim_path(copy_id), headers={"X-User-Email": OUTSIDER}).status_code == 200
+    assert claimer.post(_claim_path(copy_id)).status_code == 200
 
     resp = claimer.get("/v1/admin/accounts", headers={"X-User-Email": ADMIN})
 
@@ -274,24 +294,13 @@ def test_k6_disabled_mode_accepts_the_call_with_no_list(
 ) -> None:
     client = authenticated_client
     copy_id = _new_copy(client)
-    claimer = _claim_client(client, claimers=frozenset())
+    claimer = _claim_client(client)
     _settings_of(client).auth_mode = "disabled"
 
     resp = claimer.post(_claim_path(copy_id))
 
     assert resp.status_code == 200
     assert resp.json()["already"] is False
-
-
-def test_k7_an_admin_only_address_cannot_claim(authenticated_client: TestClient) -> None:
-    client = authenticated_client
-    copy_id = _new_copy(client)
-    claimer = _claim_client(client, admins=frozenset({ADMIN}))
-
-    resp = claimer.post(_claim_path(copy_id), headers={"X-User-Email": ADMIN})
-
-    assert resp.status_code == 403
-    assert _read_copy(client, copy_id).claimed_at is None
 
 
 def test_k7_a_claimer_only_address_cannot_call_the_admin_api(

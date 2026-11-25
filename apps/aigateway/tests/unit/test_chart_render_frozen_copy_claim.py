@@ -1,8 +1,8 @@
-"""The chart sets the claim list of the frozen copy claim route (OME-1947, contracts K4).
+"""The chart parts of the frozen copy claim route (OME-1947, contracts K4).
 
-WHY this file exists: a chart that does not set the variable, or that sets a name the code does
-not read, keeps the claim route at 503 and every gate passes. This test renders the chart and
-gives the rendered ConfigMap to `Settings`, so the chart and the code must agree on the name.
+WHY this file exists: the claim route has no address list (owner decision 2026-11-25). The chart
+must not render the removed variable, and `Settings` must not read it. The scoreboard reaches the
+gateway through one `networkPolicy.allowFrom` element; this file renders that element.
 
 AIDEV-NOTE: needs `helm` on PATH. The skipif guard matches the sibling chart tests.
 """
@@ -21,7 +21,7 @@ from aigateway.config import Settings
 
 _APP_ROOT = Path(__file__).resolve().parents[2]
 _CHART = _APP_ROOT / "charts" / "aigateway"
-_VAR = "AIGW_FROZEN_COPY_CLAIM_EMAILS"
+_REMOVED_VAR = "AIGW_FROZEN_COPY_CLAIM_EMAILS"
 _SCOREBOARD_PEER: dict[str, Any] = {
     "namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "scoreboard"}},
     "podSelector": {"matchLabels": {"app.kubernetes.io/name": "scoreboard"}},
@@ -53,38 +53,27 @@ def _config_data(tmp_path: Path, values: dict[str, Any] | None = None) -> dict[s
     return config["data"]
 
 
-def _settings_from(data: dict[str, str], monkeypatch: pytest.MonkeyPatch) -> Settings:
-    monkeypatch.delenv(_VAR, raising=False)
-    for key, value in data.items():
-        monkeypatch.setenv(key, value)
-    return Settings()
-
-
-def test_the_default_renders_the_key_with_an_empty_value(tmp_path, monkeypatch):
+def test_the_chart_renders_no_claim_address_key(tmp_path):
     data = _config_data(tmp_path)
-    assert data[_VAR] == ""
 
-    settings = _settings_from(data, monkeypatch)
-    assert settings.frozen_copy_claim_emails == frozenset()
+    assert _REMOVED_VAR not in data
 
 
-def test_a_list_renders_with_commas_and_reads_as_a_lower_case_set(tmp_path, monkeypatch):
-    data = _config_data(
-        tmp_path,
-        {"config": {"frozenCopyClaimEmails": ["Scoreboard@OpenMined.org", "ops@example.test"]}},
-    )
-    assert data[_VAR] == "Scoreboard@OpenMined.org,ops@example.test"
-
-    settings = _settings_from(data, monkeypatch)
-    assert settings.frozen_copy_claim_emails == frozenset(
-        {"scoreboard@openmined.org", "ops@example.test"}
-    )
-
-
-def test_the_claim_list_is_a_config_key_and_not_in_the_sweep_block():
+def test_the_values_have_no_claim_address_list():
     values = yaml.safe_load((_CHART / "values.yaml").read_text())
-    assert values["config"]["frozenCopyClaimEmails"] == []
+
+    assert "frozenCopyClaimEmails" not in values["config"]
     assert "frozenCopyClaimEmails" not in values["config"]["frozenCopySweep"]
+
+
+def test_settings_has_no_claim_address_list(monkeypatch):
+    # WHY set the old variable: a ConfigMap from an older release may still carry it.
+    monkeypatch.setenv(_REMOVED_VAR, "scoreboard@openmined.org")
+
+    settings = Settings()
+
+    assert not hasattr(settings, "frozen_copy_claim_emails")
+    assert "frozen_copy_claim_emails" not in Settings.model_fields
 
 
 def test_a_scoreboard_allow_from_element_renders_as_one_from_element(tmp_path):

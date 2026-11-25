@@ -198,6 +198,7 @@ record. This ledger does not use them.
 | Q30 | The second rule takes `sweep.py` above 450 lines. Move the rule classes, or keep one file? | "yes": C1 moves the rule classes to `core/frozen_copy/sweep_rules.py`; no file is above 450 lines | No behavior change. `prd/copy-sweep.md` §7.1 |
 | Q31 | Where does the start log show the 90-day setting? | "recommended": a second record, "frozen copy expiry armed (unclaimed_ttl_s=…)". The record of stack A, "frozen copy sweep armed (…)", does not change | No stack A test changes. Corrects the notes of S-32 and S-37. `prd/copy-sweep.md` §4.1 |
 | Q32 | Do the public docs name the date on which the rule starts? | "doesn't matter and shouldn't be in the docs": the docs state the rule only and give no date. A pinned cache with no submitted Score is deleted 90 days after it is sealed; for a cache sealed before the rule started, the 90 days count from the start of the rule. No person is named for a release day | Q7 and Q24 stay: the release still stamps the clock start in the database. C3 is merged after C1 is merged, not on a fixed day. `prd/expired-copy-replay.md` R2, R9; `test-plan.md` §5.3 (2) |
+| Q34 | 2026-11-25, while the infrastructure values were drafted: why does the claim route need a caller email? Users never reach the gateway; only in-cluster services do | "remove it": no `AIGW_FROZEN_COPY_CLAIM_EMAILS`, no `SCOREBOARD_GATEWAY_ACTOR`, no identity header on the claim route | **Changes Q14** for the claim route. In `cloudflare_headers` mode the guard checks the peer network only (`AIGW_ALLOWED_NETWORKS` or `AIGW_FROZEN_COPY_CLAIM_NETWORKS`); `jwt` mode still answers 503. Any pod that the gateway NetworkPolicy admits can claim; a fixed address did not stop that, because each such pod can send any header. `contracts.md` K4; `prd/score-claim.md` C13, §4.1, §4.2, K-5 to K-7 |
 
 ## 6. What stays `[proposed]`
 
@@ -228,8 +229,8 @@ No step needs an approval. `[stated ans:Q22]` `[stated ans:Q23]`
 | Step | Action | Check (not a gate) |
 |---|---|---|
 | 1 | Release stack A. The sweep starts by itself. The first run marks the idle open copies, and each hourly run purges up to 100 000 entries. | `test-plan.md` §5.1 |
-| 2 | Release B1. Set the claim list and the NetworkPolicy peer. | — |
-| 3 | Test the claim route from a scoreboard pod (a random UUID must give 404 `frozen_copy_not_found`). Release B2 and B3 with the gateway URL and actor. At start, each scoreboard pod claims the copies of all Scores. | `test-plan.md` §5.2 (1, 2) |
+| 2 | Release B1. Set the NetworkPolicy peer. | — |
+| 3 | Test the claim route from a scoreboard pod (a random UUID must give 404 `frozen_copy_not_found`). Release B2 and B3 with the gateway URL. At start, each scoreboard pod claims the copies of all Scores. | `test-plan.md` §5.2 (1, 2) |
 | 4 | Verify the claims: the summary record of the pass, and the SQL check that each copy of a Score is `sealed` and claimed. Give the list of exceptions to the owner for information `[stated ans:Q20]`. | `test-plan.md` §5.2 (3 to 6) |
 | 5 | Merge C1 (not before step 4 is done: the merge rule of §2) and release it; migration 0019 stamps the clock. Release C2. Merge C3 after C1 is merged; the docs give no date `[stated ans:Q32]`. | `test-plan.md` §5.3 (1 to 3) |
 | 6 | 90 days after step 5, the first copies expire with no further action. | The run log record shows the count; `test-plan.md` §5.3 (4) |
@@ -260,7 +261,7 @@ code enforces the two rules.
 ### 7.3 Handoff to the infrastructure repo
 
 - Gateway values: the four sweep settings (`prd/copy-sweep.md` §4.1; the defaults are
-  correct for production), `AIGW_FROZEN_COPY_CLAIM_EMAILS` and `AIGW_FROZEN_COPY_CLAIM_NETWORKS`. Three settings come with stack
+  correct for production) and `AIGW_FROZEN_COPY_CLAIM_NETWORKS`. Three settings come with stack
   A, and `AIGW_FROZEN_COPY_UNCLAIMED_TTL_SECONDS` comes with C1. No switch and no date.
   `[stated ans:Q22]` In a chart template, a number goes through `int64` before `quote`: Helm
   renders a number of 1 000 000 or more from a values file as `1e+06`, and the gateway refuses
@@ -269,9 +270,8 @@ code enforces the two rules.
 - Gateway claim networks: set `AIGW_FROZEN_COPY_CLAIM_NETWORKS` to the address range of the
   scoreboard pods. Do not add that range to `AIGW_ALLOWED_NETWORKS`: a peer there may name any
   user on every route.
-- Scoreboard values: `SCOREBOARD_GATEWAY_URL` (the gateway Service address across namespaces),
-  `SCOREBOARD_GATEWAY_ACTOR` (an address that cannot log in through Cloudflare Access),
-  `SCOREBOARD_GATEWAY_TIMEOUT_S`.
+- Scoreboard values: `SCOREBOARD_GATEWAY_URL` (the gateway Service address across namespaces)
+  and `SCOREBOARD_GATEWAY_TIMEOUT_S`. No caller address (Q34).
 - Engine: confirm that the run deadline in production (`URL4_CLOUD_JOB_DEADLINE_S`) is 16 hours
   or less. The idle setting must stay above it; no code checks this `[stated ans:Q18]`.
 - Database server: confirm the provisioned storage size and the auto-grow setting against the
