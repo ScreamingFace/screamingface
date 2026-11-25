@@ -34,14 +34,14 @@ from test_frozen_copy_failed_case import _run as _copy_run
 from screamingface_engine.benchmarks import BenchmarkRegistry, link_candidate
 from screamingface_engine.benchmarks.contract import CANDIDATE_ROUTE, encode_candidate_invocation
 from screamingface_engine.benchmarks.medxpert.definition import (
+    COMMIT_CHAT_ROUTE,
     FINGERPRINT,
     MEDXPERT,
-    REASONING_TEXT_ROUTE,
     REVISION,
     compute_revision,
 )
 from screamingface_engine.benchmarks.medxpert.prepare import emit
-from screamingface_engine.benchmarks.medxpert.runtime import _turn_one_text
+from screamingface_engine.benchmarks.medxpert.runtime import _commit_chat
 from screamingface_engine.job_env import CAPTURE, REPLAY_FROZEN_COPY
 from screamingface_engine.runner.main import build_executor
 from screamingface_engine.world.config import AigatewaySection, ModelSpec, WorldConfig
@@ -56,8 +56,12 @@ _CANDIDATE = f"(model_1:0.0:/{_MODEL}($input)!'Answer the question.')!'$model_1'
 _CHAT = "/v1/chat/completions"
 _TRIGGER_MARK = "the answer is"
 _REASONING = 'The findings point to "b", so the answer is not A.'
-# The id MedXpertQA published before this change: its turn 2 carried the whole turn-1 record.
+# The id MedXpertQA published before OME-1786: its turn 2 carried the whole turn-1 record.
 _RECORD_CARRYING_REVISION = "1e5a3b8a461a52f7"
+# The id MedXpertQA published before OME-1980: its turn 2 was one JSON user message.
+_JSON_MESSAGE_REVISION = "490235dc9a53b7d9"
+_PROMPT = "Q: Case one: pick B\nA: Let's think step by step."
+_TRIGGER = "Therefore, among A through B, the answer is"
 # Every key of a Candidate's result record other than the answer text, and every key of the
 # accounting inside it. None of them belongs in a prompt.
 _RECORD_ONLY_KEYS: tuple[str, ...] = (
@@ -212,14 +216,15 @@ async def test_the_commit_turn_carries_the_reasoning_text_and_none_of_the_record
     await _run(gateway, tmp_path)
 
     ((_, commit),) = gateway.commits()
-    sent: dict[str, Any] = json.loads(_user_text(commit))
-    assert sent == {
-        "question": "Case one: pick B",
-        "reasoning": _REASONING,
-        "trigger": "Therefore, among A through B, the answer is",
-    }
+    # OME-1980: the reasoning text is the model's own assistant turn in the chat turn 2 continues.
+    assert commit["messages"] == [
+        {"role": "system", "content": "Answer the question."},
+        {"role": "user", "content": _PROMPT},
+        {"role": "assistant", "content": _REASONING},
+        {"role": "user", "content": _TRIGGER},
+    ]
     for key in _RECORD_ONLY_KEYS:
-        assert key not in _user_text(commit), f"the commit turn leaked the record's {key!r}"
+        assert key not in json.dumps(commit["messages"]), f"the commit turn leaked {key!r}"
 
 
 @pytest.mark.asyncio
@@ -243,8 +248,9 @@ async def test_a_refused_turn_one_still_reaches_the_commit_turn_with_empty_reaso
     result: dict[str, Any] = await _run(gateway, tmp_path)
 
     ((_, commit),) = gateway.commits()
-    assert json.loads(_user_text(commit))["reasoning"] == ""
-    assert "I cannot help." not in _user_text(commit)
+    # OME-1980 (owner's call): no answer text, no assistant message; the trigger still follows.
+    assert [message["role"] for message in commit["messages"]] == ["system", "user", "user"]
+    assert "I cannot help." not in json.dumps(commit["messages"])
     assert result["score"] == 1.0
 
 
@@ -297,11 +303,15 @@ async def test_a_scored_case_replays_from_its_frozen_copy(tmp_path: Path) -> Non
 
 
 def _reasoning_text_reply(record: str) -> str:
-    """What the reasoning-text route answers for one turn-1 record."""
-    return _turn_one_text(Request(path=REASONING_TEXT_ROUTE, context=record, intent="1", params={}))
+    """The assistant text the commit-chat route writes for one turn-1 record ("" for none)."""
+    context: str = json.dumps({"prompt": _PROMPT, "reasoning": record, "trigger": _TRIGGER})
+    chat: dict[str, Any] = json.loads(
+        _commit_chat(Request(path=COMMIT_CHAT_ROUTE, context=context, intent="1", params={}))
+    )
+    return "".join(m["content"] for m in chat["messages"] if m["role"] == "assistant")
 
 
-def test_the_reasoning_text_route_returns_the_answer_text_alone() -> None:
+def test_the_commit_chat_route_carries_the_answer_text_alone() -> None:
     """The route is the one place a turn-1 record becomes turn-2 prompt text."""
     record: str = encode_candidate_invocation("I think B.", "stop", None)
 
@@ -321,7 +331,7 @@ def test_the_reasoning_text_route_returns_the_answer_text_alone() -> None:
 def test_a_turn_one_without_answer_text_gives_the_commit_turn_empty_reasoning(
     record: str,
 ) -> None:
-    """INVARIANT: no answer text means empty reasoning, never the record itself.
+    """INVARIANT: no answer text means no assistant message, never the record itself.
 
     A refused, empty or abstained (Fusion) turn 1 has an empty output. Falling back to the
     record would put the accounting back into the prompt for exactly these Cases.
@@ -392,8 +402,9 @@ async def test_a_malformed_turn_one_record_fails_the_case_before_any_commit_turn
 def test_the_commit_turn_change_moved_the_published_revision() -> None:
     """INVARIANT: changed prompt bytes are a changed exam, so old and new scores never mix.
 
-    The turn-2 input shape is hashed through the protocol constant: restoring the old constant
-    must compute the id the record-carrying exam published.
+    The turn-2 input shape is hashed through the protocol constant: restoring an old constant
+    must compute the id that exam published.
     """
-    assert REVISION == FINGERPRINT != _RECORD_CARRYING_REVISION
+    assert REVISION == FINGERPRINT not in (_RECORD_CARRYING_REVISION, _JSON_MESSAGE_REVISION)
     assert compute_revision(protocol_revision="two-turn-cot-v1") == _RECORD_CARRYING_REVISION
+    assert compute_revision(protocol_revision="two-turn-cot-v2") == _JSON_MESSAGE_REVISION
