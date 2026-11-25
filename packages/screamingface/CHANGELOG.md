@@ -4,6 +4,10 @@
 
 ### Added
 
+* A leaderboard submission from a run that failed to grade some of its Cases now says how many
+  were graded (`graded_questions`), so the leaderboard can show "505 / 525 graded" beside the
+  score. A fully graded run submits exactly what it did before.
+
 * Re-grading accepts `expected_target_revision` on sync and async clients. A catalogue or
   replay result on another revision is refused before submission (`regrade_target_mismatch`).
   The batch verifies returned score evidence and preserves unresolved journal state through
@@ -231,6 +235,8 @@
   reducer.**
 
 * **screamingface:** keep the members that a judge scores high enough (E4b): `sf.Fanout(m) >> sf.Judge(j, rubric=r) >> sf.Filter(where=sf.signal("score:judge") >= 7) >> sf.Synthesize(w)`. One judge call scores every member, and the Filter keeps each member whose score passes, in author order; the writer gets the input of the block and the kept members. A `score:judge` comparison with no `sf.Judge` in the block, or a `sf.Judge` that no step reads, raises `ValueError` before any call. No Engine change.
+
+* **screamingface:** add `Client.route_answer(profile, input)` and the `sf.RoutedAnswer` type (`OME-1823`). The call sends one question to a routing profile the Engine declares, such as `expert_router_v1`, through the Engine's `/route-answer`. The Engine classifies the question with the profile's classifier, takes the one label with the highest score and asks that label's model once. `RoutedAnswer` holds the answer, the selected label and model, the classifier's scores in its order, and the profile's ID, `revision`, `policy` and `contract`. The SDK checks the whole result: the expected object, contract and policy, the profile asked for, a `sha256:` revision, unique labels with finite scores in `[0, 1]`, and a selected label that alone holds the highest score; anything else raises `ExecutionError(code="engine_contract_error")`. The call asks the Engine to wait at most 60 s, reads for 75 s and is never re-sent, with the same artifact and sign-in rules as `classify`. An error is `retryable` only when nothing ran: the Engine was not reached, an ingress rate limit, or `routing_preflight_unavailable`. A `503` is not retryable here, with or without `Retry-After`, because asking again may bill the classifier and the selected model again. A `PlanningError(code="routing_profile_not_found")` carries the same hint: the Engine answers an unknown profile and a model the caller lost access to after the classifier ran with one `404`, so the two cannot be told apart. Sync only: there is no `sf.route_answer` and no `AsyncClient.route_answer`. `classify` is unchanged. **Requires an SF Engine that serves `/route-answer`.**
 
 * **screamingface:** add `cases=[3, 17, 42]` to `sf.evaluate`, `Client.evaluate` and `AsyncClient.evaluate` (OME-1739): a run on a fixed list of Case ids, for example a development set and a held-out set, instead of `limit=`'s first N. A Case id is the Case's position in the Benchmark, 1 to N. The SDK posts the list to the Engine's selection route and refuses before any model call when the Engine does not echo it back, so an older Engine never runs and bills every Case. `Report.selected_cases` and `CandidateResult.selected_cases` name the Cases scored, ascending, and `Report.selection_fingerprint` is the `sha256:` of the sorted ids joined by commas, for a paper to cite. A run whose graded Cases differ from the list is refused. A selected run can't be submitted to the leaderboard. A list equal to Cases 1 to N is the same run as `limit=N`. Refused before anything is sent: `cases=` with `limit=`, an empty list, ids that are not whole numbers, below 1 or repeated, more than 1,000 ids, and `cases=` with a complete URL4 or a replay. **Requires an SF Engine with the Case selection route (OME-1739).**
 

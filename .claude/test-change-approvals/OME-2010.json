@@ -1,0 +1,34 @@
+{
+  "issue": "OME-2010",
+  "branch": "OME-2010-gateway-code-provenance",
+  "approver": "Dmitry Stebukov (owner)",
+  "date": "2026-11-24",
+  "scope": "six prior tests change a Gateway error code string only; status, permanence, messages, retries and waits are unchanged",
+  "reason": "the Engine now lifts only the codes the Gateway declares (gateway code provenance); each test asserted that a code the Gateway never writes passes through. Four take a declared code with the same status (auth_required, insufficient_credits, provider_unavailable, provider_error, unsupported_message); the two replay tests keep the undeclared boom and expect aigateway_http_500",
+  "files": {
+    "apps/screamingface-engine/tests/unit/test_aigateway_connector.py": {
+      "base_blob": "600a57ae1d6fa3a9d30ac7009816b362e466f949",
+      "approved_blob": "a95788e073b3db6e04a552c2a9e313fb6073922e"
+    },
+    "apps/screamingface-engine/tests/unit/test_candidate_call_retry.py": {
+      "base_blob": "c85b22c711f1a4de9e9ecf4a5648ff7ec576d114",
+      "approved_blob": "7d47d6eb6ad97c17382f56f145f105dece12954a"
+    },
+    "apps/screamingface-engine/tests/unit/test_frozen_copy_replay_failures.py": {
+      "base_blob": "dc1a691111ad9963e027e807c11c47acd70524c2",
+      "approved_blob": "ebde4009ec5eeaef86fb452b3a35ee5768dd1699"
+    },
+    "apps/screamingface-engine/tests/unit/test_frozen_copy_replay_unserved.py": {
+      "base_blob": "67b73b3655b41095382f53f14588ac0d51755538",
+      "approved_blob": "27fa6c50fafd4177598a32b4bceaca56e237ac79"
+    },
+    "apps/screamingface-engine/tests/unit/test_unsupported_content_part_refusal.py": {
+      "base_blob": "8f10af43f604a4f98d8c74bc2f05aef8e1e2b48b",
+      "approved_blob": "95b020e4f8ee8c303f090b0698939a20f07683bd"
+    },
+    "apps/screamingface-engine/tests/unit/test_mount_routes.py": {
+      "base_blob": "42742dae5fd56ac1859f340430f2b56cc34e94a8",
+      "approved_blob": "d2a5057c27264454d88f363a0e56b4e4fa7a2d46"
+    }
+  }
+}

@@ -32,6 +32,7 @@ from __future__ import annotations
 import base64
 import contextvars
 import hashlib
+import mimetypes
 import weakref
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
@@ -150,6 +151,11 @@ async def _shared_uri(attachment: AttachmentRef) -> str:
     return uri
 
 
+# WHY a table first: `mimetypes` answers from the host's mime database, so the one type the
+# gateway passes today (PDF) is pinned rather than left to the machine.
+_EXTENSIONS = {"application/pdf": ".pdf"}
+
+
 def place_on_last_user_message(
     messages: list[dict[str, Any]], parts: Sequence[ContentPart]
 ) -> list[dict[str, Any]]:
@@ -181,10 +187,27 @@ def _part(attachment: AttachmentRef, url: str) -> ContentPart:
         return ImagePart(type="image_url", image_url=image)
     # WHY every non-image type becomes a ``file`` part (F2 "otherwise"): which file types a model
     # may take is the gateway's per-type policy (PDF only today), refused there by name.
-    file: FileData = {"file_data": url}
-    if attachment.filename is not None:
-        file["filename"] = attachment.filename
+    # INVARIANT (OME-1942): a file part always carries a filename. A url4 `src=` gives none, and
+    # OpenAI models (via OpenRouter) silently ignore an unnamed file part or reject it with 400,
+    # so the run answered without reading the file. The default is `attachment.<ext>` from the
+    # media type (`attachment.pdf`).
+    file: FileData = {
+        "file_data": url,
+        "filename": attachment.filename or _default_filename(attachment),
+    }
     return FilePart(type="file", file=file)
+
+
+def _default_filename(attachment: AttachmentRef) -> str:
+    """``attachment`` plus the media type's usual extension; bare ``attachment`` when unknown.
+
+    WHY normalize first (PR #1893 review): the extension follows the same bare, lowercased type
+    the ``data:`` URI carries (F3), so ``Application/PDF; charset=binary`` still names
+    ``attachment.pdf``; an extensionless name brings back the OpenAI PDF detection failure.
+    """
+    bare = attachment.media_type.split(";", 1)[0].strip().lower()
+    extension = _EXTENSIONS.get(bare) or mimetypes.guess_extension(bare, strict=False)
+    return "attachment" + (extension or "")
 
 
 async def _verified_body(attachment: AttachmentRef) -> bytes:

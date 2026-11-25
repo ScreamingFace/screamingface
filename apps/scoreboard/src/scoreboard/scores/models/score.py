@@ -95,6 +95,13 @@ class BaseScore(BaseScoreboardModel):
     score = fields.FloatField()  # the exact primary score the Engine Benchmark produced
     total_questions = fields.IntField()
     correct_questions = fields.IntField(null=True)
+    # FEATURE: how many of `total_questions` Cases got a grade; the rest failed (the Candidate
+    # call errored or timed out, or the judge gave no readable verdict).
+    #
+    # INVARIANT: NULL is "not reported", never 0 and never `total_questions`. Stored by the first
+    # submission of a row only.
+    # AIDEV-NOTE: absent from `_content_hash` and `_REPLAY_FIELDS`, like `correct_questions`.
+    graded_questions = fields.IntField(null=True)
     ran_with_providers = fields.JSONField()
     ran_at_local = fields.DatetimeField(null=True)
     client_name = fields.CharField(max_length=128, null=True)

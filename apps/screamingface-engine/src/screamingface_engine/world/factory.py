@@ -35,7 +35,6 @@ from screamingface_engine.benchmarks.registry import served_routes
 from screamingface_engine.combine.builtins import BUILTIN_OPERATORS
 from screamingface_engine.world.branch import install_branch_runtime
 from screamingface_engine.world.candidate_adapter import install_candidate_invocation
-from screamingface_engine.world.classification import CLASSIFY_ROUTE, ClassificationEndpoint
 from screamingface_engine.world.combine import install_combine_runtime
 from screamingface_engine.world.config import (
     AigatewaySection,
@@ -53,12 +52,12 @@ from screamingface_engine.world.connector import (
     build_aigateway_world,
 )
 from screamingface_engine.world.corrective import install_corrective_runtime
-from screamingface_engine.world.errors import RunnerRequestError
+from screamingface_engine.world.gateway_endpoints import install_gateway_endpoints
+from screamingface_engine.world.routing_config import RoutingProfile
 from url4.cli._serve import make_data_provider, make_identity_handler, make_shelf_handler
-from url4.core.errors import ResolutionError
 from url4.io.layer import IOLayer
 from url4.io.static import StaticIOLayer
-from url4.peer.server import Request, Url4Node
+from url4.peer.server import Url4Node
 
 logger = logging.getLogger(__name__)
 
@@ -232,7 +231,9 @@ async def build_world(
     # `disabled` locally, and NEITHER mode reads `Authorization` — so there is no token to demand.
     # Identity is forwarded when present and simply absent locally, where every caller is
     # anonymous.
-    world = await _gateway_world(section, env=env, client=client, tavily_client=tavily_client)
+    world = await _gateway_world(
+        section, resolved.routing, env=env, client=client, tavily_client=tavily_client
+    )
     # F3 (prd/02): the read-side mounts register on the SAME node that serves model routes, before
     # any benchmark endpoint, so a declared path is addressable exactly where a model route is. A
     # registration failure closes the world first — a half-built world must not survive an error.
@@ -277,12 +278,13 @@ async def build_world(
 
 async def _gateway_world(
     section: AigatewaySection,
+    routing: Mapping[str, RoutingProfile],
     *,
     env: Mapping[str, str],
     client: httpx.AsyncClient | None,
     tavily_client: httpx.AsyncClient | None,
 ) -> AigatewayWorld:
-    """The declared model world, with `/classify` registered right after its model routes.
+    """The declared model world, with `/classify` and `/route-answer` right after its models.
 
     FEATURE (OME-1795, spec E1): `build_world` calls this before the read-side mounts and the
     direct-mount snapshot, so `/classify` is a direct mount, and a `[data]` mount at its path
@@ -290,9 +292,12 @@ async def _gateway_world(
     every production world is built through `build_world`, and the connector's own route set
     stays exactly the declared models.
 
+    FEATURE (OME-1822, spec 3.2): `/route-answer` is on every Gateway world, whatever its
+    profiles, so an Engine's capability does not depend on its `[routing]` table.
+
     Raises:
-        WorldConfigError: the connector's own refusals, or a declared model at `/classify`; the
-            half-built world is closed first.
+        WorldConfigError: the connector's own refusals, or a declared model at `/classify` or
+            `/route-answer`; the half-built world is closed first.
     """
     cfg = AigatewayConfig(
         base_url=section.base_url,
@@ -310,41 +315,11 @@ async def _gateway_world(
         tavily_client=tavily_client,
     )
     try:
-        _install_classification(world, cfg)
+        install_gateway_endpoints(world, cfg, routing)
     except WorldConfigError:
         await world.aclose()
         raise
     return world
-
-
-def _install_classification(world: AigatewayWorld, cfg: AigatewayConfig) -> None:
-    """Register `/classify` on the world node, over the node's own Gateway client (spec E9).
-
-    INVARIANT (E2): a declared model whose route is `/classify` fails composition here, named,
-    before anything registers. Skipping the endpoint instead would leave a world without
-    classification and nothing saying why.
-
-    Raises:
-        WorldConfigError: a declared model takes the `/classify` route.
-    """
-    node = world.node
-    if CLASSIFY_ROUTE in node.processor_routes():
-        raise WorldConfigError(
-            f"the declared model {CLASSIFY_ROUTE[1:]!r} takes the route {CLASSIFY_ROUTE}, which "
-            "the Engine reserves for classification"
-        )
-    # WHY the world's own client: it is the one the chat calls and the frozen-copy open and seal
-    # use, so a classification carries the same identity, trace and transport limits.
-    endpoint = ClassificationEndpoint(world._client, cfg)
-
-    async def classify(request: Request) -> str:
-        try:
-            return await endpoint(request.context, request.intent, request.params)
-        except RunnerRequestError as exc:
-            # The url4 half of the handler's stable codes, as `connector._ModelEndpoint` does.
-            raise ResolutionError(str(exc), code=exc.code, permanent=exc.permanent) from exc
-
-    node.endpoint(CLASSIFY_ROUTE)(classify)
 
 
 def shared_world_serves(io: IOLayer, env: Mapping[str, str]) -> bool:

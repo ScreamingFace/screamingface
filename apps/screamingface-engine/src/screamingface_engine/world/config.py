@@ -45,6 +45,7 @@ import tomllib
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from screamingface_engine import job_env
 from screamingface_engine.world.models.builtins import BUILTIN_MODEL_WORLD
@@ -73,6 +74,9 @@ from url4.cli._config import (
     _toml_shelf_map,
 )
 
+if TYPE_CHECKING:
+    from screamingface_engine.world.routing_config import RoutingProfile
+
 DEFAULT_CONFIG_PATH = "/etc/url4/url4.toml"
 
 """Where the declared world lives unless :data:`job_env.RUNNER_CONFIG` overrides it. Image-level
@@ -97,7 +101,7 @@ _MODEL_KEYS = frozenset({"id", "web_search", "public_schema"})
 # names — a declaration under one of them reaches url4's resolvers rather than a blanket error.
 _RESERVED_TABLES = frozenset({"commands"})
 _READ_SIDE_TABLES = frozenset({"data", "holdings", "identities"})
-_TOP_LEVEL_KEYS = frozenset({"aigateway"} | _READ_SIDE_TABLES)
+_TOP_LEVEL_KEYS = frozenset({"aigateway", "routing"} | _READ_SIDE_TABLES)
 
 
 class WorldConfigError(ValueError):
@@ -211,9 +215,13 @@ class WorldConfig:
     (F3, prd/02). They are THIN wrappers: the engine keeps no provider semantics of its own, so a
     value/file/command decision is made in exactly one place (url4.cli._config) for both the node
     tier and a bare `url4 serve` node.
+
+    ``routing`` holds the `[routing.profiles.<id>]` tables (OME-1822), parsed by
+    `world.routing_config` against this world's own routes.
     """
 
     aigateway: AigatewaySection | None = None
+    routing: Mapping[str, RoutingProfile] = field(default_factory=dict)
     data: Mapping[str, ProviderSpec] = field(default_factory=dict)
     holdings: Mapping[str | None, ProviderSpec] = field(default_factory=dict)
     identities: Mapping[str, Mapping[str | None, ProviderSpec]] = field(default_factory=dict)
@@ -338,15 +346,23 @@ def parse_config(
     absorb an ambient value: a leftover key can neither 503 discovery nor smuggle
     un-admitted ids into the declared projection.
     """
+    # WHY imported here: `routing_config` builds on this module's section type and error, so a
+    # module-level import would be circular.
+    from screamingface_engine.world.routing_config import parse_routing
+
     _reject_unsupported_tables(raw)
     data, holdings, identities = _parse_read_side(raw)
     table = raw.get("aigateway")
-    if table is None:
-        return WorldConfig(data=data, holdings=holdings, identities=identities)
-    if not isinstance(table, Mapping):
+    if table is not None and not isinstance(table, Mapping):
         raise WorldConfigError(f"[aigateway] must be a table, got {table!r}")
+    section = (
+        None
+        if table is None
+        else _parse_aigateway(table, env, registry, include_extra_models=include_extra_models)
+    )
     return WorldConfig(
-        aigateway=_parse_aigateway(table, env, registry, include_extra_models=include_extra_models),
+        aigateway=section,
+        routing=parse_routing(raw.get("routing"), section),
         data=data,
         holdings=holdings,
         identities=identities,

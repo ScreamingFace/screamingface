@@ -812,6 +812,42 @@ def test_a_case_whose_score_is_not_its_case_result_score_is_refused_by_the_metri
 # ── 4. the row ───────────────────────────────────────────────────────────────────────────
 
 
+@pytest.mark.asyncio
+async def test_a_failed_case_reaches_a_withhold_rows_metric_as_zero(tmp_path: Path) -> None:
+    """WHY (OME-1998): a row that declares ``whole_run_failed_case_zero`` may be withhold, and
+    then its metric must see every selected Case, the failed one as 0.0. Same replies as
+    ``test_a_failed_case_stays_out_of_the_tally``: 4 selected Cases, 3 graded, 1 found. The
+    metric now divides by 4, so the score is 1/4 where coverage_declare gives 1/3. Coverage
+    still reads 3 of 4."""
+
+    benchmark: ImportedBenchmark = single_shot_benchmark(
+        benchmark_key="clause-missing-withhold",
+        title="Clause finding",
+        description="A contracteval-shaped stand-in.",
+        focus="Contracts",
+        dataset_url="https://example.test/contracts",
+        case_count=10,
+        revision_pins=("stand-in",),
+        scorer_factory=clause_match,
+        prepare=lambda out: {},
+        install=lambda node, assets: None,
+        with_check_surface=False,
+        difficulty="easy",
+        failure_policy="withhold",
+        whole_run_metric_factory=found_rate,
+        whole_run_failed_case_zero=True,
+    )
+    _write_cases(_cases([True] * 4), tmp_path)
+    rows: str = json.dumps([_row(1, "clause 1"), _row(2, "x"), _row(3, "y")])
+
+    result: dict[str, Any] = await benchmark_aggregate_async(
+        benchmark, rows, tmp_path, case_ids=(1, 2, 3, 4)
+    )
+
+    assert result["coverage"] == 0.75
+    assert result["score"] == 0.25
+
+
 def test_no_published_row_opts_in_so_no_revision_moves() -> None:
     """INVARIANT: honouring the eval's metric is a per-Benchmark owner decision, never a
     default; test_published_revisions pins the revisions this keeps still.

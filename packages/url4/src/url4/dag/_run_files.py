@@ -19,6 +19,7 @@ from url4.core.parser import build
 
 from url4.dag.attachment import OCTET_STREAM, Attachment  # isort: skip
 from url4.dag.attachment_sources import AttachmentIdentity, not_static  # isort: skip
+from url4.dag._at_most_one_texts import check_target  # isort: skip
 from url4.dag._caps import CapBudget, gather_charged  # isort: skip
 from url4.dag._materialize import Admission, Outcomes, Prefetched, check_caps, check_static  # isort: skip
 from url4.dag._materialize import materialize  # isort: skip
@@ -221,8 +222,8 @@ def _processor_scan(value: str | None) -> SourceScan | None:
     """
     if value is None or classify_processor(value) != "expression":
         return None
+    ast = _ast_of(value.strip())  # WHY first: a mark too deep to read is refused, not a crash
     build(value)
-    ast = _ast_of(value.strip())
     return None if ast is None else scan_sources(ast)
 
 
@@ -322,14 +323,20 @@ def _as_attachment(ref: FileRef, body: bytes, media_type: str | None) -> Attachm
 def _ast_of(target: str | AstNode | Graph | DagNode) -> AstNode | None:
     """The parse tree to collect file refs from; ``None`` for a pre-built graph or node.
 
-    A text that does not parse yields ``None`` here: compiling it raises the real error.
+    A text that does not parse yields ``None`` here: nothing is fetched, and compiling it raises
+    the real error. INVARIANT (C19): a text or tree that breaks a C19 rule anywhere the run
+    parses url4 (:func:`~url4.dag._at_most_one_texts.check_target`) is refused here, never read
+    as ``None``: a Form-3 processor is read here too and compiled later past the entry check, so
+    a swallowed error once let the run's calls and the reduce go first.
     """
+    if isinstance(target, (Graph, DagNode)):
+        return None
+    check_target(target)  # raises only a C19 error; every other parse error stays lenient
+    if not isinstance(target, str):
+        return target  # parse-tree nodes have no resolve
     ast: AstNode | None = None
-    if isinstance(target, str):
-        with contextlib.suppress(ParseError):
-            ast = grammar_parse(target)
-    elif not isinstance(target, (Graph, DagNode)):  # parse-tree nodes have no resolve
-        ast = target
+    with contextlib.suppress(ParseError):
+        ast = grammar_parse(target)
     return ast
 
 

@@ -141,7 +141,7 @@ async def test_two_attachments_keep_attachments_order_and_carry_detail() -> None
     messages = await _sent_messages("Compare.", _pdf(), _png(detail="high"))
 
     assert messages[-1]["content"] == [
-        {"type": "file", "file": {"file_data": _PDF_URI}},
+        {"type": "file", "file": {"file_data": _PDF_URI, "filename": "attachment.pdf"}},
         {"type": "image_url", "image_url": {"url": _PNG_URI, "detail": "high"}},
         {"type": "text", "text": "Compare."},
     ]
@@ -277,7 +277,7 @@ async def test_an_envelope_gets_the_parts_on_its_last_user_message_only() -> Non
         {"role": "assistant", "content": "First answer."},
     ]
     assert messages[3]["content"] == [
-        {"type": "file", "file": {"file_data": _PDF_URI}},
+        {"type": "file", "file": {"file_data": _PDF_URI, "filename": "attachment.pdf"}},
         {"type": "text", "text": "Now this file."},
     ]
 
@@ -288,7 +288,10 @@ async def test_a_synthesizer_on_a_picture_case_gets_url4_files_then_case_parts_t
     messages = await _sent_messages(_fusion_context(_picture_case()), _pdf(), intent="Synth.")
 
     content = messages[-1]["content"]
-    assert content[0] == {"type": "file", "file": {"file_data": _PDF_URI}}
+    assert content[0] == {
+        "type": "file",
+        "file": {"file_data": _PDF_URI, "filename": "attachment.pdf"},
+    }
     assert content[1]["type"] == "image_url"
     assert content[2]["type"] == "text"
     assert len(content) == 3
@@ -345,7 +348,7 @@ async def test_the_runs_bound_reader_serves_every_call_of_the_run() -> None:
     for post in gw.posts_to(_MODEL):
         assert json.loads(post.content)["messages"][-1]["content"][0] == {
             "type": "file",
-            "file": {"file_data": _PDF_URI},
+            "file": {"file_data": _PDF_URI, "filename": "attachment.pdf"},
         }
 
 
@@ -360,3 +363,23 @@ async def test_placing_parts_with_no_user_message_is_a_programming_error() -> No
         place_on_last_user_message(
             [{"role": "system", "content": "x"}], [{"type": "text", "text": "y"}]
         )
+
+
+# --- OME-1942: a file part always carries a filename -----------------------------------------
+# WHY: a url4 `src=` gives no filename, and OpenAI models (via OpenRouter) ignore an unnamed file
+# part, or reject it with 400, so the run "succeeded" without the model ever reading the PDF.
+
+
+async def test_a_pdf_without_a_filename_gets_a_default_one() -> None:
+    messages = await _sent_messages("Summarize.", _pdf())
+
+    assert messages[-1]["content"][0] == {
+        "type": "file",
+        "file": {"file_data": _PDF_URI, "filename": "attachment.pdf"},
+    }
+
+
+async def test_a_given_filename_is_kept() -> None:
+    messages = await _sent_messages("Summarize.", _pdf(filename="report.pdf"))
+
+    assert messages[-1]["content"][0]["file"]["filename"] == "report.pdf"

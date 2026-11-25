@@ -162,8 +162,20 @@ _FROZEN_COUNT: int = 100
 _FROZEN_SHA256: str = "c87e37675e004290be2dadf52521090b15a1d016c7fc1dac83e0e85a994ed010"
 
 #: ``<benchmark id>@<published revision>`` → the exact note that revision serves.
-#: Empty on the day this landed: no revision has moved since. A move adds its line here.
-_NOTED_REVISIONS: dict[str, str] = {}
+#: A move adds its line here. The first two moved while this file was in review (their old
+#: ids stay in the frozen set above, which is the list as it stood when the set was cut).
+_NOTED_REVISIONS: dict[str, str] = {
+    # OME-1998: moved from d8fb037307f35415 when the grading changed.
+    "healthbench-professional@35c7d07e9058f52d": (
+        "Scored the paper's way: length adjustment, low-effort judge, a failed Case "
+        "counts 0. Not comparable with the old revision."
+    ),
+    # OME-1786: moved from 1e5a3b8a461a52f7 when the turn-2 prompt changed on every Case.
+    "medxpert@490235dc9a53b7d9": (
+        "The commit turn now sees only the model's reasoning text, not its full result "
+        "record. Not comparable with the old revision."
+    ),
+}
 
 
 def _identity(benchmark: Benchmark) -> str:

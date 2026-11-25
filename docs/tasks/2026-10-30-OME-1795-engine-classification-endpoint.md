@@ -1,12 +1,13 @@
 ---
 id: OME-1795
 linear_url: https://linear.app/openmined/issue/OME-1795/serve-one-classification-endpoint-in-the-engine-and-keep-query-text
-status: in_progress
+status: done
 type: feature
 priority: high
 labels: [screamingface-engine, agentic, autonomous]
 parent: OME-1306
 created: 2026-10-30
+closed: 2026-11-23
 ---
 
 # Serve one classification endpoint in the Engine and keep query text out of access logs
@@ -42,3 +43,6 @@ readiness claim.
 
 Spec: `docs/spec/2026-10-30-hosted-byom-unit3-classification.md`. Ledger:
 `docs/work/2026-10-30-hosted-byom-unit3.md`.
+
+Merged [PR #1638](https://github.com/ScreamingFace/screamingface/pull/1638) as `0a4aa1bef`.
+Linear is Done. The hosted check moved to OME-1770 on 2026-11-23, at the owner's decision.

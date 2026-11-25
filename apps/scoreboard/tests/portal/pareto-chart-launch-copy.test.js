@@ -126,7 +126,7 @@ test("describePoint says a priced non-frontier point is not on the Pareto fronti
   assert.equal(
     C.describePoint(dear, L.formatCost, formatScore),
     "dear: score 0.515175, cost $3.000000 (shown as " + L.formatCost(dear.entry) + ")" +
-      "; not on the Pareto frontier"
+      "; type Unknown; not on the Pareto frontier"
   );
 });
 
@@ -138,7 +138,7 @@ test("describePoint keeps full score precision for a frontier point", () => {
   assert.equal(
     C.describePoint(model.priced[0], L.formatCost, formatScore),
     "cheap: score 0.515175, cost $1.000000 (shown as " + L.formatCost(model.priced[0].entry) + ")" +
-      "; on the Pareto frontier; highest score"
+      "; type Unknown; on the Pareto frontier; highest score"
   );
 });
 

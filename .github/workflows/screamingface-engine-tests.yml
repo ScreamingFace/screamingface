@@ -12,6 +12,8 @@ on:
       - "apps/aigateway/tests/fixtures/replay_reference_twins/**"
       # the shared url4 attachment-cap recipe that tests/unit/test_url4_attachment_cap_fits_the_gateway.py binds
       - "apps/aigateway/tests/fixtures/url4_attachment_cap_request/**"
+      # the gateway's declared error codes that tests/unit/test_gateway_codes_parity.py pins
+      - "apps/aigateway/tests/fixtures/gateway_error_codes/**"
       # the gateway's max_request_bytes default, read with ast by the gateway-fit tests
       - "apps/aigateway/src/aigateway/config.py"
       # the SDK flow operator fixture that tests/unit/test_sdk_flow_catalog_fixture.py binds
@@ -29,6 +31,8 @@ on:
       - "apps/aigateway/tests/fixtures/replay_reference_twins/**"
       # the shared url4 attachment-cap recipe that tests/unit/test_url4_attachment_cap_fits_the_gateway.py binds
       - "apps/aigateway/tests/fixtures/url4_attachment_cap_request/**"
+      # the gateway's declared error codes that tests/unit/test_gateway_codes_parity.py pins
+      - "apps/aigateway/tests/fixtures/gateway_error_codes/**"
       # the gateway's max_request_bytes default, read with ast by the gateway-fit tests
       - "apps/aigateway/src/aigateway/config.py"
       # the SDK flow operator fixture that tests/unit/test_sdk_flow_catalog_fixture.py binds

@@ -797,6 +797,282 @@ catalog snapshot, held per process (see the replica note below). Default **on**.
   keeps serving, and the next attempt (after 30 s damping) normally succeeds. Fail-safe and
   self-healing, but expect occasional truncation reasons in the logs that are drift, not loss.
 
+## Frozen copy retention sweep (OME-1947)
+
+The frozen copy sweep is a background job in each gateway pod. It deletes the entries of frozen
+copies that no run uses again. No user flow starts it. The spec is in
+`docs/spec/2026-11-16-frozen-copy-retention/`. The sweep itself is specified in
+`docs/spec/2026-11-16-frozen-copy-retention/prd/copy-sweep.md`.
+
+### What the sweep does
+
+- An `open` copy that gets no new entry for the idle time becomes `abandoned`. The idle time
+  starts at the newest entry of the copy. For a copy with no entry, it starts when the copy was
+  made. The age of the copy is not the rule.
+- The sweep sets the status under the row lock of the copy, before it deletes an entry. Under the
+  lock, it checks again that the status is `open` and that the copy is still idle.
+- Then the sweep deletes the entries in chunks of 500, with a pause of 200 ms between two chunks.
+  One run deletes no more entries than its budget.
+- The copy row stays. It keeps `swept_at` (the time of the mark), `entries` (the number of
+  entries at the mark) and `purged_at` (the time when its last entry was deleted). A copy with no
+  entry gets `purged_at` at the mark.
+- A seal of an `abandoned` copy changes nothing. It gets `410` with the code
+  `frozen_copy_expired` and the state:
+
+  ```json
+  {"detail": {"code": "frozen_copy_expired", "state": "abandoned", "message": "…"}}
+  ```
+
+  A replay of an `abandoned` copy gets the `404` `frozen_copy_unavailable`, as for each copy that
+  is not `sealed` (`contracts.md` K3).
+- This release has no rule for `sealed` copies. The expiry rule comes in a later pull request of
+  OME-1947.
+- The first run starts 1 to 5 minutes after the pod starts. The delay is random. Then one run
+  starts for each interval. In one pod, a run does not start while a run is in progress.
+- Two replicas can run at the same time. A replica and the command can also run at the same
+  time. No global lock exists: the row locks keep the runs safe. If a different transaction holds
+  the row lock of a copy for more than 2 seconds, the run skips that copy. The next run tries it
+  again.
+- The purge stops early with the cause `slow` when the mean time of the last 10 chunks is more
+  than 5 seconds. It stops with the cause `budget` when it reaches the budget. The next run
+  continues the purge.
+
+### No switch
+
+- No setting turns the sweep or a rule off. No setting holds a date. No person approves a list
+  before the sweep deletes (owner decisions Q22 and Q23).
+- This is also true for a local or development gateway on SQLite.
+- The old image has no sweep. A rollback of the image is the only way to stop the sweep (see
+  "Rollback and restore" below).
+
+### Settings
+
+| Environment variable | Chart key | Default | Limit | Meaning |
+| --- | --- | --- | --- | --- |
+| `AIGW_FROZEN_COPY_SWEEP_INTERVAL_SECONDS` | `config.frozenCopySweep.intervalSeconds` | `3600` | ≥ 60 | The time between two periodic runs. |
+| `AIGW_FROZEN_COPY_OPEN_IDLE_SECONDS` | `config.frozenCopySweep.openIdleSeconds` | `86400` | > 0 | The idle time. An `open` copy with no new entry for this time becomes `abandoned`. |
+| `AIGW_FROZEN_COPY_SWEEP_MAX_ENTRIES` | `config.frozenCopySweep.maxEntries` | `100000` | ≥ 1 | The budget: the most entries that one run deletes. |
+
+- If a value is outside its limit, the gateway does not start. The error names the setting.
+- **CAUTION:** Keep the idle time above the engine run deadline of 16 hours. A lower value
+  abandons the copy of a run that is in progress. That run then reports a partial capture.
+- At start, the gateway writes one INFO line with the three values:
+
+  ```text
+  frozen copy sweep armed (interval_s=3600, open_idle_s=86400, max_entries=100000)
+  ```
+
+### The command
+
+Run the command in a gateway pod. With no argument, it does a dry run:
+
+```bash
+kubectl exec -n <namespace> deploy/<release>-aigateway -- python -m aigateway.frozen_copy_sweep
+```
+
+| Arguments | What the command does |
+| --- | --- |
+| (none) | A dry run at the current database time. It changes nothing. It prints one JSON document with the keys `evaluated_at`, `rules`, `by_account` and `candidates`. In this release, the counts under `rules.expired` are always 0. |
+| `--cutoff <ISO time with a zone>` | A dry run at that time. A future time is allowed. A time with no zone is refused. |
+| `--run` | One full pass: mark, then purge up to the budget. This is the same code as one periodic run. It prints the run report as one JSON document, with the fields of the run log record below. |
+| `--run --max-entries <n>` | One full pass with a budget of `<n>` entries (1 or more) for this pass only. |
+
+- The command refuses `--run` together with `--cutoff`. It refuses `--max-entries` without
+  `--run`.
+- For `--run`, give `-it` to `kubectl exec`. Then Ctrl-C stops the command in the pod. With no
+  terminal, Ctrl-C stops only `kubectl`, and the command continues in the pod.
+
+  ```bash
+  kubectl exec -it -n <namespace> deploy/<release>-aigateway -- \
+    python -m aigateway.frozen_copy_sweep --run --max-entries 20000
+  ```
+
+- Exit status:
+  - `0`: done.
+  - `2`: bad arguments. Nothing ran.
+  - `1`: a failure during the run. The command writes `frozen copy sweep failed: <exception type>`
+    to stderr. The changes before the failure stay. Run the command again.
+
+> **WARNING:** Keep the dry-run document in your terminal. Do not paste it into a ticket or a
+> channel. The document contains account names (email addresses).
+
+### The run log record
+
+Each run writes one INFO record. The record has counts only. It has no account name and no copy
+id. Example:
+
+```text
+frozen copy sweep run trigger=periodic marked={"abandoned": 3} skipped={"abandoned": {}} entries_purged=1500 copies_completed=3 copies_with_entries=0 purge_stopped=none
+```
+
+- `trigger`: `periodic` for the trigger in the pod, `command` for `--run`.
+- `marked`: for each rule, the number of copies that this run marked.
+- `skipped`: for each rule, the number of copies that this run skipped, for each cause. The
+  causes are:
+  - `rule no longer true`: under the row lock, the copy was not `open` (for example, a seal came
+    first), or the copy got a new entry.
+  - `lock timeout`: a different transaction held the row lock for more than 2 seconds. The next
+    run tries the copy again.
+  - `newest entry not found`: the copy has entries, but the sweep did not find its newest entry.
+    The sweep does not mark the copy.
+- `entries_purged`: the number of entries that this run deleted.
+- `copies_completed`: the number of copies whose purge this run completed (it set `purged_at`).
+- `copies_with_entries`: at the end of the run, the number of marked copies that still have
+  entries. The next run continues with them.
+- `purge_stopped`: `none`, `budget` or `slow`.
+
+A run that fails writes one ERROR record. The record has the exception type only:
+
+```text
+frozen copy sweep run failed trigger=<periodic or command> error=<exception type>
+```
+
+The changes before the failure stay. The next interval runs as normal. The sweep has no metric, no
+endpoint and no alert. Use these log records.
+
+### The size on disk does not go down
+
+- A delete in Postgres does not give disk space back to the operating system. After autovacuum,
+  the table uses the free space again for new rows.
+- Azure Database for PostgreSQL cannot reduce the provisioned storage.
+- Thus the size of `frozen_copy_entries` on disk does not go down. The proof of success is a
+  flat size for some weeks while new copies arrive. After that, the table grows more slowly.
+- Do not run `VACUUM FULL`. It locks the table and gives no benefit here.
+- A large purge writes WAL and starts autovacuum, which uses the same disk. The budget, the pause
+  between chunks and the slow stop spread this load over time.
+
+### Release checks
+
+- `docs/spec/2026-11-16-frozen-copy-retention/test-plan.md` section 5.1 has the release checks
+  and their SQL. All the checks are read-only.
+- No approval step exists. The first run marks each idle `open` copy 1 to 5 minutes after the pod
+  starts.
+- Each run deletes up to the budget. To purge faster, do these steps:
+  1. In a period of low load, run `--run --max-entries <n>` by hand (see "The command" above).
+  2. Watch the p95 latency of `POST /v1/chat/completions` in the gateway traces.
+  3. If the p95 latency grows by more than 2 times, stop the command (Ctrl-C). A later run
+     continues the purge.
+
+### Rollback and restore
+
+The source is `docs/spec/2026-11-16-frozen-copy-retention/erd.md` section 5.1.
+
+**Downgrade of migration `0018`.** The downgrade drops the index on `(status, purged_at)` and the
+three columns `claimed_at`, `swept_at` and `purged_at`. Entries that the sweep deleted do not come
+back. A rollback of the image does not need this downgrade (see the next paragraph). The chart's
+migration Job never runs on `helm rollback`. To downgrade, run this command in a gateway pod of
+the current image, just before the rollback of the image:
+
+```bash
+python -m tortoise -c aigateway.db.TORTOISE_CONFIG downgrade models 0017_drop_migration_note
+```
+
+Between the downgrade and the rollback, each query of the current image on `frozen_copies` fails.
+
+The downgrade does not limit its wait for the table lock (the same as `0017`). Each `DROP INDEX` and
+`DROP COLUMN` waits for a lock that stops each reader of `frozen_copies`. If a long transaction uses
+the table, the downgrade waits, and each read of the table waits behind it. Do the downgrade in a
+period of low load.
+
+**Rollback of the image, with the new schema kept.**
+
+- The old replay code refuses an `abandoned` copy as "not sealed". This is safe.
+- The old seal code seals each copy that is not `sealed`. Thus a seal of a swept copy makes an
+  empty `sealed` copy. No run sends a seal 24 hours after its last entry, so this is accepted.
+- The old image has no sweep. Nothing is deleted while it runs.
+
+**Restore of the gateway database to a time before migration `0018`.**
+
+- The gateway does not migrate at start. Only the migration Job of the chart migrates.
+- Until the migration Job runs, each query of the new code on `frozen_copies` fails: capture,
+  seal, replay and the sweep.
+- Thus run the migration Job first. A `helm upgrade` of the release, with the values of the
+  release, runs it (see "Keep the release's values in every upgrade below" in the Migrations
+  section).
+
+### The claim route
+
+The scoreboard claims the frozen copy of each Score with
+`POST /v1/frozen-copies/{copy_id}/claim`. The request has no body. A claim sets `claimed_at` of a
+`sealed` copy. The expiry rule of a later pull request of OME-1947 keeps a claimed copy. The spec
+is `docs/spec/2026-11-16-frozen-copy-retention/prd/score-claim.md` and `contracts.md` K4.
+
+| Environment variable | Chart key | Default | Meaning |
+| --- | --- | --- | --- |
+| `AIGW_FROZEN_COPY_CLAIM_EMAILS` | `config.frozenCopyClaimEmails` | empty | The addresses that may claim, separated by commas. Set it to the actor address of the scoreboard (`SCOREBOARD_GATEWAY_ACTOR`). |
+| `AIGW_FROZEN_COPY_CLAIM_NETWORKS` | `config.frozenCopyClaimNetworks` | empty | The address range of the scoreboard pods, as CIDR networks separated by commas. A peer in this list may call the claim route and no other route. |
+
+- This list is not the admin list (`AIGATEWAY_ADMIN_EMAILS`). An address on the admin list
+  cannot claim. An address on the claim list cannot use `/v1/admin`.
+- The comparison ignores upper case and lower case.
+- A claim makes no account row for the caller.
+- With an empty list, the claim route answers `503` in `cloudflare_headers` mode.
+
+The answers of the route:
+
+| Case | Answer |
+| --- | --- |
+| `sealed` copy, first claim | `200` with `id`, `status: "sealed"`, `claimed_at` (UTC) and `already: false` |
+| `sealed` copy, claimed before | `200` with the first `claimed_at` and `already: true` |
+| `open` copy | `409`, `detail.code` is `frozen_copy_not_sealed` |
+| `abandoned` or `expired` copy | `410`, `detail.code` is `frozen_copy_expired`, `detail.state` is the status |
+| unknown or malformed copy id | `404`, `detail.code` is `frozen_copy_not_found` |
+| `cloudflare_headers` mode, empty claim list | `503` |
+| `cloudflare_headers` mode, peer in neither `AIGW_ALLOWED_NETWORKS` nor `AIGW_FROZEN_COPY_CLAIM_NETWORKS`, or address not in the list | `403` |
+| `cloudflare_headers` mode, no `X-User-Email` header | `401` |
+| `jwt` mode | `503` |
+| `disabled` mode (loopback only) | the call is accepted with no list |
+
+You can send a claim again at any time. A claim changes no copy that is not `sealed`. The first
+claim of a copy writes one INFO record:
+
+```text
+frozen copy claimed copy=<copy id>
+```
+
+**The network.** The scoreboard is in a different namespace. Add one element to
+`networkPolicy.allowFrom` that has the namespace selector and the pod selector of the scoreboard
+together (see "Who may connect" in `charts/aigateway/README.md`). Do not use
+`networkPolicy.clientPodNames`: that list is for one namespace only. Also set
+`config.frozenCopyClaimNetworks` (`AIGW_FROZEN_COPY_CLAIM_NETWORKS`) to the address range of the
+scoreboard pods. Do not add that range to `config.allowedNetworks` (`AIGW_ALLOWED_NETWORKS`): a
+peer in that list may name any user in `X-User-Email` on every authenticated route.
+
+```yaml
+networkPolicy:
+  allowFrom:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: scoreboard
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/name: scoreboard
+```
+
+**Check before the scoreboard gets its gateway URL** (step 1 of
+`docs/spec/2026-11-16-frozen-copy-retention/test-plan.md` section 5.2). From a scoreboard pod,
+send a claim for a random UUID to the gateway URL, with the actor address in the header
+`X-User-Email`:
+
+```bash
+kubectl exec -n <scoreboard namespace> deploy/<scoreboard deployment> -- python -c \
+  "import httpx, uuid; r = httpx.post('<gateway URL>/v1/frozen-copies/' + str(uuid.uuid4()) + '/claim', headers={'X-User-Email': '<actor address>'}); print(r.status_code, r.text)"
+```
+
+The answer must be `404` with `detail.code` `frozen_copy_not_found`. This shows that the URL, the
+NetworkPolicy and the claim list are correct. A `403`, a `503` or a connect timeout shows a fault
+in one of them.
+
+### After an event that can remove claims
+
+`docs/spec/2026-11-16-frozen-copy-retention/test-plan.md` section 5.4 has the advice for such an
+event. A restore of the gateway database removes each claim that was made after the time of the
+backup. This release has the gateway part of the claim (see "The claim route" above). The
+scoreboard part (the claim pass at each start of the scoreboard, and
+`python -m scoreboard.claim_copies`) comes in a later pull request of OME-1947. Until it is
+released, the step that applies is the migration Job after a restore (see "Restore of the gateway
+database" above). When it is released, do the steps of section 5.4.
+
 ## Operations Notes
 
 - The container listens on `0.0.0.0:9105` and exposes `/healthz`.

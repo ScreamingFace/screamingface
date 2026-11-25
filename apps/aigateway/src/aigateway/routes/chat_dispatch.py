@@ -159,6 +159,31 @@ def failure_classification(detail: Any) -> str:
     return "unclassified"
 
 
+#: The provider statuses whose screened reason the terminal record carries (OME-1989): 402 (out
+#: of credits) and 403 (the key or the model is refused). Their cause decides what on-call does
+#: next, and the status alone does not tell them apart.
+_REASON_LOGGED_STATUSES = frozenset({402, 403})
+
+
+def _refusal_reason(detail: Any) -> str:
+    """The `` reason=...`` suffix for a provider 402/403 whose reason was relayed, else ``""``.
+
+    FEATURE (OME-1989): on 2026-11-19 one account drew 7,056 provider 403s and the record said
+    only ``type=APIError``, so on-call could not tell a disabled key from a refused model.
+    INVARIANT: the ONLY provider text a record may carry is ``upstream_message``, which
+    `core.provider_error_text` already screened (credential gate, redaction, 140-char cap)
+    before putting it in the body the caller receives. It is never ``str(exc)``, and a detail
+    that relayed nothing (`auth_required`, a string detail, withheld text) logs no reason.
+    WHY ``%r``: the text is provider-authored, so quoting keeps it one field on one line.
+    """
+    if not isinstance(detail, dict):
+        return ""
+    message = detail.get("upstream_message")
+    if detail.get("upstream_status") not in _REASON_LOGGED_STATUSES or not isinstance(message, str):
+        return ""
+    return f" reason={message!r}"
+
+
 def log_dispatch_failure(
     exc: HTTPException,
     *,
@@ -176,6 +201,7 @@ def log_dispatch_failure(
     from the request scope, as on every other line.
     INVARIANT: class-name-only — `error_type` is `type(exc).__name__`, never `str(exc)`, and
     `handler_error_type` likewise names only the class that broke failure handling.
+    FEATURE (OME-1989): a provider 402/403 also carries its screened reason (`_refusal_reason`).
     INVARIANT (OME-1461): exactly one record per failing call — a raising failure handler is
     `outcome=handler_error` on THIS line, never a line of its own.
     """
@@ -184,7 +210,7 @@ def log_dispatch_failure(
     classification = failure_classification(exc.detail)
     logger.log(
         _record_level(exc.status_code, classification),
-        "dispatch failed provider=%s classification=%s status=%d type=%s account=%s outcome=%s%s",
+        "dispatch failed provider=%s classification=%s status=%d type=%s account=%s outcome=%s%s%s",
         provider,
         classification,
         exc.status_code,
@@ -192,6 +218,7 @@ def log_dispatch_failure(
         account_id,
         outcome,
         suffix,
+        _refusal_reason(exc.detail),
     )
 
 

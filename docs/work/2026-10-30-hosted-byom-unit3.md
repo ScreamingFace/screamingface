@@ -1,9 +1,9 @@
 ---
 ticket: OME-1794   # Gateway; siblings OME-1795 (Engine) and OME-1796 (SDK) land in the same PR
 stack: aigateway, screamingface-engine, screamingface
-status: in_progress   # planned | in_progress | done | blocked
+status: done   # planned | in_progress | done | blocked
 started: 2026-10-30
-finished:
+finished: 2026-11-23
 ---
 
 # hosted-byom-unit3 — classification inference through the hosted Engine
@@ -261,3 +261,8 @@ The owner approved the spec and the plan in plain words on 2026-10-30, after the
     `malformed_source`, the code the Engine answers for the same input.
 - **Not done here:** the hosted check through Linux, NATS and JetStream. Until it passes, no
   hosted readiness is claimed and this unit stays open.
+- **Owner decision (2026-11-23):** the three leaves close on their own acceptance. PR #1638
+  squash-merged 2026-11-02 as `0a4aa1bef`; its CI had 32 checks passed and 4 skipped. The hosted
+  check above moves to OME-1770: its hosted run also sends one `/classify` call through the
+  queue, a cold or warm worker and the Gateway to a fake upstream. Hosted readiness is still not
+  claimed.

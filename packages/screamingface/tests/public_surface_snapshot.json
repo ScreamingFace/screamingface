@@ -84,6 +84,7 @@
       "Reproduction",
       "ReproductionError",
       "ReproductionOutcome",
+      "RoutedAnswer",
       "Run",
       "RunProgress",
       "ScoreMetadataEvent",
@@ -388,6 +389,7 @@
           "login": "method (self, *, timeout: 'float' = 300.0) -> 'None'",
           "logout": "method (self) -> 'None'",
           "regrade": "method (self, score_id: 'UUID | str', *, on_event: 'Callable[[Event], None] | None' = None, progress: 'bool | None' = None, expected_target_revision: 'str | None' = None) -> 'LeaderboardScore'",
+          "route_answer": "method (self, profile: 'str', input: 'str') -> 'RoutedAnswer'",
           "scoreboard_url": "property",
           "set_credit_management_key": "method (self, provider: 'str', *, api_key: 'str') -> 'None'"
         }
@@ -1123,6 +1125,12 @@
       "ReproductionOutcome": {
         "kind": "type alias",
         "value": "typing.Literal['exact', 'failed', 'not_reproducible']"
+      },
+      "RoutedAnswer": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, profile: 'str', revision: 'str', policy: 'str', contract: 'str', classifier: 'str', scores: 'tuple[LabelScore, ...]', selected_label: 'str', selected_model: 'str', answer: 'str') -> None"
+        }
       },
       "Run": {
         "kind": "class",

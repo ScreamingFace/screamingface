@@ -106,6 +106,7 @@ from screamingface.report import (
     Report,
     Usage,
 )
+from screamingface.routing import RoutedAnswer
 from screamingface.runs import CandidateRun, Run, RunProgress
 from screamingface.signal_sources import Consistency, Entropy, Logprob, Sum, Verbalized
 from screamingface.url4 import Url4
@@ -224,6 +225,7 @@ __all__ = [
     "Report",
     "Reproduction",
     "ReproductionOutcome",
+    "RoutedAnswer",
     "Run",
     "RunProgress",
     "ScoreMetadataEvent",

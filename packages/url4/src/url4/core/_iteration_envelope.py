@@ -21,6 +21,7 @@ from url4.core._splitters import (
     split_top_level_commas,
     strip_one_paren_layer,
 )
+from url4.core.at_most_one import refuse_mark_as_param
 from url4.core.descriptor_head import classify_head, name_and_value
 from url4.core.errors import ErrorCode, ParseError
 from url4.core.grammar import parse
@@ -57,10 +58,12 @@ def _decode_iteration(
         and not _is_source_list(inner)
         and not inner.lstrip().startswith("*")
     ):
-        inner_clean, _, inner_directives = split_directive_fields(inner)
+        inner_clean, inner_params, inner_directives = split_directive_fields(inner)
         inner_src, per_row_intent, _ = split_intent(inner_clean)
         collection, body = split_collection_iteration(inner_src)
         if collection is not None and body is not None and not _is_descriptored(collection):
+            # C19: the inner tail keeps only its directives, so refuse the mark, never drop it.
+            refuse_mark_as_param(inner_params)
             merged = _merge_directives(inner_directives, directives)
             return IterationEnvelope(
                 collection, body, per_row_intent, raw_intent, directives_from_fields(merged)

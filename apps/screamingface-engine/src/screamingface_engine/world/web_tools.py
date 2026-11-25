@@ -16,6 +16,8 @@ import httpx
 
 from screamingface_engine.benchmarks.case_context import current_capture_case
 from screamingface_engine.capture_outcomes import (
+    REPLAY_EXPIRED,
+    REPLAY_EXPIRED_TEXT,
     REPLAY_MISS,
     REPLAY_UNAVAILABLE,
     CaptureOutcome,
@@ -97,6 +99,20 @@ class WebToolConfig(Protocol):
 # must cost seconds, not a Tavily call's 30 s.
 _COPY_TIMEOUT = httpx.Timeout(5.0)
 
+# INVARIANT (OME-941): each tool lookup refusal is a fixed text and an engine code, never the
+# gateway's text.
+_LOOKUP_REFUSALS: dict[str, tuple[str, str]] = {
+    REPLAY_MISS: (
+        "the frozen copy holds no result for a web tool call of this replay",
+        REPLAY_MISS,
+    ),
+    REPLAY_EXPIRED: (REPLAY_EXPIRED_TEXT, REPLAY_UNAVAILABLE),
+}
+_LOOKUP_UNSERVED = (
+    "the frozen copy cannot serve a web tool call of this replay",
+    REPLAY_UNAVAILABLE,
+)
+
 
 @dataclass(frozen=True, slots=True)
 class FrozenToolResults:
@@ -153,26 +169,16 @@ class FrozenToolResults:
             result = payload.get("result") if isinstance(payload, dict) else None
             if response.status_code == 200 and isinstance(result, str):
                 return result
-            # A 404 is the copy saying it cannot answer. Any other status is a failure the copy did
-            # not serve (design §5.3 item 2a).
-            code = (
-                (replay_refusal_code(404, payload) or REPLAY_MISS)
-                if response.status_code == 404
-                else None
+            # WHY: a 404 is the copy saying it cannot answer, and a 410 `frozen_copy_expired` is a
+            # copy the gateway expired (OME-1947). Any other status is a failure the copy did not
+            # serve (design §5.3 item 2a).
+            code = replay_refusal_code(response.status_code, payload) or (
+                REPLAY_MISS if response.status_code == 404 else None
             )
         except (httpx.HTTPError, ValueError):
             code = None
-        if code == REPLAY_MISS:
-            raise RunnerRequestError(
-                "the frozen copy holds no result for a web tool call of this replay",
-                code=REPLAY_MISS,
-                permanent=True,
-            )
-        raise RunnerRequestError(
-            "the frozen copy cannot serve a web tool call of this replay",
-            code=REPLAY_UNAVAILABLE,
-            permanent=True,
-        )
+        message, refusal_code = _LOOKUP_REFUSALS.get(code or "", _LOOKUP_UNSERVED)
+        raise RunnerRequestError(message, code=refusal_code, permanent=True)
 
 
 @dataclass(frozen=True, slots=True)

@@ -59,7 +59,7 @@ scoreboard, and shown under the revision selector for the selected revision.
 
 ## Owner-verify
 
-- Two deployments must land before a note shows: the Engine (serves the note), then the Scoreboard (migration 0026, then the seed job). No note exists yet, so nothing changes on any page until the first revision moves with one.
-- Migration number: open PRs #2001 and #1981 each also add a `0026`. Whichever merges after another must renumber and re-point its `dependencies`.
-- Open PRs #2003 (HealthBench Professional) and #1999 (MedXpertQA) each move a revision. Whichever merges after this one must declare `revision_note=` and add its line to `_NOTED_REVISIONS`; the new check goes red until it does.
+- Two deployments must land before a note shows: the Engine (serves the note), then the Scoreboard (migration 0026, then the seed job). Two notes ship with this PR (HealthBench Professional and MedXpertQA, below), so those two pages change on that deploy.
+- Migration number: #2001 and #1981 merged first and each also added a `0026`. All three depend on `0025` and touch different tables; a fresh database applies the three in one `migrate` (checked on SQLite after merging main, 2026-11-25), so none was renumbered, as main already ships the other two side by side.
+- #2003 (HealthBench Professional) and #1999 (MedXpertQA) each moved a revision and merged before this PR. After merging main (2026-11-25) both new ids declare `revision_note=` and are pinned in `_NOTED_REVISIONS`; the frozen set is unchanged. The two note texts are reader-facing and worth the owner's read before merge.
 - Visual: checked on a throwaway local scoreboard in light and dark and at 400 px wide. Worth one look on dev after the first noted revision deploys.

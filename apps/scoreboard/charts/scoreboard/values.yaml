@@ -50,6 +50,14 @@ config:
   # reserved for /readyz, so the budget is replicas x (dbPoolMaxsize + 1). Ignored for SQLite.
   dbPoolMinsize: 1
   dbPoolMaxsize: 5
+  # Frozen copy claims (OME-1947). The scoreboard claims the frozen copy of each new submit that
+  # names one, so that the gateway keeps it. At each start, it also claims the copy of each
+  # stored Score. An empty gatewayUrl (default) turns the claims off.
+  # When you set gatewayUrl, also set gatewayActor, or the service does not start. Set the
+  # gateway URL only after the claim route test of DEPLOYMENT.md passes.
+  gatewayUrl: ""
+  gatewayActor: ""
+  gatewayTimeoutS: 5
 
 cors:
   origins:
@@ -148,6 +156,38 @@ seedBenchmarks:
   #   python -m scoreboard.retire_benchmark --benchmark <id> --yes
   # which refuses while any score or baseline references it.
   benchmarks: []
+# FEATURE: OME-1504 — the HubSpot submission sync (docs/spec/2026-11-18-hubspot-submission-sync.md).
+# Off by default. With `enabled` and no `existingSecret`, the job only counts what is waiting.
+# AIDEV-NOTE: the ids below are the 😱 SOTA pipeline's, read from HubSpot on 2026-11-19. Stages
+# are matched by id; Project completed, Publication and Dropped out are set by hand, and only
+# Dropped out needs naming (the sync never touches a card there).
+# AIDEV-NOTE: while this CronJob is enabled, do not also run `python -m scoreboard.hubspot_sync`
+# by hand without `--dry-run`: two simultaneous runs can create two cards for one new person.
+hubspotSync:
+  enabled: false
+  # INVARIANT: true by default, so switching the job on sends nothing until someone turns this
+  # off on purpose, after reviewing the dry run's log.
+  dryRun: true
+  schedule: "*/5 * * * *"
+  serviceAccountName: default
+  activeDeadlineSeconds: 900
+  ttlSecondsAfterFinished: 3600
+  # The Secret holding the HubSpot private app token (infra: ExternalSecret from Key Vault).
+  existingSecret: ""
+  existingSecretKey: token
+  # The "ScreamingFace Leaderboard sync" private app: HubSpot's property history names this
+  # sync's own writes by it, and only those are ever overwritten (read 2026-11-20).
+  appId: "62476090"
+  pipelineId: "941434182"
+  # Onboarding, Engaged: the stages before Submission 1 that a card may move forward from.
+  earlyStageIds: ["1450673809", "1489861179"]
+  # Submission 1, 2, 3, in order.
+  submissionStageIds: ["1450673810", "1450673811", "1450673812"]
+  droppedOutStageId: "1450673814"
+  # Internal people on other domains; every @openmined.org address is always skipped.
+  internalEmails: []
+  publicBaseUrl: https://leaderboard.screamingface.ai
+
 networkPolicy:
   enabled: false
   ingressCIDRs: []

@@ -24,6 +24,9 @@ from __future__ import annotations
 import math
 import re
 import warnings
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from typing import cast, get_args
 
 from url4.core._scan import skip_quoted
@@ -36,6 +39,48 @@ from url4.core.nodes import IterationDirectives, OnErrorPolicy, Params
 EXCLUSIVE_SOURCE_KEYS = frozenset(
     {"mode", "retry", "required", "optional", "accept", "expand", "coord"}
 )
+
+# C19: the at-most-one mark's key. It lives in this leaf, not in ``url4.core.at_most_one``
+# (which re-exports it), because :func:`validate_param` refuses it and that module imports
+# this one. Renaming it after release would be a wire migration.
+AT_MOST_ONE_KEY = "expand.at_most_one"
+MARK_AS_PARAM = (
+    f"{AT_MOST_ONE_KEY} is a source execution key, never an expression parameter; "
+    "on an expression-valued source it must follow ;required or ;optional"
+)
+
+
+class AtMostOneFormError(ParseError):
+    """A ``malformed_source`` that a C19 rule raised (re-exported by ``url4.core.at_most_one``).
+
+    WHY a subclass: a reader that tolerates a parse error (a call's context read as prose, a
+    row that fails alone) must never tolerate this one, and every ``except ParseError`` still
+    catches it with the same code.
+    """
+
+
+_C19_BLIND: ContextVar[bool] = ContextVar("url4_c19_blind", default=False)
+
+
+@contextmanager
+def c19_blind() -> Iterator[None]:
+    """Read url4 with no C19 refusal, as the grammar read it before C19.
+
+    INVARIANT: only for a question about a text's structure that the mark must not change
+    (whether a call's context holds a holdings ref, :mod:`url4.dag.source_scan`). Nothing read
+    inside is lowered or run, and the setting ends with the block.
+    """
+    token = _C19_BLIND.set(True)
+    try:
+        yield
+    finally:
+        _C19_BLIND.reset(token)
+
+
+def c19_refuses() -> bool:
+    """False inside :func:`c19_blind`; every C19 refusal asks this first."""
+    return not _C19_BLIND.get()
+
 
 # The one definition of the accepted policy set is OnErrorPolicy's Literal in
 # core.nodes; this validator derives from it so the wire grammar and the
@@ -132,6 +177,10 @@ def validate_param(key: str, value: str | None) -> None:
     Callers that can tell a flag from a present-but-empty value (the wire
     splitter knows, from the ``=``) reject the empty one before calling.
     """
+    if key == AT_MOST_ONE_KEY and c19_refuses():
+        # INVARIANT (C19, OME-507): the mark is a source execution key, never an expression
+        # param: the `;` chain, an envelope, a canonical call, a render and an HTTP query alike.
+        raise AtMostOneFormError(MARK_AS_PARAM)
     if not _PARAM_KEY_RE.fullmatch(key):
         raise ParseError(
             f"invalid param key {key!r} — `param-key` takes ALPHA / DIGIT / '.' / '_'",

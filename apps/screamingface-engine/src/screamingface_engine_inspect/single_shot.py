@@ -388,6 +388,57 @@ def imported_benchmark_id(benchmark_key: str, origin: BenchmarkOrigin) -> str:
     return f"inspect-{benchmark_key}" if origin == "inspect_evals" else benchmark_key
 
 
+def _check_failure_policy(
+    benchmark_id: str,
+    failure_policy: FailurePolicy,
+    *,
+    scores_whole_run: bool,
+    whole_run_failed_case_zero: bool,
+    inverted_grade: bool,
+) -> None:
+    """Refuse a ``withhold`` the reducer cannot honour, and a failed-Case declaration that
+    means nothing on its row.
+
+    ``withhold`` means a failed Case counts 0 over every selected Case. Two kinds of row give
+    that sentence no meaning, so they are refused by name and stay ``coverage_declare``:
+
+    - a row scored by a whole-run metric (``scores_whole_run``), unless the row declares
+      ``whole_run_failed_case_zero``;
+    - a row with an inverted grade.
+
+    Example: healthbench-professional's clipped mean averages per-Case values, so its row
+    declares the flag and may be ``withhold``; contracteval's F1 declares nothing and is
+    refused if it tries.
+
+    Raises:
+        ValueError: naming the Benchmark and the cause.
+    """
+
+    if whole_run_failed_case_zero and not (scores_whole_run and failure_policy == "withhold"):
+        # WHY: the flag only says what a failed Case is worth to a whole-run metric under
+        # withhold; set without both, the row misread what it turned on.
+        raise ValueError(
+            f"{benchmark_id}: whole_run_failed_case_zero needs a whole-run metric and "
+            "failure_policy withhold (OME-1998)"
+        )
+    # A whole-run metric with no declared value for a failed Case.
+    undefined_failed_case: bool = scores_whole_run and not whole_run_failed_case_zero
+    if failure_policy == "withhold" and (undefined_failed_case or inverted_grade):
+        # WHY (OME-1642): a whole-run metric is not a mean of Case grades (F1 score, per-task
+        # accuracy), and on a refusal-measuring row the failed Case is the behaviour the
+        # Benchmark rewards, so "a failed Case counts 0" has no meaning for either until each
+        # has its own rule. Whole-run-metric rows (spec §5, group F) and inverted-grade rows
+        # (group E) stay coverage_declare. The one way through for a whole-run metric
+        # (OME-1998): the row declares ``whole_run_failed_case_zero``, its metric being a
+        # function of per-Case values that reads a failed Case as 0 (healthbench-professional's
+        # clipped mean). The message names the cause that fired.
+        cause = "a whole-run metric" if undefined_failed_case else "an inverted grade"
+        raise ValueError(
+            f"{benchmark_id}: failure_policy withhold cannot score {cause} — "
+            "the row needs its own failure rule first (OME-1642)"
+        )
+
+
 def single_shot_benchmark(
     *,
     benchmark_key: str,
@@ -413,6 +464,7 @@ def single_shot_benchmark(
     origin: BenchmarkOrigin = "inspect_evals",
     whole_run_metric_factory: Callable[[], Any] | None = None,
     whole_run_headline: str | None = None,
+    whole_run_failed_case_zero: bool = False,
     epoch_reducer_factory: Callable[[], Any] | None = None,
     attempts: int = 1,
     attempt_fold: AttemptFold = ANY_ATTEMPT_FOLD,
@@ -476,6 +528,11 @@ def single_shot_benchmark(
         whole_run_headline: the key of a dict-returning whole-run metric that is the
             Headline Score; the dict's other keys become run metrics (OME-1527). None for a
             metric returning one number. The caller carries it into ``revision_pins``.
+        whole_run_failed_case_zero: the row says its whole-run metric reads a failed Case as
+            a Case value of 0 (OME-1998), which is what lets ``failure_policy="withhold"``
+            stand beside a whole-run metric: the tally then hands the metric every selected
+            Case, a failed one as a bare 0.0 Score. Refused without both. Not hashed on its
+            own: the ``failure_policy=withhold`` pin below already moves the revision.
         epoch_reducer_factory: zero-arg callable returning the Task's own any-of-N reducer,
             which reduces each Case's Attempt Scores before the whole-run metric reads them
             (OME-1527 x OME-1458); None reduces with inspect's default mean. The caller
@@ -540,19 +597,13 @@ def single_shot_benchmark(
             f"{benchmark_id}: scorer_draft_feedback needs a Draft Feedback offer "
             "(with_check_surface=True)"
         )
-    if failure_policy == "withhold" and (whole_run_metric_factory is not None or inverted_grade):
-        # WHY (OME-1642): a whole-run metric is not a mean of Case grades (F1 score, per-task
-        # accuracy), and on a refusal-measuring row the failed Case is the behaviour the
-        # Benchmark rewards, so "a failed Case counts 0" has no meaning for either until each
-        # has its own rule. Whole-run-metric rows (spec §5, group F) and inverted-grade rows
-        # (group E) stay coverage_declare. The message names the cause that fired.
-        cause = (
-            "a whole-run metric" if whole_run_metric_factory is not None else "an inverted grade"
-        )
-        raise ValueError(
-            f"{benchmark_id}: failure_policy withhold cannot score {cause} — "
-            "the row needs its own failure rule first (OME-1642)"
-        )
+    _check_failure_policy(
+        benchmark_id,
+        failure_policy,
+        scores_whole_run=whole_run_metric_factory is not None,
+        whole_run_failed_case_zero=whole_run_failed_case_zero,
+        inverted_grade=inverted_grade,
+    )
     if (
         judge is not None
         and retrieval_policy is not None
@@ -1433,10 +1484,13 @@ def _whole_run_tally(
     turns the marks into one headline. :func:`_accuracy` adds and divides; this hands the
     graded Cases' own inspect Scores to the eval's metric instead. Stages, in execution order:
 
-    Stage 1 — the graded Cases only. The finalizer passes exactly those because the
-              withhold guard in ``single_shot`` (OME-1642) keeps every whole-run row on
-              ``coverage_declare``, so a failed Case never reaches a metric, as with the
-              ``coverage_declare`` mean. Each one's Score was filed by the
+    Stage 1 — the graded Cases only, on every row but one kind. The finalizer passes
+              exactly those because the withhold guard in ``single_shot`` (OME-1642) keeps a
+              whole-run row on ``coverage_declare``, so a failed Case never reaches a metric,
+              as with the ``coverage_declare`` mean. The exception (OME-1998): a row that
+              declares ``whole_run_failed_case_zero`` may be ``withhold``, and then the
+              finalizer passes every selected Case and a failed one (no numeric grade) is
+              handed to the metric as a bare 0.0 Score. Each graded Case's Score was filed by the
               scorer adapter in ``kept`` under its Case id, already reduced the way inspect
               reduces a Sample before any metric runs. For a Case asked several times
               (Attempts), that is the Task's own any-of-N reducer over its Attempt Scores.
@@ -1500,7 +1554,8 @@ def _whole_run_tally(
 
     def tally(cases: Sequence[CaseResult]) -> CandidateScore:
         # Stage 1 — the graded Cases' Scores, in roll-call order; an abstained Case's is 0.0,
-        # the score its Case Result shows (OME-1289), kept Score or not.
+        # the score its Case Result shows (OME-1289), kept Score or not. A failed Case, which
+        # only a withhold row is handed, is a bare 0.0 (OME-1998).
         samples: list[Any] = [_metric_sample(case, kept, name) for case in cases]
         _check_scores_agree(cases, samples, name)
         # Stage 2 — the eval's own tally sheet. WHY catch everything: the metric is the
@@ -1622,8 +1677,14 @@ def _beside(
 
 
 def _metric_sample(case: CaseResult, kept: Mapping[int, Any], metric_name: str) -> Any:
-    """The Score one graded Case hands the whole-run metric: its kept Score, or 0.0 when it
-    abstained (OME-1289), the score its Case Result shows whatever the judge said.
+    """The Score one Case hands the whole-run metric: its kept Score, or 0.0 when it
+    abstained (OME-1289), the score its Case Result shows whatever the judge said, or a bare
+    0.0 when it failed (OME-1998).
+
+    WHY a failed Case can be here at all: the finalizer hands the tally a Case with no numeric
+    grade only under ``withhold``, which the guard in ``single_shot`` admits beside a whole-run
+    metric only when the row declares ``whole_run_failed_case_zero``. So the bare 0.0 is the
+    value the row itself gave a failed Case, never a guess made here.
 
     WHY an abstained Case needs no kept Score: the abstain rule keeps it at 0.0 even when its
     grader failed, and then inspect filed none; the run must not stop after every model call
@@ -1635,11 +1696,13 @@ def _metric_sample(case: CaseResult, kept: Mapping[int, Any], metric_name: str) 
     ``candidate_abstained: True`` as failing every verdict, or it would credit an abstain.
     """
 
-    from screamingface_engine_inspect.scorer_metrics import zero_sample_score
+    from screamingface_engine_inspect.scorer_metrics import failed_sample_score, zero_sample_score
 
     case_id: int = int(case.case_id)
     if case.abstained:
         return zero_sample_score(kept.get(case_id), case_id)
+    if case.grade is None or case.grade.score is None:
+        return failed_sample_score(case_id)
     if case_id not in kept:
         raise AggregateError(f"graded Case {case_id} kept no Score for {metric_name}")
     return kept[case_id]
@@ -1672,7 +1735,8 @@ def _check_scores_agree(
     from screamingface_engine_inspect.scorer_adapter import whole_run_grade
 
     for case, sample in zip(cases, samples, strict=True):
-        if case.grade is None:
+        # A failed Case shows no score to agree with; its bare 0.0 is the row's own rule.
+        if case.grade is None or case.grade.score is None:
             continue
         # The Named Scores are published headline first, so the first is the dict's headline.
         headline_name: str | None = next(iter(case.grade.scores), None)

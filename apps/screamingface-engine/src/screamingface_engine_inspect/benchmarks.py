@@ -210,6 +210,14 @@ class BenchmarkSpec:
     #: metric, never a Named Score, since no Case carries a precision (OME-1527). None for a
     #: metric returning one number; Benchmark identity when set, so no other row moves.
     whole_run_headline: str | None = None
+    #: The row's ``whole_run_metric`` reads a Case that failed (its Candidate call or its
+    #: grading) as a Case value of 0 (OME-1998). Only this lets a row with a whole-run metric
+    #: declare ``failure_policy="withhold"``: the tally then hands the metric every selected
+    #: Case, a failed one as a bare 0.0 Score. True only for a metric that is a function of
+    #: per-Case values, where "a failed Case is 0" has a meaning (healthbench-professional's
+    #: clipped mean); an F1 or a pooled accuracy has none, so those rows leave it False and
+    #: stay ``coverage_declare``. Not a pin of its own: ``failure_policy=withhold`` already is.
+    whole_run_failed_case_zero: bool = False
     #: The Task's own epoch reducer, by inspect's name. ``pass_at_1`` on a row with Attempts
     #: makes the fold the mean over Attempts (the share at full marks, inspect's pass@1;
     #: ``docs/spec/2026-11-09-attempts-mean-fold.md``), with or without a whole-run metric. An
@@ -5428,9 +5436,16 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         description=(
             "The complete 525-conversation HealthBench Professional exam. An AI judge grades "
             "each answer against a physician-written rubric; safety mistakes subtract points, "
-            "so an individual case can score below zero. Benchmark score = the official "
-            "HealthBench metric — the average of the 525 case scores, floored at 0 — so it "
-            "lines up with published HealthBench numbers."
+            "so an individual case can score below zero. The benchmark score uses the paper's "
+            "length-adjustment formula: each case's rubric score loses 0.0147 for every 500 "
+            "characters its answer runs past 2,000 (and gains the same for every 500 under), "
+            "and the mean of those adjusted values is taken over all 525 cases and clipped to "
+            "0..1. A case whose answer or grading failed counts as 0. The score shown on each "
+            "case is its rubric score before the adjustment, so the mean of the case scores "
+            "shown is not the benchmark score. This is not the paper's full protocol (one "
+            "answer per case where the paper averages 8, a different snapshot of the judge "
+            "model, failed cases at 0), so scores are not directly comparable to the published "
+            "numbers."
         ),
         focus="Clinical safety, full official exam",
         dataset_url="https://huggingface.co/datasets/openai/healthbench",
@@ -5438,26 +5453,45 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # saturation, so the full benchmark is frontier work too (OME-1257; the hand-built
         # Benchmark's tier, kept).
         difficulty="hard",
-        failure_policy="coverage_declare",
+        # A Case whose Candidate call or judging failed counts 0 over all 525 selected Cases
+        # (OME-1998; OME-1642 had left this whole-run row on coverage_declare). simple-evals
+        # never drops a Case either. Allowed beside the whole-run metric only because
+        # whole_run_failed_case_zero, below, says the clipped mean reads a failed Case as 0.
+        failure_policy="withhold",
         # Provenance: this scorer is declared by the Task of
         #   screamingface_engine_inspect.local_tasks.healthbench.healthbench:
         #   healthbench_professional — a LOCAL Task (OME-1527), the hand-built Benchmark moved
-        #   into inspect's shape; every field below is carried over from the hand-built
-        #   definition (OME-1455 sources).
+        #   into inspect's shape; the fields below are carried over from the hand-built
+        #   definition (OME-1455 sources), except the three grading changes of OME-1998: the
+        #   length adjustment, the judge's reasoning effort and the failure policy.
         scorer="screamingface_engine_inspect.local_tasks.healthbench.healthbench:healthbench_rubric",
-        scorer_kwargs={"judge_model": "screamingface/openrouter/openai/gpt-5.4"},
+        # The Case row shows the rubric score, not the adjusted value, which can pass the
+        # Case-score cap of 1 (owner decision, 2026-11-23, OME-1998: the cap stays, the
+        # adjusted value lives in the Case's evidence and the run metric averages it).
+        scorer_kwargs={
+            "judge_model": "screamingface/openrouter/openai/gpt-5.4",
+            # The paper's length adjustment (OME-1998), simple-evals' two settings with the
+            # paper's constants: the scorer files each Case's rubric score minus 0.0147 per
+            # 500 answer characters past 2,000, and the clipped mean averages that value.
+            # Equal to the Task's own constants (pinned by test_local_task_healthbench.py).
+            "length_adjustment_center": 2000.0,
+            "length_adjustment_penalty_per_500_chars": 0.0147,
+        },
         judge=JudgeSpec(
             # The official professional judge is ResponsesSampler(model="gpt-5.4-2026-03-05",
             # reasoning_effort="low"), an OpenAI-internal snapshot pin we cannot reach;
             # OpenRouter routes the floating slug (a named deviation, as hand-built).
             model="openrouter/openai/gpt-5.4",
-            # The hand-built JUDGE_PARAMS, same values in the same order (so the same wire and
-            # the same recorded replies): grading is retrieval-free, and 4096 is an Engine-side
-            # safety cap the official judge does not send. NO temperature, on purpose: the
-            # official judge sends none, and a redraw needs a fresh sample to turn a malformed
-            # reply into a parseable one.
+            # Grading is retrieval-free. reasoning_effort is low, as the official judge's is
+            # (OME-1998; the hand-built params sent none, so the provider's default applied).
+            # 4096 is an Engine-side safety cap the official judge does not send. NO
+            # temperature, on purpose: the official judge sends none, and a redraw needs a
+            # fresh sample to turn a malformed reply into a parseable one. The judge request
+            # differs from the hand-built one, so replies recorded before OME-1998 no longer
+            # answer it.
             params=(
                 ("web_search", "false"),
+                ("reasoning_effort", "low"),
                 ("max_tokens", "4096"),
             ),
         ),
@@ -5468,12 +5502,22 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # move leaves Fusion bytes and the recorded e2e golden unchanged (OME-1527 decision 5).
         # A conversation Case is already that envelope and is served as written.
         candidate_input_envelope=True,
-        # The hand-built Benchmark's published revision, so its leaderboard results stay
-        # visible (owner decision, OME-1527). It has no golden of its own: it shares worst-30's
-        # Task package, judge and grader, and all 525 of its Candidate inputs and 1,135 judge
-        # prompts were compared at import (0 differ). Its computed fingerprint is pinned in
-        # the tests.
-        published_revision="d8fb037307f35415",
+        # OME-1998: moved from d8fb037307f35415 (the hand-built Benchmark's id, kept through
+        # OME-1527) when the grading changed in three ways at once: the paper's length
+        # adjustment, the judge's low reasoning effort, and a failed Case counting as 0. The
+        # Cases did not change (all 525 Candidate inputs and 1,135 judge prompts are the ones
+        # compared at import). No regradable_from: the judge request changed, so an old entry's
+        # recorded judge replies do not answer it and a re-grade could not replay them
+        # (OME-1979); an old entry needs fresh judge calls. No golden of its own: it shares
+        # worst-30's Task package and grader. Its computed fingerprint is pinned in the tests
+        # and differs from this id: docstrings in the hashed Task package were reworded after
+        # the id was set, every grade the same, so the id held.
+        published_revision="35c7d07e9058f52d",
+        # What the leaderboard shows under the revision selector (OME-2001).
+        revision_note=(
+            "Scored the paper's way: length adjustment, low-effort judge, a failed Case "
+            "counts 0. Not comparable with the old revision."
+        ),
         origin="screamingface",
         paper_url="https://arxiv.org/abs/2604.27470",
         authors="Hicks et al., 2026",
@@ -5514,12 +5558,16 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             as_of="2026-09",
         ),
         notebook="08_healthbench",
-        # Reviewed (OME-1527, R1): the official HealthBench metric, the mean of the Case scores
+        # Reviewed (OME-1527, R1): the official HealthBench metric, the mean of the Case values
         # clipped to 0..1 — higher is better, at most 1, a valid Headline Score. Clipping the
-        # run's mean is not the mean of clipped Case scores, hence the eval's own metric.
+        # run's mean is not the mean of clipped Case scores, hence the eval's own metric. Since
+        # OME-1998 the value it averages is each Case's length-adjusted one.
         whole_run_metric=(
             "screamingface_engine_inspect.local_tasks.healthbench.healthbench:healthbench_clipped_mean"
         ),
+        # The clipped mean is a function of per-Case values, so a failed Case has one: 0
+        # (OME-1998). This is what lets the row declare withhold beside a whole-run metric.
+        whole_run_failed_case_zero=True,
     ),
     BenchmarkSpec(
         key="ifeval",
@@ -8705,6 +8753,7 @@ def _assemble(spec: BenchmarkSpec) -> ImportedBenchmark:
         origin=spec.origin,
         whole_run_metric_factory=_whole_run_metric_factory(spec),
         whole_run_headline=spec.whole_run_headline,
+        whole_run_failed_case_zero=spec.whole_run_failed_case_zero,
         epoch_reducer_factory=_epoch_reducer_factory(spec),
         attempts=spec.attempts,
         attempt_fold=_attempt_fold(spec),

@@ -991,8 +991,32 @@ def _submission(
         payload["cache_saved_cost_archive_usd"] = _cost_text(
             candidate_result.cache_saved_cost_archive_usd
         )
+    payload.update(_graded_questions(candidate_result))
     payload.update(_capture_fields(candidate_result))
     return payload
+
+
+def _graded_questions(candidate_result: CandidateResult) -> dict[str, object]:
+    """How many of the run's Cases got a grade, sent only when at least one did not.
+
+    A Case goes ungraded when the Candidate call errors or times out, or the judge gives no
+    readable verdict. `total_questions` counts every selected Case, failed ones included, so
+    without this count a run that failed on 20 of 525 Cases reaches the leaderboard looking
+    complete. Example: 525 selected, 505 graded -> `{"graded_questions": 505}`.
+
+    INVARIANT: the count is the result's own gradeable count, the figure its `coverage` is
+    validated against, so the leaderboard and the local report cannot disagree. `coverage`
+    itself is no substitute: it is rounded to 4 places, so a few failed Cases on a large
+    Benchmark round to exactly 1.0.
+
+    INVARIANT: omitted for a fully graded run rather than sent as the total, like `paper_url`,
+    so that payload is unchanged and a leaderboard that predates the field refuses only the
+    partly graded runs.
+    """
+    graded: int = candidate_result.cases._gradeable_count()
+    if graded == len(candidate_result.cases):
+        return {}
+    return {"graded_questions": graded}
 
 
 def _client_info() -> dict[str, object]:

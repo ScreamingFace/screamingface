@@ -1,28 +1,24 @@
 """Recursive-descent parser for url4 source expressions.
 
-This module owns the low-level :func:`parse`. It parses a *source expression* —
-the part to the left of a top-level ``!`` — into the typed AST in
-:mod:`url4.core.nodes`. The top-level ``!intent`` split, the ``;`` expression-param
-envelope, and the top-level ``src*(body)`` iteration split are handled one
-level up in :mod:`url4.core.parser` / :mod:`url4.dag.compiler`.
+This module owns the low-level :func:`parse`. It parses a *source expression* — the part to the left
+of a top-level ``!`` — into the typed AST in :mod:`url4.core.nodes`. The top-level ``!intent``
+split, the ``;`` expression-param envelope, and the top-level ``src*(body)`` iteration split are
+handled one level up in :mod:`url4.core.parser` / :mod:`url4.dag.compiler`.
 
-Why recursive descent rather than a PEG: the spec's parsing rules are
-procedural and *committing*. The §4.1.1.4 structured-value classifier commits
-on its first entry and MUST NOT backtrack (a post-commitment violation is
-``malformed_source``, not a reclassification); ``*`` is structural only in two
-exact positions (§5.3.3); and canonical-form detection scans for ``q=(`` with
-an explicit rewind rule (§5.2 rule 16). Ordered-choice PEG backtracking cannot
-express commitment, so the spec's numbered rules are implemented directly —
-one small function per rule — on top of the depth/quote-aware scanners in
-:mod:`url4.core._scan`.
+Why recursive descent rather than a PEG: the spec's parsing rules are procedural and *committing*.
+The §4.1.1.4 structured-value classifier commits on its first entry and MUST NOT backtrack (a
+post-commitment violation is ``malformed_source``, not a reclassification); ``*`` is structural only
+in two exact positions (§5.3.3); and canonical-form detection scans for ``q=(`` with an explicit
+rewind rule (§5.2 rule 16). Ordered-choice PEG backtracking cannot express commitment, so the spec's
+numbered rules are implemented directly — one small function per rule — on top of the
+depth/quote-aware scanners in :mod:`url4.core._scan`.
 
-Layering: descriptor decoding (§4.3) wraps value detection (§5.2). A source
-token is first split on depth-0 ``;`` (the execution chain), the head is
-classified as a bare value / ``name=`` sugar / attribution chain, and the
-trailing annotations are routed by the §8.1.2 boundary algorithm — expression
-params onto :class:`~url4.core.nodes.RelExpr` / :class:`~url4.core.nodes.RemoteExpr` /
-:class:`~url4.core.nodes.Expression`, everything else onto the
-:class:`~url4.core.nodes.Source` wrapper.
+Layering: descriptor decoding (§4.3) wraps value detection (§5.2). A source token is first split on
+depth-0 ``;`` (the execution chain), the head is classified as a bare value / ``name=`` sugar /
+attribution chain, and the trailing annotations are routed by the §8.1.2 boundary algorithm —
+expression params onto :class:`~url4.core.nodes.RelExpr` / :class:`~url4.core.nodes.RemoteExpr` /
+:class:`~url4.core.nodes.Expression`, everything else onto the :class:`~url4.core.nodes.Source`
+wrapper.
 """
 
 from __future__ import annotations
@@ -30,6 +26,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 
+from url4.core import at_most_one
 from url4.core._annotations import (
     classify_boundary,
     extract_directives,
@@ -109,7 +106,11 @@ def parse(text: str) -> Node:
     stripped = text.strip()
     if not stripped:
         raise ParseError("empty url4 expression")
-    return _parse_source(stripped)
+    try:
+        return at_most_one.checked_form(_parse_source(stripped))
+    except RecursionError:
+        at_most_one.refuse_too_deep(stripped)
+        raise
 
 
 def parse_value(text: str) -> Node:
@@ -123,7 +124,11 @@ def parse_value(text: str) -> Node:
     stripped = text.strip()
     if not stripped:
         raise ParseError("empty url4 value")
-    return _parse_value(stripped)
+    try:
+        return _parse_value(stripped)
+    except RecursionError:
+        at_most_one.refuse_too_deep(stripped)
+        raise
 
 
 # --- source descriptors (§4.3) -------------------------------------------------
@@ -272,8 +277,9 @@ def _add_expr_params(
 
 
 def _extract_expand(annotations: Params) -> tuple[Params, bool]:
-    rest = tuple(pair for pair in annotations if pair[0] != "expand")
-    return rest, len(rest) != len(annotations)
+    keep = at_most_one.keeps_valued_expand(annotations)  # C19 refuses a valued one if marked
+    rest = tuple(p for p in annotations if p[0] != "expand" or (keep and p[1] is not None))
+    return rest, any(key == "expand" for key, _ in annotations)
 
 
 def _fold_directives(
@@ -413,7 +419,7 @@ def parse_group_root(text: str) -> Node:
 def _parse_group_sources(body: str) -> tuple[Node, ...]:
     if not body.strip():
         return ()
-    return tuple(_parse_source(part) for part in split_top_level(body, ","))
+    return at_most_one.checked_members(split_top_level(body, ","), _parse_source)
 
 
 # --- relative and remote expressions (§5.2 rules 2–3, §3.1.1) --------------------------
@@ -622,35 +628,31 @@ _VALUE_HANDLERS: dict[str, Callable[[str], Node]] = {
 }
 
 
-# Value heads that an intent may open with (`intent = value`, ABNF §6). Quoted
-# text, `scheme://` and `/path` are handled BEFORE this set is consulted — see
-# `intent_atom`.
+# Value heads that an intent may open with (`intent = value`, ABNF §6). Quoted text, `scheme://` and
+# `/path` are handled BEFORE this set is consulted — see `intent_atom`.
 #
-# INVARIANT: `$` is deliberately ABSENT. A `$ref` intent must stay `Text`: the
-# TextNode path substitutes it against the run scope (`_substitute`), which is
-# what makes `(a=…, b='$a again')!$b` resolve. Lowering it as a VarRef instead
-# yields the literal string `$b` — verified by
-# `test_execution.py::test_later_source_sees_earlier_binding`. Text IS the
-# correct realization of a variable-ref intent, not a degraded one.
+# INVARIANT: `$` is deliberately ABSENT. A `$ref` intent must stay `Text`: the TextNode path
+# substitutes it against the run scope (`_substitute`), which is what makes `(a=…, b='$a again')!$b`
+# resolve. Lowering it as a VarRef instead yields the literal string `$b` — verified by
+# `test_execution.py::test_later_source_sees_earlier_binding`. Text IS the correct realization of a
+# variable-ref intent, not a degraded one.
 _INTENT_VALUE_HEADS = frozenset("({@")
 
 
 def intent_atom(intent: str) -> Node:
     """Classify a raw intent string into an AST node (§6).
 
-    Quoted → :class:`~url4.core.nodes.Text` content (quotes are delimiters);
-    ``/path`` → a :class:`~url4.core.nodes.RelExpr` when it parses as a relative
-    expression (§5.2 rules 2.1/2.2), else a :class:`~url4.core.nodes.RelUrl` (a code
-    pointer, url4 2.0); any ``scheme://…`` → :class:`~url4.core.nodes.Url`. Otherwise
-    ``intent = value`` applies and the token runs through full value detection,
-    so a nested expression, an iteration, a struct object or a self/identity ref
-    keeps its structure. One `bare-value` token is a :class:`~url4.core.nodes.NamedJob`
-    (url4 2.0, P3); anything else is natural-language :class:`~url4.core.nodes.Text`.
+    Quoted → :class:`~url4.core.nodes.Text` content (quotes are delimiters); ``/path`` → a
+    :class:`~url4.core.nodes.RelExpr` when it parses as a relative expression (§5.2 rules 2.1/2.2),
+    else a :class:`~url4.core.nodes.RelUrl` (a code pointer, url4 2.0); any ``scheme://…`` →
+    :class:`~url4.core.nodes.Url`. Otherwise ``intent = value`` applies and the token runs through
+    full value detection, so a nested expression, an iteration, a struct object or a self/identity
+    ref keeps its structure. One `bare-value` token is a :class:`~url4.core.nodes.NamedJob` (url4
+    2.0, P3); anything else is natural-language :class:`~url4.core.nodes.Text`.
 
-    # WHY value detection matters here: the DAG compiler dispatches lowering by
-    # node type, so an intent flattened to `Text` is never compiled into a
-    # subgraph — `(a,b)!(c,d)!agg` would hand the literal string `"(c,d)!agg"` to
-    # the model as a prompt instead of evaluating it.
+    # WHY value detection matters here: the DAG compiler dispatches lowering by node type, so an
+    # intent flattened to `Text` is never compiled into a subgraph — `(a,b)!(c,d)!agg` would hand
+    # the literal string `"(c,d)!agg"` to the model as a prompt instead of evaluating it.
     """
     text = intent.strip()
     reject_chained_intent(text)
@@ -674,7 +676,8 @@ def _relative_intent(text: str) -> Node:
     """
     try:
         node = _parse_relative(text)
-    except ParseError:
+    except ParseError as error:
+        at_most_one.raise_if_c19(error)  # INVARIANT (C19): a broken mark is never a code pointer
         return RelUrl(text)
     return node if isinstance(node, RelExpr) else RelUrl(text)
 
@@ -694,7 +697,8 @@ def _intent_value_or_text(text: str) -> Node:
         return NamedJob(text) if bare else Text(text)
     try:
         return _parse_value(text)
-    except ParseError:
+    except ParseError as error:
+        at_most_one.raise_if_c19(error)  # INVARIANT (C19): a broken mark is never prose
         return Text(text)
 
 

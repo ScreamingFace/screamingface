@@ -26,6 +26,7 @@ from fastapi.exceptions import RequestValidationError
 from tortoise.exceptions import OperationalError
 
 from scoreboard.config import AuthMode, Settings
+from scoreboard.routes.copy_claim import ensure_copy_is_claimed
 
 # The two identity details moved to `routes/dependencies.py` with the shared check. They are
 # re-exported here because callers and tests import them from this module.
@@ -151,9 +152,11 @@ SUBMIT_SCORE_RESPONSES: dict[int | str, dict[str, Any]] = {
     422: {
         "model": CodedErrorResponse | ValidationErrorResponse,
         "description": (
-            "Two shapes. `{code: frozen_copy_claimed}` (`CodedErrorResponse`): another score "
-            "already names this frozen_copy_id; one copy names one score. A list `detail` "
-            "(`ValidationErrorResponse`): the body failed validation, including an "
+            "Two shapes. A coded `detail` (`CodedErrorResponse`): `frozen_copy_claimed`, another "
+            "score already names this frozen_copy_id (one copy names one score); "
+            "`frozen_copy_expired`, the frozen copy of the run expired; "
+            "`frozen_copy_unavailable`, the AI Gateway has no sealed frozen copy with this id. A "
+            "list `detail` (`ValidationErrorResponse`): the body failed validation, including an "
             "`authors_metadata` key that is not a credited author."
         ),
     },
@@ -161,6 +164,16 @@ SUBMIT_SCORE_RESPONSES: dict[int | str, dict[str, Any]] = {
         "model": MessageErrorResponse,
         "description": "Score store unavailable.",
     },
+}
+# WHY a separate entry: only `POST /v1/scores` claims a frozen copy, so only it documents the 503 of
+# the claim.
+_SUBMIT_503: dict[str, Any] = {
+    "model": MessageErrorResponse,
+    "description": (
+        "Score store unavailable. Also: the AI Gateway did not answer the claim of the frozen "
+        "copy; the `detail` is then an object with the code `frozen_copy_check_unavailable`, and "
+        "the answer has `Retry-After: 5`."
+    ),
 }
 GET_SCORE_RESPONSES: dict[int | str, dict[str, Any]] = {
     status.HTTP_404_NOT_FOUND: {
@@ -325,7 +338,7 @@ def _submission_response(score: ScoreSchema, registered_revision: str | None) ->
     response_model=ScoreSchema,
     response_model_exclude_unset=True,
     status_code=status.HTTP_201_CREATED,
-    responses=SUBMIT_SCORE_RESPONSES,
+    responses={**SUBMIT_SCORE_RESPONSES, status.HTTP_503_SERVICE_UNAVAILABLE: _SUBMIT_503},
 )
 async def submit_score(
     submission: ScoreSubmission,
@@ -367,6 +380,10 @@ async def submit_score(
         # read supplies only the submit-time comparability fact.
         benchmark = await Benchmark.filter(id=submission.benchmark_id).only("revision").first()
         registered_revision = None if benchmark is None else benchmark.revision
+
+        # INVARIANT (OME-1947): the claim is outside each database transaction and before the
+        # store, so a repeat with the same Idempotency-Key also sends the claim again (K-15).
+        await ensure_copy_is_claimed(request, submission.frozen_copy_id)
 
         # INVARIANT (OME-894): a private board cannot take a write without a VERIFIED submitter.
         # In `disabled` mode `_resolve_submitter` trusts the body's `submitted_by`, and combined

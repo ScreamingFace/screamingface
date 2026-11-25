@@ -60,7 +60,12 @@ _PUBLISHED_REVISIONS: dict[str, str] = {
     # folder to one local Task package and publish their old revisions (published_revision),
     # so their leaderboard results stay visible.
     "healthbench-worst30": "39cfd96b068f7230",
-    "healthbench-professional": "d8fb037307f35415",
+    # OME-1998: d8fb037307f35415 → 35c7d07e9058f52d, the grading changed in three ways: the
+    # run averages each Case's value after the paper's length adjustment, the judge runs at low
+    # reasoning effort, and a failed Case counts as 0 over all 525 Cases. The revision move is
+    # owner-approved on OME-1998; every Case kept. Old entries need fresh judge calls to return
+    # (the judge request changed, so no re-grade can replay them).
+    "healthbench-professional": "35c7d07e9058f52d",
     # OME-1527: ifeval moved from its hand-built folder to a local Task, its Case ids
     # renumbered 1..541 (owner decision 2), and publishes its old revision (published_revision),
     # so its leaderboard results stay visible.

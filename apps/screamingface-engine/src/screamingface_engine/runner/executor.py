@@ -57,8 +57,13 @@ from screamingface_engine.runner.cache_counters import RunCacheCounters, SavedCo
 from screamingface_engine.runner.summary import RunOutcome, RunSummary
 from screamingface_engine.trace_scope import bind_node_span, run_trace_scope
 from screamingface_engine.world.accounting import PRICING_VERSION, UNPRICED, accumulate
-from screamingface_engine.world.connector import open_frozen_copy, seal_frozen_copy
+from screamingface_engine.world.connector import (
+    key_refusal_as_url4_error,
+    open_frozen_copy,
+    seal_frozen_copy,
+)
 from screamingface_engine.world.factory import WorldFactory, direct_mount_paths
+from screamingface_engine.world.refused_key_stop import refused_key_scope
 from url4.core.errors import ErrorCode, ResolutionError
 from url4.dag import refuse_remote_nodes
 from url4.dag import run as url4_run
@@ -1260,7 +1265,9 @@ class Url4Executor(Executor):
         # INVARIANT (OME-1811, #1450 F1b / §4): an engine run is a node context like
         # `Url4Node.evaluate`, so every url4:// remote-node call fails
         # `x.remote_node_unsupported` (permanent) before any DNS lookup or request.
-        with run_expression_scope(url4):
+        # FEATURE (OME-1989): a run the provider's refusals stopped ends here with one run-level
+        # `provider_key_refused`, raised as the scope closes, never a Report of failed Cases.
+        with run_expression_scope(url4), key_refusal_as_url4_error(), refused_key_scope():
             if trace is not None:
                 body = await refuse_remote_nodes(
                     url4_run(

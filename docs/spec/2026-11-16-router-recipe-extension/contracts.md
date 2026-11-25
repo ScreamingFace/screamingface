@@ -254,7 +254,7 @@ parts, and the inline entry (C13) uses it rather than its own:
    classification port's failure and returns `{"failed": {"code": str, "permanent": bool}}`. Every
    model call of the occurrence sits in an OPEN-gated iterate with `iteration.on_error=collect`, so
    its failure becomes one error row `{"error": {"kind", "message", "code"?, "retryable"?}}`
-   (`packages/url4/src/url4/dag/nodes/_shared.py:162-182`). This differs from E4c on purpose: E4c
+   (`packages/url4/src/url4/dag/nodes/_shared.py:163-183`). This differs from E4c on purpose: E4c
    bodies use `iteration.on_error=fail` (`_evaluation/branch.py:608`), and E4c JOIN accepts only
    text rows (`world/branch.py:788-794`).
 2. **The subset path is one row.** For `select="all"`, the selected candidates' calls, the E4c
@@ -475,8 +475,8 @@ C18 wires each of these positions.
 ```
 
 - `GET /v1/capabilities` on the Engine App, under the same caller auth as `/v1/operators`, returning
-  the document above. If OME-1921 settles a different endpoint or E4c ID before Unit 6, the Unit 6
-  spec moves the Router IDs into it unchanged; otherwise Unit 6 ships this one. The object keys are
+  the document above. If OME-1921 settles a different endpoint or E4c ID before Unit 6, Unit 6
+  moves the Router IDs into it unchanged; otherwise Unit 6 ships this one. The object keys are
   strict; the ID list is open, and readers ignore IDs they do not know.
 - `router-v1` covers C2-C6, C10, the run definition set (C9), the inline entry and envelope (C13), the
   stored-result changes (C15) and the classifier catalog (C17);

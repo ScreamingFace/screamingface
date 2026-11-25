@@ -345,6 +345,7 @@ ALLOWLISTED_CODES = (
     "fail_closed",
     "quorum_not_met",
     "signal_missing",
+    "provider_key_refused",
 )
 
 
