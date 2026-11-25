@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from screamingface_engine.runner.operation_capture import OperationCapturingExecutor
+from screamingface_engine.world import gateway_transport
 from url4.streaming.interfaces import Executor
 from url4.streaming.protocol import LogData
 
@@ -266,6 +267,7 @@ def test_execution_modules_do_not_import_activity():
     src = Path(__file__).resolve().parents[2] / "src/screamingface_engine"
     for path in (
         src / "world/connector.py",
+        src / "world/gateway_transport.py",
         src / "runner/executor.py",
         src / "runner/operation_capture.py",
     ):
@@ -295,7 +297,6 @@ async def test_composition_injects_observer_for_real_model_retry_and_outcome(mon
     import httpx
 
     from screamingface_engine.runner.main import build_executor
-    from screamingface_engine.world import connector
     from screamingface_engine.world.config import AigatewaySection, ModelSpec, WorldConfig
 
     events, requests = [], []
@@ -330,7 +331,7 @@ async def test_composition_injects_observer_for_real_model_retry_and_outcome(mon
             models=(ModelSpec(id="model"),),
         )
     )
-    monkeypatch.setattr(connector, "_transport_backoff", lambda _: 0.0)
+    monkeypatch.setattr(gateway_transport, "_transport_backoff", lambda _: 0.0)
     async with httpx.AsyncClient(
         base_url="http://gateway",
         transport=httpx.MockTransport(respond),

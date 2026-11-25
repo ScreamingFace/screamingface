@@ -47,6 +47,8 @@ from dataclasses import dataclass
 
 from screamingface_engine.benchmarks.contract import OperationOutput
 from screamingface_engine.budget import CallCharge, call_charge
+from screamingface_engine.combine.decision import GateResult
+from screamingface_engine.combine.evidence import ResultRecord
 from screamingface_engine.operation_accounting import SignalAccounting, combine_operation_accounting
 from screamingface_engine.operation_calls import OperationCall
 from url4.core.errors import ParseError
@@ -115,6 +117,30 @@ def attribute_operation_outputs(
     return operations
 
 
+def final_operation(
+    expression: str, operations: Sequence[OperationOutput] | None
+) -> OperationOutput | None:
+    """The attributed operation the expression's result IS, or None.
+
+    The same rule as `final_operation_abstained`: the root intent is exactly `$name` (a Gate
+    block is followed to its JOIN) and exactly one operation is `op_<name>`.
+    """
+
+    if operations is None or (name := _final_reference(expression)) is None:
+        return None
+    matches = [op for op in operations if op.operation_id == f"op_{name}"]
+    return matches[0] if len(matches) == 1 else None
+
+
+def final_operation_abstain_reason(
+    expression: str, operations: Sequence[OperationOutput] | None
+) -> str | None:
+    """The abstain reason of the final operation's combine result or Gate decision result; None
+    when the final operation did not abstain (the chat result's `abstain_reason`)."""
+    result = _abstained_result(final_operation(expression, operations))
+    return None if result is None else result.reason
+
+
 def final_operation_abstained(
     expression: str, operations: Sequence[OperationOutput] | None
 ) -> bool:
@@ -127,15 +153,22 @@ def final_operation_abstained(
     JOIN, whose decision result copies the result of the branch that ran (branch-core D12).
     """
 
-    if operations is None or (name := _final_reference(expression)) is None:
-        return False
-    matches = [op for op in operations if op.operation_id == f"op_{name}"]
-    if len(matches) != 1:
-        return False
-    combine, decision = matches[0].combine, matches[0].decision
-    return (combine is not None and combine.result.status == "abstain") or (
-        decision is not None and decision.result is not None and decision.result.status == "abstain"
+    return _abstained_result(final_operation(expression, operations)) is not None
+
+
+def _abstained_result(final: OperationOutput | None) -> ResultRecord | GateResult | None:
+    """The first abstain result of the final operation: its combine result, then its decision's."""
+
+    if final is None:
+        return None
+    candidates = (
+        None if final.combine is None else final.combine.result,
+        None if final.decision is None else final.decision.result,
     )
+    for result in candidates:
+        if result is not None and result.status == "abstain":
+            return result
+    return None
 
 
 def final_reference(expression: str) -> str | None:
@@ -354,6 +387,8 @@ def _fingerprint(value: object) -> _Fingerprint | None:
 
 __all__ = [
     "attribute_operation_outputs",
+    "final_operation",
+    "final_operation_abstain_reason",
     "final_operation_abstained",
     "final_reference",
     "parsed_iterate_body",

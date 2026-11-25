@@ -71,7 +71,7 @@ def test_prod_cli_serves_the_env_wired_factory(monkeypatch: pytest.MonkeyPatch) 
         recorded["app"] = app
         recorded.update(kwargs)
 
-    monkeypatch.setattr("uvicorn.run", _fake_run)
+    monkeypatch.setattr(cli, "_run_server", _fake_run)
     cli.main([])
 
     assert recorded["app"] == "screamingface_engine.app:create_app_from_env"

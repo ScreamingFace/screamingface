@@ -34,6 +34,11 @@ on:
       - "apps/screamingface-engine/src/screamingface_engine/benchmarks/contract.py"
       - "apps/screamingface-engine/src/screamingface_engine/benchmarks/definition.py"
       - "apps/screamingface-engine/tests/unit/data/corrective_loop_candidate.url4"
+      # the docs snippets and pages that tests/test_model_inference_docs_snippets.py and
+      # tests/test_model_inference_docs_pages.py run and read
+      - "public-docs/src/snippets/chat/**"
+      - "public-docs/src/pages/sf-client/api/ChatPage.vue"
+      - "public-docs/src/pages/sf-client/guides/OpenAiApiPage.vue"
       - ".github/workflows/screamingface-tests.yml"
   pull_request:
     paths:
@@ -68,6 +73,11 @@ on:
       - "apps/screamingface-engine/src/screamingface_engine/benchmarks/contract.py"
       - "apps/screamingface-engine/src/screamingface_engine/benchmarks/definition.py"
       - "apps/screamingface-engine/tests/unit/data/corrective_loop_candidate.url4"
+      # the docs snippets and pages that tests/test_model_inference_docs_snippets.py and
+      # tests/test_model_inference_docs_pages.py run and read
+      - "public-docs/src/snippets/chat/**"
+      - "public-docs/src/pages/sf-client/api/ChatPage.vue"
+      - "public-docs/src/pages/sf-client/guides/OpenAiApiPage.vue"
       - ".github/workflows/screamingface-tests.yml"
   workflow_dispatch:
 

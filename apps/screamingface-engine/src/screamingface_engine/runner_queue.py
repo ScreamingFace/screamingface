@@ -233,6 +233,7 @@ def _env_mapping(
     io_concurrency: int = DEFAULT_IO_CONCURRENCY,
     extra_models: Sequence[str] = (),
     shape: job_env.RunShape = "expression",
+    chat_input: str | None = None,
     capture: bool = False,
     replay_frozen_copy: str | None = None,
     world_digest: str | None = None,
@@ -271,11 +272,12 @@ def _env_mapping(
     # disagree with it, so it writes none, and an unstamped message is what an old worker reads.
     if world_digest is not None:
         env[job_env.WORLD_DIGEST] = world_digest
-    # Written only for a direct run: absent means `expression`, so a default message stays
-    # byte-for-byte what an old worker reads (the drained rollout keeps old workers from ever
-    # seeing a `direct` one — erd.md §10).
-    if shape == "direct":
-        env[job_env.RUN_SHAPE] = "direct"
+    # The shape keys come from job_env.shape_env: absent means `expression`, so a default message
+    # stays byte-for-byte what an old worker reads (the drained rollout keeps old workers from ever
+    # seeing a `direct` one — erd.md §10). A chat run reclaims its subject 5 s after its terminal
+    # frame, as a direct run (erd §1.2).
+    env.update(job_env.shape_env(shape, chat_input))
+    if shape in ("direct", "chat"):
         env[job_env.STREAM_GRACE_S] = str(job_env.DIRECT_STREAM_GRACE_S)
     # E5 P2 spec R15: only a driver-started run carries these, and only it is version 3.
     env.update(job_env.driver_start_env(result_prefix, exclusive))
@@ -295,6 +297,7 @@ def encode_message(
     io_concurrency: int = DEFAULT_IO_CONCURRENCY,
     extra_models: Sequence[str] = (),
     shape: job_env.RunShape = "expression",
+    chat_input: str | None = None,
     capture: bool = False,
     replay_frozen_copy: str | None = None,
     world_digest: str | None = None,
@@ -315,6 +318,7 @@ def encode_message(
             io_concurrency=io_concurrency,
             extra_models=extra_models,
             shape=shape,
+            chat_input=chat_input,
             capture=capture,
             replay_frozen_copy=replay_frozen_copy,
             world_digest=world_digest,

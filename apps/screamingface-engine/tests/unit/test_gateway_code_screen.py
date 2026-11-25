@@ -28,8 +28,8 @@ from screamingface_engine.error_text import ENGINE_RESERVED_CODES
 from screamingface_engine.observations import RunObservations
 from screamingface_engine.request_scope import RequestScope
 from screamingface_engine.world.attachment_parts import INTENT_ERROR, UNSUPPORTED_CONTENT_PART
-from screamingface_engine.world.connector import _raise_for_status
 from screamingface_engine.world.gateway_codes import GATEWAY_CODES
+from screamingface_engine.world.gateway_transport import _raise_for_status
 from url4.core.errors import ResolutionError
 
 _SECRET_ID = "byom_secret_deployment_alpha"

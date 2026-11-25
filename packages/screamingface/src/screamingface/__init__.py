@@ -5,6 +5,7 @@ from screamingface import (
     benchmarks,
     budget,
     cache,
+    chat,
     connections,
     events,
     leaderboards,
@@ -50,6 +51,22 @@ from screamingface._ui.connections import ConnectionPanel
 from screamingface._version import resolve_version
 from screamingface.answer import Answer
 from screamingface.blocks import Extract, matches
+from screamingface.chat_completion import (
+    AsyncChatStream,
+    ChatChoice,
+    ChatChunkChoice,
+    ChatCompletion,
+    ChatCompletionChunk,
+    ChatDelta,
+    ChatDeltaToolCall,
+    ChatFunctionCall,
+    ChatMessage,
+    ChatStream,
+    ChatToolCall,
+    ChatUsage,
+    FinalStep,
+    InferenceInfo,
+)
 from screamingface.classification import Classification, LabelScore
 from screamingface.client import AsyncClient, Client
 from screamingface.connections import AsyncOAuthFlow, Connection, OAuthFlow
@@ -78,6 +95,7 @@ from screamingface.errors import (
 )
 from screamingface.events import Event
 from screamingface.fields import FieldRule
+from screamingface.inference import InferenceEndpoint
 from screamingface.leaderboard import (
     Leaderboard,
     LeaderboardBaseline,
@@ -115,6 +133,7 @@ from screamingface.warnings import (
     DuplicateMembersWarning,
     EvaluationWarning,
     FixedSeedSittingWarning,
+    IgnoredParameterWarning,
     JudgeWriterWarning,
 )
 
@@ -246,6 +265,7 @@ __all__ = [
     "benchmarks",
     "budget",
     "cache",
+    "chat",
     "escalate_if",
     "events",
     "fail",
@@ -255,4 +275,20 @@ __all__ = [
     "leaderboards",
     "models",
     "unanswered",
+    "InferenceEndpoint",
+    "ChatCompletion",
+    "ChatChoice",
+    "ChatMessage",
+    "ChatToolCall",
+    "ChatFunctionCall",
+    "ChatUsage",
+    "ChatCompletionChunk",
+    "ChatChunkChoice",
+    "ChatDelta",
+    "ChatDeltaToolCall",
+    "ChatStream",
+    "AsyncChatStream",
+    "InferenceInfo",
+    "FinalStep",
+    "IgnoredParameterWarning",
 ]

@@ -8,6 +8,59 @@
   were graded (`graded_questions`), so the leaderboard can show "505 / 525 graded" beside the
   score. A fully graded run submits exactly what it did before.
 
+* Each recipe has `chat`, so you can call an ensemble as a chat model with the call path of the
+  OpenAI client: `recipe.chat.completions.create(...)`. `sf.Client().chat` and
+  `sf.AsyncClient().chat` have the same path with `model` as a required keyword
+  (`client.chat.completions.create(model=..., messages=...)`), and the module `sf.chat` is the
+  same for the default client. The model is a recipe, a `sf.Url4`, URL4 text or a gateway model
+  id. The reply has the OpenAI field names (`ChatCompletion`) and the short forms `reply.text`,
+  `reply.tool_calls`, `reply.cost_usd` and `reply.trace_id`. `stream=True` gives a `ChatStream`.
+  With an `AsyncClient`, the call returns an awaitable (an `AsyncChatStream` for a stream).
+  `recipe.chat.endpoint()` and `client.chat.endpoint(model)` give the `base_url`, the `model`
+  and the `headers` for another OpenAI client (`InferenceEndpoint`). A sampling parameter gives
+  an `IgnoredParameterWarning` and is not sent. New public names: `InferenceEndpoint`,
+  `ChatCompletion`, `ChatChoice`, `ChatMessage`, `ChatToolCall`, `ChatFunctionCall`,
+  `ChatUsage`, `ChatCompletionChunk`, `ChatChunkChoice`, `ChatDelta`, `ChatDeltaToolCall`,
+  `ChatStream`, `AsyncChatStream`, `InferenceInfo`, `FinalStep`, `IgnoredParameterWarning`, and
+  the module `chat`. New member: `chat` on each recipe class, on `Client` and on `AsyncClient`.
+
+* `sf.Client` and `sf.AsyncClient` accept the arguments of the OpenAI client, so code that
+  uses chat completions needs a change only in the line that makes the client
+  (`openai.OpenAI(...)` to `sf.Client(...)`). `api_key` is accepted, not kept and not sent.
+  `base_url` is the Engine URL, with or without `/v1`. `timeout` and `max_retries` are the
+  defaults of the chat calls of the client. Each other OpenAI argument is accepted and not used;
+  an argument that is not used gives an `IgnoredParameterWarning`. In `create`, `messages`
+  accepts the message object of a reply (`reply.choices[0].message`), `messages` and `tools`
+  accept each iterable, `timeout` accepts an `httpx.Timeout`, and each other keyword of the
+  OpenAI `create` (`extra_headers`, `extra_query`, `extra_body` and so on) is accepted and
+  not sent. The reply types have `model_dump()`, `model_dump_json()` and
+  `to_json()`, and the OpenAI attributes that the Engine never sets (for example
+  `usage.prompt_tokens_details`) with the value `None`. Not in this change: a map of OpenAI
+  model names, the OpenAI error classes, and the other OpenAI APIs (`client.responses`,
+  `client.embeddings`).
+
+* Tool calls are not available yet. A chat call that declares or uses a tool raises
+  `PlanningError` with the code `tools_not_available`, before a request: `tools` or `functions`
+  with at least one item, a `tool` message, or an assistant message with `tool_calls`.
+  `error.details["param"]` names the place. `tools=[]` and `tools=None` are accepted;
+  `tool_choice` and `function_call` are accepted and not sent. The Engine has the same check for
+  each other client (HTTP 400, `tools_not_available`). The reply types keep `tool_calls`.
+
+* `FinalStep.cached` (a `bool`, `False` by default) is `True` when the gateway cache served
+  the final step. Then the counts of `FinalStep.usage` are 0, by the same rule as the top-level
+  `usage`, so keep the last known context size on a hit. `FinalStep.to_dict()` has the key
+  `cached` only when it is `True`.
+
+* The `timeout` of a chat call is the limit of the full call: the model resolution (the
+  catalogue read and the compile) counts too. When the limit passes before the request, the call
+  raises the error of a client timeout and sends no request. Else the request and its tries get
+  the time that is left. `timeout=None` is unchanged.
+
+* A cancelled stream releases its connection. `AsyncChatStream` releases it on a task cancel,
+  and `ChatStream` on each `BaseException` (for example `KeyboardInterrupt`). `close()` and
+  `aclose()` mark the stream closed only after the release has ended, so a release that did not
+  end runs again at the next call.
+
 * Re-grading accepts `expected_target_revision` on sync and async clients. A catalogue or
   replay result on another revision is refused before submission (`regrade_target_mismatch`).
   The batch verifies returned score evidence and preserves unresolved journal state through

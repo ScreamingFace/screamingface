@@ -16,7 +16,7 @@ from logprobs_support import ANSWERS, REFUSAL, evaluate_panel, panel_candidate, 
 from test_model_activity_stream import activities, publish
 
 from screamingface_engine.benchmarks.contract import decode_candidate_invocation_record
-from screamingface_engine.world import connector
+from screamingface_engine.world import gateway_transport
 
 
 @pytest.fixture
@@ -43,7 +43,7 @@ def failed_codes(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str]]:
         def retry(self, *, attempt: int, delay_seconds: float) -> None:
             return None
 
-    monkeypatch.setattr(connector, "ModelCall", _SpyCall)
+    monkeypatch.setattr(gateway_transport, "ModelCall", _SpyCall)
     return codes
 
 

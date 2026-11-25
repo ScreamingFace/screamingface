@@ -104,7 +104,8 @@ class BlobStore:
             BlobDigestMismatch: `body` does not hash to `sha256` (or `sha256` is malformed).
             BlobTooLarge: `body` exceeds the policy cap.
             BlobUnsupportedMediaType: the bare media type is not on the allowlist.
-            BlobContentMismatch: with `verify_signature`, the bytes are not that type.
+            BlobContentMismatch: with `verify_signature`, the bytes are not that type; or the
+                policy's content check refuses them.
         """
         bare = self._admit(sha256, media_type, body)
         key = f"{scope.key_prefix}/{sha256}"
@@ -143,6 +144,8 @@ class BlobStore:
         if _HEX.fullmatch(sha256) is None or hashlib.sha256(body).hexdigest() != sha256:
             named = sha256 if _HEX.fullmatch(sha256) else "<malformed>"
             raise BlobDigestMismatch(named, at="ingest")
+        if self._policy.content_check is not None and not self._policy.content_check(body):
+            raise BlobContentMismatch(f"the bytes are not a {bare!r} record")
         return bare
 
     def _existing(self, key: str, body: bytes) -> tuple[StoredBlob | None, bool]:
@@ -212,6 +215,17 @@ class BlobStore:
     def sweep(self, ttl_seconds: float, *, now: float | None = None) -> int:
         """Reclaim blobs older than `ttl_seconds` (the artifact TTL — owner decision Q4a)."""
         return self._objects.sweep(ttl_seconds, now=now)
+
+    def delete(self, scope: BlobScope, sha256: str) -> None:
+        """Remove one blob: its metadata first, then its data. An absent blob is not an error."""
+        if _HEX.fullmatch(sha256) is None:
+            return
+        key = f"{scope.key_prefix}/{sha256}"
+        # WHY metadata first: the blob is unreadable from the first delete, so a crash between
+        # the two leaves an orphan for the sweep, never a half-blob.
+        self._backend.delete(f"{key}.json")
+        self._backend.delete(key)
+        _logger.info("blob deleted digest=sha256:%s", sha256)
 
     def _meta(self, key: str, size_bytes: int | None = None) -> StoredBlob | None:
         """The sidecar under `key`, validated against the CLOSED schema; None when absent.

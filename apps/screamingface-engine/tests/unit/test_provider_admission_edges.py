@@ -8,7 +8,7 @@ import httpx
 import pytest
 
 from screamingface_engine.request_scope import RequestScope, request_scope
-from screamingface_engine.world import connector as c
+from screamingface_engine.world import gateway_transport
 from url4.core.errors import ResolutionError
 
 pytestmark = pytest.mark.asyncio
@@ -29,8 +29,8 @@ def reply(kind):
 )
 async def test_shared_attempt_limit_and_unknown_spend_matrix(monkeypatch, first, second):
     calls = []
-    monkeypatch.setattr(c, "_transport_backoff", lambda _: 0)
-    monkeypatch.setattr(c, "_queue_retry_delay", lambda *_: 0)
+    monkeypatch.setattr(gateway_transport, "_transport_backoff", lambda _: 0)
+    monkeypatch.setattr(gateway_transport, "_queue_retry_delay", lambda *_: 0)
 
     async def handler(request):
         calls.append(request)
@@ -41,10 +41,12 @@ async def test_shared_attempt_limit_and_unknown_spend_matrix(monkeypatch, first,
     ) as client:
         if second == "transport" and first != "ok":
             with pytest.raises(ResolutionError) as caught:
-                await c._post_completion(client, headers={}, body={})
+                await gateway_transport._post_completion(client, headers={}, body={})
             assert caught.value.code == "aigateway_transport_error"
         else:
-            response, unknown_spend = await c._post_completion(client, headers={}, body={})
+            response, unknown_spend = await gateway_transport._post_completion(
+                client, headers={}, body={}
+            )
             assert unknown_spend == (first == "transport")
             assert response.status_code == (503 if first != "ok" and second == "queue" else 200)
     assert len(calls) == (1 if first == "ok" else 2)
@@ -63,7 +65,7 @@ async def test_deadline_enforced_even_if_transport_ignores_httpx_timeout():
     ) as client:
         with request_scope(RequestScope(origin="run", deadline=time.monotonic() + 0.03)):
             with pytest.raises(ResolutionError) as caught:
-                await c._post_completion(
+                await gateway_transport._post_completion(
                     client,
                     headers={"x-aigw-execution-timeout-s": "600", "x-aigw-queue-timeout-s": "600"},
                     body={},
@@ -84,14 +86,14 @@ async def test_expired_caller_never_starts_transport():
     ) as client:
         with request_scope(RequestScope(origin="run", deadline=time.monotonic() - 1)):
             with pytest.raises(ResolutionError) as caught:
-                await c._post_completion(client, headers={}, body={})
+                await gateway_transport._post_completion(client, headers={}, body={})
     assert caught.value.code == "aigateway_deadline_exceeded"
     assert calls == []
 
 
 async def test_remaining_budget_is_recomputed_after_queue_retry(monkeypatch):
     calls = []
-    monkeypatch.setattr(c, "_queue_retry_delay", lambda *_: 0.02)
+    monkeypatch.setattr(gateway_transport, "_queue_retry_delay", lambda *_: 0.02)
 
     async def handler(request):
         calls.append(request)
@@ -101,7 +103,7 @@ async def test_remaining_budget_is_recomputed_after_queue_retry(monkeypatch):
         base_url="http://fake", transport=httpx.MockTransport(handler), timeout=0.1
     ) as client:
         with request_scope(RequestScope(origin="run", deadline=time.monotonic() + 1)):
-            await c._post_completion(client, headers={}, body={})
+            await gateway_transport._post_completion(client, headers={}, body={})
     budgets = [float(r.headers["x-aigw-remaining-timeout-s"]) for r in calls]
     assert len(budgets) == 2
     assert budgets[0] - budgets[1] >= 0.015
@@ -129,7 +131,7 @@ async def test_unclassified_503_does_not_trigger_queue_retry(payload):
     async with httpx.AsyncClient(
         base_url="http://fake", transport=httpx.MockTransport(handler)
     ) as client:
-        result, unknown = await c._post_completion(client, headers={}, body={})
+        result, unknown = await gateway_transport._post_completion(client, headers={}, body={})
     assert len(calls) == 1
     assert result.status_code == 503
     assert not unknown

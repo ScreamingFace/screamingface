@@ -15,7 +15,6 @@ from screamingface._client_connections import (
     _AuthListeners,
     _connect_async,
     _connect_sync,
-    _engine_origin,
     _require_secure_connection_origin,
     _scoreboard_origin,
 )
@@ -24,7 +23,7 @@ from screamingface._engine.identity import engine_headers
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
-    from contextlib import AbstractContextManager
+    from contextlib import AbstractAsyncContextManager, AbstractContextManager
     from uuid import UUID
 
     import httpx
@@ -39,6 +38,7 @@ if TYPE_CHECKING:
     from screamingface.connections import AsyncOAuthFlow, Connection, OAuthFlow
     from screamingface.credit import CreditStatus
     from screamingface.events import Event
+    from screamingface.inference import AsyncChat, Chat
     from screamingface.leaderboard import LeaderboardScore
     from screamingface.media import CaseMedia, FetchedMedia
     from screamingface.recipe import Recipe
@@ -54,7 +54,7 @@ DEFAULT_SCOREBOARD_URL = "https://leaderboard.screamingface.ai"
 class Client:
     """A reusable synchronous Client configured for one SF Engine origin."""
 
-    def __init__(
+    def __init__(  # noqa: PLR0915 - the surfaces of the client are built in order
         self,
         *,
         engine_url: str = DEFAULT_ENGINE_URL,
@@ -63,6 +63,11 @@ class Client:
         scoreboard_transport: httpx.BaseTransport | None = None,
         run_transport: SyncRunTransport | None = None,
         save_results: bool = True,
+        base_url: str | httpx.URL | None = None,
+        api_key: object = None,
+        timeout: float | httpx.Timeout | None = None,
+        max_retries: int = 0,
+        **openai_options: Any,
     ) -> None:
         import httpx
 
@@ -75,11 +80,31 @@ class Client:
         from screamingface._engine.catalog import Benchmarks, Models, OperatorCatalogResource
         from screamingface._engine.connections import Connections
         from screamingface._engine.transport import Url4CloudTransport
+        from screamingface._inference.client_options import client_options
         from screamingface._scoreboard.leaderboards import Leaderboards
 
+        # WHY function-level, as each import above: screamingface._inference.request imports
+        # _use_cache_value from this module, so a module-level import is an import cycle.
+        from screamingface.inference import Chat
+
         _require_run_transport(run_transport)
-        self._engine_url = _engine_origin(engine_url)
+        # WHY first: each argument error must come before a warning and before a connection pool
+        # exists (C1.7). client_options checks engine_url and base_url.
         self._scoreboard_url = _scoreboard_origin(scoreboard_url)
+        # AIDEV-NOTE: call client_options directly from __init__ (no helper between): its
+        # warnings name the line of the caller. INVARIANT (D19): api_key is not kept.
+        options = client_options(
+            "Client",
+            engine_url=engine_url,
+            base_url=base_url,
+            api_key=api_key,
+            timeout=timeout,
+            max_retries=max_retries,
+            other=openai_options,
+        )
+        self._engine_url = options.engine_url
+        self._chat_timeout = options.chat_timeout
+        self._chat_max_retries = options.chat_max_retries
         self._closed = False
         self._auth_listeners = _AuthListeners()
         self._access_tokens = _AccessTokenStore()
@@ -115,6 +140,7 @@ class Client:
         )
         self.models: Models = Models(self._http_get, self._engine_url)
         self.benchmarks: Benchmarks = Benchmarks(self._http_get, self._engine_url)
+        self.chat: Chat = Chat(self)
         self._benchmark_resources = BenchmarkResources(self._http)
         self._operator_catalog = OperatorCatalogResource(self._http)
         self.connections: Connections = Connections(self._http_request, self._engine_url)
@@ -773,6 +799,28 @@ class Client:
         self._require_open()
         return self._http.stream("GET", path, headers=headers, timeout=timeout)
 
+    def _engine_post_stream(
+        self,
+        path: str,
+        *,
+        json: Mapping[str, Any],
+        headers: Mapping[str, str],
+        timeout: httpx.Timeout,
+    ) -> AbstractContextManager[httpx.Response]:
+        # WHY replay-safe, unlike `_engine_get` (P15): on `POST /v1/chat/completions` an Access
+        # challenge (302, 401 or 403) always comes before a run exists, because the Engine answers
+        # a scheduled run with 200. So the auth layer may send this POST one more time after the
+        # sign-in. A 408, 429 or 5xx is never sent again here: `self._http` has no retry layer.
+        self._require_open()
+        return self._http.stream(
+            "POST",
+            path,
+            json=json,
+            headers=headers,
+            timeout=timeout,
+            extensions={_REPLAY_SAFE: True},
+        )
+
     def _http_get(self, path: str) -> httpx.Response:
         self._require_open()
         return self._http.get(path, extensions={_REPLAY_SAFE: True})
@@ -811,7 +859,7 @@ class Client:
 class AsyncClient:
     """An asynchronous Client with the same domain interface and result types."""
 
-    def __init__(
+    def __init__(  # noqa: PLR0915 - the surfaces of the client are built in order
         self,
         *,
         engine_url: str = DEFAULT_ENGINE_URL,
@@ -820,6 +868,11 @@ class AsyncClient:
         scoreboard_transport: httpx.AsyncBaseTransport | None = None,
         run_transport: AsyncRunTransport | None = None,
         save_results: bool = True,
+        base_url: str | httpx.URL | None = None,
+        api_key: object = None,
+        timeout: float | httpx.Timeout | None = None,
+        max_retries: int = 0,
+        **openai_options: Any,
     ) -> None:
         import httpx
 
@@ -836,11 +889,30 @@ class AsyncClient:
         )
         from screamingface._engine.connections import AsyncConnections
         from screamingface._engine.transport import AsyncUrl4CloudTransport
+        from screamingface._inference.client_options import client_options
         from screamingface._scoreboard.leaderboards import AsyncLeaderboards
 
+        # WHY function-level: see Client.__init__.
+        from screamingface.inference import AsyncChat
+
         _require_run_transport(run_transport)
-        self._engine_url = _engine_origin(engine_url)
+        # WHY first: each argument error must come before a warning and before a connection pool
+        # exists (C1.7). client_options checks engine_url and base_url.
         self._scoreboard_url = _scoreboard_origin(scoreboard_url)
+        # AIDEV-NOTE: call client_options directly from __init__ (no helper between): its
+        # warnings name the line of the caller. INVARIANT (D19): api_key is not kept.
+        options = client_options(
+            "AsyncClient",
+            engine_url=engine_url,
+            base_url=base_url,
+            api_key=api_key,
+            timeout=timeout,
+            max_retries=max_retries,
+            other=openai_options,
+        )
+        self._engine_url = options.engine_url
+        self._chat_timeout = options.chat_timeout
+        self._chat_max_retries = options.chat_max_retries
         self._closed = False
         self._auth_listeners = _AuthListeners()
         self._access_tokens = _AccessTokenStore()
@@ -878,6 +950,7 @@ class AsyncClient:
         )
         self.models: AsyncModels = AsyncModels(self._http_get, self._engine_url)
         self.benchmarks: AsyncBenchmarks = AsyncBenchmarks(self._http_get, self._engine_url)
+        self.chat: AsyncChat = AsyncChat(self)
         self._benchmark_resources = AsyncBenchmarkResources(self._http)
         self._operator_catalog = AsyncOperatorCatalogResource(self._http)
         self.connections: AsyncConnections = AsyncConnections(self._http_request, self._engine_url)
@@ -1354,6 +1427,27 @@ class AsyncClient:
     def _require_open(self) -> None:
         if self._closed:
             raise RuntimeError("ScreamingFace AsyncClient is closed")
+
+    def _engine_post_stream(
+        self,
+        path: str,
+        *,
+        json: Mapping[str, Any],
+        headers: Mapping[str, str],
+        timeout: httpx.Timeout,
+    ) -> AbstractAsyncContextManager[httpx.Response]:
+        # WHY replay-safe: the same rule as `Client._engine_post_stream` (P15). An Access
+        # challenge comes before a run exists, so one more send after the sign-in is safe. A 408,
+        # 429 or 5xx is never sent again here: `self._http` has no retry layer.
+        self._require_open()
+        return self._http.stream(
+            "POST",
+            path,
+            json=json,
+            headers=headers,
+            timeout=timeout,
+            extensions={_REPLAY_SAFE: True},
+        )
 
     async def _http_get(self, path: str) -> httpx.Response:
         self._require_open()

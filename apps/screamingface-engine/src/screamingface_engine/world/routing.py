@@ -39,9 +39,10 @@ from screamingface_engine.world.classification import (
     ClassificationEndpoint,
     _unique_pairs,
 )
-from screamingface_engine.world.connector import AigatewayConfig, _headers
+from screamingface_engine.world.connector import AigatewayConfig
 from screamingface_engine.world.errors import RunnerRequestError
 from screamingface_engine.world.fusion_context import fusion_picture_messages
+from screamingface_engine.world.gateway_transport import _headers
 from screamingface_engine.world.models.registry import decode_route_id
 from screamingface_engine.world.routing_config import RoutingBranch, RoutingProfile
 

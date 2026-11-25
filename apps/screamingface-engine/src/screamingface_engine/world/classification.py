@@ -30,15 +30,8 @@ from urllib.parse import unquote_to_bytes
 import httpx
 
 from screamingface_engine.request_scope import RequestScope, current_scope
-from screamingface_engine.world.connector import (
-    AigatewayConfig,
-    _GatewayRefusal,
-    _headers,
-    _json_or_raise,
-    _post_completion,
-    _raise_for_status,
-    _report_unpriced_call,
-)
+from screamingface_engine.world import gateway_transport
+from screamingface_engine.world.connector import AigatewayConfig
 from screamingface_engine.world.errors import RunnerRequestError
 
 CLASSIFY_ROUTE = "/classify"
@@ -102,22 +95,21 @@ class ClassificationEndpoint:
             # classifier, and the Gateway's own answer for it would be a plain-text 400.
             raise _not_found()
         headers = {
-            **_headers(scope),
-            "x-aigw-execution-timeout-s": str(self._cfg.timeout_s),
-            "x-aigw-queue-timeout-s": str(self._cfg.admission_timeout_s),
+            **gateway_transport._headers(scope),
+            **gateway_transport.timeout_headers(self._cfg.timeout_s, self._cfg.admission_timeout_s),
         }
         try:
             # WHY the `possibly_billed` mark is dropped: it is recorded for a priced answer, and
             # this call's cost is reported unknown whatever happened to it.
-            response, _ = await _post_completion(
+            response, _ = await gateway_transport._post_completion(
                 self._http_client,
                 headers=headers,
                 body={"model": model, "input": text},
                 path=CLASSIFICATIONS_PATH,
             )
             try:
-                _raise_for_status(response)
-            except _GatewayRefusal as exc:
+                gateway_transport._raise_for_status(response)
+            except gateway_transport._GatewayRefusal as exc:
                 # INVARIANT (E6): an absent, ungranted or chat model ID is one answer with one
                 # message, so a caller cannot tell them apart; the Gateway's text is not relayed.
                 if exc.status == 400 and (
@@ -125,12 +117,12 @@ class ClassificationEndpoint:
                 ):
                     raise _not_found() from None
                 raise
-            return _result(_json_or_raise(response), model)
+            return _result(gateway_transport._json_or_raise(response), model)
         finally:
             # INVARIANT (E8 as amended): once the request is handed over, the classifier may
             # have run and billed, whatever came back, so exactly one unknown-cost record is
             # reported and the run total cannot claim a price. Every refusal above stays silent.
-            _report_unpriced_call(provider, model)
+            gateway_transport._report_unpriced_call(provider, model)
 
 
 def _refuse_mode(scope: RequestScope) -> None:

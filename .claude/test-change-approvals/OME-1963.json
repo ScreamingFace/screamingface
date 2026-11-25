@@ -1,0 +1,178 @@
+{
+  "issue": "OME-1963",
+  "branch": "OME-1963-engine-openai-chat-endpoint",
+  "approver": "IonesioJunior (owner), approved in the chat-endpoint session on 2026-11-17 and 2026-11-18",
+  "date": "2026-11-25",
+  "scope": "Prior-test edits of the OpenAI-compatible chat endpoint on the Engine, and nothing else (42 files). (1) The move of the gateway round trip from world/connector.py to world/gateway_transport.py: tests that patch a moved name now name the new module; no assertion changed. Two tests got one added check each (test_request_scope.py and test_observation_seam.py). (2) The schedule port got the keyword chat_input: six test fakes accept it (tests/unit/_fakes.py, test_answer_seed_threading.py, test_cache_policy_threading.py, test_queue_admission.py, tests/integration/test_e2e_compose_flow.py, test_run_control_resilience.py). (3) test_url4_executor.py: allow-list entries for world/gateway_transport.py, chat/recipe.py, world/chat_turn.py and world/chat_final.py. (4) test_mount_routes.py: two tests use the example mount /v1/benchmarks/data/foo, because /v1/chat/completions is now a real route. (5) test_app_factory.py and test_cli_local_mode.py: three tests replace cli._run_server and not uvicorn.run; no assertion changed. (6) packages/screamingface/tests/public_surface_snapshot.json: the 16 new public names and the module chat of the SDK chat surfaces, and the new member chat of Client, AsyncClient and each recipe class (SDK model inference, contracts C1.6, D13 to D16); lines added, and one changed entry: the class Recipe had no public member (\"members\": {}) and now has the property chat. On 2026-11-24 the owner asked for the one-line change from the OpenAI SDK (SDK model inference, overview section 5.6, contracts C1.7, D18 to D25); the snapshot follows: Client.__init__ and AsyncClient.__init__ get base_url, api_key, timeout, max_retries and **openai_options; each create gets messages and tools as iterables, max_retries None and timeout as httpx.Timeout; each reply type gets model_dump, model_dump_json and to_json, and the OpenAI attributes with the value None (lines added; the changed lines are these signatures).",
+  "reason": "The owner approved the move and its test edits with the spec (proposal P24, spec ledger Q19 to Q21) and the plan (stop point S1, option A: this record at PR-open). The owner approved the allow-list entries during the build, the edits to the three CLI tests on 2026-11-18 (Q34, \"make the edits\"), and the edit to test_mount_routes.py on 2026-11-18 (Q37, \"edit in the tests approved\"). The lists for each unit are in docs/work/2026-11-17-engine-openai-chat-endpoint.md. The SDK snapshot change: the owner approved the SDK model inference spec and plan on 2026-11-18 (test plan §5 names this file as made to change with the surface), and on 2026-11-23 told me to add the SDK commits to this PR. On the same day the owner approved the change to chat on the recipe and on the client (spec section 5.5), which changes the new lines of the snapshot. On 2026-11-25 the owner approved, as answer R3 of review round 2 (\"Yes, all three kinds\"; docs/spec/2026-11-17-engine-openai-chat-endpoint/prd/review-round-2.md, section 0): new hashes for the approved files that main changed before the rebase onto d69e15a58 (the change of this PR to each file is the same as before the rebase); the import line of tests/unit/test_gateway_code_screen.py, a test that main added and that imports a function this PR moved to world/gateway_transport.py (no assertion changed); and the new line of the SDK surface snapshot for FinalStep.cached.",
+  "files": {
+    "apps/screamingface-engine/tests/integration/test_e2e_compose_flow.py": {
+      "base_blob": "94609a5bcd8b832320be35ba7f135c056af6b728",
+      "approved_blob": "67dbe5093205a7e57a63c73c56032ec65891a8b7"
+    },
+    "apps/screamingface-engine/tests/integration/test_gateway_failure_report.py": {
+      "base_blob": "7fdeb9e4419cd3c85cf1080f82d6a708f967cfeb",
+      "approved_blob": "84c4a0278ca6ec6a5e28242c49a23f2227a5e543"
+    },
+    "apps/screamingface-engine/tests/integration/test_run_control_resilience.py": {
+      "base_blob": "de9f36710f27db533707de7f165cab23470e46e2",
+      "approved_blob": "58f31f0dfa28ca609f2158ffa555a04766d99319"
+    },
+    "apps/screamingface-engine/tests/unit/_fakes.py": {
+      "base_blob": "a545e719a3d9a78e2c393030cdd98b392bee0a9a",
+      "approved_blob": "851336750da4f9977e36bba1c41924eda2f1f1eb"
+    },
+    "apps/screamingface-engine/tests/unit/test_admission_report_classification.py": {
+      "base_blob": "fab5425378290231f88dfe5694f39e79216f7988",
+      "approved_blob": "d7b22e0ad0e56f19cdcc9ceccd5bfd6b25c3aa99"
+    },
+    "apps/screamingface-engine/tests/unit/test_admission_transport_policy.py": {
+      "base_blob": "cc864e090355d18297bde6b36658e30d95453846",
+      "approved_blob": "81bff7414b4b5d601d9bf1efa33dfd299a5f1c49"
+    },
+    "apps/screamingface-engine/tests/unit/test_aigateway_connector.py": {
+      "base_blob": "a95788e073b3db6e04a552c2a9e313fb6073922e",
+      "approved_blob": "3c16797b97cbb09f5e09727e3f403eddb29b04db"
+    },
+    "apps/screamingface-engine/tests/unit/test_ambiguous_retry_pricing.py": {
+      "base_blob": "bc4774696fd435cab78a525daa2cc8c4bb73649c",
+      "approved_blob": "56ccea2aa7759b72c53eff1b8c19bdcbc099264d"
+    },
+    "apps/screamingface-engine/tests/unit/test_answer_seed_threading.py": {
+      "base_blob": "93390baf33345591cec56b95991b83b3cabf904c",
+      "approved_blob": "3ccc3fa5b08128ad8ba201bcff56476da118ece0"
+    },
+    "apps/screamingface-engine/tests/unit/test_app_factory.py": {
+      "base_blob": "bda29a73f5d98589fb87a5f71af6ae25a1492009",
+      "approved_blob": "da4b940abee2358b3cd9631345ee0813a1fc5ce4"
+    },
+    "apps/screamingface-engine/tests/unit/test_cache_hit_retry_pricing.py": {
+      "base_blob": "d8835330fbf7fafa7d88f334539ba080773285d5",
+      "approved_blob": "561197b617604ee7d8b05d0092a0219e1696f8f7"
+    },
+    "apps/screamingface-engine/tests/unit/test_cache_policy_threading.py": {
+      "base_blob": "9e8afb1f6701085927f3a79cdd16f2bdd19a8c64",
+      "approved_blob": "341479a479c7bd302d3623915f421a374cbba712"
+    },
+    "apps/screamingface-engine/tests/unit/test_candidate_call_retry.py": {
+      "base_blob": "7d47d6eb6ad97c17382f56f145f105dece12954a",
+      "approved_blob": "aed2d6f6449199014a39b8afb5b098d3e6037813"
+    },
+    "apps/screamingface-engine/tests/unit/test_classification_endpoint.py": {
+      "base_blob": "c707e9ac886f38020caef742e714f55092df6db1",
+      "approved_blob": "020263497cb75c6447ac7d97a653489b497f9062"
+    },
+    "apps/screamingface-engine/tests/unit/test_cli_local_mode.py": {
+      "base_blob": "d3eab852e739fde2761547c4047e7e8f449d754f",
+      "approved_blob": "781f019b727a3e8e0df4d55e627426a3cc84b9e6"
+    },
+    "apps/screamingface-engine/tests/unit/test_combine_wiring.py": {
+      "base_blob": "43f14995e58f237fd553d8ead048485359e01dea",
+      "approved_blob": "55d4d8dc2e2c5571f2bc8e4760be363641f09694"
+    },
+    "apps/screamingface-engine/tests/unit/test_connector_deadline.py": {
+      "base_blob": "a96ca11260d1b2fe3f0469e8afc31058c4398a92",
+      "approved_blob": "77e0d5811f89b56fba4629487af88f1607aed3de"
+    },
+    "apps/screamingface-engine/tests/unit/test_connector_deadline_exceeded.py": {
+      "base_blob": "97e73c2d4625c427d1e105336fc64aea9775073f",
+      "approved_blob": "533a168b1ef0a17eaede945a170d0fc6225b8bb4"
+    },
+    "apps/screamingface-engine/tests/unit/test_frozen_copy_ambiguous.py": {
+      "base_blob": "d309c4b9b6d1268b35908a67021b98e037e6c5a6",
+      "approved_blob": "079092fcd0dbbd8d3dbb09d3e9d219454c1d73ce"
+    },
+    "apps/screamingface-engine/tests/unit/test_frozen_copy_call_key.py": {
+      "base_blob": "9ff39131fd9ef6fcd6aafee78b85ac161880f3d7",
+      "approved_blob": "c41d58cf70f73f0a950c69e41970346fa9ec3a4e"
+    },
+    "apps/screamingface-engine/tests/unit/test_frozen_copy_calls.py": {
+      "base_blob": "08e86a64b3aacf0964f2a3e5c1049151a7221710",
+      "approved_blob": "f46b37b977e9b7575d66e6ae1e1ace7124bff8f8"
+    },
+    "apps/screamingface-engine/tests/unit/test_frozen_copy_replay_accounting.py": {
+      "base_blob": "53d179cab9ff659d1196523a6b716ea54f19befc",
+      "approved_blob": "26e449b542bd098eb0b50811ce007728b28065bc"
+    },
+    "apps/screamingface-engine/tests/unit/test_frozen_copy_replay_unserved.py": {
+      "base_blob": "27fa6c50fafd4177598a32b4bceaca56e237ac79",
+      "approved_blob": "5a58f58837b3bc3b5a85484d2814cab1dc6e2b33"
+    },
+    "apps/screamingface-engine/tests/unit/test_gateway_code_screen.py": {
+      "base_blob": "5a6f5dff1ba6b07d70181e0285fdbf878bad89d6",
+      "approved_blob": "38a11525c40b0655d56e18a6ab2a6811c2e8559a"
+    },
+    "apps/screamingface-engine/tests/unit/test_logprobs_unsupported_observed.py": {
+      "base_blob": "3c4feedfe22784d931da060b341b312e7c7863ce",
+      "approved_blob": "ffd545a29a65cdf851552a5ce8420604ad18ccef"
+    },
+    "apps/screamingface-engine/tests/unit/test_model_activity_stream.py": {
+      "base_blob": "76f0ce98b966779c49d4b9cbb135b72e6b56a3a4",
+      "approved_blob": "594fe7e5a75eca025d1e023807c8ede9c0f50ef3"
+    },
+    "apps/screamingface-engine/tests/unit/test_model_call_lifecycle_logging.py": {
+      "base_blob": "6427267746c667775e87aff4d7617dc3cd6f866f",
+      "approved_blob": "3b13fc05635830b8d7d78c50d592de3caf37d7eb"
+    },
+    "apps/screamingface-engine/tests/unit/test_mount_routes.py": {
+      "base_blob": "d2a5057c27264454d88f363a0e56b4e4fa7a2d46",
+      "approved_blob": "0b960ae3f66f8d1e9e044b003fa7ba470db14555"
+    },
+    "apps/screamingface-engine/tests/unit/test_observation_execution.py": {
+      "base_blob": "93b5b7ba5cdb8d9f208f8af709bb690491b8a347",
+      "approved_blob": "029d301283b17e7da7ec9de0ccb0d925dd5daa4e"
+    },
+    "apps/screamingface-engine/tests/unit/test_observation_seam.py": {
+      "base_blob": "01f415db5a3cbe17518b8808add3fe93fb2cb327",
+      "approved_blob": "2b283c3e42a0dff2b96fa1d2cf1af706d4884bb2"
+    },
+    "apps/screamingface-engine/tests/unit/test_operation_accounting_failure_boundaries.py": {
+      "base_blob": "0d6e558c885b0434b406880889335d97eb7998b7",
+      "approved_blob": "cc963d7f8aff96c6ee11ea0095a4477df39be9e4"
+    },
+    "apps/screamingface-engine/tests/unit/test_provider_admission.py": {
+      "base_blob": "30411b93ebb4acdfdc20058df15920175f805a6d",
+      "approved_blob": "406e0de80a218ef3b7886f7fee67fe821b51a201"
+    },
+    "apps/screamingface-engine/tests/unit/test_provider_admission_edges.py": {
+      "base_blob": "be9aeaa1c57c0df8efcdccf9ce9492fe8de76436",
+      "approved_blob": "4e6c281799368acb758bb3370fce63d90354af85"
+    },
+    "apps/screamingface-engine/tests/unit/test_queue_admission.py": {
+      "base_blob": "522a6cc98af2d6449643d46c7887fc494f921795",
+      "approved_blob": "d120820cec7f58ea2dc1c3fd06c5ba9038901ba3"
+    },
+    "apps/screamingface-engine/tests/unit/test_reply_logprobs_connector.py": {
+      "base_blob": "0140659e3309fffc289d8d8246fcf22c9eafb3bb",
+      "approved_blob": "a0ea629aeed46cd50d1b314a49647cca173b6704"
+    },
+    "apps/screamingface-engine/tests/unit/test_request_scope.py": {
+      "base_blob": "5b33feeb1b06e5930f8af052187358d1c8bbe8cf",
+      "approved_blob": "e3b5e5c5f79239dbc208011c29a0f0e482525bd6"
+    },
+    "apps/screamingface-engine/tests/unit/test_retry_cost_of_intelligence.py": {
+      "base_blob": "3eb0dfd17ba5cbcda2cef57a3aa8e677b74aa21b",
+      "approved_blob": "923038e41ce928eebb0f57253ac9583b7129235c"
+    },
+    "apps/screamingface-engine/tests/unit/test_signal_accounting_connector.py": {
+      "base_blob": "0bc66c95c1bdaefe393e92f9b74f9fcfe23e8b0c",
+      "approved_blob": "aed5bf534a1c6b0c2cce8bf4ec1e2db09815118d"
+    },
+    "apps/screamingface-engine/tests/unit/test_terminal_error_detail.py": {
+      "base_blob": "1001a18151b9e53577501621baff48838428ea9c",
+      "approved_blob": "1f5dc3f35d62325328be7b7de81ef8c450ed3287"
+    },
+    "apps/screamingface-engine/tests/unit/test_unsupported_content_part_refusal.py": {
+      "base_blob": "95b020e4f8ee8c303f090b0698939a20f07683bd",
+      "approved_blob": "ac02d7f1ee6298aab749b3a64fb5549f6ccd8bef"
+    },
+    "apps/screamingface-engine/tests/unit/test_url4_executor.py": {
+      "base_blob": "6424f96fc2c7cccc88b2da6bd7c44b95d1b06081",
+      "approved_blob": "783457f17d0dff3501960fd96b327eb4ec8db674"
+    },
+    "packages/screamingface/tests/public_surface_snapshot.json": {
+      "base_blob": "e5b423b7e322f7c164b2bcadf6d173c12c871c63",
+      "approved_blob": "fd6ccf9f7f09e912842fe5a261144fdd35f7f2e4"
+    }
+  }
+}

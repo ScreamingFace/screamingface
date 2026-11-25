@@ -18,7 +18,7 @@ import httpx
 import pytest
 from frozen_copy_support import Gateway, replay_scope, run_call
 
-from screamingface_engine.world import connector
+from screamingface_engine.world import gateway_transport
 from screamingface_engine.world.accounting import OPENROUTER_CREDIT_UNIT
 from url4.observe import ModelResponse, ObservationEvent, Usage
 
@@ -88,8 +88,8 @@ async def test_a_replay_call_that_needed_a_transport_retry_is_still_priced_at_ze
 ) -> None:
     # A retried LIVE hit is unpriced because the lost attempt may have been billed. A replay
     # attempt can never have been billed, so the retry says nothing about its price.
-    monkeypatch.setattr(connector, "_TRANSPORT_BACKOFF_BASE_S", 0.0)
-    monkeypatch.setattr(connector, "_TRANSPORT_BACKOFF_JITTER_S", 0.0)
+    monkeypatch.setattr(gateway_transport, "_TRANSPORT_BACKOFF_BASE_S", 0.0)
+    monkeypatch.setattr(gateway_transport, "_TRANSPORT_BACKOFF_JITTER_S", 0.0)
     recorder = _Recorder()
 
     _tally, _answer, failure = await run_call(

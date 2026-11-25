@@ -26,7 +26,8 @@ One image ships two modes, and the whole point of that shape is a rule about wha
                   helper) — it compiles the App's route table and imports Starlette, which no
                   Job's cold start should pay for. The serving half imports it freely.
   Shared leaves:  job_env · subjects · adapters.jetstream · request_scope · candidate_scope ·
-                  model_outcomes · observations — importable by BOTH, importing NEITHER.
+                  model_outcomes · observations · chat (the records, wire models, recipe check
+                  and views of POST /v1/chat/completions) — importable by BOTH, importing NEITHER.
   Combine core:   combine — a shared leaf with a hexagonal rule inside it (OME-1289 E4a). Its core
                   defines the ports and runs specs and never imports a plugin or the wiring module
                   (`combine/builtins.py`); a plugin (`combine/operators/*`) imports only the
