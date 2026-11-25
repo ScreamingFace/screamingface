@@ -4,7 +4,8 @@ WHY this file exists: the claim route has no address list (owner decision 2026-1
 must not render the removed variable, and `Settings` must not read it. The scoreboard reaches the
 gateway through one `networkPolicy.allowFrom` element; this file renders that element.
 
-AIDEV-NOTE: needs `helm` on PATH. The skipif guard matches the sibling chart tests.
+AIDEV-NOTE: the tests that render the chart need `helm` on PATH (the `_needs_helm` guard, as in
+the sibling chart tests). The `Settings` and `values.yaml` tests need no helm and always run.
 """
 
 from __future__ import annotations
@@ -27,7 +28,7 @@ _SCOREBOARD_PEER: dict[str, Any] = {
     "podSelector": {"matchLabels": {"app.kubernetes.io/name": "scoreboard"}},
 }
 
-pytestmark = pytest.mark.skipif(shutil.which("helm") is None, reason="helm is not installed")
+_needs_helm = pytest.mark.skipif(shutil.which("helm") is None, reason="helm is not installed")
 
 
 def _render(tmp_path: Path, values: dict[str, Any] | None = None) -> list[dict[str, Any]]:
@@ -53,6 +54,7 @@ def _config_data(tmp_path: Path, values: dict[str, Any] | None = None) -> dict[s
     return config["data"]
 
 
+@_needs_helm
 def test_the_chart_renders_no_claim_address_key(tmp_path):
     data = _config_data(tmp_path)
 
@@ -76,6 +78,7 @@ def test_settings_has_no_claim_address_list(monkeypatch):
     assert "frozen_copy_claim_emails" not in Settings.model_fields
 
 
+@_needs_helm
 def test_a_scoreboard_allow_from_element_renders_as_one_from_element(tmp_path):
     docs = _render(tmp_path, {"networkPolicy": {"allowFrom": [_SCOREBOARD_PEER]}})
     policy = next(

@@ -3,12 +3,12 @@
   "branch": "OME-2038-frozen-copy-claim-no-actor",
   "approver": "Ionesio Junior (owner)",
   "date": "2026-11-25",
-  "scope": "Only the tests that assert the removed caller address: the claim address list (AIGW_FROZEN_COPY_CLAIM_EMAILS, frozenCopyClaimEmails), its 503 (empty list), 401 (no header) and 403 (address not on the list) answers, the list/admin-list separation for claims, and the scoreboard actor (SCOREBOARD_GATEWAY_ACTOR, gatewayActor, the X-User-Email header of the claim). Those assertions are deleted or changed to the new rule; new tests assert the new rule. No other assertion changes.",
+  "scope": "Only the tests that assert the removed caller address: the claim address list (AIGW_FROZEN_COPY_CLAIM_EMAILS, frozenCopyClaimEmails), its 503 (empty list), 401 (no header) and 403 (address not on the list) answers, the list/admin-list separation for claims, and the scoreboard actor (SCOREBOARD_GATEWAY_ACTOR, gatewayActor, the X-User-Email header of the claim). Those assertions are deleted or changed to the new rule; new tests assert the new rule. No other assertion changes. Review fix 2026-11-25: the helm skip of test_chart_render_frozen_copy_claim.py covers only the two tests that render the chart.",
   "reason": "Owner decision 2026-11-25 (spec Q34, answer \"remove it\"): users never reach the gateway, so the claim route checks the peer network only and needs no caller address. The removed behavior cannot be asserted any more.",
   "files": {
     "apps/aigateway/tests/unit/test_chart_render_frozen_copy_claim.py": {
       "base_blob": "5a54a67b6c7c7ed0282873e4104f2c738c9a5fbd",
-      "approved_blob": "08a1bdfc19aa18a7a261d3442eee68d98888fabf"
+      "approved_blob": "527358a95919bad3bdb5d61593fc711dbc2cd383"
     },
     "apps/aigateway/tests/unit/test_frozen_copy_claim.py": {
       "base_blob": "094cb69c1f1094262b68fefa9a05c7f4ff5a99d4",

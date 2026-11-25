@@ -1,6 +1,6 @@
 ---
 ticket: OME-2038
-stack: aigateway
+stack: aigateway, scoreboard   # one unit for two apps: owner decision Q26 (OME-1947)
 status: in_progress
 started: 2026-11-25
 finished:

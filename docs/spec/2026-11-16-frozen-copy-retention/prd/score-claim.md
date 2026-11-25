@@ -297,7 +297,7 @@ The value of `capture_status` in the submit does not change this table. `[stated
 - The scoreboard settings go into `Settings` with the `SCOREBOARD_` prefix
   `[existing apps/scoreboard/src/scoreboard/config.py:37-39]`, the chart `config:` block
   `[existing apps/scoreboard/charts/scoreboard/values.yaml:30-48]` and its ConfigMap template.
-  The chart checks (the three keys are in the ConfigMap; the default URL is empty) go into
+  The chart checks (the two keys are in the ConfigMap; the default URL is empty; no actor key, Q34) go into
   `.github/scripts/verify_chart_wiring.py`. The scoreboard tests have no Helm test and no YAML
   library, and this spec adds none. `[proposed]`
 

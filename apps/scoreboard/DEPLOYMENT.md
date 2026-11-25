@@ -443,8 +443,9 @@ and the pod selector of the scoreboard.
 
 ### Before you set the gateway URL
 
-Release the gateway with the claim route first. A gateway with no claim route answers `404` with
-no code. Then each submit with a pinned cache gets `503`.
+Release the gateway with the claim route first, at a version with OME-2038 (the claim route needs
+no caller address). A gateway with no claim route answers `404` with no code. Then each submit with
+a pinned cache gets `503`.
 
 Then do step 1 of the release checks. From a scoreboard pod, send a claim for a random UUID:
 
@@ -458,7 +459,9 @@ print(r.status_code, r.text)' "$GATEWAY_URL"
 The answer must be `404` with `frozen_copy_not_found`. This answer proves the URL, the
 NetworkPolicy and the trusted networks of the gateway.
 A `403` means that the gateway does not trust the peer. Examine the NetworkPolicy and the network
-lists of the gateway. A `503` means that the gateway runs in `jwt` mode, where the claim route is off.
+lists of the gateway. A `503` in `jwt` mode means that the claim route is off. A `401`, or a `503` in `cloudflare_headers`
+mode, means that the gateway is older than OME-2038: it still wants a caller address that this
+scoreboard does not send. Release the gateway first.
 Do not set `gatewayUrl` until the answer is correct.
 
 ### What a submit gets

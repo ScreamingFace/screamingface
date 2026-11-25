@@ -19,6 +19,9 @@ the address protected nothing.
 
 - 2026-11-25: owner decision (spec Q34): remove the address. The claim route checks the peer
   network only. Filed as a `bug` sub-issue of OME-1947 (Triage, unassigned, Irina + Kevin tagged).
+- One issue for two apps (aigateway and scoreboard): the owner decision Q26 of the OME-1947 spec
+  ("all under OME-1947: no sub-issue for each app") covers this follow-up. Linear allows one
+  component label, so the label is `aigateway`; the scoreboard part is in the same pull request.
 - Ledger: `docs/work/2026-11-25-frozen-copy-claim-no-actor.md`.
 - Infrastructure: OpenMined/infrastructure#2531 (NetworkPolicy only).
 - 2026-11-25: pull request https://github.com/ScreamingFace/screamingface/pull/2064 (branch
