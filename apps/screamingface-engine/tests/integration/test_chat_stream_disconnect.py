@@ -180,7 +180,11 @@ def test_real_asgi_disconnect_during_stream_stops_run_and_deletes_blob(served: S
         with client.stream("POST", served.url, json=_request(), headers=HEADERS) as resp:
             assert resp.status_code == 200
             assert resp.headers["content-type"].startswith("text/event-stream")
-            assert _first_keep_alive(resp.iter_lines()), "the stream sent no keep-alive line"
+            # WHY a name for the iterator: when the last reference to it goes, Python closes the
+            # generator, and httpcore then closes the connection. The server would see the client
+            # leave before the next line checks the stored input (seen as a CI failure two times).
+            lines = resp.iter_lines()
+            assert _first_keep_alive(lines), "the stream sent no keep-alive line"
             assert served.objects.keys(), "the chat input was not stored while the run works"
         # INVARIANT: leaving both blocks closes the unfinished response and the TCP connection.
 

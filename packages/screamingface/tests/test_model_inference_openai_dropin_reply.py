@@ -228,7 +228,10 @@ def test_openai_attributes_that_the_engine_never_sets_are_none() -> None:
             # C1.7: not a dataclass field, so the constructor and to_dict() do not change.
             assert name not in {field.name for field in dataclasses.fields(cls)}
             assert name not in by_type[cls].to_dict()
-            with pytest.raises(AttributeError):
+            # WHY TypeError too: on Python 3.12 the __setattr__ that dataclasses makes for a
+            # frozen class with slots raises TypeError for a name that is not a field (its super()
+            # call names the class from before the slots copy); 3.13 raises AttributeError.
+            with pytest.raises((AttributeError, TypeError)):
                 setattr(by_type[cls], name, 1)
     assert all(not hasattr(item, "__dict__") for item in by_type.values())
 

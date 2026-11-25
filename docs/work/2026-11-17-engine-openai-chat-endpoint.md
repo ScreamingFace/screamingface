@@ -661,11 +661,28 @@ refusal with no switch; the tool code stays. PRD `tool-calls.md` §0, scenario T
 - **Commits (local):** `bd8c45bfa` (import line), `7a6b0d7c3` (spec, plan), `a847415ba` (chat
   route), `8db7dd9a2` (blob files), `2f1651ae6` (CI paths), `28a1181e1` (SDK), `67faf66a9` (docs).
 - **Gates on `67faf66a9`:** `screamingface-engine`, `screamingface`, `repo` and the
-  `public-docs` build: ALL GREEN with `--skip-append-only`. The gates with no skip wait for the
-  approval record.
+  `public-docs` build: ALL GREEN with `--skip-append-only`. The gates with no skip ran after the
+  approval record was applied (see "Push" below).
 - **Deviations:** the commits are by area, not one for each unit (plan D1): units U-B, U-C and
   U-E change the same files. The approval record: the permission check of my session refused my
   write two times, the second time after owner answer R3, so I made the new record as a file outside the
   repo for the owner to apply (8 changed entries: 7 new hash pairs and 1 new entry).
 - **Venv facts:** the SDK gate needs `uv sync --locked --extra notebook`; the Engine gate needs
   `uv sync --dev --locked` again after a build run (pyright errors in `tests/unit/inspect`).
+- **Push (2026-11-25):** the owner applied the approval record with his own command (commit
+  `11351c261`). The gates with no skip passed (Engine, SDK, repo), and the push with lease
+  replaced `bc52c404a`. The PR body has the section "Review round 2", and one reply to the
+  reviewer lists each item.
+- **First CI run on `11351c261`: two test defects, no product defect.**
+  1. SDK, Python 3.12 only: `test_openai_attributes_that_the_engine_never_sets_are_none`. On
+     3.12 the `__setattr__` that `dataclasses` makes for a frozen class with slots raises
+     `TypeError` for a name that is not a field; 3.13 raises `AttributeError`. The test now
+     accepts both. CI did not run on the push of 2026-11-24 (the PR had a conflict), so this
+     came out only now.
+  2. Engine: `test_real_asgi_disconnect_during_stream_stops_run_and_deletes_blob` failed in one
+     of two runs of the same commit. Cause found: the test gave `resp.iter_lines()` to a helper
+     with no name for it, so Python closed the generator when the helper returned, and httpcore
+     then closed the connection. The server saw the client leave before the test checked the
+     stored input. The iterator now has a name. This is the cause of the flake of 2026-11-24 too.
+- **Gate fact:** do not run the Engine gate at the same time as the SDK and repo gates. A
+  parallel run put the `inspect` extra into the Engine venv, and two import tests failed.
