@@ -52,6 +52,10 @@ header, the revisions endpoint) is removed from the stack. There is no publish s
 | Q30 | Tavily retrieval cache (found in the review) | The cache key includes the caller's account. Cross-account sharing stops until the engine has a service identity. |
 | Q31 | Capture default (2026-10-29) | Reverses Q22. Capture is off by default; it is on only when the caller passes `capture=True`. |
 | Q32 | Exact replay is not partial (2026-10-29, OME-1775) | Narrows Q27's "no outcome is forgiven". A no-answer outcome (`error`, or `failed`/`refused`/`missing` on a non-2xx last response) is not counted when every Candidate/Attempt has a supported deterministic failure (`model_token_cap` only), the copy contains a matching stored failure response at that call's case/attempt key, and no later call of the same lane, digest and case key gave an answer. Unknown, temporary and time-based failures stay strict (2026-11-05 blocking-review correction). A `max-age` re-issue with a 2xx last response takes that response's status. A connect-phase transport failure is `error`, not `ambiguous`. Every other outcome keeps Q27. Spec: `docs/spec/2026-10-29-OME-1775-cancelled-call-not-partial.md` §4. |
+| Q33 | Retention (2026-11-16) | Reverses E14 Q15. A copy that a Score claims is kept forever. A sealed copy with no claim is deleted 30 days after its clock starts (90 days until owner decision Q33 of the spec, 2026-11-23). Spec: `docs/spec/2026-11-16-frozen-copy-retention`. |
+| Q34 | Open copies (2026-11-16) | An open copy that gets no entry for 24 hours is abandoned, and its entries are deleted. A replay never read an open copy. |
+| Q35 | Clock of copies sealed before the rule (2026-11-16) | Their 30 days start when the rule goes live, not at their seal. The release writes that time into the database; no setting holds it. The public docs name no date. |
+| Q36 | Notice to users (2026-11-16) | Public docs and the error message only. No SDK change. |
 
 ## 3. Data model (AI Gateway, new)
 
@@ -86,8 +90,10 @@ Core module `aigateway.core.frozen_copy` (registered in the Tortoise model list)
 | `created_at` | datetime | For information only. The clock is never the order. |
 
 Invariants:
-- **F1.** Rows are insert-only. A sealed copy accepts no insert.
-- **F2.** Copies and rows are kept forever (Q15). No list endpoint returns stored requests.
+- **F1.** Capture only inserts rows; no code updates a row. Only an `open` copy accepts an insert. Only the
+  retention sweep deletes rows, and only rows of a copy that is `abandoned` or `expired`.
+- **F2.** A copy that a Score claims is kept forever. Other copies follow the retention rules of
+  `docs/spec/2026-11-16-frozen-copy-retention`. No list endpoint returns stored requests.
 - **F3.** One entry is at most `frozen_copy_max_entry_bytes` (request plus response JSON). Its default is
   `max_request_bytes` plus a 2 MiB response headroom, 14 MiB with the 12 MiB request cap (OME-1756; it was
   2,000,000 bytes, which refused picture Cases). That fits every picture Case we run (MMMU's largest is

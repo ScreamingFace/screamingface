@@ -207,9 +207,11 @@ The ranked projection of a Leaderboard Score shown on a Leaderboard.
 _Avoid_: Score Submission
 
 **Pinned Cache**:
-The permanent record of every model answer and web-tool result of one captured run. The AI gateway
-keeps it separately from the ordinary cache, and the Engine seals it when the run ends. The SDK
-exposes its id as `pinned_cache`; internal APIs and saved reports retain `frozen_copy_id`.
+The record of every model answer and web-tool result of one captured run. It is kept while a
+hosted Leaderboard Score names it; if none names it, the AI gateway deletes it 30 days after it is
+sealed. The AI gateway keeps it separately from the ordinary cache, and the Engine seals it when
+the run ends. The SDK exposes its id as `pinned_cache`; internal APIs and saved reports retain
+`frozen_copy_id`.
 _Avoid_: Frozen Copy in user-facing copy, snapshot, cache version
 
 **Capture Status**:

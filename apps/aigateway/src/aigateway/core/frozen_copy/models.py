@@ -3,8 +3,11 @@
 FEATURE: E14 reproducible submission. A copy is opened by the run's account, filled while the run
 captures, then sealed. Replay reads only sealed copies. Design: 02-frozen-copy-design.md §3.
 
-INVARIANT (F1): entries are insert-only, and a sealed copy accepts no insert.
-INVARIANT (F2): copies and entries are kept forever; no endpoint lists stored requests.
+INVARIANT (F1): capture only inserts entries, and no code updates an entry. Only an `open` copy
+accepts an insert. Only the retention sweep deletes entries, and only those of a copy that is
+`abandoned` or `expired`.
+INVARIANT (F2): a copy that a Score claims is kept forever. Other copies follow the retention rules
+of docs/spec/2026-11-16-frozen-copy-retention. No endpoint lists stored requests.
 """
 
 from __future__ import annotations
