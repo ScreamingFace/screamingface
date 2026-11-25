@@ -304,11 +304,11 @@ def _info(value: object) -> InferenceInfo:
 
 def _final_step(value: object) -> FinalStep:
     raw = _mapping(value, "final step")
-    usage = raw.get("usage")
     return FinalStep(
         binding=_text(raw, "binding", "final step"),
         model=_text(raw, "model", "final step"),
-        usage=None if usage is None else _usage(usage),
+        usage=None if raw.get("usage") is None else _usage(raw["usage"]),
+        cached=raw.get("cached") is True,
     )
 
 

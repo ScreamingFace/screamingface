@@ -46,6 +46,21 @@
   `tool_choice` and `function_call` are accepted and not sent. The Engine has the same check for
   each other client (HTTP 400, `tools_not_available`). The reply types keep `tool_calls`.
 
+* `FinalStep.cached` (a `bool`, `False` by default) is `True` when the gateway cache served
+  the final step. Then the counts of `FinalStep.usage` are 0, by the same rule as the top-level
+  `usage`, so keep the last known context size on a hit. `FinalStep.to_dict()` has the key
+  `cached` only when it is `True`.
+
+* The `timeout` of a chat call is the limit of the full call: the model resolution (the
+  catalogue read and the compile) counts too. When the limit passes before the request, the call
+  raises the error of a client timeout and sends no request. Else the request and its tries get
+  the time that is left. `timeout=None` is unchanged.
+
+* A cancelled stream releases its connection. `AsyncChatStream` releases it on a task cancel,
+  and `ChatStream` on each `BaseException` (for example `KeyboardInterrupt`). `close()` and
+  `aclose()` mark the stream closed only after the release has ended, so a release that did not
+  end runs again at the next call.
+
 * Re-grading accepts `expected_target_revision` on sync and async clients. A catalogue or
   replay result on another revision is refused before submission (`regrade_target_mismatch`).
   The batch verifies returned score evidence and preserves unresolved journal state through

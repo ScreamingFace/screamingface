@@ -9,12 +9,15 @@ them, so the IgnoredParameterWarning names the line of the caller (see _CALLER_S
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable, Coroutine, Mapping
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit
 
 from screamingface import _default_client
+from screamingface._inference import transport
+from screamingface._inference.error_map import client_timeout
 from screamingface._inference.request import (
     ChatCall,
     ModelSource,
@@ -29,6 +32,7 @@ from screamingface._inference.request import (
     refuse_tool_use,
     timeout_seconds,
 )
+from screamingface._inference.trace import new_trace_context
 from screamingface._inference.transport import (
     open_chat_stream,
     open_chat_stream_async,
@@ -108,6 +112,21 @@ def _limits(
     )
 
 
+def _time_left(limit: float | None, started: float) -> float | None:
+    """The part of the call limit that is left after the model resolution (contracts C1 P11).
+
+    The limit is the limit of the full call, so the catalogue read and the compile count.
+    """
+
+    if limit is None:
+        return None
+    left = limit - (transport._clock() - started)
+    if left <= 0:
+        # WHY: the limit passed before the request, so no request is sent.
+        raise client_timeout(new_trace_context().trace_id)
+    return left
+
+
 def create_sync(
     client: Client | None,
     model: object,
@@ -127,6 +146,8 @@ def create_sync(
     ``client`` None means the default client at this time (D14, D15). The SDK takes it after
     the argument checks. The call blocks and returns the reply, or a ChatStream when ``stream``
     is True.
+
+    The timeout counts the catalogue read and the compile.
     """
 
     source, build = _checked(
@@ -148,8 +169,10 @@ def create_sync(
     # INVARIANT: a closed client raises its RuntimeError before a request and before the
     # catalogue load.
     client._require_open()
+    max_tries, limit = _limits(client, max_retries, timeout)
+    started = transport._clock()
     text = model_text(source, client._operator_catalog.load)
-    call = build(text, *_limits(client, max_retries, timeout))
+    call = build(text, max_tries, _time_left(limit, started))
     if stream:
         return open_chat_stream(client._engine_post_stream, client.engine_url, call)
     return send_chat(client._engine_post_stream, client.engine_url, call)
@@ -173,6 +196,8 @@ def create_async(
 
     WHY a coroutine from a plain def (C1.2, MI-24): each argument error and a closed client are
     raised by this call; only the catalogue, network and Engine errors come at the await.
+
+    The timeout counts the catalogue read and the compile.
     """
 
     source, build = _checked(
@@ -204,11 +229,26 @@ async def _create_async(
 ) -> ChatCompletion | AsyncChatStream:
     """The async half of create_async: the catalogue load, the compile and the send (C1.2)."""
 
-    text = await model_text_async(source, client._operator_catalog.load)
-    call = build(text, *_limits(client, max_retries, timeout))
+    max_tries, limit = _limits(client, max_retries, timeout)
+    started = transport._clock()
+    text = await _resolve_async(client, source, limit)
+    call = build(text, max_tries, _time_left(limit, started))
     if stream:
         return await open_chat_stream_async(client._engine_post_stream, client.engine_url, call)
     return await send_chat_async(client._engine_post_stream, client.engine_url, call)
+
+
+async def _resolve_async(client: AsyncClient, source: ModelSource, limit: float | None) -> str:
+    """The model text of an async call, stopped at the call limit (RR-S18)."""
+
+    scope = asyncio.timeout(limit)
+    try:
+        async with scope:
+            return await model_text_async(source, client._operator_catalog.load)
+    except TimeoutError:
+        if not scope.expired():
+            raise
+    raise client_timeout(new_trace_context().trace_id) from None
 
 
 def endpoint_sync(client: Client | None, model: object) -> InferenceEndpoint:

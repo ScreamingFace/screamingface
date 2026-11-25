@@ -838,8 +838,9 @@
       "FinalStep": {
         "kind": "class",
         "members": {
-          "__init__": "method (self, *, binding: 'str', model: 'str', usage: 'ChatUsage | None') -> None",
+          "__init__": "method (self, *, binding: 'str', model: 'str', usage: 'ChatUsage | None', cached: 'bool' = False) -> None",
           "binding": "field",
+          "cached": "field",
           "model": "field",
           "model_dump": "method (self, *, exclude_none: 'bool' = False) -> 'dict[str, object]'",
           "model_dump_json": "method (self, *, indent: 'int | None' = None, exclude_none: 'bool' = False) -> 'str'",

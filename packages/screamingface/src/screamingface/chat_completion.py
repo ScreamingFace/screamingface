@@ -90,20 +90,29 @@ class ChatDeltaToolCall(OpenAIDump):
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class FinalStep(OpenAIDump):
-    """The model step that ended the run, as the screamingface ``final_step`` (contracts C1.3)."""
+    """The model step that ended the run, as the screamingface ``final_step`` (contracts C1.3).
+
+    usage holds the counts of the final call. On a gateway cache hit the counts are 0, the same
+    rule as the top-level usage, and cached is True. A client keeps its last known context size
+    on a hit.
+    """
 
     binding: str
     model: str
     usage: ChatUsage | None
+    cached: bool = False
 
     def to_dict(self) -> dict[str, object]:
-        """The final step as a new JSON-ready dict."""
+        """The final step as a new JSON-ready dict. The key ``cached`` is there only when True."""
 
-        return {
+        out: dict[str, object] = {
             "binding": self.binding,
             "model": self.model,
             "usage": self.usage.to_dict() if self.usage is not None else None,
         }
+        if self.cached:
+            out["cached"] = True
+        return out
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -322,7 +331,7 @@ class ChatStream:
     Iterate it to get each ChatCompletionChunk in the order of the Engine. It is a context
     manager. The stream closes its connection at the end of the chunks, at an error, at close(),
     at the exit of a with block and when Python frees it. The SDK makes the stream; do not make
-    one yourself.
+    one yourself. A BaseException, such as KeyboardInterrupt, also closes the connection.
 
     The Engine sends a buffered stream: the first chunk comes when the run has ended, and then
     all chunks come at one time. It is not a token stream.
@@ -341,9 +350,10 @@ class ChatStream:
     def __next__(self) -> ChatCompletionChunk:
         if self._closed:
             raise StopIteration
+        # WHY BaseException: an interrupt is not an Exception, but the connection must close.
         try:
             chunk = next(self._chunks, None)
-        except Exception:
+        except BaseException:
             self.close()
             raise
         if chunk is None:
@@ -356,8 +366,9 @@ class ChatStream:
 
         if self._closed:
             return
-        self._closed = True
+        # WHY: the flag is set after the release, so a release that did not end runs again.
         self._close()
+        self._closed = True
 
     def __enter__(self) -> Self:
         return self
@@ -376,7 +387,8 @@ class AsyncChatStream:
 
     Iterate it with ``async for`` to get each ChatCompletionChunk in the order of the Engine.
     It is an async context manager. The stream closes its connection at the end of the chunks,
-    at an error, at aclose(), and at the exit of an ``async with`` block.
+    at an error, at aclose(), and at the exit of an ``async with`` block. A cancel also
+    closes the connection.
     WHY no close when Python frees it: the close needs an await. asyncio closes the open
     connection later through its hooks for async generators. Use ``async with`` or aclose() to
     close it at once.
@@ -402,9 +414,10 @@ class AsyncChatStream:
     async def __anext__(self) -> ChatCompletionChunk:
         if self._closed:
             raise StopAsyncIteration
+        # WHY BaseException: a task cancel is one, and the connection must still be released.
         try:
             chunk = await anext(self._chunks, None)
-        except Exception:
+        except BaseException:
             await self.aclose()
             raise
         if chunk is None:
@@ -417,8 +430,10 @@ class AsyncChatStream:
 
         if self._closed:
             return
-        self._closed = True
+        # WHY: closed only when the release ended, so a cancelled release runs again at the next
+        # aclose().
         await self._aclose()
+        self._closed = True
 
     async def __aenter__(self) -> Self:
         return self
