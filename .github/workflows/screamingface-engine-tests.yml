@@ -18,6 +18,9 @@ on:
       - "apps/aigateway/src/aigateway/config.py"
       # the SDK flow operator fixture that tests/unit/test_sdk_flow_catalog_fixture.py binds
       - "packages/screamingface/tests/_combine_flow_fixtures.py"
+      # the SDK surface files that tests/unit/test_chat_recipe_check.py and _chat_corpus.py read
+      - "packages/screamingface/tests/data/surface_parity.json"
+      - "packages/screamingface/src/screamingface/_operation_bindings.py"
       # the chat docs page and its snippets that tests/unit/test_chat_docs_page.py and the docs example tests read
       - "public-docs/src/pages/sf-client/guides/OpenAiApiPage.vue"
       - "public-docs/src/snippets/openai-chat/**"
@@ -40,6 +43,9 @@ on:
       - "apps/aigateway/src/aigateway/config.py"
       # the SDK flow operator fixture that tests/unit/test_sdk_flow_catalog_fixture.py binds
       - "packages/screamingface/tests/_combine_flow_fixtures.py"
+      # the SDK surface files that tests/unit/test_chat_recipe_check.py and _chat_corpus.py read
+      - "packages/screamingface/tests/data/surface_parity.json"
+      - "packages/screamingface/src/screamingface/_operation_bindings.py"
       # the chat docs page and its snippets that tests/unit/test_chat_docs_page.py and the docs example tests read
       - "public-docs/src/pages/sf-client/guides/OpenAiApiPage.vue"
       - "public-docs/src/snippets/openai-chat/**"
