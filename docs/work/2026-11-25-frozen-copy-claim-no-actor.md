@@ -1,5 +1,5 @@
 ---
-ticket: unfiled
+ticket: OME-2038
 stack: aigateway
 status: in_progress
 started: 2026-11-25
