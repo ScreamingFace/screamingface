@@ -179,7 +179,7 @@ class ChatCompletionRequest(_Wire):
     tools: list[ToolSpec] | None = None
     stream: bool = False
     stream_options: StreamOptions | None = None
-    n: int | None = None
+    n: int | None = Field(default=None, ge=1)
     logprobs: bool | None = None
     modalities: list[str] | None = None
     audio: dict[str, Any] | None = None
@@ -218,6 +218,8 @@ class FinalStepInfo(_Out):
     binding: str
     model: str
     usage: Usage | None = None
+    # WHY: RR-S14, the key is absent on a miss.
+    cached: bool | None = Field(default=None, exclude_if=lambda value: value is None)
 
 
 class ScreamingFaceInfo(_Out):
@@ -226,6 +228,9 @@ class ScreamingFaceInfo(_Out):
     cost_usd: str | None = None
     trace_id: str | None = None
     final_step: FinalStepInfo | None = None
+    ignored_parameters: list[str] | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
 
 
 class ChatCompletionResponse(_Out):

@@ -41,7 +41,7 @@ ARTIFACT = ResultArtifact(id="ab" * 32, size_bytes=10, sha256="ab" * 32)
 # (run status, terminal code, permanent, HTTP status, error code, x-should-retry, Retry-After)
 TERMINAL_ROWS = [
     ("failed", "fail_closed", True, 422, "fail_closed", "false", None),
-    ("failed", "chat_input_unavailable", False, 500, "chat_input_unavailable", "false", None),
+    ("failed", "chat_input_unavailable", False, 503, "chat_input_unavailable", "true", "5"),
     ("failed", "chat_input_invalid", True, 500, "chat_input_invalid", "false", None),
     ("failed", "final_step_ambiguous", True, 502, "final_step_ambiguous", "false", None),
     ("failed", "quorum_not_met", True, 502, "quorum_not_met", "false", None),

@@ -8,6 +8,8 @@ from fastapi import FastAPI
 from fastapi.openapi.utils import get_openapi
 
 from screamingface_engine.auth import Problem
+from screamingface_engine.rest.chat_openapi import set_chat_security
+from screamingface_engine.rest.runs_boundary import requires_identity
 from screamingface_engine.schemas.protocol_schemas import protocol_component_schemas
 
 API_DESCRIPTION = """\
@@ -199,6 +201,9 @@ def customize_openapi(app: FastAPI) -> None:
             operation = schema.get("paths", {}).get("/", {}).get(method)
             if operation is not None:
                 operation["security"] = [{"URL4Capability": []}]
+        # WHY the shared rule: the chat operation names the Access header when the App asks for a
+        # verified identity (rest/runs_boundary.requires_identity).
+        set_chat_security(schema, hosted=requires_identity(app))
         app.openapi_schema = schema
         return schema
 

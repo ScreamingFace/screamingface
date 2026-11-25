@@ -9,8 +9,9 @@ request through the ASGI transport.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Iterator, Mapping
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any, Literal, cast
@@ -206,19 +207,28 @@ class ScriptedRunner:
         conflict: bool = False,
         stop_delay_s: float = 0.0,
         stop_error: Exception | None = None,
+        schedule_gate: asyncio.Event | None = None,
     ) -> None:
         self._stream, self._script, self._objects = stream, script, objects
         self._full, self.retry_after_s, self._queue_down = full, retry_after_s, queue_down
         self._conflict, self._stop_delay_s = conflict, stop_delay_s
         self._stop_error = stop_error
+        self._schedule_gate = schedule_gate
         self.attempted: list[str] = []
         self.scheduled: list[dict[str, Any]] = []
         self.stopped: list[str] = []
+        self.plain_stops: list[str] = []
+        self.bound_stops: list[str] = []
+        self.open_attempts: set[str] = set()
+        self.in_attempt: list[bool] = []
         self.inputs: list[dict[str, bytes]] = []
 
     async def schedule(self, topic: str, url4: str, deadline_s: int, **kwargs: Any) -> str:
         """Queues one run; plays its script onto the stream when one is set."""
         self.attempted.append(topic)
+        self.in_attempt.append(topic in self.open_attempts)
+        if self._schedule_gate is not None:
+            await self._schedule_gate.wait()
         if self._full:
             raise JobRunnerAtCapacity(4, 4, retry_after_s=self.retry_after_s)
         if self._queue_down:
@@ -233,6 +243,16 @@ class ScriptedRunner:
         return f"job-{topic}"
 
     async def stop(self, topic: str) -> None:
+        """Records a plain stop of the topic."""
+        self.plain_stops.append(topic)
+        await self._record_stop(topic)
+
+    async def stop_bound(self, topic: str) -> None:
+        """Records a bound stop of the topic."""
+        self.bound_stops.append(topic)
+        await self._record_stop(topic)
+
+    async def _record_stop(self, topic: str) -> None:
         """Records a stop; waits `stop_delay_s` first when set, then raises `stop_error` if set."""
         if self._stop_delay_s:
             await asyncio.sleep(self._stop_delay_s)
@@ -247,6 +267,15 @@ class ScriptedRunner:
     async def status(self, topic: str) -> str:
         """Every run reports as running."""
         return "running"
+
+    @contextlib.contextmanager
+    def start_attempt(self, topic: str) -> Iterator[None]:
+        """Marks the topic as in an open attempt while the block runs."""
+        self.open_attempts.add(topic)
+        try:
+            yield
+        finally:
+            self.open_attempts.discard(topic)
 
 
 class LookupSource:

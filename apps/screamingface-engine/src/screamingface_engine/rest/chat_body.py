@@ -1,10 +1,12 @@
 """Stages 1 to 3 of POST /v1/chat/completions: media type, body read, validation and checks.
 
 The route declares no body parameter, so it reads the body itself with a running cap
-(CC-S35) and answers each refusal in the OpenAI envelope. At most four bodies above 1,000,000
-bytes are in the read-and-parse phase at one time; such a body is parsed in a worker thread, and
-the rest of it must arrive within `_PARSE_PLACE_READ_TIMEOUT_S` once it holds a place. The parsed
-request lives only until its CHAT_INPUT record is encoded, and the record only until its write.
+(CC-S35) and answers each refusal in the OpenAI envelope. Each body must arrive in full within
+`BODY_READ_TIMEOUT_S` (30 s) from its start (RR-S10). At most four bodies above 1,000,000 bytes
+are in the read-and-parse phase at one time; such a body is parsed in a worker thread. When a
+body gets its parse place, the read limit changes: the rest of the body must arrive within
+`_PARSE_PLACE_READ_TIMEOUT_S` from that time. The parsed request lives only until its CHAT_INPUT
+record is encoded, and the record only until its write.
 """
 
 from __future__ import annotations
@@ -32,8 +34,10 @@ from screamingface_engine.chat.wire import (
     UserMessage,
 )
 from screamingface_engine.rest.chat_errors import ChatError
+from screamingface_engine.rest.chat_ignored import ignored_parameters
 
 __all__ = [
+    "BODY_READ_TIMEOUT_S",
     "LARGE_BODY_BYTES",
     "MAX_BODY_BYTES",
     "MAX_MODEL_CHARS",
@@ -44,6 +48,8 @@ __all__ = [
     "read_chat_body",
 ]
 
+# WHY: RR-S10, each body has a total read limit from its start; a body that stalls gets 408.
+BODY_READ_TIMEOUT_S = 30.0
 MAX_BODY_BYTES = 8_000_000
 LARGE_BODY_BYTES = 1_000_000
 MAX_MODEL_CHARS = 32_000
@@ -87,6 +93,7 @@ class ChatBody:
         "_record",
         "digest",
         "has_tools",
+        "ignored_parameters",
         "include_usage",
         "messages",
         "model",
@@ -104,9 +111,11 @@ class ChatBody:
         stream: bool,
         include_usage: bool,
         has_tools: bool,
+        ignored_parameters: tuple[str, ...] = (),
     ) -> None:
         self.model = model
         self.has_tools = has_tools
+        self.ignored_parameters = ignored_parameters
         self.size = size
         self.messages = messages
         self.stream = stream
@@ -192,10 +201,11 @@ async def _capped_body(request: Request, place: _Place) -> bytes:
     if declared is not None and declared.isdigit() and int(declared) > MAX_BODY_BYTES:
         raise _too_large()
     try:
-        async with asyncio.timeout(None) as limit:
+        async with asyncio.timeout(BODY_READ_TIMEOUT_S) as limit:
             return await _read(request, place, limit)
     except TimeoutError:
-        # WHY: only the limit of a request that holds a place can fire here (review F9).
+        # WHY: the total read limit of each body, or the limit of a large body from its parse place
+        # (RR-S10, review F9).
         raise ChatError(408, "request_timeout") from None
     except ClientDisconnect:
         # WHY not an error: the client left during the read, so no blob and no run exist yet.
@@ -220,6 +230,7 @@ async def _read(request: Request, place: _Place, limit: asyncio.Timeout) -> byte
 
 
 def _checked(raw: bytes) -> ChatBody:
+    ignored = ignored_parameters(raw)
     try:
         parsed = ChatCompletionRequest.model_validate_json(raw)
     except ValidationError as exc:
@@ -249,6 +260,7 @@ def _checked(raw: bytes) -> ChatBody:
         include_usage=parsed.stream_options is not None and parsed.stream_options.include_usage,
         # INVARIANT (TC-S13): `tools: []` is no tools.
         has_tools=bool(parsed.tools),
+        ignored_parameters=ignored,
     )
 
 

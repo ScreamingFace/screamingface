@@ -9,9 +9,9 @@ the JSON answer. Each refusal and failure leaves in the OpenAI envelope with fix
 messages (`rest.chat_errors`); no `application/problem+json` body leaves this route, and an
 error that no stage expected leaves as 500 `internal_error` (review F1).
 
-INVARIANT: the input blob is deleted on every exit after its write, and the run is stopped on
-every exit that has no terminal frame (`rest.chat_cleanup`). A streamed answer hands both to
-its response, which runs them at the end of the stream.
+INVARIANT: the input blob is deleted on every exit after its write, and the run is stopped with
+the bound stop on every exit that has no terminal frame (`rest.chat_cleanup`). A streamed answer
+hands both to its response, which runs them at the end of the stream.
 """
 
 from __future__ import annotations
@@ -44,7 +44,12 @@ from screamingface_engine.rest.chat_errors import (
 )
 from screamingface_engine.rest.chat_model import ModelLookupCache, recipe_for
 from screamingface_engine.rest.chat_observe import RequestFacts, observe
-from screamingface_engine.rest.chat_openapi import CHAT_RESPONSES, CHAT_TAG, REQUEST_BODY
+from screamingface_engine.rest.chat_openapi import (
+    CHAT_PATH,
+    CHAT_RESPONSES,
+    CHAT_TAG,
+    REQUEST_BODY,
+)
 from screamingface_engine.rest.chat_stream import ChatStreamResponse, StreamPlan, stream_answer
 from screamingface_engine.rest.chat_tools import check_tool_steps
 from screamingface_engine.rest.chat_wait import settle_wait, wait_for_run
@@ -59,8 +64,6 @@ from screamingface_engine.rest.runs_boundary import request_caller
 from url4.streaming.trace import parse_traceparent, valid_traceparent
 
 __all__ = ["CHAT_PATH", "install_chat_state", "router"]
-
-CHAT_PATH = "/v1/chat/completions"
 
 router = APIRouter()
 
@@ -122,7 +125,11 @@ async def chat_completions(request: Request) -> Response:
 
 @dataclass(frozen=True)
 class _Turn:
-    """One request after stage 4: what its run needs. It holds no request content (CC-S35)."""
+    """One request after stage 4: what its run needs. It holds no request content (CC-S35).
+
+    The ignored names are request data that only the reply carries (RR-S12); they are never in
+    the facts or in a log line.
+    """
 
     deps: _Deps
     identity: dict[str, str] | None
@@ -132,6 +139,7 @@ class _Turn:
     topic: str
     stream: bool
     include_usage: bool
+    ignored_parameters: tuple[str, ...]
 
 
 async def _complete(request: Request, facts: RequestFacts) -> Response:
@@ -149,9 +157,17 @@ async def _complete(request: Request, facts: RequestFacts) -> Response:
     recipe = await _recipe(state, body, identity, traceparent)
     topic = new_topic()
     scope = BlobScope.for_caller((identity or {}).get(_EMAIL_HEADER), topic)
-    cleanup = ChatCleanup(store, scope, body.digest, deps.job_runner.stop, topic)
+    cleanup = ChatCleanup(store, scope, body.digest, deps.job_runner.stop_bound, topic)
     turn = _Turn(
-        deps, identity, body.model, recipe, traceparent, topic, body.stream, body.include_usage
+        deps,
+        identity,
+        body.model,
+        recipe,
+        traceparent,
+        topic,
+        body.stream,
+        body.include_usage,
+        body.ignored_parameters,
     )
     handed_over = False
     try:
@@ -227,7 +243,13 @@ async def _run(
     _refuse_drained(drain)
     cleanup.scheduling = True
     try:
-        await _schedule_chat(request, turn, ref)
+        # WHY: the start is one attempt of its topic, as on the /runs route (rest/routes.py::
+        # _claim_topic), so both routes keep one contract with the job runner (RR-S1).
+        # AIDEV-NOTE: today no stop of this topic can land while the schedule call waits: the only
+        # stop is the cleanup of this request, and it runs after this block exits. The attempt is
+        # here for a later stop that runs at the same time.
+        with turn.deps.job_runner.start_attempt(turn.topic):
+            await _schedule_chat(request, turn, ref)
     except ChatError as exc:
         # WHY: a refused schedule queued nothing, so there is no run to stop (CC-S28). A start
         # that is not confirmed (`queue_unavailable`, rest/routes.py) can still sit in the
@@ -245,6 +267,7 @@ async def _run(
             keepalive_s=settings.chat_keepalive_s,
             drain=drain,
             artifacts=turn.deps.artifact_store,
+            ignored_parameters=turn.ignored_parameters,
         )
         return stream_answer(plan, cleanup, facts)
     frames = settle_wait(
@@ -254,7 +277,7 @@ async def _run(
         cleanup,
         facts,
     )
-    return await answer(frames, turn.model, turn.deps.artifact_store)
+    return await answer(frames, turn.model, turn.deps.artifact_store, turn.ignored_parameters)
 
 
 async def _schedule_chat(request: Request, turn: _Turn, ref: str) -> None:

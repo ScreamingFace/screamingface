@@ -12,11 +12,14 @@ import asyncio
 import logging
 import time
 import uuid
+from collections.abc import AsyncIterator
+from pathlib import Path
 from typing import Any
 
 from fastapi.responses import JSONResponse
 
 from screamingface_engine.artifacts.ports import ArtifactContent, ArtifactReader, LocalFile
+from screamingface_engine.artifacts.s3 import S3StorageError
 from screamingface_engine.chat.result import (
     CHAT_RESULT_MEDIA_TYPE,
     ChatResult,
@@ -41,6 +44,7 @@ from url4.streaming.protocol.signals import CostUsageData
 from url4.streaming.trace import parse_traceparent
 
 __all__ = [
+    "CHAT_RESULT_MAX_BYTES",
     "answer",
     "completion_id",
     "completion_parts",
@@ -53,6 +57,11 @@ __all__ = [
 _logger = logging.getLogger(__name__)
 
 _SCRUBBED = "internal_error"
+
+# WHY: 8 MiB is the same order as the request body limit, a model answer is far below it, and the
+# Runner limit of 1 GiB is for benchmark results.
+# INVARIANT: the App holds at most this limit plus one read unit of a result.
+CHAT_RESULT_MAX_BYTES = 8_388_608
 
 type _Row = tuple[int, str, bool]
 
@@ -69,6 +78,11 @@ _CODE_ROWS: dict[tuple[str, str | None], _Row] = {
     ("failed", "child_exited"): (503, "run_failed", True),
     ("stopped", "worker_draining"): (503, "worker_draining", True),
 }
+# WHY: no model call was made, so a short outage of the input store can be tried again (RR-S9).
+# The permanent case keeps its 500 row in _CODE_ROWS.
+_TRANSIENT_ROWS: dict[tuple[str, str | None], _Row] = {
+    ("failed", "chat_input_unavailable"): (503, "chat_input_unavailable", True),
+}
 # INVARIANT: the rows of a state, whatever its code.
 _STATE_ROWS: dict[str, _Row] = {
     "stopped": (503, "run_failed", True),
@@ -76,10 +90,12 @@ _STATE_ROWS: dict[str, _Row] = {
 }
 
 
-async def answer(frames: RunFrames, model: str, store: ArtifactReader | None) -> JSONResponse:
+async def answer(
+    frames: RunFrames, model: str, store: ArtifactReader | None, ignored: tuple[str, ...] = ()
+) -> JSONResponse:
     """The 200 answer of a succeeded run, or the ChatError of its terminal row."""
     result = await read_result(frames, store)
-    return JSONResponse(_completion(result, frames, model).model_dump(mode="json"))
+    return JSONResponse(_completion(result, frames, model, ignored).model_dump(mode="json"))
 
 
 async def read_result(frames: RunFrames, store: ArtifactReader | None) -> ChatResult:
@@ -95,7 +111,9 @@ def completion_id() -> str:
     return "chatcmpl-" + uuid.uuid4().hex
 
 
-def completion_parts(result: ChatResult, frames: RunFrames) -> tuple[Usage, ScreamingFaceInfo]:
+def completion_parts(
+    result: ChatResult, frames: RunFrames, *, ignored: tuple[str, ...] = ()
+) -> tuple[Usage, ScreamingFaceInfo]:
     """C9: the usage and the screamingface object of an answer."""
     trace_id = parse_traceparent(frames.terminated.traceparent)
     usage, cost_usd = usage_and_cost(frames.root_cost, trace_id)
@@ -105,6 +123,7 @@ def completion_parts(result: ChatResult, frames: RunFrames) -> tuple[Usage, Scre
         cost_usd=cost_usd,
         trace_id=trace_id,
         final_step=_final_step(result.final_step),
+        ignored_parameters=list(ignored) or None,
     )
     return usage, info
 
@@ -127,7 +146,8 @@ def failure(terminated: TerminatedEvent) -> ChatError:
 
 
 def _row(state: str, raw: str | None, code: str | None, permanent: bool | None) -> _Row:
-    row = _CODE_ROWS.get((state, raw)) or _STATE_ROWS.get(state)
+    transient = _TRANSIENT_ROWS.get((state, raw)) if permanent is False else None
+    row = transient or _CODE_ROWS.get((state, raw)) or _STATE_ROWS.get(state)
     if row is not None:
         return row
     if state == "failed" and code is not None and code != _SCRUBBED:
@@ -153,24 +173,64 @@ async def _result_bytes(result: ResultEvent, store: ArtifactReader | None) -> by
     """The result body, inline or read through the artifact reader port (contracts C9)."""
     artifact = result.data.artifact
     if artifact is None:
+        # WHY no check: an inline body is at most 512 KiB, the Runner rule.
         return (result.data.body or "").encode("utf-8")
-    content = await asyncio.to_thread(store.content, artifact.id) if store is not None else None
-    if content is None:
+    if store is None:
         raise ChatError(502, "result_unavailable")
     try:
+        content = await asyncio.to_thread(store.content, artifact.id)
+        if content is None:
+            raise ChatError(502, "result_unavailable")
         return await _content_bytes(content)
-    except OSError:
+    except (OSError, S3StorageError):
         raise ChatError(502, "result_unavailable") from None
 
 
 async def _content_bytes(content: ArtifactContent) -> bytes:
     if isinstance(content, LocalFile):
-        return await asyncio.to_thread(content.path.read_bytes)
-    return b"".join([chunk async for chunk in content.stream])
+        return await asyncio.to_thread(_read_local, content.path)
+    return await _read_remote(content.stream)
 
 
-def _completion(result: ChatResult, frames: RunFrames, model: str) -> ChatCompletionResponse:
-    usage, info = completion_parts(result, frames)
+def _too_large() -> ChatError:
+    return ChatError(502, "result_too_large")
+
+
+def _read_local(path: Path) -> bytes:
+    """The bytes of a local result file; a file over the limit is refused before the read."""
+    # WHY the stat first: an over-limit file is refused without reading it.
+    if path.stat().st_size > CHAT_RESULT_MAX_BYTES:
+        raise _too_large()
+    with path.open("rb") as handle:
+        data = handle.read(CHAT_RESULT_MAX_BYTES + 1)
+    # WHY the length again: the file can grow after the stat.
+    if len(data) > CHAT_RESULT_MAX_BYTES:
+        raise _too_large()
+    return data
+
+
+async def _read_remote(stream: AsyncIterator[bytes]) -> bytes:
+    """The bytes of a remote result stream; it stops at the first chunk over the limit."""
+    chunks: list[bytes] = []
+    size = 0
+    try:
+        async for chunk in stream:
+            size += len(chunk)
+            if size > CHAT_RESULT_MAX_BYTES:
+                raise _too_large()
+            chunks.append(chunk)
+    finally:
+        # WHY: a stream left half read must close its source at once.
+        aclose = getattr(stream, "aclose", None)
+        if aclose is not None:
+            await aclose()
+    return b"".join(chunks)
+
+
+def _completion(
+    result: ChatResult, frames: RunFrames, model: str, ignored: tuple[str, ...] = ()
+) -> ChatCompletionResponse:
+    usage, info = completion_parts(result, frames, ignored=ignored)
     refused = result.status == "refused"
     # WHY: a reply with tool calls and no text has content null, as OpenAI sends it and as the
     # stream gives it (no content key), so a client that builds the reply from the chunks gets
@@ -212,7 +272,12 @@ def missing_root_frame_usage(trace_id: str | None) -> tuple[Usage, None]:
 def _final_step(step: FinalStep | None) -> FinalStepInfo | None:
     if step is None:
         return None
-    return FinalStepInfo(binding=step.binding, model=step.model, usage=_step_usage(step.usage))
+    return FinalStepInfo(
+        binding=step.binding,
+        model=step.model,
+        usage=_step_usage(step.usage),
+        cached=True if step.cached else None,
+    )
 
 
 def _step_usage(raw: dict[str, Any] | None) -> Usage | None:

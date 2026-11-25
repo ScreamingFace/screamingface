@@ -3,7 +3,8 @@
 The route scans the topic itself (contracts C9): the existing wait helper keeps only the result
 and terminal frames, and this route also needs the root cost-usage frame. The scan races the
 time limit, the caller leaving and the App drain; the first one to end the wait wins. The
-streamed route polls a RunWait in steps instead, because it has no watch on the caller.
+streamed route awaits a RunWait in a task of its own instead, because it has no watch on the
+caller, and sends its keep-alive lines meanwhile.
 """
 
 from __future__ import annotations
@@ -50,6 +51,15 @@ async def scan_run(stream: EventConsumer, topic: str) -> RunFrames:
     raise RuntimeError("stream ended before a terminal frame")
 
 
+async def _scan_within(stream: EventConsumer, topic: str, bound_s: float) -> RunFrames:
+    """scan_run with its time limit.
+
+    WHY a coroutine of its own (RR-S5): the scan_run coroutine is made only when the task runs, so
+    a task that is cancelled before its first step leaves no coroutine that was never awaited.
+    """
+    return await asyncio.wait_for(scan_run(stream, topic), bound_s)
+
+
 async def wait_for_run(
     stream: EventConsumer,
     topic: str,
@@ -61,7 +71,7 @@ async def wait_for_run(
 
     `receive` is the ASGI receive of the request, whose body was read in full before the wait.
     """
-    scan = asyncio.ensure_future(asyncio.wait_for(scan_run(stream, topic), bound_s))
+    scan = asyncio.ensure_future(_scan_within(stream, topic, bound_s))
     gone = asyncio.ensure_future(_disconnected(receive))
     drained = asyncio.ensure_future(drain.wait())
     tasks = (scan, gone, drained)
@@ -94,7 +104,7 @@ class RunWait:
 
     def __init__(self, stream: EventConsumer, topic: str, bound_s: float, drain: ChatDrain) -> None:
         self._scan: asyncio.Future[RunFrames] = asyncio.ensure_future(
-            asyncio.wait_for(scan_run(stream, topic), bound_s)
+            _scan_within(stream, topic, bound_s)
         )
         self._drained: asyncio.Future[None] = asyncio.ensure_future(drain.wait())
 
@@ -103,9 +113,23 @@ class RunWait:
         await asyncio.wait(
             (self._scan, self._drained), timeout=every_s, return_when=asyncio.FIRST_COMPLETED
         )
+        if not (self._scan.done() or self._drained.done()):
+            return None
+        return self._end()
+
+    async def ended(self) -> RunFrames | WaitEnd:
+        """The frames or why the wait ended, after one await of the scan and the drain."""
+        await asyncio.wait((self._scan, self._drained), return_when=asyncio.FIRST_COMPLETED)
+        return self._end()
+
+    def _end(self) -> RunFrames | WaitEnd:
+        """The outcome of a wait whose scan or drain is done.
+
+        INVARIANT: one rule for next and ended: a scan that ended wins over the drain.
+        """
         if self._scan.done():
             return _scan_outcome(self._scan)
-        return WaitEnd.DRAINED if self._drained.done() else None
+        return WaitEnd.DRAINED
 
     def cancel(self) -> None:
         """Cancel both tasks now; safe to call more than once and from a finally block."""

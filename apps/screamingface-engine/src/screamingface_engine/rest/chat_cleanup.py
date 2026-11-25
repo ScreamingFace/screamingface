@@ -2,7 +2,8 @@
 
 INVARIANT: the input blob is deleted on every exit after its write, and the run is stopped on
 every exit that has no terminal frame. Both run in one shielded task, so a cancelled request
-cannot cancel its own cleanup (CC-S26).
+cannot cancel its own cleanup (CC-S26). The write runs as its own task behind a shield, and the
+delete waits for that task (RR-S4).
 
 INVARIANT (CC-S35): the cleanup keeps the digest, the scope and the topic, never the record.
 """
@@ -13,7 +14,7 @@ import asyncio
 import logging
 from collections.abc import Awaitable, Callable
 
-from screamingface_engine.artifacts.blob_schema import BlobError, BlobScope
+from screamingface_engine.artifacts.blob_schema import BlobError, BlobScope, StoredBlob
 from screamingface_engine.artifacts.blobs import BlobStore
 from screamingface_engine.artifacts.s3 import S3StorageError
 from screamingface_engine.chat.input import CHAT_INPUT_MEDIA_TYPE
@@ -30,7 +31,10 @@ _CLEANUPS: set[asyncio.Task[None]] = set()
 
 
 class ChatCleanup:
-    """The input blob of one request and its run: deleted, and stopped when needed."""
+    """The input blob of one request and its run: deleted, and stopped when needed.
+
+    The write runs as its own task behind a shield.
+    """
 
     def __init__(
         self,
@@ -42,18 +46,22 @@ class ChatCleanup:
     ) -> None:
         self._store, self._scope, self._sha256 = store, scope, digest
         self._stop, self._topic = stop, topic
-        self._written = False
+        self._write: asyncio.Future[tuple[StoredBlob, bool]] | None = None
         self.scheduling = False
         self.finished = False
 
     async def write(self, body: ChatBody) -> str:
         """C4: write the CHAT_INPUT record before the schedule; its blob ref."""
         record = body.take_record()
-        self._written = True
-        try:
-            blob, _ = await asyncio.to_thread(
+        # WHY: the write is its own task, so a cancel of the request leaves it running, and the
+        # cleanup waits for it (RR-S4).
+        self._write = asyncio.ensure_future(
+            asyncio.to_thread(
                 self._store.ingest, self._scope, self._sha256, CHAT_INPUT_MEDIA_TYPE, record
             )
+        )
+        try:
+            blob, _ = await asyncio.shield(self._write)
         except (BlobError, S3StorageError, OSError) as exc:
             _logger.warning(
                 "chat input write failed digest=sha256:%s size=%d: %s",
@@ -67,7 +75,7 @@ class ChatCleanup:
     async def run(self) -> None:
         """Run the cleanup in its own task and wait for it; a cancel does not stop it."""
         stop = self.scheduling and not self.finished
-        if not (self._written or stop):
+        if not (self._write is not None or stop):
             return
         task = asyncio.ensure_future(self._clean(stop))
         _CLEANUPS.add(task)
@@ -81,6 +89,9 @@ class ChatCleanup:
             # WHY any error: the delete below must still run.
             except Exception as exc:
                 _logger.warning("chat run stop failed: %s", type(exc).__name__)
+        # INVARIANT (RR-S4): the delete runs after the write has ended, its result or its error.
+        if self._write is not None:
+            await asyncio.gather(self._write, return_exceptions=True)
         try:
             await asyncio.to_thread(self._store.delete, self._scope, self._sha256)
         # WHY any error: the store sweep is the safety net.

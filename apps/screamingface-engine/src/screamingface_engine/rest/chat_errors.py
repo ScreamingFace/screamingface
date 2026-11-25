@@ -50,6 +50,7 @@ FIXED_MESSAGES: dict[str, str] = {
     "timeout": "the request did not finish in time; the run was stopped",
     "result_unavailable": "the result of the run could not be read",
     "result_invalid": "the result of the run is not valid",
+    "result_too_large": "the result of the run is too large",
     "run_failed": "the run failed; retry the request",
     "worker_draining": "the worker is restarting; retry the request",
 }

@@ -12,6 +12,7 @@ runner is a recording fake and the model is a URL4 recipe, so no model lookup ru
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import socket
 import threading
 import time
@@ -80,7 +81,11 @@ class LockedObjects:
 
 
 class RecordingRunner:
-    """Records each schedule and stop; it publishes nothing, so a run never ends by itself."""
+    """Records each schedule and stop; it publishes nothing, so a run never ends by itself.
+
+    The route stops a chat run with the bound stop inside a start attempt (review round 2, RR-S1),
+    so the fake has both, as `tests/unit/_chat_app.py::ScriptedRunner` has.
+    """
 
     def __init__(self) -> None:
         self.scheduled: list[str] = []
@@ -94,6 +99,13 @@ class RecordingRunner:
 
     async def stop(self, topic: str) -> None:
         self.stopped.append(topic)
+
+    async def stop_bound(self, topic: str) -> None:
+        self.stopped.append(topic)
+
+    @contextlib.contextmanager
+    def start_attempt(self, topic: str) -> Iterator[None]:
+        yield
 
     async def exists(self, topic: str) -> bool:
         return False

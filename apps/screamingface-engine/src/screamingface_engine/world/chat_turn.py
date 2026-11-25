@@ -180,10 +180,12 @@ def _step(binding: str, accounting: OperationAccounting | None) -> FinalStep | N
     usage = accounting.usage
     prompt, completion = usage.input_tokens, usage.output_tokens
     total = prompt + completion if prompt is not None and completion is not None else None
+    # WHY: RR-S14, the final call was served from the gateway cache.
     return FinalStep(
         binding=binding,
         model=accounting.request_model,
         usage={"prompt_tokens": prompt, "completion_tokens": completion, "total_tokens": total},
+        cached=accounting.cache.hits > 0,
     )
 
 

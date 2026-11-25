@@ -37,8 +37,10 @@ class ChatResultError(ValueError):
 class FinalStep(BaseModel):
     """The model step that gave the final answer.
 
-    usage is the usage block of the gateway response of that call, as returned. For a cache hit it
-    holds the stored counts.
+    usage is the usage block of the gateway response of that call, as returned. On a gateway cache
+    hit its counts are 0, by the rule of the top-level usage (ans:Q27, OME-1687), and cached is
+    True. WHY not the stored counts: the shared accounting record sets them to zero for a hit, and
+    that record also feeds the benchmark reports.
     """
 
     model_config = ConfigDict(extra="ignore", frozen=True, strict=True)
@@ -46,6 +48,7 @@ class FinalStep(BaseModel):
     binding: str = Field(min_length=1)
     model: str = Field(min_length=1)
     usage: dict[str, Any] | None = None
+    cached: bool = False
 
 
 class ChatResult(BaseModel):
