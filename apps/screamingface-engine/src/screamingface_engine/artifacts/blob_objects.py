@@ -11,6 +11,7 @@ INVARIANT (#1603 review round 2, item 2): both shipped backends read with a cap 
 from __future__ import annotations
 
 import os
+import stat
 import time
 import uuid
 from pathlib import Path
@@ -22,6 +23,13 @@ from screamingface_engine.artifacts.blob_schema import (
     BlobCorrupted,
 )
 from screamingface_engine.artifacts.s3 import S3ArtifactStore, S3ObjectTooLarge
+
+_DIR_MODE = 0o700
+_FILE_MODE = 0o600
+
+
+class BlobRootNotPrivate(PermissionError):
+    """The local blob root is owned by another user (RR-S13): local mode must not start."""
 
 
 class BlobObjects(Protocol):
@@ -109,19 +117,71 @@ def _too_large(key: str, max_bytes: int) -> BlobCorrupted:
     return BlobCorrupted(key.rsplit("/", 1)[-1], f"object exceeds the {max_bytes}-byte read cap")
 
 
+def _check_root(root: Path) -> None:
+    """Refuse a root owned by another user; narrow a wider mode to 0700 (RR-S13)."""
+    if os.name != "posix":
+        return
+    try:
+        info = root.stat()
+    except FileNotFoundError:
+        return
+    if info.st_uid != os.geteuid():
+        raise BlobRootNotPrivate(f"the blob directory {root} is owned by another user")
+    if stat.S_IMODE(info.st_mode) & 0o077:
+        os.chmod(root, _DIR_MODE)
+
+
+def _private_dir(path: Path) -> bool:
+    """Make `path` with mode 0700; False when it already exists."""
+    # WHY chmod after mkdir: mkdir applies the umask, so chmod sets the mode for each umask.
+    try:
+        path.mkdir(mode=_DIR_MODE)
+    except FileExistsError:
+        return False
+    os.chmod(path, _DIR_MODE)
+    return True
+
+
+def _write_private(path: Path, data: bytes) -> None:
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, _FILE_MODE)
+    with os.fdopen(fd, "wb") as handle:
+        # WHY fchmod: os.open applies the umask. POSIX only, as _check_root.
+        if os.name == "posix":
+            os.fchmod(handle.fileno(), _FILE_MODE)
+        handle.write(data)
+
+
 class FilesystemBlobObjects:
-    """Blob objects as files below `<root>/blobs/` — `root` is the blob directory."""
+    """Blob objects as files below `<root>/blobs/` — `root` is the blob directory.
+
+    INVARIANT (RR-S13): each directory below the root and the root are 0700, each file 0600,
+    whatever the umask; a root owned by another user is refused at construction and before each
+    write into a root that already exists.
+    WHY for the whole class: only local mode uses the filesystem blob store (app.py refuses it
+    with the queue runner). POSIX only.
+    """
 
     def __init__(self, root: Path) -> None:
         self._root = root
+        _check_root(root)
+
+    def _private_dirs(self, leaf: Path) -> None:
+        self._root.parent.mkdir(parents=True, exist_ok=True)
+        # WHY: the root can appear after the construction (a shared tempdir), so a root that this
+        # write did not make gets the RR-S13 check before the write.
+        if not _private_dir(self._root):
+            _check_root(self._root)
+        parts = leaf.relative_to(self._root).parts
+        for i in range(len(parts)):
+            _private_dir(self._root.joinpath(*parts[: i + 1]))
 
     def put(self, key: str, data: bytes) -> None:
         # WHY tmp + os.replace: a crash mid-write never leaves a half-blob under a valid key.
         # A rewrite also re-stamps mtime, so a repeat upload restarts the blob's TTL clock.
         final = self._root / key
-        final.parent.mkdir(parents=True, exist_ok=True)
+        self._private_dirs(final.parent)
         tmp = final.parent / f".{final.name}.{uuid.uuid4().hex}.tmp"
-        tmp.write_bytes(data)
+        _write_private(tmp, data)
         os.replace(tmp, final)
 
     def get(self, key: str) -> bytes | None:
@@ -150,9 +210,9 @@ class FilesystemBlobObjects:
         name appears complete or not at all — never a half-written sidecar a reader could parse.
         """
         final = self._root / key
-        final.parent.mkdir(parents=True, exist_ok=True)
+        self._private_dirs(final.parent)
         tmp = final.parent / f".{final.name}.{uuid.uuid4().hex}.tmp"
-        tmp.write_bytes(data)
+        _write_private(tmp, data)
         try:
             os.link(tmp, final)
         except FileExistsError:
