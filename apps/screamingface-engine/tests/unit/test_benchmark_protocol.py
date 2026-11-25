@@ -274,7 +274,7 @@ def test_protocol_rejects_an_impossible_case_selection() -> None:
         # commit-recipe routes, and the revision in every route moved with that.
         # Moved again (OME-2018): turn 2 states its reply rule; the expression is the same, and
         # the revision in every route moved with the protocol.
-        (MEDXPERT, "47518e61aeeadc19656cac30cb8b28d3069d9529eb3e640ef4db5a6bd2b5d68c"),
+        (MEDXPERT, "98d5ff5a8622b9efaf1697341c1661afff1f5dfba1b230987e1257bb9e8659fb"),
     ),
 )
 def test_canonical_benchmark_url4_is_pinned_byte_for_byte(

@@ -34,7 +34,7 @@ from url4.peer.server import Request
 # 2026-11-24 from 490235dc9a53b7d9 when turn 2 began to continue the Candidate's chat and the
 # reader began to stop at a second trigger (OME-1980), and on 2026-11-25 from 952ea002b0f5e3b0
 # when turn 2 began to state its reply rule (OME-2018).
-_GOLDEN_REVISION = "97c31c77b39ed19f"
+_GOLDEN_REVISION = "5f6e01e4fa673215"
 
 _OPTIONS = {"A": "aspirin", "B": "heparin", "C": "warfarin", "D": "apixaban", "E": "alteplase"}
 _QUESTION = "Which agent is indicated? Answer Choices: " + " ".join(

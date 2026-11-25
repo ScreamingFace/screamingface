@@ -109,7 +109,7 @@ def test_a_medxpert_move_names_its_own_pins(
 
     out: str = capsys.readouterr().out
     assert status == 0
-    assert 'REVISION = "97c31c77b39ed19f"  ->  REVISION = "fedcba9876543210"' in out
+    assert 'REVISION = "5f6e01e4fa673215"  ->  REVISION = "fedcba9876543210"' in out
     assert "test_medxpert_migration_golden.py" in out
     assert "early_grade_compatibility.json" in out
     assert "test_published_revisions.py" not in out

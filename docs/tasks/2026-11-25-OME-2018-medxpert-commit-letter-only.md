@@ -18,7 +18,7 @@ relied on the model finishing the sentence. On the first paid run of revision
 from the key to a wrong letter. Turn 2's last message is now one instruction line ("Finish the
 sentence below with the option letter only, and nothing else."), a blank line, then the
 trigger: a declared deviation from the official harness. The reader also reads a letter in
-underscores (`__E__`). Published revision `952ea002b0f5e3b0` → `97c31c77b39ed19f`, owner
+underscores (`__E__`). Published revision `952ea002b0f5e3b0` → `5f6e01e4fa673215`, owner
 sign-off 2026-11-25; neither middle id reached a release, so production moves from
 `1e5a3b8a461a52f7` straight to the new id.
 

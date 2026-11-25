@@ -229,7 +229,7 @@ def test_turn_two_states_its_reply_rule_and_still_ends_on_the_unfinished_sentenc
     With the bare trigger the model read turn 2 as a new question: the first paid run of
     revision 952ea002b0f5e3b0 got 277 and 496 tokens of new reasoning on 2 of 2 Cases, and one
     Case changed its turn-1 answer from the key to a wrong letter. The exact bytes are pinned
-    because they are the exam: change this line and the protocol revision must move with it.
+    because they are the exam; the rule's text is also a hashed input of the revision.
     """
     chat: dict[str, Any] = json.loads(commit_chat(_PROMPT, "B is right.", _TRIGGER))
 

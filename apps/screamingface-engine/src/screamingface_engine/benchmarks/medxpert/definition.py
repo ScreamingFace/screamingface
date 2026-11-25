@@ -47,6 +47,7 @@ from screamingface_engine.benchmarks.definition import (
     candidate_call,
 )
 from screamingface_engine.benchmarks.medxpert.prompts import (
+    COMMIT_INSTRUCTION,
     COT_PROMPT_TEMPLATE,
     COT_TRIGGER_TEMPLATE,
 )
@@ -94,6 +95,7 @@ def compute_revision(
     trigger_template: str = COT_TRIGGER_TEMPLATE,
     failure_policy: FailurePolicy = FAILURE_POLICY,
     protocol_revision: str = PROTOCOL_REVISION,
+    commit_instruction: str = COMMIT_INSTRUCTION,
 ) -> str:
     """Fingerprint this benchmark into the 16 hex characters its routes carry.
 
@@ -120,6 +122,10 @@ def compute_revision(
         # WHY conditional (OME-1642): only withhold moves the revision, the same rule as the
         # imported rows' fingerprint pin.
         *(("failure_policy=withhold",) if failure_policy == "withhold" else ()),
+        # WHY hashed (OME-2018): turn 2's reply rule is prompt text like the two templates, so
+        # rewording it must move the id without anyone remembering to. WHY conditional: the
+        # exams before it sent no rule, and an empty one keeps their ids computable.
+        *((f"commit_instruction={commit_instruction}",) if commit_instruction else ()),
     )
 
 
@@ -131,7 +137,7 @@ FINGERPRINT = compute_revision()
 #: edited to make a red fingerprint test green; it moves only on a fundamental change, after
 #: ``just engine benchmark-bump medxpert`` and with the owner's sign-off
 #: (``docs/adding-an-imported-benchmark.md``, "Changing a Benchmark's published revision").
-REVISION = "97c31c77b39ed19f"
+REVISION = "5f6e01e4fa673215"
 
 _ROUTES = benchmark_routes(BENCHMARK_ID, REVISION)
 ROUTE_PREFIX = _ROUTES.prefix

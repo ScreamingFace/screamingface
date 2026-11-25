@@ -63,7 +63,7 @@ goes from `1e5a3b8a461a52f7` straight to the new id.
 - **Gates:** relevant tests only, per owner rule: the 13 `test_medxpert_*.py` files,
   `test_benchmark_protocol.py`, the two early-grade files, `test_combine_reducer_candidates.py`,
   `test_frozen_copy_failed_case.py`, `test_benchmark_stage_installation.py` and
-  `integration/test_local_model_fusion_benchmark.py` → 204 passed;
+  `integration/test_local_model_fusion_benchmark.py` → 211 passed;
   `inspect/test_benchmark_fingerprints.py` and `inspect/test_benchmark_bump.py` (inspect extra)
   → 107 passed; ruff check + format and pyright clean. Full suite left to the pre-push hook
   and CI.
@@ -75,6 +75,12 @@ goes from `1e5a3b8a461a52f7` straight to the new id.
   on `qwen3.8:27b`: the bare trigger gave the letter first on 2 of 6 replies (mean 1,092
   characters); the instruction before the trigger 6 of 6 (mean 10); the instruction after it
   6 of 6 (mean 5). It goes before, so the message still ends on the unfinished sentence.
+  Review round 1 (2026-11-25), two changes: (a) the first letter rule ("no ASCII letter or
+  digit touches it") also freed a letter touching a Greek letter, a subscript or a superscript,
+  so `vitamin B₁₂ ... so D` committed B; the rule is now the harness's word boundary with only
+  the underscore removed, and the reviewer's rows are tests. (b) The instruction's text became
+  a hashed input of the revision, so rewording it moves the id by itself; the id moved from
+  the first build's `97c31c77b39ed19f` to `5f6e01e4fa673215` before anything merged.
   (3) Prior tests were edited (the chat's last message and the revision pins), by the owner's
   decision; the approvals file pins each file's before and after. (4) Not run: any paid call.
   Owner-verify: about 20 Cases with one solo model and one Fusion on the dev Engine, counting

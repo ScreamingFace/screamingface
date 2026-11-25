@@ -144,6 +144,15 @@ def test_a_wrapped_letter_is_read_as_the_letter(completion: str) -> None:
         pytest.param("EKG", None, id="letter-inside-a-word"),
         pytest.param("E2", None, id="letter-touching-a-digit"),
         pytest.param("__K__", None, id="letter-outside-the-option-range"),
+        # Review of PR 2042: a letter that touches a subscript, a superscript or a letter of
+        # another alphabet is part of a word, as the harness's rule reads it. A rule that knew
+        # only A-Z and 0-9 committed the B of B₁₂ and the A of Aβ before the real answer.
+        pytest.param("vitamin B₁₂ deficiency, so the choice is D", "D", id="subscript-digits"),
+        pytest.param("Aβ plaques point to D", "D", id="greek-letter-after"),
+        pytest.param("Gαq signalling, hence C", "C", id="greek-letter-inside"),
+        pytest.param("H₂ blockers fail; pick B", "B", id="subscript-after"),
+        pytest.param("E²", None, id="superscript-after"),
+        pytest.param("答案是E", None, id="cjk-letter-before"),
         pytest.param("vitamin_E_level", "E", id="underscore-is-a-separator-now"),
     ],
 )

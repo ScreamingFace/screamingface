@@ -1,7 +1,9 @@
-"""Answer-time letter extraction — the verbatim-official parser.
+"""Answer-time letter extraction — the official parser, with one Named Deviation (OME-2018): a
+letter wrapped in underscores is read.
 
-INVARIANT: this reads a TRIGGER COMPLETION. Turn 2 is the bare sentence "…the answer is", so the
-model's commitment is the FIRST in-range letter it writes. First-match is correct here.
+INVARIANT: this reads a TRIGGER COMPLETION. Turn 2 ends on the unfinished sentence "…the answer
+is" (after the reply rule), so the model's commitment is the FIRST in-range letter it writes.
+First-match is correct here.
 
 AIDEV-NOTE: this is NOT `grading.extract_letter`, and the two must never be merged. That one
 reads arbitrary prose and takes the LAST match, because prose concludes at the end. Applying THIS
@@ -61,11 +63,13 @@ def extract_choice_letter(
 
     letters = "|".join(chr(ord("A") + i) for i in range(_clamp(options_count)))
     # NAMED DEVIATION (OME-2018): the harness's `\b` counts an underscore as part of a word, so
-    # the Markdown-underlined `__E__` reads as no answer where `**E**` reads as E. A letter now
-    # stands alone when no letter or digit touches it, the rule the multiple-choice grader of
-    # OME-1907 uses for a lone letter. Every reply `\b` read is read the same; only a letter
-    # next to an underscore changes, from no answer to that letter.
-    found = re.findall(rf"(?<![A-Za-z\d])({letters})(?![A-Za-z\d])", text)
+    # the Markdown-underlined `__E__` reads as no answer where `**E**` reads as E. This is `\b`
+    # with the underscore taken out of the word characters and nothing else changed: `[^\W_]`
+    # is "a word character that is not an underscore", in Unicode, as `\b` reads it.
+    # WHY not "no ASCII letter or digit touches it": that rule also frees a letter that touches
+    # a Greek letter, a subscript or a superscript, so `vitamin B₁₂ ... so D` would commit B
+    # and `Aβ plaques point to D` would commit A (review of PR 2042).
+    found = re.findall(rf"(?<![^\W_])({letters})(?![^\W_])", text)
     return found[0] if found else None
 
 
