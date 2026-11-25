@@ -102,9 +102,10 @@ FutureX-Past's in ScreamingFace/screamingface#1897; whichever merges second renu
 ## 8. Licence (owner decision)
 
 BTF-3 is CC-BY-NC-4.0: "commercial use requires permission: benchmarks@futuresearch.ai" (current
-card). The Task downloads the file at run time and redistributes nothing, but serving it as a
-ScreamingFace Benchmark may count as commercial use. The PR asks the owners to decide or to seek
-FutureSearch's permission; the README states the licence.
+card). The Task downloads the file when the Benchmark image is built, and the rendered Cases and
+their targets ship inside that image, so the questions are redistributed. Owner decision on
+OME-1938 (2026-11-17): BTF-3 comes in under the worldsense precedent (2026-10-01) and comes out
+if ScreamingFace goes commercial; the README states the licence.
 
 ## 9. Out of scope
 
@@ -157,10 +158,11 @@ contributor chose that design over the native setup above. **This section supers
   A named deviation.
 - **Headline: accuracy at 0.5** (exactly 0.5 reads Yes), over every Case. **Brier beside it**
   as the run metric `brier`, with `forecasts`, `no_forecast` and `compliant`.
-- **No forecast: a miss, Brier 0.25**, the study's rule (`committee_kit/metrics.py`,
-  `ABSTAIN_BRIER`) and the issue's F1 ("Case scores 0 under the abstain rule, count shown in the
-  report"). A failed call with no reply leaves the denominator (`coverage_declare`), as the
-  study's `NO_RESPONSE` did.
+- **No forecast: a miss, Brier 0.25**, the issue's F1 ("Case scores 0 under the abstain rule,
+  count shown in the report") and the study's rule for a crowd that reaches no decision
+  (`committee_kit/metrics.py`, `ABSTAIN_BRIER`). **A named deviation for one model:** the paper
+  drops a single model's unreadable reply from both sides of the fraction. A failed call with
+  no reply leaves the denominator (`coverage_declare`), as the study's `NO_RESPONSE` did.
 - **Questions: 1,515, not the issue's 1,471.** The issue quotes the post-audit count but also
   asks for the paper's commit; the paper's commit (`ad5a2165`, downloaded 2026-08-06) holds
   1,515. Flagged on the PR for the maintainer.

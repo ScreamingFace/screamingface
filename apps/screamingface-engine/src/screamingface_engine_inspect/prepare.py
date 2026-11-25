@@ -2399,7 +2399,7 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
             "futuresearch-ai/BTF-3": "ad5a2165eea26a8a43592ba36ff15765199ddc71",
         },
         # License: CC-BY-NC-4.0 (futuresearch-ai/BTF-3 card); non-commercial use only. Owner
-        #  decision requested on the PR, as for worldsense (2026-10-01).
+        #  decision on OME-1938 (2026-11-17), as for worldsense (2026-10-01).
         license="cc-by-nc-4.0",
     ),
     # --- importer: generated TaskReplayCasesSpec rows land above this line ---

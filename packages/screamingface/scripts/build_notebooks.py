@@ -2441,7 +2441,7 @@ def _btf3_e2e() -> NotebookNode:
 FutureSearch) holds real forecasting questions asked in late April to late May 2026 and resolved
 by early July 2026. The `btf3` Benchmark serves its 1,515 **yes/no** questions from the release
 that [Diverse by Reasoning](https://arxiv.org/abs/2608.24001) used, with that paper's prompt and
-grading rule, so its BTF-3 results can be rerun here. Each question comes with background,
+grading rule; the paper's 100-question sample is a subset. Each question comes with background,
 resolution criteria and a date; the model reasons, then ends with one line
 `Final answer: <probability between 0 and 1>`, the probability that the answer is Yes.
 

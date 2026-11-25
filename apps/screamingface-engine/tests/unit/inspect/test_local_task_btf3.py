@@ -12,7 +12,8 @@ grading rule"):
   row (§3, §12);
 - the reply: the study's own reader, ``btf_parse``, vendored verbatim (§3);
 - the mark: accuracy, a forecast of 0.5 or more reads Yes; the Brier score rides beside it (§4);
-- a reply with no forecast is a miss and costs Brier 0.25, the study's abstain rule (§4).
+- a reply with no forecast is a miss and costs Brier 0.25: issue #1868's rule, the study's
+  rule for a crowd with no decision, a named deviation for one model's reply (§12).
 
 Runs only with the `inspect` extra installed.
 """
@@ -253,6 +254,21 @@ def test_the_vendored_reader_is_the_studys_excerpt_byte_for_byte() -> None:
         ("About 1 month remains.\nFinal answer: 65%", 1.0, False, "number_not_final"),
         ("I will not forecast this.", None, False, None),
         ("", None, False, None),
+        # The reader knows only plain decimals from 0 to 1 (kept as the study wrote it): a sign
+        # is ignored, and an exponent, a decimal comma or a fraction is read by a lone digit.
+        ("Final answer: -0.8", 0.8, True, "final_line"),
+        ("Final answer: 1e-2", 1.0, False, "number_not_final"),
+        ("Final answer: 0,35", 0.0, False, "number_not_final"),
+        ("Final answer: 1/3", 1.0, False, "number_not_final"),
+        # A later line wins over the answer line: the reader takes the LAST line.
+        ("Final answer: 0.9\n\nP(No) = 0.1", 0.1, True, "final_line"),
+        # A reply cut off before its answer line: a lone 1 in the reasoning becomes the forecast.
+        (
+            "(a) 1 month left.\n(b) The status quo is No.\nSo the probability is abou",
+            1.0,
+            False,
+            "number_not_final",
+        ),
     ],
 )
 def test_the_reader_follows_the_studys_three_rules(
@@ -294,7 +310,7 @@ async def test_exactly_one_half_reads_yes() -> None:
 
 @pytest.mark.asyncio
 async def test_a_reply_with_no_forecast_is_a_miss_costing_brier_one_quarter() -> None:
-    """The study's abstain rule (``committee_kit/metrics.py``): no forecast reads as 0.5 for
+    """The study's crowd abstain rule (``committee_kit/metrics.py``): no forecast reads as 0.5 for
     Brier (0.25 either way) and as a miss for accuracy, as issue #1868 asks (F1)."""
 
     score: Score = await _score("I put it at 65%.", "1")
@@ -316,6 +332,18 @@ async def test_a_case_without_its_outcome_fails_loudly() -> None:
 
     with pytest.raises(KeyError, match="outcome"):
         await btf3.btf3_accuracy()(state, Target("1"))
+
+
+@pytest.mark.parametrize("outcome", [0.5, 0.9, 2, "1"])
+def test_an_outcome_that_is_not_0_or_1_is_refused_before_it_is_rounded(outcome: object) -> None:
+    """INVARIANT: the 0/1 check runs before ``int()``. WHY: ``int(0.5)`` is 0, so a Case whose
+    outcome is not a resolution would otherwise be graded as "resolved No" with no error."""
+
+    state: TaskState = _state("Reasoning.\n0.8")
+    state.metadata = {"outcome": outcome}
+
+    with pytest.raises(ValueError, match="outcome must be 0 or 1"):
+        btf3.case_outcome(state)
 
 
 def _sample(value: float, forecast: float | None, brier: float, **extra: Any) -> SampleScore:

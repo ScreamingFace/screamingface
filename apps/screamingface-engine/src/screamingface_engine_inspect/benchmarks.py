@@ -8661,25 +8661,28 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="btf3",
-        published_revision="1c1d7973a6094bf4",
+        published_revision="d1102edd6f6b5c78",
         title="BTF-3 (yes/no forecasting)",
         description=(
             "Bench to the Future 3 (FutureSearch): 1,515 real yes/no forecasting questions, "
             "asked as of late April to late May 2026 and resolving between May and early July "
             "2026, pinned to the 2026-07-16 release that the paper Diverse by Reasoning "
-            "(arXiv 2608.24001) used, so its BTF-3 results can be rerun here. Each Case is that "
+            "(arXiv 2608.24001) used; the paper's 100-question sample is a subset of these Cases. "
+            "Each Case is that "
             "paper's prompt: a shortened copy of the Bench to the Future forecaster prompt with "
             "the question, background, resolution criteria and date, ending with one 'Final "
             "answer: <probability between 0 and 1>' line (the paper's answer line, reworded to "
             "name the answer a probability). Closed-book: no research or web "
             "search, as in the paper, so scores are not comparable with the FutureSearch "
-            "leaderboard's research agents. Scored as the paper scored it: the headline is "
+            "leaderboard's research agents. Scored by the paper's rule: the headline is "
             "accuracy, where a probability of 0.5 or more counts as Yes; the Brier score (the "
             "squared gap between the probability and what happened, lower is better, 0.25 for "
             "always 0.5) is published beside it as the run metric brier, because always "
             "answering No already scores 0.67 on accuracy (1,014 No, 501 Yes). A reply with no "
             "readable probability counts as a miss and costs Brier 0.25, and the run metric "
-            "no_forecast counts those Cases. One run per question; the paper ran at temperature "
+            "no_forecast counts those Cases; the paper keeps that rule for a crowd that reaches no "
+            "decision and drops a single model's unreadable reply instead (a named deviation). "
+            "One run per question; the paper ran at temperature "
             "0, which the Benchmark does not set, so set it on the Candidate to compare. Models "
             "trained after about April 2026 may have seen the outcomes."
         ),
@@ -8705,7 +8708,10 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         #   applies no Task config; the Candidate's own settings stand); a cut-off reply is
         #   not re-asked with a larger token cap; the answer line is reworded to name a
         #   probability (contributor's decision, 2026-11-18); binary questions only;
-        #   closed-book against the FutureSearch leaderboard (as the paper ran).
+        #   closed-book against the FutureSearch leaderboard (as the paper ran); one model's
+        #   reply with no readable probability is a miss with Brier 0.25 (OME-1938's rule, and
+        #   the paper's rule for a crowd with no decision), where the paper drops that reply
+        #   from both sides of the fraction.
         scorer="screamingface_engine_inspect.local_tasks.btf3.btf3:btf3_accuracy",
         # A dict: accuracy is the headline; brier, forecasts, no_forecast (replies with no
         # readable probability, scored as misses) and compliant are published as run metrics.
@@ -8733,8 +8739,9 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         harness_url=(
             "https://huggingface.co/datasets/futuresearch-ai/BTF-3/tree/ad5a2165eea26a8a43592ba36ff15765199ddc71"
         ),
-        # Owner decision requested on the PR: CC-BY-NC-4.0 (the worldsense precedent,
-        # 2026-10-01); the card asks commercial users to write to benchmarks@futuresearch.ai.
+        # Owner decision on OME-1938 (2026-11-17): CC-BY-NC-4.0 comes in under the worldsense
+        # precedent (2026-10-01) and comes out if ScreamingFace goes commercial; the card asks
+        # commercial users to write to benchmarks@futuresearch.ai.
         license="CC-BY-NC-4.0",
         license_note=(
             "The BTF-3 questions are CC-BY-NC-4.0 (futuresearch-ai/BTF-3): non-commercial use; "

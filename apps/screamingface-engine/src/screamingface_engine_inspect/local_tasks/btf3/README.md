@@ -82,17 +82,27 @@ Two consequences of the study's reader, kept as written:
 - In rule 2, a number directly followed by a full stop is not read (the reader refuses a
   trailing `.` so as not to split `0.85`): `My answer is 0.8. But note this is uncertain.` gives
   no forecast. Rule 1 accepts the full stop, so a reply that ends `0.8.` is read.
+- The reader knows only plain decimals from 0 to 1. A sign is ignored (`Final answer: -0.8`
+  is read as 0.8), and an exponent, a decimal comma or a fraction is read by its first or
+  last lone digit: `1e-2` as 1.0, `0,35` as 0.0, `1/3` as 1.0.
+- A reply cut off before its answer line falls to rule 2, so a lone `0` or `1` in the
+  reasoning (`(a) 1 month left.`) becomes a forecast of 0 or 1. Such a Case counts under
+  `forecasts`, not `no_forecast`; `forecasts - compliant` is the number of rule 2 reads in a
+  run.
 
 ## Scoring
 
-The study's rules (`committee_kit/metrics.py`), as issue #1868 asks:
+The study's rules (`committee_kit/metrics.py`), as issue #1868 asks, with one named deviation
+(no forecast, below):
 
 - **Accuracy (the headline).** A Case scores 1 when the forecast falls on the right side of one
   half, with exactly 0.5 counting as Yes, else 0.
 - **Brier, beside it.** Each Score's metadata carries `brier = (f - y)^2`; the run metric
   `brier` is its mean over every Case. Lower is better; always 0.5 gives 0.25.
 - **No forecast.** A reply with no readable probability, or a Candidate that abstained, is a
-  **miss** (0) and costs **Brier 0.25** (read as 0.5). It stays in both means.
+  **miss** (0) and costs **Brier 0.25** (read as 0.5). It stays in both means. This is issue
+  #1868's rule and the study's rule for a crowd that reaches no decision; for one model's
+  unreadable reply the paper drops the Case from both sides instead (deviation 5).
 
 `btf3_headline` returns `{"accuracy", "brier", "forecasts", "no_forecast", "compliant"}`; the
 row names `accuracy` the headline and the Engine publishes the rest as run metrics.
@@ -116,6 +126,10 @@ already scores 0.67 on accuracy.
 4. **The answer line is reworded** to name the answer a probability (above). The study's
    readability check and its 2,700 replies were under its own line; the effect of ours is not
    yet measured.
+5. **One model's reply with no readable probability is a miss**, costing Brier 0.25. The paper
+   drops such a reply from both sides of the fraction and keeps the miss for a crowd that
+   reaches no decision. The paper's own BTF-3 runs had no such reply, so its numbers are the
+   same under either rule; on a new run the run metric `no_forecast` is the size of the effect.
 
 Against the FutureSearch leaderboard: closed-book (the leaderboard's agents research a frozen web
 snapshot that is not published), binary questions only (the numeric track is out), one run per

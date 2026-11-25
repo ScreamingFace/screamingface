@@ -2,11 +2,11 @@
 benchmark: btf3
 origin: external
 verdict: not-comparable
-verdict_reason: "The paper's BTF-3 numbers (Diverse by Reasoning, arXiv 2608.24001v2) are over its 100-question sample; this Benchmark runs all 1,515 binary questions at the same commit, a declared Named Deviation whose bound, 1,415/1,515, is far above tolerance. Against the paper's own harness (the contributor's study code) everything deterministic matches except one declared change, the reworded answer line (D5): above that line the prompt is the study's byte for byte on 100 of 100 study Cases; the reply reader byte for byte, the per-Case accuracy and Brier on all 2,700 recorded study answers, and the per-model headlines to 0. One undeclared deviation: a single reply with no readable probability is scored as a miss with Brier 0.25, where the study drops such a cell from both sides of the fraction. Temperature 0 and re-asking a cut-off reply are declared and not applied by the Engine."
+verdict_reason: "The paper's BTF-3 numbers (Diverse by Reasoning, arXiv 2608.24001v2) are over its 100-question sample; this Benchmark runs all 1,515 binary questions at the same commit, a declared Named Deviation whose bound, 1,415/1,515, is far above tolerance. Against the paper's own harness (the contributor's study code) everything deterministic matches except one declared change, the reworded answer line (D5): above that line the prompt is the study's byte for byte on 100 of 100 study Cases; the reply reader byte for byte, the per-Case accuracy and Brier on all 2,700 recorded study answers, and the per-model headlines to 0. One deviation, declared on 2026-11-25 (D4): a single reply with no readable probability is scored as a miss with Brier 0.25, where the study drops such a cell from both sides of the fraction. Temperature 0 and re-asking a cut-off reply are declared and not applied by the Engine."
 audited: 2026-11-17
 audited_at: d5c8007b3
 fingerprint:
-  benchmark: 1c1d7973a6094bf4
+  benchmark: d1102edd6f6b5c78
   harness_url: https://huggingface.co/datasets/futuresearch-ai/BTF-3/tree/ad5a2165eea26a8a43592ba36ff15765199ddc71
 references:
   paper: https://arxiv.org/abs/2608.24001v2
@@ -25,6 +25,13 @@ parity_test_reason: "The paper's harness is the contributor's study code, which 
 > (arXiv 2608.24001), and the code that produced its BTF-3 numbers. The FutureSearch leaderboard is
 > a secondary note only. This record replaces the earlier one, which audited against Bench to the
 > Future's native setup.
+>
+> **Amended 2026-11-25 (review of ScreamingFace/screamingface#2011), without a re-audit.** D4 is
+> now declared: the row, README, spec §12 and `btf3.py` name the no-forecast miss as a deviation
+> from the paper for one model's reply. The row says `origin="external"`. `case_outcome` checks
+> 0/1 before `int()`. No grade changes, but the scorer's source did, so the fingerprint moved
+> from `1c1d7973a6094bf4` (the value in Checks run below) to `d1102edd6f6b5c78`. The line numbers cited below are
+> from the audited tree and have since shifted.
 
 ## Verdict
 
@@ -36,7 +43,7 @@ published number exists over these 1,515 Cases.
 `bound vs the paper's runs = D1 1,415/1,515 = 0.934 > 0.005 → not-comparable`
 
 Open items, which cannot change the verdict: D2 temperature (declared, `unknown`), D3 no re-ask on
-a cut-off reply (declared, `unknown`), D4 no-forecast handling (**undeclared**, bound per run =
+a cut-off reply (declared, `unknown`), D4 no-forecast handling (declared 2026-11-25, bound per run =
 `no_forecast`/1,515), D5 the reworded answer line (declared 2026-11-18, `unknown`).
 
 **What matches, with evidence:**
@@ -97,7 +104,7 @@ a cut-off reply (declared, `unknown`), D4 no-forecast handling (**undeclared**, 
 - **Severity and bound.** Possibly-score-changing, `unknown`. It feeds D4: a cut-off reply often has no
   forecast.
 
-### D4 — a reply with no readable probability: a miss here, dropped in the study (undeclared)
+### D4 — a reply with no readable probability: a miss here, dropped in the study (declared 2026-11-25)
 
 - **Where.** Ours: `btf3.py:262-264` (0, Brier 0.25) and `:315-319` (kept in both means). Theirs:
   - A single model's unreadable cell is dropped at the PARSE stage (`study:3_results_report/committee_kit/corpus.py:13, 109-111`).

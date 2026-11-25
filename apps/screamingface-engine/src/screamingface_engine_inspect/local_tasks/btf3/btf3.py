@@ -25,7 +25,9 @@ Execution order, as the importer and the Engine see it:
     3. at grading, ``btf3_accuracy`` reads the forecast with the study's reader
        (``vendor/study_btf_parse.py``) and marks 1 when ``f >= 0.5`` matches the outcome;
        ``btf3_headline`` reports that accuracy over every Case, the mean Brier beside it, and
-       the counts. A reply with no forecast is a miss and costs Brier 0.25 (the study's rule).
+       the counts. A reply with no forecast is a miss and costs Brier 0.25: the study's rule
+       for a crowd with no decision. For ONE model's unreadable reply the paper drops the
+       Case from both sides instead, so here that is a NAMED DEVIATION (OME-1938).
 
 INVARIANT: the pins, the template and the row-to-Sample mapping are Benchmark identity (they sit
 inside the Case Digest); ``tests/unit/inspect/test_local_task_btf3.py`` pins them.
@@ -242,14 +244,16 @@ def case_outcome(state: TaskState) -> int:
     metadata: dict[str, Any] = state.metadata or {}
     if "outcome" not in metadata:
         raise KeyError("Sample is missing 'outcome' in its metadata")
-    outcome: int = int(metadata["outcome"])
-    if outcome not in (0, 1):
-        raise ValueError(f"outcome must be 0 or 1, got {outcome}")
-    return outcome
+    raw: Any = metadata["outcome"]
+    if raw not in (0, 1):
+        # INVARIANT: checked BEFORE int(), which would silently floor 0.5 to "resolved No".
+        raise ValueError(f"outcome must be 0 or 1, got {raw!r}")
+    return int(raw)
 
 
 #: The study's rules (``committee_kit/metrics.py``): a probability of exactly 0.5 counts as Yes,
-#: and a reply with no forecast reads as 0.5 for Brier, ``(0.5 - y)^2 = 0.25`` either way.
+#: and a crowd with no decision reads as 0.5 for Brier, ``(0.5 - y)^2 = 0.25`` either way. This
+#: Benchmark applies that to every reply with no forecast (a named deviation for one model).
 THRESHOLD: Final[float] = 0.5
 ABSTAIN_BRIER: Final[float] = 0.25
 
@@ -257,8 +261,9 @@ ABSTAIN_BRIER: Final[float] = 0.25
 @scorer(metrics=[mean(), stderr()])
 def btf3_accuracy() -> Scorer:
     """One Case: 1.0 when ``f >= 0.5`` matches the outcome, else 0.0; the Brier ``(f - y)^2`` on
-    the metadata. A reply with no forecast is a miss (``forecast: None``, Brier 0.25): the
-    study's abstain rule, and issue #1868's "Case scores 0" (spec §4)."""
+    the metadata. A reply with no forecast is a miss (``forecast: None``, Brier 0.25): issue
+    #1868's "Case scores 0", the study's rule for a crowd with no decision. The paper drops one
+    model's unreadable reply instead: a named deviation (spec §12)."""
 
     async def score(state: TaskState, target: Target) -> Score:
         outcome: int = case_outcome(state)
@@ -310,7 +315,8 @@ def btf3_headline() -> Metric:
     Returns ``{"accuracy", "brier", "forecasts", "no_forecast", "compliant"}``; the row names
     ``accuracy`` its ``whole_run_headline`` and the Engine publishes the rest beside it as run
     metrics. Every Case is in both means: one with no forecast is a miss and costs Brier 0.25,
-    the study's rule (issue #1868, F1: "count shown in the report"). WHY Brier beside accuracy:
+    issue #1868's rule (F1: "count shown in the report"; the study's rule for a crowd, a named
+    deviation for one model's unreadable reply, which the paper drops). WHY Brier beside accuracy:
     always answering No already scores about two thirds on accuracy (issue #1868), and Brier is
     the benchmark's own measure. Lower Brier is better.
     """
