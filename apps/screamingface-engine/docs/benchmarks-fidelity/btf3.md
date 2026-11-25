@@ -1,6 +1,6 @@
 ---
 benchmark: btf3
-origin: screamingface
+origin: external
 verdict: not-comparable
 verdict_reason: "The paper's BTF-3 numbers (Diverse by Reasoning, arXiv 2608.24001v2) are over its 100-question sample; this Benchmark runs all 1,515 binary questions at the same commit, a declared Named Deviation whose bound, 1,415/1,515, is far above tolerance. Against the paper's own harness (the contributor's study code) everything deterministic matches except one declared change, the reworded answer line (D5): above that line the prompt is the study's byte for byte on 100 of 100 study Cases; the reply reader byte for byte, the per-Case accuracy and Brier on all 2,700 recorded study answers, and the per-model headlines to 0. One undeclared deviation: a single reply with no readable probability is scored as a miss with Brier 0.25, where the study drops such a cell from both sides of the fraction. Temperature 0 and re-asking a cut-off reply are declared and not applied by the Engine."
 audited: 2026-11-17

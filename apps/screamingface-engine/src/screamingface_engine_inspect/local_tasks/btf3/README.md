@@ -9,7 +9,7 @@ runs the paper's questions, prompt and grading rule, not today's". Spec:
 
 | | |
 |---|---|
-| Key | `btf3` (origin `screamingface`) |
+| Key | `btf3` (origin `external`, contributor `yimingliao-blad`) |
 | Data | `futuresearch-ai/BTF-3` at `ad5a2165eea26a8a43592ba36ff15765199ddc71`, `btf3_binary_questions_and_forecasts.parquet`, sha256 `50f01603…9b91c2b` |
 | Cases | 1,515 (1,014 resolved No, 501 Yes); asked late April to late May 2026, expected to resolve 5 May to 1 July 2026 |
 | Licence | CC-BY-NC-4.0: non-commercial use; commercial use needs FutureSearch's permission (benchmarks@futuresearch.ai) |

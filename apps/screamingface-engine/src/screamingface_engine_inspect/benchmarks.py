@@ -8713,7 +8713,8 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         whole_run_headline="accuracy",
         # No judge and no Draft Feedback: feedback on a forecast would leak the outcome.
         with_check_surface=False,
-        origin="screamingface",
+        origin="external",
+        contributors=("yimingliao-blad",),
         # The paper whose BTF-3 runs this Benchmark replicates (issue #1868). BTF-3 itself has
         # no paper yet ("Paper to follow", evals.futuresearch.ai), so the citation is the
         # dataset's own.

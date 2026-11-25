@@ -2468,8 +2468,8 @@ screamingface status""",
         nbformat.v4.new_markdown_cell("""\
 ## 1. Read the Benchmark's card
 
-`btf3` is a Benchmark we author ourselves (origin `screamingface`). The card carries the pinned
-release, the licence and the scoring caveats."""),
+`btf3` was written by a contributor outside the team (origin `external`). The card carries the
+pinned release, the licence and the scoring caveats."""),
         nbformat.v4.new_code_cell("""\
 sf.benchmarks.get("btf3")"""),
         nbformat.v4.new_markdown_cell("""\

@@ -11,7 +11,7 @@ BTF-3 ([`futuresearch-ai/BTF-3`](https://huggingface.co/datasets/futuresearch-ai
 FutureSearch, CC-BY-NC-4.0) holds resolved forecasting questions: yes/no ("binary") and numeric.
 This unit serves the **binary** questions as one Benchmark, key `btf3`, a local Task under
 `screamingface_engine_inspect/local_tasks/btf3/`, imported with the existing importer like
-MuSiQue and FutureX-Past (`docs/adding-an-imported-benchmark.md`). `origin="screamingface"`.
+MuSiQue and FutureX-Past (`docs/adding-an-imported-benchmark.md`). `origin="external"`, `contributors=("yimingliao-blad",)`.
 
 The native setup, as far as it is published (dataset card at the pin; the FutureSearch BTF-3
 leaderboard at evals.futuresearch.ai; Bench to the Future, arXiv 2506.21558, §2.3–§2.5 and
