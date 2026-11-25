@@ -686,3 +686,8 @@ refusal with no switch; the tool code stays. PRD `tool-calls.md` §0, scenario T
      stored input. The iterator now has a name. This is the cause of the flake of 2026-11-24 too.
 - **Gate fact:** do not run the Engine gate at the same time as the SDK and repo gates. A
   parallel run put the `inspect` extra into the Engine venv, and two import tests failed.
+- **CI on `c4f472473` (2026-11-25):** the Engine and SDK test jobs passed on both Python
+  versions. Four other checks failed in the minutes of a GitHub incident ("Partially Degraded
+  Service"): the preview job got HTTP 500 and 502 from the labels API, and two CodeQL jobs
+  failed with no finding. The preview job passed on a rerun. A CodeQL run of the default setup
+  cannot be run again, so this ledger commit starts a new CI run.
