@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import SecretStr
 
@@ -13,6 +15,7 @@ from aigateway.core.endpoint_access import EndpointOperation, accessible_plugin
 from aigateway.core.oauth.schemas import ApiKeyValidationResponse, ValidateApiKeyRequest
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 _MUTATION_ERRORS = {
     ApiKeyValidationState.INVALID: (422, "api_key_invalid"),
@@ -70,7 +73,43 @@ async def run_api_key_validation(
     )
     if result is None:
         raise _unsupported(provider)
+    _log_refusal(provider, result)
     return result
+
+
+def _log_refusal(provider: str, result: ApiKeyValidationResult) -> None:
+    """Write one line saying which validation call refused a key, and how.
+
+    WHY: a provider key is checked by two outbound calls, authentication then readiness, and
+    seven outcomes share four HTTP statuses (both `unavailable` and `misconfigured` answer
+    503). The response body names the stage, but a client that flattens it ("AI Gateway is
+    unavailable") leaves the operator with a bare 503 in the access log and no cause. Worked
+    example: a 503 on connecting an OpenRouter key now reads
+    `api_key_validation_refused provider=openrouter state=unavailable stage=authentication
+    probe_model=openrouter/openrouter/free retryable=True`, so the failing call is the first one.
+
+    INVARIANT: only gateway-authored values are written: the resolved provider id, the state and
+    stage enums and the configured probe model. Never the key, and never provider response text.
+
+    WARNING for the two operator-side outcomes (the provider or this gateway's own probe model is
+    at fault), INFO for the ones the key's owner fixes.
+    """
+
+    if result.state is ApiKeyValidationState.VALID:
+        return
+    operator_side: bool = result.state in (
+        ApiKeyValidationState.UNAVAILABLE,
+        ApiKeyValidationState.MISCONFIGURED,
+    )
+    logger.log(
+        logging.WARNING if operator_side else logging.INFO,
+        "api_key_validation_refused provider=%s state=%s stage=%s probe_model=%s retryable=%s",
+        provider,
+        result.state.value,
+        "none" if result.stage is None else result.stage.value,
+        result.probe_model or "none",
+        result.retryable,
+    )
 
 
 async def require_valid_api_key(
