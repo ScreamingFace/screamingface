@@ -8721,10 +8721,17 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         with_check_surface=False,
         origin="external",
         contributors=("yimingliao-blad",),
-        # The paper whose BTF-3 runs this Benchmark replicates (issue #1868). BTF-3 itself has
-        # no paper yet ("Paper to follow", evals.futuresearch.ai), so the citation is the
-        # dataset's own.
-        paper_url="https://arxiv.org/abs/2608.24001",
+        # WHY no paper link: `paper_url`, `authors` and `citation` name ONE source, the
+        # Benchmark's own, and BTF-3 has no paper yet ("Paper to follow",
+        # evals.futuresearch.ai), so the authors and citation are the dataset's. The paper whose
+        # runs this Benchmark replicates (issue #1868) is a different group's and is named in
+        # the description, not here, so the card never credits FutureSearch with it.
+        paper_url=NotPublished(
+            reason=(
+                "BTF-3 has no paper yet; the runs replicated here are from Diverse by Reasoning "
+                "(https://arxiv.org/abs/2608.24001), by other authors"
+            )
+        ),
         authors="FutureSearch, 2026",
         citation=(
             "@misc{futuresearch2026btf3,\n"

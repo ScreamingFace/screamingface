@@ -1,9 +1,9 @@
 ---
-ticket: OME-1938   # design issue ScreamingFace/screamingface#1868; a leaf for the test-change manifest is the maintainer's call
+ticket: OME-1938   # design issue ScreamingFace/screamingface#1868
 stack: screamingface-engine
-status: in_progress   # planned | in_progress | done | blocked
+status: done   # planned | in_progress | done | blocked
 started: 2026-11-17
-finished:
+finished: 2026-11-25
 ---
 
 # btf3-local-task — serve BTF-3 (binary) as a local inspect Task
@@ -13,15 +13,16 @@ finished:
 [BTF-3](https://huggingface.co/datasets/futuresearch-ai/BTF-3) (Bench to the Future 3,
 FutureSearch; CC-BY-NC-4.0) is a pastcasting benchmark of resolved forecasting questions. It is
 not among the Engine's hosted Benchmarks. This unit adds its **binary** questions as a local
-inspect Task, scored the native way (Brier score), with the Bench to the Future paper's own
-forecaster prompt. The contributor chose binary only, Brier (2026-11-17).
+inspect Task, run the way the paper Diverse by Reasoning (arXiv 2608.24001) ran them: its
+dataset release, its prompt and its reader, with accuracy at 0.5 as the headline and the Brier
+score beside it (the design of ScreamingFace/screamingface#1868, OME-1938).
 
 The native leaderboard lets an agent research each question in a frozen web corpus whose page
 text is not distributed, so this Benchmark is closed-book: the paper's prompt with an empty
 research block (the paper's "No Evidence Forecaster"). That is a named deviation.
 
-**Process note:** as for `futurex-past-local-task`, the Linear steps of the root `CLAUDE.md`
-SDLC are skipped by the contributor's decision; `ticket` stays `unfiled`. This unit is its own
+**Process note:** an outside contribution, so the contributor filed nothing in Linear; the
+ticket is the maintainer's OME-1938, which also covered FutureX-Past. This unit is its own
 PR, cut from `main` (the repo squash-merges and asks not to stack PRs); it adds rows to the same
 shared test tables as ScreamingFace/screamingface#1897, so whichever merges second resolves
 those row conflicts.
@@ -41,6 +42,24 @@ reader vendored verbatim, the headline accuracy at 0.5 with `brier`, `forecasts`
 `no_forecast` and `compliant` beside it, a missing forecast a miss costing Brier 0.25, and
 `coverage_declare`. On 2026-11-18 the contributor reworded the study's answer line to name
 the answer a probability (same `Final answer:` format; spec §12, a named deviation). Fidelity Record: re-audited against the paper's runs. On 2026-11-23, at the maintainer's request, cut as its own PR from `main`, after FutureX-Past
-(#1897) merged. Open for the maintainer: the test-change approval manifest (OME-1938 or a
-sub-issue); the issue's 1,471 vs the paper commit's 1,515; and whether a reply with no readable
-probability scores 0 (as built, following #1868) or leaves the score (as the paper did).
+(#1897) merged.
+
+Review on ScreamingFace/screamingface#2011 (2026-11-25), owner decisions and fixes:
+
+- The seven one-row edits to existing tests are approved
+  (`.claude/test-change-approvals/OME-1938.json`).
+- 1,515 questions stand: the ticket's rule is the paper's commit, and 1,471 is the later
+  audited release.
+- A reply with no readable probability stays a miss (Brier 0.25). It is the paper's rule for a
+  crowd with no decision; for one model's reply the paper drops the Case, so the row, README,
+  spec and docstrings name it a deviation.
+- The row is `origin="external"` and names the contributor; `paper_url` is not published,
+  because BTF-3 has no paper and the authors and citation are the dataset's.
+- CC-BY-NC-4.0 comes in under the worldsense precedent (decided on OME-1938).
+- `case_outcome` checks 0/1 before `int()`; the vendored reader's odd reads are pinned as tests.
+- The scorer's source changed, so the first id moved from `1c1d7973a6094bf4` (never published)
+  to `d1102edd6f6b5c78`.
+
+Owner-verify, not done here: `btf3` has not been run end to end against a live model, and it
+is not deployed on the hosted Engine. The Fidelity Record was amended by hand on 2026-11-25,
+not re-audited (the study package is local to the contributor).

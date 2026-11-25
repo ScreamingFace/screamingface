@@ -31,7 +31,8 @@ parity_test_reason: "The paper's harness is the contributor's study code, which 
 > from the paper for one model's reply. The row says `origin="external"`. `case_outcome` checks
 > 0/1 before `int()`. No grade changes, but the scorer's source did, so the fingerprint moved
 > from `1c1d7973a6094bf4` (the value in Checks run below) to `d1102edd6f6b5c78`. The line numbers cited below are
-> from the audited tree and have since shifted.
+> from the audited tree and have since shifted. The row's `paper_url` is now not published (BTF-3
+> has no paper; the authors and citation are the dataset's), which settles the Row metadata note.
 
 ## Verdict
 
