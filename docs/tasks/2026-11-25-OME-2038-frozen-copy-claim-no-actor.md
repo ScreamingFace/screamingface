@@ -21,3 +21,5 @@ the address protected nothing.
   network only. Filed as a `bug` sub-issue of OME-1947 (Triage, unassigned, Irina + Kevin tagged).
 - Ledger: `docs/work/2026-11-25-frozen-copy-claim-no-actor.md`.
 - Infrastructure: OpenMined/infrastructure#2531 (NetworkPolicy only).
+- 2026-11-25: pull request https://github.com/ScreamingFace/screamingface/pull/2064 (branch
+  `OME-2038-frozen-copy-claim-no-actor`).
