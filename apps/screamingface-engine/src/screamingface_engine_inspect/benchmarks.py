@@ -5515,8 +5515,8 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         published_revision="35c7d07e9058f52d",
         # What the leaderboard shows under the revision selector (OME-2001).
         revision_note=(
-            "Scored the paper's way: length adjustment, low-effort judge, a failed Case "
-            "counts 0. Not comparable with the old revision."
+            "Length-adjusted score, judge at low effort, failed Cases count as 0. Not comparable "
+            "with earlier results."
         ),
         origin="screamingface",
         paper_url="https://arxiv.org/abs/2604.27470",

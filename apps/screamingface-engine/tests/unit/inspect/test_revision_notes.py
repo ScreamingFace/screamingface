@@ -167,8 +167,8 @@ _FROZEN_SHA256: str = "c87e37675e004290be2dadf52521090b15a1d016c7fc1dac83e0e85a9
 _NOTED_REVISIONS: dict[str, str] = {
     # OME-1998: moved from d8fb037307f35415 when the grading changed.
     "healthbench-professional@35c7d07e9058f52d": (
-        "Scored the paper's way: length adjustment, low-effort judge, a failed Case "
-        "counts 0. Not comparable with the old revision."
+        "Length-adjusted score, judge at low effort, failed Cases count as 0. Not comparable "
+        "with earlier results."
     ),
     # OME-1980: moved from 490235dc9a53b7d9 (itself moved from the frozen 1e5a3b8a461a52f7 by
     # OME-1786) when turn 2 became a continuation of the Candidate's own chat.
