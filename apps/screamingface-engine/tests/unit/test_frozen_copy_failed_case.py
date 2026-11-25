@@ -274,5 +274,6 @@ async def test_an_unanswered_call_in_a_case_that_scored_stays_partial(tmp_path: 
     assert [status for _, status, _, _ in _cases(result)] == ["scored", "scored"]
     # INVARIANT (R4, D1d): a no-answer outcome in a SCORED Case is never forgiven.
     assert capture["capture.status"] == "partial"
-    # WHY 2: MedXpert has two turns, and member C fails in both turns of Case 1.
-    assert capture["capture.partial.error"] == 2
+    # WHY 1: member C fails on turn 1 of Case 1. Since OME-1980 the commit turn is answered by
+    # the synthesizer alone, so member C is not called a second time.
+    assert capture["capture.partial.error"] == 1

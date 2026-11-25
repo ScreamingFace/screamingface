@@ -75,3 +75,30 @@ def test_option_counts_are_clamped_into_the_alphabet(count: int) -> None:
     # WHY clamp rather than raise: prepare validates option shape, so a bad count here would be
     # an internal defect. Clamping keeps the parser total; the build is where rows are refused.
     assert format_trigger(count).startswith("Therefore, among A through ")
+
+
+# OME-1980: the official harness keeps only the text between the FIRST and SECOND occurrence
+# (`prediction.split(answer_trigger)[1]`, eval/utils.py lines 53 and 56 at 5f1db162).
+_HARNESS_TRIGGER = "Therefore, among A through J, the answer is"
+
+
+@pytest.mark.parametrize(
+    ("completion", "expected"),
+    [
+        pytest.param("The answer is clear: the answer is D.", None, id="double-answer-is"),
+        pytest.param(
+            f"{_HARNESS_TRIGGER} {_HARNESS_TRIGGER} D.", None, id="double-trigger-nothing-between"
+        ),
+        pytest.param(f"{_HARNESS_TRIGGER} C. {_HARNESS_TRIGGER} D.", "C", id="double-trigger"),
+        pytest.param(f"{_HARNESS_TRIGGER} D.", "D", id="single-trigger"),
+    ],
+)
+def test_the_reader_stops_at_a_second_trigger_like_the_harness(
+    completion: str, expected: str | None
+) -> None:
+    """INVARIANT: a reply that repeats the phrase commits only to what sits between the first two.
+
+    Before OME-1980 the reader kept everything after the first, so the double-phrase replies
+    scored D where the harness scores no answer (the Fidelity Record's answer sheets S16, S17).
+    """
+    assert extract_choice_letter(completion, 10, trigger=_HARNESS_TRIGGER) == expected

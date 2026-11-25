@@ -270,7 +270,9 @@ def test_protocol_rejects_an_impossible_case_selection() -> None:
         # moved with it.
         # Moved again (OME-1786): turn 2 reads turn 1's answer text through the new
         # reasoning-text route, and the revision in every route moved with that.
-        (MEDXPERT, "867d9c7e3a00e1de78019bd6cfc950ccf5047b70cd2254d7e106a18dac4187e2"),
+        # Moved again (OME-1980): turn 2 continues the chat through the commit-chat and
+        # commit-recipe routes, and the revision in every route moved with that.
+        (MEDXPERT, "26ffcd7349d264b5dd0ea205d48a8f2bad52aacadb80b6a189a9c9f1cc0b46f5"),
     ),
 )
 def test_canonical_benchmark_url4_is_pinned_byte_for_byte(

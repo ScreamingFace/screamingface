@@ -1,4 +1,4 @@
-"""What the MedXpertQA benchmark pins — dataset, preparer, protocol, and sampling.
+"""What the MedXpertQA benchmark pins — dataset, preparer and protocol.
 
 INVARIANT: every value here participates in the benchmark's revision hash. Changing one changes
 every route address, which is the point: an expression addressed to an old revision must never
@@ -25,23 +25,22 @@ PREPARER_REVISION = "text-test-v1"
 # WHY: the exchange itself — two-turn zero-shot CoT, first-match commit extraction.
 # v2 (OME-1786): turn 2 carries turn 1's answer text. Under v1 it carried turn 1's whole result
 # record, accounting included, so the same Case sent different turn-2 bytes on a rerun.
-PROTOCOL_REVISION = "two-turn-cot-v2"
+# v3 (OME-1980): turn 2 continues the chat (user prompt, assistant answer, user trigger) and is
+# answered by the one model that wrote the turn-1 answer; the reader keeps the text between the
+# first and second trigger. Under v2 turn 2 was one JSON user message to the whole Candidate.
+PROTOCOL_REVISION = "two-turn-cot-v3"
 
-# WHY 8192 and not the official harness's smaller default: reasoning models exhaust a 2,048
-# budget before committing and return empty content, which does not lower their score — it
-# removes them from the denominator, so a starved model looks like it answered a smaller, easier
-# benchmark. Measured in the prior experimental run.
-MAX_TOKENS = 8192
-# The official protocol is deterministic sampling.
-TEMPERATURE = "0"
+# AIDEV-NOTE (OME-1980): the harness's sampling (temperature 0, seed 0, 2048 or 8192 tokens) is
+# NOT sent, by the owner's call: today's reasoning models reject temperature 0 or run out of
+# tokens at 2048, and the AI Gateway does not drop a parameter a provider rejects. The Candidate's
+# own settings apply; the Benchmark description says so. The unused MAX_TOKENS/TEMPERATURE
+# constants that claimed otherwise were removed.
 
 __all__ = [
     "DATASET",
     "DATASET_CONFIG",
     "DATASET_REVISION",
     "DATASET_SPLIT",
-    "MAX_TOKENS",
     "PREPARER_REVISION",
     "PROTOCOL_REVISION",
-    "TEMPERATURE",
 ]

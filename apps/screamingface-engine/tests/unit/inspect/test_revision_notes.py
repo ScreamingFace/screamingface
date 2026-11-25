@@ -170,10 +170,11 @@ _NOTED_REVISIONS: dict[str, str] = {
         "Scored the paper's way: length adjustment, low-effort judge, a failed Case "
         "counts 0. Not comparable with the old revision."
     ),
-    # OME-1786: moved from 1e5a3b8a461a52f7 when the turn-2 prompt changed on every Case.
-    "medxpert@490235dc9a53b7d9": (
-        "The commit turn now sees only the model's reasoning text, not its full result "
-        "record. Not comparable with the old revision."
+    # OME-1980: moved from 490235dc9a53b7d9 (itself moved from the frozen 1e5a3b8a461a52f7 by
+    # OME-1786) when turn 2 became a continuation of the Candidate's own chat.
+    "medxpert@952ea002b0f5e3b0": (
+        "The commit turn now continues the model's own chat, as the official harness does. "
+        "Not comparable with older revisions."
     ),
 }
 

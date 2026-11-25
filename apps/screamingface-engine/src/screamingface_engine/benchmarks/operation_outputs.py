@@ -138,6 +138,16 @@ def final_operation_abstained(
     )
 
 
+def final_reference(expression: str) -> str | None:
+    """The name of the step a Candidate's result comes from, or None (see ``_final_reference``).
+
+    FEATURE (OME-1980): MedXpertQA's commit turn reads it to find the one model that wrote the
+    turn-1 answer, with the same rule as the per-step records.
+    """
+
+    return _final_reference(expression)
+
+
 # WHY cached: attribution and the final-abstain mark parse the same expression text per Case.
 @functools.lru_cache(maxsize=32)
 def _final_reference(expression: str) -> str | None:
@@ -342,4 +352,9 @@ def _fingerprint(value: object) -> _Fingerprint | None:
     return (value.path, params)
 
 
-__all__ = ["attribute_operation_outputs", "final_operation_abstained", "parsed_iterate_body"]
+__all__ = [
+    "attribute_operation_outputs",
+    "final_operation_abstained",
+    "final_reference",
+    "parsed_iterate_body",
+]

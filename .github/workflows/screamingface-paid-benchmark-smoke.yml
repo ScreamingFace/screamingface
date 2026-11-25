@@ -95,8 +95,12 @@ jobs:
 
       # The engine serves the Imported Benchmarks only with the `benchmarks` extra
       # (uncoinstallable with the SDK's runtime extra), and every bundle comes from
-      # the engine's own preparer. Every bundle is prepared whatever is picked: one
-      # cache entry serves every press, and a cache hit makes the extra ones free.
+      # the engine's own preparer. A press by scope prepares every bundle: one cache
+      # entry serves every such press, and a cache hit makes the extra ones free.
+      # WHY a press that NAMES Benchmarks prepares only theirs: the cache key hashes the
+      # benchmark code, so a branch that edits a Benchmark always misses it, and that is
+      # the branch that smokes one Benchmark. Preparing all 100 bundles there cost 25
+      # minutes of downloads to grade 2 Cases (run 45538646440).
       # WHY the temp file, not `done < <(...)` (PR #1035 review): a failed
       # --list-bundles inside process substitution does NOT trip `set -e` — the loop
       # would see an empty list, prepare nothing, and the pytest step would then have
@@ -106,16 +110,30 @@ jobs:
         run: uv sync --extra benchmarks
 
       - name: Prepare benchmark assets
+        id: prepare-assets
         working-directory: apps/screamingface-engine
         # Read-only Hugging Face token for gated datasets (xstest, OME-1269), scoped to
         # this step only (not the dependency install above); without it the prepare step refuses
         # the gated Benchmark by name, which fails this owner-pressed run.
+        # PICKED is read through env:, never interpolated into the script below.
+        # ALWAYS_RUN: tests/paid/test_signal_sources_paid.py runs on every press and reads
+        # this Benchmark's bundle, so a named press prepares it too.
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN_BENCHMARKS }}
+          PICKED: ${{ inputs.benchmarks }}
+          ALWAYS_RUN: inspect-gsm8k
         run: |
           assets=/tmp/screamingface-data/benchmark-assets
           bundles_file="$(mktemp)"
-          uv run python -m screamingface_engine.benchmarks.prepare --list-bundles > "$bundles_file"
+          # Blank (or only commas and spaces) means the scope decides: every bundle.
+          # An id the engine does not serve fails --list-bundles here, before any download.
+          wanted=""
+          if [ -n "${PICKED//[[:space:],]/}" ]; then
+            wanted="$PICKED,$ALWAYS_RUN"
+            echo "partial=true" >> "$GITHUB_OUTPUT"
+          fi
+          uv run python -m screamingface_engine.benchmarks.prepare \
+            --list-bundles --for-benchmarks "$wanted" > "$bundles_file"
           missing=()
           while read -r bundle; do
             case "$bundle" in */*|*..*) echo "::error::suspicious bundle id '$bundle'"; exit 1 ;; esac
@@ -130,8 +148,11 @@ jobs:
             uv run python -m screamingface_engine.benchmarks.prepare --root "$assets" "${missing[@]}"
           fi
 
+      # WHY not after a named press: its asset tree holds only the picked bundles. Saved
+      # under the full key, the next press by scope would "hit" it, download the other
+      # bundles, and never save them (a hit skips this step), on every press after.
       - name: Save benchmark assets
-        if: steps.assets-cache.outputs.cache-hit != 'true'
+        if: steps.assets-cache.outputs.cache-hit != 'true' && steps.prepare-assets.outputs.partial != 'true'
         uses: actions/cache/save@v6
         with:
           path: /tmp/screamingface-data/benchmark-assets
