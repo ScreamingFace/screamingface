@@ -609,3 +609,30 @@ refusal with no switch; the tool code stays. PRD `tool-calls.md` §0, scenario T
      order).
   6. Stop point S4 (manual run with pi and opencode) and S5 (epic, Linear issue and sub-issues,
      branch rename, task mirror, approval record, PR).
+
+## Review round 2 (2026-11-25)
+
+- **Input:** the re-review of 2026-11-24 by HupBaHa (10 items, on head `3b1cfc34f`, before the
+  SDK units U10 and U11), the comment on the Engine CI path filters, and the open items of the
+  reviews of 2026-11-21.
+- **Validation (four read-only scouts, then a second read by me):** items 2, 3, 4, 5, 8, 9 and
+  10 are valid. Item 1 was fixed in the rebase of 2026-11-24. Item 6: `n` below 1 is a defect;
+  the dropped fields are owner decision Q14. Item 7 and the tool parts of item 6 are in code that
+  no request can reach while tool use is refused (U11). Corrections to the review: after a cancel
+  during the publish the queued run fails at the input read when the delete worked, so I expect
+  no model call (item 2); a scout said that the `scan_run` warning cannot occur, and a probe
+  showed that it does occur (review-1 item 7).
+- **Owner answers (R1 to R4):** keep "ignore" and name the fields in
+  `screamingface.ignored_parameters`, `n` below 1 is HTTP 400; the tool defects wait, list only,
+  no ticket; the approval-record changes are approved; push with lease, PR body and one reply to
+  the reviewer are approved for the end of the round. No merge.
+- **Spec and plan:** `docs/spec/2026-11-17-engine-openai-chat-endpoint/prd/review-round-2.md`,
+  `docs/plan/2026-11-25-chat-endpoint-review-round-2.md`.
+- **Rebase:** onto `origin/main` `d69e15a58`; one conflict (`__all__` of
+  `benchmarks/operation_outputs.py`, both sides kept). Backup tag
+  `backup/ome-1963-before-rebase-20261125`. Changed test of `main`:
+  `tests/unit/test_gateway_code_screen.py`, the import line only (commit `bd8c45bfa`).
+- **Decisions by me (`[proposed]` in the spec):** the 8 MiB result limit; 503 with a retry for a
+  short outage of the input store; `final_step.cached` and zero counts on a cache hit, not the
+  stored counts; the limits of the `ignored_parameters` list (64 characters, 32 names).
+- **Items that wait:** the list in the spec, section 9.

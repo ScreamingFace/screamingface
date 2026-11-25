@@ -336,3 +336,12 @@ docs examples run in tests.
 ## Outcome (fill at the end — required before COMMIT)
 
 Not started.
+
+## Review round 2 (2026-11-25)
+
+The re-review of PR #1937 has two SDK items (stream cancel, and `timeout` as the limit of the
+full call) and one docs item (the OpenAI client retries in the bridge examples). They are units
+U-G and U-H of `docs/plan/2026-11-25-chat-endpoint-review-round-2.md`; the scenarios are RR-S17
+to RR-S19 and the tests MI-51 to MI-56 of
+`docs/spec/2026-11-17-engine-openai-chat-endpoint/prd/review-round-2.md`. The record of the round
+is in `docs/work/2026-11-17-engine-openai-chat-endpoint.md`.
