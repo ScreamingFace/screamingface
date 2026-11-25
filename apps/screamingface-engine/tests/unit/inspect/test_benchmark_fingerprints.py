@@ -192,7 +192,8 @@ _FINGERPRINTS: dict[str, str] = {
     # The hand-built Benchmark (screamingface_engine.benchmarks.medxpert).
     # Moved from 1e5a3b8a461a52f7 (OME-1786): turn 2 carries turn 1's answer text, not its record.
     # Moved from 490235dc9a53b7d9 (OME-1980): turn 2 continues the Candidate's own chat.
-    "medxpert": "952ea002b0f5e3b0",
+    # Moved from 952ea002b0f5e3b0 (OME-2018): turn 2 states its reply rule, the option letter only.
+    "medxpert": "5f6e01e4fa673215",
 }
 
 

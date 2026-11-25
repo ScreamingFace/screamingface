@@ -41,6 +41,7 @@ from screamingface_engine.benchmarks.medxpert.definition import (
     compute_revision,
 )
 from screamingface_engine.benchmarks.medxpert.prepare import emit
+from screamingface_engine.benchmarks.medxpert.prompts import COMMIT_INSTRUCTION
 from screamingface_engine.benchmarks.medxpert.runtime import _commit_chat
 from screamingface_engine.job_env import CAPTURE, REPLAY_FROZEN_COPY
 from screamingface_engine.runner.main import build_executor
@@ -221,7 +222,8 @@ async def test_the_commit_turn_carries_the_reasoning_text_and_none_of_the_record
         {"role": "system", "content": "Answer the question."},
         {"role": "user", "content": _PROMPT},
         {"role": "assistant", "content": _REASONING},
-        {"role": "user", "content": _TRIGGER},
+        # OME-2018: the last message opens with the reply rule, then the trigger.
+        {"role": "user", "content": f"{COMMIT_INSTRUCTION}\n\n{_TRIGGER}"},
     ]
     for key in _RECORD_ONLY_KEYS:
         assert key not in json.dumps(commit["messages"]), f"the commit turn leaked {key!r}"
@@ -406,5 +408,42 @@ def test_the_commit_turn_change_moved_the_published_revision() -> None:
     must compute the id that exam published.
     """
     assert REVISION == FINGERPRINT not in (_RECORD_CARRYING_REVISION, _JSON_MESSAGE_REVISION)
-    assert compute_revision(protocol_revision="two-turn-cot-v1") == _RECORD_CARRYING_REVISION
-    assert compute_revision(protocol_revision="two-turn-cot-v2") == _JSON_MESSAGE_REVISION
+    # OME-2018: those exams sent no reply rule, so they are computed with none.
+    assert (
+        compute_revision(protocol_revision="two-turn-cot-v1", commit_instruction="")
+        == _RECORD_CARRYING_REVISION
+    )
+    assert (
+        compute_revision(protocol_revision="two-turn-cot-v2", commit_instruction="")
+        == _JSON_MESSAGE_REVISION
+    )
+
+
+# The id MedXpertQA published before OME-2018: its turn 2 sent the bare trigger.
+_BARE_TRIGGER_REVISION = "952ea002b0f5e3b0"
+
+
+def test_stating_the_reply_rule_moved_the_published_revision() -> None:
+    """INVARIANT: an instruction added to turn 2 is a changed exam, so it gets its own id.
+
+    Restoring the bare-trigger exam (its protocol constant, and no reply rule) must compute the
+    id it published.
+    """
+    assert REVISION == FINGERPRINT != _BARE_TRIGGER_REVISION
+    assert (
+        compute_revision(protocol_revision="two-turn-cot-v3", commit_instruction="")
+        == _BARE_TRIGGER_REVISION
+    )
+
+
+def test_rewording_the_reply_rule_moves_the_revision_by_itself() -> None:
+    """INVARIANT: the reply rule is prompt text, so a changed word is a changed exam.
+
+    Nobody has to remember to bump the protocol constant: the text is a hashed input, like the
+    two prompt templates. Without this, a reworded rule with an updated test literal would keep
+    the old id on a different exam (review of PR 2042).
+    """
+    reworded: str = compute_revision(commit_instruction="Reply with the option letter only.")
+
+    assert reworded != REVISION
+    assert compute_revision() == REVISION
