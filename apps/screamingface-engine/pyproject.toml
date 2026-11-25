@@ -162,7 +162,8 @@ target-version = "py312"
 # StonyBrookNLP/musique@922ac98f (tests/unit/inspect/test_local_task_musique_vendor.py);
 # arc_agi_2 → arcprize/arc-agi-benchmarking@9e2828fb (test_local_task_arc_agi_2_vendor.py);
 # enigmaeval → centerforaisafety/simple-evals@6614edf5 (test_local_task_enigmaeval.py);
-# futurex_past → the crowd-wisdom study's metrics.py (test_local_task_futurex_past_study.py).
+# futurex_past → the crowd-wisdom study's metrics.py (test_local_task_futurex_past_study.py);
+# btf3 → the contributor's study reader (test_local_task_btf3.py).
 extend-exclude = [
     "src/screamingface_engine_inspect/local_tasks/ifeval/vendor",
     "src/screamingface_engine_inspect/local_tasks/musique/vendor",
@@ -170,6 +171,7 @@ extend-exclude = [
     "src/screamingface_engine_inspect/local_tasks/lab_bench_2/vendor",
     "src/screamingface_engine_inspect/local_tasks/enigmaeval/vendor",
     "src/screamingface_engine_inspect/local_tasks/futurex_past/vendor",
+    "src/screamingface_engine_inspect/local_tasks/btf3/vendor",
     "src/screamingface_engine/combine/operators/_inspect_vendor.py",
 ]
 
@@ -202,6 +204,7 @@ ignore = [
     "src/screamingface_engine_inspect/local_tasks/lab_bench_2/vendor",
     "src/screamingface_engine_inspect/local_tasks/enigmaeval/vendor",
     "src/screamingface_engine_inspect/local_tasks/futurex_past/vendor",
+    "src/screamingface_engine_inspect/local_tasks/btf3/vendor",
     "src/screamingface_engine/combine/operators/_inspect_vendor.py",
 ]
 
@@ -230,6 +233,7 @@ omit = [
     "src/screamingface_engine_inspect/local_tasks/arc_agi_2/vendor/*",
     "src/screamingface_engine_inspect/local_tasks/enigmaeval/vendor/*",
     "src/screamingface_engine_inspect/local_tasks/futurex_past/vendor/*",
+    "src/screamingface_engine_inspect/local_tasks/btf3/vendor/*",
     "src/screamingface_engine/combine/operators/_inspect_vendor.py",
 ]
 
