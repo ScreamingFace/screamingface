@@ -2,9 +2,9 @@
   "issue": "OME-1963",
   "branch": "OME-1963-engine-openai-chat-endpoint",
   "approver": "IonesioJunior (owner), approved in the chat-endpoint session on 2026-11-17 and 2026-11-18",
-  "date": "2026-11-23",
-  "scope": "Prior-test edits of the OpenAI-compatible chat endpoint on the Engine, and nothing else (41 files). (1) The move of the gateway round trip from world/connector.py to world/gateway_transport.py: tests that patch a moved name now name the new module; no assertion changed. Two tests got one added check each (test_request_scope.py and test_observation_seam.py). (2) The schedule port got the keyword chat_input: six test fakes accept it (tests/unit/_fakes.py, test_answer_seed_threading.py, test_cache_policy_threading.py, test_queue_admission.py, tests/integration/test_e2e_compose_flow.py, test_run_control_resilience.py). (3) test_url4_executor.py: allow-list entries for world/gateway_transport.py, chat/recipe.py, world/chat_turn.py and world/chat_final.py. (4) test_mount_routes.py: two tests use the example mount /v1/benchmarks/data/foo, because /v1/chat/completions is now a real route. (5) test_app_factory.py and test_cli_local_mode.py: three tests replace cli._run_server and not uvicorn.run; no assertion changed. (6) packages/screamingface/tests/public_surface_snapshot.json: the 16 new public names and the module chat of the SDK chat surfaces, and the new member chat of Client, AsyncClient and each recipe class (SDK model inference, contracts C1.6, D13 to D16); lines added, and one changed entry: the class Recipe had no public member (\"members\": {}) and now has the property chat. On 2026-11-24 the owner asked for the one-line change from the OpenAI SDK (SDK model inference, overview section 5.6, contracts C1.7, D18 to D25); the snapshot follows: Client.__init__ and AsyncClient.__init__ get base_url, api_key, timeout, max_retries and **openai_options; each create gets messages and tools as iterables, max_retries None and timeout as httpx.Timeout; each reply type gets model_dump, model_dump_json and to_json, and the OpenAI attributes with the value None (lines added; the changed lines are these signatures).",
-  "reason": "The owner approved the move and its test edits with the spec (proposal P24, spec ledger Q19 to Q21) and the plan (stop point S1, option A: this record at PR-open). The owner approved the allow-list entries during the build, the edits to the three CLI tests on 2026-11-18 (Q34, \"make the edits\"), and the edit to test_mount_routes.py on 2026-11-18 (Q37, \"edit in the tests approved\"). The lists for each unit are in docs/work/2026-11-17-engine-openai-chat-endpoint.md. The SDK snapshot change: the owner approved the SDK model inference spec and plan on 2026-11-18 (test plan §5 names this file as made to change with the surface), and on 2026-11-23 told me to add the SDK commits to this PR. On the same day the owner approved the change to chat on the recipe and on the client (spec section 5.5), which changes the new lines of the snapshot.",
+  "date": "2026-11-25",
+  "scope": "Prior-test edits of the OpenAI-compatible chat endpoint on the Engine, and nothing else (42 files). (1) The move of the gateway round trip from world/connector.py to world/gateway_transport.py: tests that patch a moved name now name the new module; no assertion changed. Two tests got one added check each (test_request_scope.py and test_observation_seam.py). (2) The schedule port got the keyword chat_input: six test fakes accept it (tests/unit/_fakes.py, test_answer_seed_threading.py, test_cache_policy_threading.py, test_queue_admission.py, tests/integration/test_e2e_compose_flow.py, test_run_control_resilience.py). (3) test_url4_executor.py: allow-list entries for world/gateway_transport.py, chat/recipe.py, world/chat_turn.py and world/chat_final.py. (4) test_mount_routes.py: two tests use the example mount /v1/benchmarks/data/foo, because /v1/chat/completions is now a real route. (5) test_app_factory.py and test_cli_local_mode.py: three tests replace cli._run_server and not uvicorn.run; no assertion changed. (6) packages/screamingface/tests/public_surface_snapshot.json: the 16 new public names and the module chat of the SDK chat surfaces, and the new member chat of Client, AsyncClient and each recipe class (SDK model inference, contracts C1.6, D13 to D16); lines added, and one changed entry: the class Recipe had no public member (\"members\": {}) and now has the property chat. On 2026-11-24 the owner asked for the one-line change from the OpenAI SDK (SDK model inference, overview section 5.6, contracts C1.7, D18 to D25); the snapshot follows: Client.__init__ and AsyncClient.__init__ get base_url, api_key, timeout, max_retries and **openai_options; each create gets messages and tools as iterables, max_retries None and timeout as httpx.Timeout; each reply type gets model_dump, model_dump_json and to_json, and the OpenAI attributes with the value None (lines added; the changed lines are these signatures).",
+  "reason": "The owner approved the move and its test edits with the spec (proposal P24, spec ledger Q19 to Q21) and the plan (stop point S1, option A: this record at PR-open). The owner approved the allow-list entries during the build, the edits to the three CLI tests on 2026-11-18 (Q34, \"make the edits\"), and the edit to test_mount_routes.py on 2026-11-18 (Q37, \"edit in the tests approved\"). The lists for each unit are in docs/work/2026-11-17-engine-openai-chat-endpoint.md. The SDK snapshot change: the owner approved the SDK model inference spec and plan on 2026-11-18 (test plan §5 names this file as made to change with the surface), and on 2026-11-23 told me to add the SDK commits to this PR. On the same day the owner approved the change to chat on the recipe and on the client (spec section 5.5), which changes the new lines of the snapshot. On 2026-11-25 the owner approved, as answer R3 of review round 2 (\"Yes, all three kinds\"; docs/spec/2026-11-17-engine-openai-chat-endpoint/prd/review-round-2.md, section 0): new hashes for the approved files that main changed before the rebase onto d69e15a58 (the change of this PR to each file is the same as before the rebase); the import line of tests/unit/test_gateway_code_screen.py, a test that main added and that imports a function this PR moved to world/gateway_transport.py (no assertion changed); and the new line of the SDK surface snapshot for FinalStep.cached.",
   "files": {
     "apps/screamingface-engine/tests/integration/test_e2e_compose_flow.py": {
       "base_blob": "94609a5bcd8b832320be35ba7f135c056af6b728",
@@ -31,8 +31,8 @@
       "approved_blob": "81bff7414b4b5d601d9bf1efa33dfd299a5f1c49"
     },
     "apps/screamingface-engine/tests/unit/test_aigateway_connector.py": {
-      "base_blob": "600a57ae1d6fa3a9d30ac7009816b362e466f949",
-      "approved_blob": "103289ad6ca7ac9cdf781cb6fbd20a51212b6df5"
+      "base_blob": "a95788e073b3db6e04a552c2a9e313fb6073922e",
+      "approved_blob": "3c16797b97cbb09f5e09727e3f403eddb29b04db"
     },
     "apps/screamingface-engine/tests/unit/test_ambiguous_retry_pricing.py": {
       "base_blob": "bc4774696fd435cab78a525daa2cc8c4bb73649c",
@@ -55,8 +55,8 @@
       "approved_blob": "341479a479c7bd302d3623915f421a374cbba712"
     },
     "apps/screamingface-engine/tests/unit/test_candidate_call_retry.py": {
-      "base_blob": "c85b22c711f1a4de9e9ecf4a5648ff7ec576d114",
-      "approved_blob": "f42d2d5b963bd46c3ff11ae7ecf5507f8dc0e4a4"
+      "base_blob": "7d47d6eb6ad97c17382f56f145f105dece12954a",
+      "approved_blob": "aed2d6f6449199014a39b8afb5b098d3e6037813"
     },
     "apps/screamingface-engine/tests/unit/test_classification_endpoint.py": {
       "base_blob": "c707e9ac886f38020caef742e714f55092df6db1",
@@ -95,8 +95,12 @@
       "approved_blob": "26e449b542bd098eb0b50811ce007728b28065bc"
     },
     "apps/screamingface-engine/tests/unit/test_frozen_copy_replay_unserved.py": {
-      "base_blob": "67b73b3655b41095382f53f14588ac0d51755538",
-      "approved_blob": "1f9cf3288f5865a3f9d268994e4a276f7b71ff89"
+      "base_blob": "27fa6c50fafd4177598a32b4bceaca56e237ac79",
+      "approved_blob": "5a58f58837b3bc3b5a85484d2814cab1dc6e2b33"
+    },
+    "apps/screamingface-engine/tests/unit/test_gateway_code_screen.py": {
+      "base_blob": "5a6f5dff1ba6b07d70181e0285fdbf878bad89d6",
+      "approved_blob": "38a11525c40b0655d56e18a6ab2a6811c2e8559a"
     },
     "apps/screamingface-engine/tests/unit/test_logprobs_unsupported_observed.py": {
       "base_blob": "3c4feedfe22784d931da060b341b312e7c7863ce",
@@ -111,8 +115,8 @@
       "approved_blob": "3b13fc05635830b8d7d78c50d592de3caf37d7eb"
     },
     "apps/screamingface-engine/tests/unit/test_mount_routes.py": {
-      "base_blob": "42742dae5fd56ac1859f340430f2b56cc34e94a8",
-      "approved_blob": "c6a32dd253af3b06787efaa17fc7c3cd26210fa9"
+      "base_blob": "d2a5057c27264454d88f363a0e56b4e4fa7a2d46",
+      "approved_blob": "0b960ae3f66f8d1e9e044b003fa7ba470db14555"
     },
     "apps/screamingface-engine/tests/unit/test_observation_execution.py": {
       "base_blob": "93b5b7ba5cdb8d9f208f8af709bb690491b8a347",
@@ -159,16 +163,16 @@
       "approved_blob": "1f5dc3f35d62325328be7b7de81ef8c450ed3287"
     },
     "apps/screamingface-engine/tests/unit/test_unsupported_content_part_refusal.py": {
-      "base_blob": "8f10af43f604a4f98d8c74bc2f05aef8e1e2b48b",
-      "approved_blob": "0f898d3b43f00f7dc0e387cfb9041a7cbca8976b"
+      "base_blob": "95b020e4f8ee8c303f090b0698939a20f07683bd",
+      "approved_blob": "ac02d7f1ee6298aab749b3a64fb5549f6ccd8bef"
     },
     "apps/screamingface-engine/tests/unit/test_url4_executor.py": {
-      "base_blob": "4a2ba578bf287b89d721d8329e202774269666a6",
-      "approved_blob": "f7531755565da4279ba9885c0c064742c3e689d3"
+      "base_blob": "6424f96fc2c7cccc88b2da6bd7c44b95d1b06081",
+      "approved_blob": "783457f17d0dff3501960fd96b327eb4ec8db674"
     },
     "packages/screamingface/tests/public_surface_snapshot.json": {
-      "base_blob": "cc6e32c7294c58fe167cd57a9e853b2ab4cb1410",
-      "approved_blob": "272f790a62fdb4c944b71a2dc3afa21c8c093e90"
+      "base_blob": "e5b423b7e322f7c164b2bcadf6d173c12c871c63",
+      "approved_blob": "fd6ccf9f7f09e912842fe5a261144fdd35f7f2e4"
     }
   }
 }
