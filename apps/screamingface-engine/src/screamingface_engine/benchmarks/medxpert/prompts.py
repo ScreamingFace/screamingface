@@ -23,4 +23,15 @@ COT_PROMPT_TEMPLATE = "Q: {question}\nA: Let's think step by step."
 # committed letter come first and first-match extraction correct.
 COT_TRIGGER_TEMPLATE = "Therefore, among {start} through {end}, the answer is"
 
-__all__ = ["ANSWER_SYSTEM", "COT_PROMPT_TEMPLATE", "COT_TRIGGER_TEMPLATE"]
+# Turn 2 — the reply rule, sent on its own line before the trigger (OME-2018).
+# NAMED DEVIATION: the official harness sends the trigger alone and relies on the model finishing
+# the sentence. Today's chat models read a bare trigger as a new question and explain again: on
+# the first paid run of revision 952ea002b0f5e3b0 the reply was 277 and 496 tokens of new
+# reasoning on 2 of 2 Cases, and one Case changed its turn-1 answer from the key to a wrong
+# letter. Checked on 6 real Cases with a local model (qwen3.8:27b): a bare trigger gave the
+# letter first on 2 of 6 replies (mean 1,092 characters), this line on 6 of 6 (mean 10).
+# WHY before the trigger, not after: the message still ends on the unfinished sentence, the
+# harness's design, so the letter is the next thing the model writes.
+COMMIT_INSTRUCTION = "Finish the sentence below with the option letter only, and nothing else."
+
+__all__ = ["ANSWER_SYSTEM", "COMMIT_INSTRUCTION", "COT_PROMPT_TEMPLATE", "COT_TRIGGER_TEMPLATE"]

@@ -149,6 +149,7 @@ _COVERAGE_DECLARE: frozenset[str] = frozenset(
         "simpleqa_verified",
         "futurex_past",
         "futurex_past_study",
+        "btf3",
         # G: open (negative grades).
         "healthbench-worst30",
     }
@@ -171,11 +172,11 @@ def test_failure_policy_is_a_required_row_field_after_difficulty() -> None:
 
 
 def test_every_row_declares_the_policy_of_the_table() -> None:
-    # INVARIANT: 99 imported rows, each with exactly the policy the table names. A new row or a
+    # INVARIANT: 100 imported rows, each with exactly the policy the table names. A new row or a
     # changed policy trips here, deliberately.
-    assert len(BENCHMARKS) == 99
+    assert len(BENCHMARKS) == 100
     assert len(_WITHHOLD) == 81
-    assert len(_COVERAGE_DECLARE) == 18
+    assert len(_COVERAGE_DECLARE) == 19
     actual = {spec.key: spec.failure_policy for spec in BENCHMARKS}
     assert actual == _EXPECTED
 
@@ -381,4 +382,5 @@ def test_only_healthbench_professional_scores_a_whole_run_metric_under_withhold(
         "simpleqa_verified": "coverage_declare",
         "futurex_past": "coverage_declare",
         "futurex_past_study": "coverage_declare",
+        "btf3": "coverage_declare",
     }

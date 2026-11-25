@@ -188,9 +188,12 @@ _FINGERPRINTS: dict[str, str] = {
     "bbh": "c4f0aa7d023cbd2a",
     "medmcqa": "e9e7ca645e342f81",
     "futurex_past_study": "3c66e638e04516ed",
+    "btf3": "d1102edd6f6b5c78",
     # The hand-built Benchmark (screamingface_engine.benchmarks.medxpert).
     # Moved from 1e5a3b8a461a52f7 (OME-1786): turn 2 carries turn 1's answer text, not its record.
-    "medxpert": "490235dc9a53b7d9",
+    # Moved from 490235dc9a53b7d9 (OME-1980): turn 2 continues the Candidate's own chat.
+    # Moved from 952ea002b0f5e3b0 (OME-2018): turn 2 states its reply rule, the option letter only.
+    "medxpert": "5f6e01e4fa673215",
 }
 
 

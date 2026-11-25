@@ -336,6 +336,7 @@ def test_every_builtin_benchmark_declares_its_actual_policy() -> None:
         "frames_oracle": ("withhold", "single_shot", "medium"),
         "futurex_past": ("coverage_declare", "single_shot", "hard"),
         "futurex_past_study": ("coverage_declare", "single_shot", "hard"),
+        "btf3": ("coverage_declare", "single_shot", "hard"),
         "inspect-math": ("withhold", "single_shot", "medium"),
     }
     actual = {

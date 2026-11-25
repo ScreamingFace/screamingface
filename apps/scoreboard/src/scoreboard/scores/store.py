@@ -22,6 +22,7 @@ from tortoise.query_api import execute_pypika
 from tortoise.queryset import QuerySet
 from tortoise.transactions import in_transaction
 
+from scoreboard.classification.candidate_kind import CandidateKindVerdict, classify_candidate_kind
 from scoreboard.classification.openness import Openness
 from scoreboard.db import DEFAULT_CONNECTION
 
@@ -2605,6 +2606,24 @@ class ScoreStore:
                 score_ids, "id", "frozen_copy_id", "capture_status", connection=connection
             )
             if row["capture_status"] == "complete" and row["frozen_copy_id"] is not None
+        }
+
+    async def candidate_kinds_for_score_ids(
+        self, score_ids: Sequence[str], *, connection: BaseDBAsyncClient | None = None
+    ) -> dict[str, CandidateKindVerdict]:
+        """Each listed score's composition verdict (OME-1852): circle, square, or unknown.
+
+        The sibling of `frontier_member_models` and `pinned_caches_for_score_ids`, bounded by
+        the page the same way and for the same reason `models_for_score_ids` records — a
+        separate method rather than widening either of those, because their contracts are
+        pinned by other tickets' tests.
+
+        INVARIANT: selects `id` and `metadata` and nothing else, for the reason
+        `models_for_score_ids` records.
+        """
+        return {
+            str(row["id"]): classify_candidate_kind(row["metadata"])
+            for row in await _chunked_values(score_ids, "id", "metadata", connection=connection)
         }
 
     async def scores_that_name_a_copy(self) -> list[tuple[str, str]]:

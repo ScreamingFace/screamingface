@@ -1,7 +1,9 @@
-"""Answer-time letter extraction — the verbatim-official parser.
+"""Answer-time letter extraction — the official parser, with one Named Deviation (OME-2018): a
+letter wrapped in underscores is read.
 
-INVARIANT: this reads a TRIGGER COMPLETION. Turn 2 is the bare sentence "…the answer is", so the
-model's commitment is the FIRST in-range letter it writes. First-match is correct here.
+INVARIANT: this reads a TRIGGER COMPLETION. Turn 2 ends on the unfinished sentence "…the answer
+is" (after the reply rule), so the model's commitment is the FIRST in-range letter it writes.
+First-match is correct here.
 
 AIDEV-NOTE: this is NOT `grading.extract_letter`, and the two must never be merged. That one
 reads arbitrary prose and takes the LAST match, because prose concludes at the end. Applying THIS
@@ -36,9 +38,9 @@ def extract_choice_letter(
 ) -> str | None:
     """The committed letter, or ``None`` when the model committed to nothing.
 
-    Port of the official ``answer_cleansing()`` zero-shot branch: cut everything before the
-    trigger if the model echoed it, strip the echo phrases, then take the FIRST letter inside
-    this row's option range.
+    Port of the official ``answer_cleansing()`` zero-shot branch: if the model echoed the
+    trigger, keep only the text between its first and second occurrence, strip the echo
+    phrases, then take the FIRST letter inside this row's option range.
 
     INVARIANT: returns ``None`` rather than guessing. Callers turn that into an empty answer,
     which the grader scores wrong — the official empty-prediction verdict. A parser that guessed
@@ -48,15 +50,26 @@ def extract_choice_letter(
     text = (completion or "").strip()
     if not text:
         return None
+    # WHY `split(...)[1]` with no maxsplit (OME-1980): the harness keeps only the text between
+    # the FIRST and SECOND occurrence, so "the answer is clear: the answer is D" commits to
+    # nothing, not to D. Official lines: https://github.com/TsinghuaC3I/MedXpertQA/blob/5f1db162d0d2b03d62da2d4fe086076a36105e18/eval/utils.py#L53
+    # and #L56.
     if trigger and trigger in text:
-        text = text.split(trigger, 1)[1].strip()
+        text = text.split(trigger)[1].strip()
     elif " answer is " in text:
-        text = text.split(" answer is ", 1)[1].strip()
+        text = text.split(" answer is ")[1].strip()
     for phrase in _UNWANTED_PHRASES:
         text = text.replace(phrase, "")
 
     letters = "|".join(chr(ord("A") + i) for i in range(_clamp(options_count)))
-    found = re.findall(rf"\b({letters})\b", text)
+    # NAMED DEVIATION (OME-2018): the harness's `\b` counts an underscore as part of a word, so
+    # the Markdown-underlined `__E__` reads as no answer where `**E**` reads as E. This is `\b`
+    # with the underscore taken out of the word characters and nothing else changed: `[^\W_]`
+    # is "a word character that is not an underscore", in Unicode, as `\b` reads it.
+    # WHY not "no ASCII letter or digit touches it": that rule also frees a letter that touches
+    # a Greek letter, a subscript or a superscript, so `vitamin B₁₂ ... so D` would commit B
+    # and `Aβ plaques point to D` would commit A (review of PR 2042).
+    found = re.findall(rf"(?<![^\W_])({letters})(?![^\W_])", text)
     return found[0] if found else None
 
 

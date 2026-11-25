@@ -589,16 +589,39 @@ td.col-open { white-space: nowrap; }
 .pareto-chart-key__dominated,
 .pareto-chart-key__frontier,
 .pareto-chart-key__leader,
-.pareto-chart-key__unpriced {
+.pareto-chart-key__unpriced,
+.pareto-chart-key__single,
+.pareto-chart-key__fusion {
   display: inline-block;
   width: 10px;
   height: 10px;
   box-sizing: border-box;
 }
 .pareto-chart-key__dominated { border-radius: 50%; background: var(--ink-3); }
-.pareto-chart-key__frontier { width: 8px; height: 8px; background: var(--info-text-low); transform: rotate(45deg); }
+/* A short bar, not a shape — this key now stands for the frontier LINE plus the
+   marker's color, never for a shape of its own. It used to be a rotated square (a diamond),
+   which sits too close to the new fusion square at this size to mean two different things at
+   once; dropping the shape is what keeps the two channels unambiguous. */
+.pareto-chart-key__frontier { width: 12px; height: 3px; background: var(--info-text-low); }
 .pareto-chart-key__leader { border-radius: 50%; border: var(--border-strong) solid var(--gain); }
 .pareto-chart-key__unpriced { border-radius: 50%; border: var(--border-strong) solid var(--ink-3); }
+/* Circle = single model, square = fusion — the Pareto chart's own marker shapes,
+   independent of the dominated/frontier/leader/unpriced colors above. */
+.pareto-chart-key__single { border-radius: 50%; border: var(--border-strong) solid var(--ink-2); }
+.pareto-chart-key__fusion { border: var(--border-strong) solid var(--ink-2); }
+/* Triangle = Unknown (missing, or a kind the server does not recognise as model/fusion) — its
+   own honest third shape, never the single-model circle above (which would overstate
+   confidence) or the fusion square (the one mislabeling this ticket names explicitly). A
+   border-triangle, not the box-sizing recipe shared above: there is no square box to size, the
+   borders ARE the shape. */
+.pareto-chart-key__unknown {
+  display: inline-block;
+  width: 0;
+  height: 0;
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-bottom: 9px solid var(--ink-2);
+}
 
 [data-theme="dark"] .pareto-chart__frontier-line { stroke: var(--info-solid); }
 [data-theme="dark"] .pareto-chart__frontier-point { fill: var(--info-solid); }
@@ -613,18 +636,29 @@ td.col-open { white-space: nowrap; }
   .pareto-chart__frontier-point { fill: CanvasText; }
   /* The key's swatches are spans coloured by `background`, which forced-colors strips — the
      block above rescues the chart's own marks but not the legend that explains them, leaving
-     four labels with nothing to map them to. Same omission the table mark had. */
+     the labels with nothing to map them to. Same omission the table mark had. */
   .pareto-chart-key__dominated,
   .pareto-chart-key__frontier,
   .pareto-chart-key__leader,
-  .pareto-chart-key__unpriced {
+  .pareto-chart-key__unpriced,
+  .pareto-chart-key__single,
+  .pareto-chart-key__fusion {
     forced-color-adjust: none;
     background: CanvasText;
     border-color: CanvasText;
   }
   .pareto-chart-key__leader,
-  .pareto-chart-key__unpriced {
+  .pareto-chart-key__unpriced,
+  .pareto-chart-key__single,
+  .pareto-chart-key__fusion {
     background: Canvas;
+  }
+  /* The triangle swatch has no background/border-color box to rescue — its visible color is
+     border-bottom, with the left/right borders staying transparent to keep the triangle's
+     point. */
+  .pareto-chart-key__unknown {
+    forced-color-adjust: none;
+    border-bottom-color: CanvasText;
   }
 }
 

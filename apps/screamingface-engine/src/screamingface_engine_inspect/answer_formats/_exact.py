@@ -1,7 +1,7 @@
 """Exact, number, pattern and overlap scorers (19 rows).
 
 paws/boolq Yes/No, aime, math, match, f1, musique, contracteval, infinite_bench, arc_agi_2,
-ifeval, mathvista, zerobench, mitre_frr, futurex_past_study.
+ifeval, mathvista, zerobench, mitre_frr, futurex_past_study, btf3.
 """
 
 from __future__ import annotations
@@ -297,5 +297,25 @@ EXACT: Mapping[str, AnswerFormat] = {
         material={"target": ["Yes"], "metadata": {"level": 1, "ground_truth": ["Yes"]}},
         accepted=("\\boxed{Yes}", "Probably \\boxed{yes}"),
         rejected=("Yes", "First \\boxed{Yes}, then \\boxed{No}"),
+    ),
+    # local_tasks/btf3/btf3.py `btf3_accuracy` → vendor/study_btf_parse.py `btf_parse` (the
+    # last line's closing probability, else the last number in [0, 1]; a percentage's digits
+    # are never read, though a stray 0 or 1 elsewhere then is); 0.5 or more reads Yes, and a
+    # reply with no forecast is a miss (Brier 0.25).
+    "screamingface_engine_inspect.local_tasks.btf3.btf3:btf3_accuracy": AnswerFormat(
+        sentence=(
+            "Answer format: end the reply with exactly one line 'Final answer: <number between "
+            "0 and 1>', the probability that the answer is Yes, as in 'Final answer: 0.35'. A "
+            "probability of 0.5 or more counts as Yes: on a question that resolved Yes, 'Final "
+            "answer: 1' scores 1 and 'Final answer: 0' scores 0. If the last line does not end "
+            "with the number, the last number from 0 to 1 elsewhere in the reply is read "
+            "instead. A percentage is never read, so 'I put it at 65%.' gives no forecast (but "
+            "a stray 0 or 1 elsewhere would be read instead), and a reply with no forecast "
+            "scores 0."
+        ),
+        case_input="Will the event happen by June 1, 2026?",
+        material={"target": "1", "metadata": {"outcome": 1}},
+        accepted=("Final answer: 1",),
+        rejected=("Final answer: 0", "I put it at 65%."),
     ),
 }

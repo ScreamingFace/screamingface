@@ -40,8 +40,10 @@ async def test_builtin_installers_declare_every_stage(monkeypatch, tmp_path, reg
         "rubric-tasks": "grading",
         "criterion-verdict": "grading",
         "rubric-verdict": "grading",
-        # OME-1786: MedXpertQA's route between its two turns builds the turn-2 prompt.
-        "reasoning-text": "answering",
+        # OME-1786, OME-1980: MedXpertQA's routes between its two turns build the turn-2 chat
+        # and name who answers it.
+        "commit-chat": "answering",
+        "commit-recipe": "answering",
     }
     with run.bind():
         for provider in node._data.values():

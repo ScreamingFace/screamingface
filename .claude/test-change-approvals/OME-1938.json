@@ -1,0 +1,38 @@
+{
+  "issue": "OME-1938",
+  "branch": "btf3-local-task",
+  "approver": "Khoa Nguyen (owner), 2026-11-25, on ScreamingFace/screamingface#2011 (OME-1938)",
+  "date": "2026-11-25",
+  "scope": "Prior-test edits for the one new Benchmark, btf3, and nothing else: one row each in replayed_cases_helpers.py (STAND_IN_METADATA), test_benchmark_declaration.py, test_inspect_imported_benchmarks.py (family free_text), test_failure_policy_rows.py (the coverage_declare group, plus the row counts 99->100 and 18->19 its invariant asserts), test_published_revisions.py and test_benchmark_fingerprints.py (the first revision and fingerprint literal, d1102edd6f6b5c78; re-pinned on 2026-11-25 after the review fixes to the scorer's source moved it from 1c1d7973a6094bf4, which was never published), and test_whole_run_metric.py (btf3 joins the owner-decision list of rows that honour a whole-run metric, named in its docstring). No existing row and no existing assertion changes.",
+  "reason": "Each table lists every Benchmark by design, so a new Benchmark adds a row in the same diff (as futurex_past did under OME-1952); the rows are the review act for its declaration, family, policy, revision, fingerprint and non-mean headline. The whole-run headline (accuracy at 0.5 over every Case, Brier and the counts beside it) is the design of OME-1938.",
+  "files": {
+    "apps/screamingface-engine/tests/unit/inspect/replayed_cases_helpers.py": {
+      "base_blob": "38117d8dc8a18e240942ae9be9c92da70ea3ea8d",
+      "approved_blob": "19e1d50e256e872ed15345aa0e6b2eb1ce985cf2"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_benchmark_declaration.py": {
+      "base_blob": "427c8641320f2b6ac4db642160e13138e790b352",
+      "approved_blob": "593728581f28715f3d6b90a45bb123bc1f98cd00"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_benchmark_fingerprints.py": {
+      "base_blob": "629033cdd499073d3b4038e00fd5b9822e1c8698",
+      "approved_blob": "4e77871adb9453d75ebc2604d701d251655d0258"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_failure_policy_rows.py": {
+      "base_blob": "52ef2f5aaf8e5c957a636b57b1b892de836fde9a",
+      "approved_blob": "cf395a4710dfb5ab0d0b758a735b580711aa3fa3"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_inspect_imported_benchmarks.py": {
+      "base_blob": "716c8a77164a83b93b16e01c3ad943faf409b561",
+      "approved_blob": "57a16f4986622289136e4c80404d71f7c068fa5f"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_published_revisions.py": {
+      "base_blob": "96e40764f5a554fee8c62f66bd48d876bb8c26a9",
+      "approved_blob": "25ea5dbe166e0a6d3711665bc705a79c67afa138"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_whole_run_metric.py": {
+      "base_blob": "60596b25255e8e00fea0a8e53a340ee7723a28a3",
+      "approved_blob": "a28f185eb03dea1f5cc6f1a7c662578687414737"
+    }
+  }
+}

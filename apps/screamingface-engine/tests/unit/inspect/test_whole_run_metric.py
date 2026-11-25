@@ -858,11 +858,13 @@ def test_no_published_row_opts_in_so_no_revision_moves() -> None:
     #20: its hand-built headline was always the official clip of the run's mean) and ifeval
     (OME-1527, Work order #15: its hand-built instruction-level accuracy was always pooled over
     the run's instructions), and simpleqa and simpleqa_verified (OME-1602, owner decision
-    2026-10-16: the share correct is the headline, the paper's F-score beside it), and
+    2026-10-16: the share correct is the headline, the paper's F-score beside it),
     futurex_past and futurex_past_study (contributor's decision 2026-11-16, for the owner to
     confirm on the PR: the paper's and the study's headline is the 10/20/30/40 tier-weighted
-    score, not the mean over questions). Any other row joining this list is a new owner
-    decision and must be named here."""
+    score, not the mean over questions), and btf3 (ScreamingFace/screamingface#1868, OME-1938:
+    accuracy at 0.5 over every question, a reply with no forecast a miss, the Brier score and
+    the counts beside it). Any other row joining this list is a new owner decision and must be
+    named here."""
 
     opted_in: list[str] = [spec.key for spec in BENCHMARKS if spec.whole_run_metric is not None]
     assert opted_in == [
@@ -874,6 +876,7 @@ def test_no_published_row_opts_in_so_no_revision_moves() -> None:
         "simpleqa_verified",
         "futurex_past",
         "futurex_past_study",
+        "btf3",
     ]
     assert all(
         benchmarks._whole_run_metric_pins(spec) == ()

@@ -14,23 +14,29 @@ benchmark's grading is free.
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+import logging
+from collections.abc import Callable, Mapping
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
 from screamingface_engine.activity_kinds import ActivityKind
 from screamingface_engine.benchmarks.case_grading_report import report_case_grading
-from screamingface_engine.benchmarks.contract import decode_candidate_invocation_record
+from screamingface_engine.benchmarks.contract import (
+    OperationOutput,
+    decode_candidate_invocation_record,
+)
 from screamingface_engine.benchmarks.failure_classes import (
     benchmark_definition_error as _definition_error,
 )
-from screamingface_engine.benchmarks.grading_endpoints import benchmark_unavailable as _unavailable
 from screamingface_engine.benchmarks.grading_endpoints import (
+    CandidateAnswer,
     candidate_answer,
     compact_json,
     json_object,
     positive_case_id,
 )
+from screamingface_engine.benchmarks.grading_endpoints import benchmark_unavailable as _unavailable
 from screamingface_engine.benchmarks.medxpert import aggregate as reducing
 from screamingface_engine.benchmarks.medxpert.answering import (
     extract_choice_letter,
@@ -40,13 +46,16 @@ from screamingface_engine.benchmarks.medxpert.case_grade import (
     CHECK_SCHEMA,
     build_case_grade,
 )
+from screamingface_engine.benchmarks.medxpert.commit import commit_chat, commit_recipe
 from screamingface_engine.benchmarks.medxpert.definition import (
     BENCHMARK_ID,
     CASE_COUNT,
-    REASONING_TEXT_ROUTE,
+    COMMIT_CHAT_ROUTE,
+    COMMIT_RECIPE_ROUTE,
     REVISION,
 )
 from screamingface_engine.benchmarks.phases import observe_phase
+from screamingface_engine.benchmarks.picture_admission import node_model_routes
 from screamingface_engine.benchmarks.shared_grading.serving import (
     ServedBenchmark,
     benchmark_preflight,
@@ -57,14 +66,18 @@ from screamingface_engine.benchmarks.shared_grading.serving import (
 from url4.core.errors import ResolutionError
 from url4.peer.server import Request, Url4Node
 
+_LOG = logging.getLogger(__name__)
+
 
 def install(node: Url4Node, root: Path) -> None:
     """Register every route this benchmark's expression references."""
 
     install_benchmark(node, root, BENCHMARK)
     # WHY the guard: local mode installs one node for many runs (see `install_benchmark`).
-    if REASONING_TEXT_ROUTE not in node.processor_routes():
-        node.endpoint(REASONING_TEXT_ROUTE)(_turn_one_text)
+    if COMMIT_CHAT_ROUTE not in node.processor_routes():
+        node.endpoint(COMMIT_CHAT_ROUTE)(_commit_chat)
+    if COMMIT_RECIPE_ROUTE not in node.processor_routes():
+        node.endpoint(COMMIT_RECIPE_ROUTE)(_commit_recipe_endpoint(node))
 
 
 def preflight(root: Path, case_ids: tuple[int, ...]) -> None:
@@ -133,7 +146,7 @@ def _check(root: Path):
             answer = reducing.load_answer(root, case_id)
             if answer is None:
                 raise ValueError(f"answer record for case {case_id} missing or invalid")
-            commit = candidate_answer(payload["commit"])
+            commit = _with_turn_one_rows(candidate_answer(payload["commit"]), payload["reasoning"])
             trigger = format_trigger(int(answer["options_count"]))
             letter = extract_choice_letter(
                 commit.text, int(answer["options_count"]), trigger=trigger
@@ -169,16 +182,16 @@ def _check(root: Path):
 # WHY "answering": every installed route declares its stage, and this one builds the prompt of
 # the Candidate's second turn; nothing is graded here.
 @observe_phase(ActivityKind.ANSWERING)
-def _turn_one_text(request: Request) -> str:
-    """Turn 1's result record in, the text turn 2 may read out: the answer and nothing else.
+def _commit_chat(request: Request) -> str:
+    """Turn 1's prompt, result record and the trigger in; the chat turn 2 continues out.
 
     WHY a route (OME-1786): turn 2's prompt is built inside the expression, where turn 1 exists
     only as its whole record. The record's accounting differs between a live call and a cache
-    hit, so passing it on made the same Case send different turn-2 bytes on a rerun.
+    hit, so passing it on made the same Case send different turn-2 bytes on a rerun. Only the
+    record's answer text reaches the chat (``commit.commit_chat``).
 
     A turn 1 with no answer text (refused, empty, or a Fusion that abstained) is a valid record
-    with an empty ``output``, so turn 2 gets an empty reasoning and still commits, as it did
-    before.
+    with an empty ``output``; the chat then has no assistant message and turn 2 still commits.
 
     WHY the contract's strict decoder and not ``_reasoning_text``: that reader is lenient, for
     the audit trail, and hands back whatever it was given when it cannot read a record. Here a
@@ -187,15 +200,115 @@ def _turn_one_text(request: Request) -> str:
     reasoning it never wrote.
     """
 
+    # The prompt and trigger come from this Benchmark's own Case rows: a fault there is the
+    # Benchmark's, never the Candidate's.
     try:
-        return decode_candidate_invocation_record(request.context).output
-    except ValueError as exc:
+        payload: dict[str, Any] = json_object(request.context, "MedXpertQA commit chat")
+        if tuple(payload) != ("prompt", "reasoning", "trigger"):
+            raise ValueError("commit chat fields must be prompt, reasoning, trigger")
+        prompt, record, trigger = payload["prompt"], payload["reasoning"], payload["trigger"]
+        if not isinstance(prompt, str) or not isinstance(trigger, str) or not prompt or not trigger:
+            raise ValueError("commit chat prompt and trigger must be non-empty text")
+    except (TypeError, ValueError) as exc:
+        raise _definition_error(f"MedXpertQA commit chat: {exc}") from exc
+    try:
+        answer: str = decode_candidate_invocation_record(record).output
+    except (TypeError, ValueError) as exc:
         # The same code the Engine gives a Candidate whose record it cannot encode.
         raise ResolutionError(
             f"MedXpertQA turn-1 record is not a Candidate result: {exc}",
             code="candidate_contract_error",
             permanent=True,
         ) from exc
+    return commit_chat(prompt, answer, trigger)
+
+
+def _commit_recipe_endpoint(node: Url4Node) -> Callable[[Request], str]:
+    """The route that names who answers turn 2, reading this node's model routes at call time."""
+
+    # WHY "answering": it decides which model answers the Candidate's second turn.
+    @observe_phase(ActivityKind.ANSWERING)
+    def endpoint(request: Request) -> str:
+        """The Candidate's recipe text in, the recipe turn 2 runs out (``commit.commit_recipe``).
+
+        WHY the model routes are read per call, not at install: the world may register its
+        gateway after this Benchmark is installed. A node with no gateway has no model routes,
+        so every recipe runs whole: the safe answer.
+        """
+
+        if not request.context or not request.context.strip():
+            raise ResolutionError(
+                "MedXpertQA commit turn has no Candidate recipe",
+                code="candidate_contract_error",
+                permanent=True,
+            )
+        models: frozenset[str] = node_model_routes(node)
+        recipe: str = commit_recipe(request.context, lambda path: path in models)
+        # WHY a log line: a recipe the shortcut cannot lift runs whole with no error, which for a
+        # Fusion means members billed twice again. This says which path ran, never the recipe.
+        # WHY debug: it fires once per Case (2,450 lines a run at info).
+        _LOG.debug(
+            "MedXpertQA commit turn: %s",
+            "one model" if recipe != request.context else "whole recipe",
+        )
+        return recipe
+
+    return endpoint
+
+
+def _with_turn_one_rows(commit: CandidateAnswer, turn_one: object) -> CandidateAnswer:
+    """The commit's per-step rows, plus turn 1's rows for steps the commit did not run.
+
+    FEATURE (OME-1980): when one model writes the commit (a Fusion's synthesizer), the members
+    are not called on turn 2, so the commit's record holds only ``op_synthesis_1``. The members'
+    turn-1 rows are copied in, in turn 1's order, so the graded record still shows every member
+    and what its one call cost (the SDK's per-member and per-Case cost views read "unknown" for
+    a row with no accounting).
+
+    INVARIANT: a copied row carries its output, finish reason and accounting, never budget
+    charges or combine/decision evidence. Copying the accounting counts nothing twice: the run's
+    cost comes from its own usage total, not from these rows, and each member made exactly one
+    call. A row the commit ran itself is never replaced.
+
+    AIDEV-NOTE: the writer's row is the commit's own, so ``op_synthesis_1`` carries only its
+    turn-2 call. Its turn-1 call (for a Fusion, the costliest one) is in no row: the SDK shows
+    it in the run's unattributed remainder (run total minus the rows), so it is still counted,
+    once.
+
+    Worked example: turn 1 [op_model_1 "A", op_model_2 "D", op_synthesis_1 "...D"], commit
+    [op_synthesis_1 "D."] → [op_model_1 "A", op_model_2 "D", op_synthesis_1 "D."].
+    """
+
+    earlier: list[OperationOutput] | None = _turn_one_operations(turn_one)
+    if commit.operations is None or not earlier:
+        return commit
+    ran: dict[str, OperationOutput] = {row.operation_id: row for row in commit.operations}
+    merged: list[OperationOutput] = [
+        ran.pop(row.operation_id, None)
+        or OperationOutput(
+            operation_id=row.operation_id,
+            output=row.output,
+            finish_reason=row.finish_reason,
+            accounting=row.accounting,
+        )
+        for row in earlier
+    ]
+    return replace(commit, operations=(*merged, *ran.values()))
+
+
+def _turn_one_operations(turn_one: object) -> list[OperationOutput] | None:
+    """Turn 1's per-step rows; None when the value is not a Candidate result record.
+
+    WHY lenient here: the commit-chat route already refused a malformed turn 1 before turn 2
+    ran, so this only reads evidence for the audit trail and never fails the check.
+    """
+
+    if not isinstance(turn_one, str):
+        return None
+    try:
+        return decode_candidate_invocation_record(turn_one).operations
+    except ValueError:
+        return None
 
 
 def _reasoning_text(value: object) -> str:
