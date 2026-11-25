@@ -210,8 +210,11 @@ test-paid-benchmarks scope="all" benchmarks="":
     # the engine always runs from its own venv, synced here.
     ( cd "{{ engine_dir }}" && "$UV" sync --extra benchmarks )
 
-    # Prepare any missing bundle, whatever is picked: one assets root serves every
-    # press, and a prepared bundle costs nothing next time. Same resumable rule as
+    # Prepare any missing bundle the press reads: every bundle for a press by scope,
+    # only the named Benchmarks' own (plus inspect-gsm8k, which
+    # tests/paid/test_signal_sources_paid.py reads on every press) when `benchmarks`
+    # is given, so smoking one Benchmark does not download all of them. One assets root
+    # serves every press, and a prepared bundle costs nothing next time. Same resumable rule as
     # local-stack-notebooks: a bundle counts as finished only when its cases.json
     # PARSES; anything else is debris from a dead run and is cleared before re-preparing.
     # AIDEV-NOTE: near-copy of that recipe's loop — fold both (and the workflow's third
@@ -223,8 +226,14 @@ test-paid-benchmarks scope="all" benchmarks="":
     # list, prepare nothing, and the run would end as a green no-op.
     bundles_file="$(mktemp)"
     trap 'rm -f "$bundles_file"' EXIT
+    # Blank (or only commas and spaces) means the scope decides: every bundle. An id the
+    # engine does not serve fails --list-bundles here, before any download.
+    picked="{{ benchmarks }}"
+    wanted=""
+    if [ -n "${picked//[[:space:],]/}" ]; then wanted="$picked,inspect-gsm8k"; fi
     ( cd "{{ engine_dir }}" \
-        && "$UV" run python -m screamingface_engine.benchmarks.prepare --list-bundles ) > "$bundles_file"
+        && "$UV" run python -m screamingface_engine.benchmarks.prepare \
+            --list-bundles --for-benchmarks "$wanted" ) > "$bundles_file"
     missing=()
     while read -r bundle; do
         # A bundle id is a flat directory name; anything path-like would make the
