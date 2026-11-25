@@ -1,0 +1,34 @@
+{
+  "issue": "OME-2038",
+  "branch": "OME-2038-frozen-copy-claim-no-actor",
+  "approver": "Ionesio Junior (owner)",
+  "date": "2026-11-25",
+  "scope": "Only the tests that assert the removed caller address: the claim address list (AIGW_FROZEN_COPY_CLAIM_EMAILS, frozenCopyClaimEmails), its 503 (empty list), 401 (no header) and 403 (address not on the list) answers, the list/admin-list separation for claims, and the scoreboard actor (SCOREBOARD_GATEWAY_ACTOR, gatewayActor, the X-User-Email header of the claim). Those assertions are deleted or changed to the new rule; new tests assert the new rule. No other assertion changes. Review fix 2026-11-25: the helm skip of test_chart_render_frozen_copy_claim.py covers only the two tests that render the chart.",
+  "reason": "Owner decision 2026-11-25 (spec Q34, answer \"remove it\"): users never reach the gateway, so the claim route checks the peer network only and needs no caller address. The removed behavior cannot be asserted any more.",
+  "files": {
+    "apps/aigateway/tests/unit/test_chart_render_frozen_copy_claim.py": {
+      "base_blob": "5a54a67b6c7c7ed0282873e4104f2c738c9a5fbd",
+      "approved_blob": "527358a95919bad3bdb5d61593fc711dbc2cd383"
+    },
+    "apps/aigateway/tests/unit/test_frozen_copy_claim.py": {
+      "base_blob": "094cb69c1f1094262b68fefa9a05c7f4ff5a99d4",
+      "approved_blob": "1ad8236eda0a3c55b152a94d6c70bb6ae2e3a413"
+    },
+    "apps/aigateway/tests/unit/test_frozen_copy_claim_networks.py": {
+      "base_blob": "c682c4abb190eb0dcca8e6ed49e78ce6643aa716",
+      "approved_blob": "f059281824a8985fb3518b90e05abc0c0b9374a9"
+    },
+    "apps/scoreboard/tests/unit/test_claim_copies_cli.py": {
+      "base_blob": "7349c334c77f145ea2d8eef9451bfdad6d30f1c3",
+      "approved_blob": "d0789d211067689210eb92e10595ae53c0cce763"
+    },
+    "apps/scoreboard/tests/unit/test_copy_claims.py": {
+      "base_blob": "86039f00af18bc5834f43c30997f71eda6e27b23",
+      "approved_blob": "b9233c35138019a7915ea09bd199c56e08903035"
+    },
+    "apps/scoreboard/tests/unit/test_copy_claims_wiring.py": {
+      "base_blob": "185415a8fb6c266de5540ed64f3e76e32aeeeaaf",
+      "approved_blob": "c78a475dc371928e868e481ee37c87c79b0eea05"
+    }
+  }
+}

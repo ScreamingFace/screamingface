@@ -35,7 +35,6 @@ async def test_a_create_app_with_a_gateway_url_builds_the_claim_client_and_none_
             "auth_mode": "cloudflare_headers",
             "allowed_networks": "127.0.0.1/32",
             "gateway_url": "http://gateway.test",
-            "gateway_actor": "claims@example.test",
         }
     )
 
@@ -52,7 +51,6 @@ async def test_delete_scores_makes_no_gateway_call(
     tortoise_db: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("SCOREBOARD_GATEWAY_URL", "http://gateway.test")
-    monkeypatch.setenv("SCOREBOARD_GATEWAY_ACTOR", "claims@example.test")
     await Benchmark.create(id="hle", display_name="Humanity's Last Exam")
     outcome = await ScoreStore().submit(
         ScoreSubmission.model_validate({**_payload(), "submitted_by": ALICE})

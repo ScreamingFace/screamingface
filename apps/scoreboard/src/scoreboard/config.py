@@ -94,8 +94,9 @@ class Settings(BaseSettings):
 
     # FEATURE: frozen copy claims (OME-1947). An empty URL means no claim: a Score that names a
     # frozen copy is then stored with no claim, as before this release.
+    # WHY no actor: the gateway trusts the peer address of the scoreboard, not a header. A fixed
+    # address in a header proves nothing, because each pod in the cluster can send it.
     gateway_url: str = ""
-    gateway_actor: str = ""
     gateway_timeout_s: float = Field(default=5.0, gt=0)
 
     @property
@@ -110,15 +111,6 @@ class Settings(BaseSettings):
                 f"db_pool_minsize ({self.db_pool_minsize}) exceeds "
                 f"db_pool_maxsize ({self.db_pool_maxsize})"
             )
-            raise ValueError(msg)
-        return self
-
-    @model_validator(mode="after")
-    def _gateway_url_has_an_actor(self) -> Settings:
-        # INVARIANT: the gateway accepts a claim only from a named actor, so a URL with no actor
-        # stops the start of the service (`main.py` builds the app at import), not each submit.
-        if self.gateway_url and not self.gateway_actor.strip():
-            msg = "SCOREBOARD_GATEWAY_URL is set, but SCOREBOARD_GATEWAY_ACTOR is empty"
             raise ValueError(msg)
         return self
 

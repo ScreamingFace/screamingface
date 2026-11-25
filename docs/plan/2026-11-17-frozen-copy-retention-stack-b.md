@@ -1,5 +1,10 @@
 # Plan: frozen copy retention, stack B (claims)
 
+> **Superseded in part (2026-11-25, spec Q34, OME-2038).** The claim route has no caller address:
+> `AIGW_FROZEN_COPY_CLAIM_EMAILS`, `frozenCopyClaimEmails`, `SCOREBOARD_GATEWAY_ACTOR` and
+> `gatewayActor` are removed, and the claim sends no `X-User-Email`. The text below is the plan as
+> it was built; for the current contract read `contracts.md` K4.
+
 - Spec: `docs/spec/2026-11-16-frozen-copy-retention/` (owner approved 2026-11-17; owner
   decisions Q26 to Q32 of `00-overview.md` §5.4 are in this plan, see the last section). Read
   `00-overview.md` §2 and §7, `prd/score-claim.md`, `contracts.md` K4, K5, K9, K10, `erd.md`
