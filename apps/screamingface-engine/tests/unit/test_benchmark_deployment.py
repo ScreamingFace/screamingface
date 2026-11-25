@@ -639,6 +639,109 @@ def test_prepare_cli_lists_bundle_ids_without_preparing_anything(
     assert "medxpert" in listed
 
 
+def _refuse_to_prepare(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
+    """Stand-in for the preparer: listing bundles must never download anything."""
+    raise AssertionError("--list-bundles must not prepare anything")
+
+
+def test_prepare_cli_lists_only_the_bundles_the_named_benchmarks_read(
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """INVARIANT: a run of one Benchmark prepares that Benchmark's dataset, not all of them.
+
+    The paid smoke asks this before it downloads. Listing every bundle for a one-Benchmark
+    press cost 25 minutes of downloads to grade 2 Cases (run 45538646440).
+    """
+    monkeypatch.setattr(prepare_module, "prepare_builtin_assets", _refuse_to_prepare)
+
+    status: int = prepare_module.main(
+        ["--list-bundles", "--for-benchmarks", " medxpert, ,medxpert"]
+    )
+
+    # A REAL Benchmark id, with the spaces, the empty piece and the repeat a person types.
+    # (The narrowing itself is pinned on a three-Benchmark deployment in the next test: the
+    # Engine without its `benchmarks` extra, as CI runs it, has this one bundle.)
+    assert status == 0
+    assert capsys.readouterr().out.split() == ["medxpert"]
+
+
+def test_prepare_cli_lists_a_bundle_two_named_benchmarks_share_once(
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """INVARIANT: the bundle comes from the registration, never from the Benchmark's name.
+
+    Two Benchmarks may read one bundle whose id is neither of theirs. Naming both lists that
+    bundle once; guessing "bundle id = Benchmark id" would ask for two bundles that do not exist.
+    """
+    shared = BenchmarkAssetBundle(id="shared", prepare=lambda _out: {})
+    deployment = BenchmarkDeployment(
+        (
+            BenchmarkRegistration(_benchmark("one"), asset_bundle=shared),
+            BenchmarkRegistration(_benchmark("two"), asset_bundle=shared),
+            BenchmarkRegistration(
+                _benchmark("three"),
+                asset_bundle=BenchmarkAssetBundle(id="alpha", prepare=lambda _out: {}),
+            ),
+        )
+    )
+    monkeypatch.setattr(prepare_module, "BUILTIN_DEPLOYMENT", deployment)
+    monkeypatch.setattr(prepare_module, "prepare_builtin_assets", _refuse_to_prepare)
+
+    assert prepare_module.main(["--list-bundles", "--for-benchmarks", "one,two"]) == 0
+
+    assert capsys.readouterr().out.split() == ["shared"]
+
+
+def test_prepare_cli_refuses_an_unknown_benchmark_and_lists_nothing(
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """INVARIANT: a typo fails the listing; it never becomes "nothing to prepare".
+
+    The caller prepares whatever is listed. An empty list with exit 0 would start the run on an
+    empty asset tree.
+    """
+    monkeypatch.setattr(prepare_module, "prepare_builtin_assets", _refuse_to_prepare)
+
+    status: int = prepare_module.main(["--list-bundles", "--for-benchmarks", "medxpert,medxpertt"])
+
+    captured = capsys.readouterr()
+    assert status == 1
+    assert captured.out == ""
+    assert "no such Benchmark(s): medxpertt" in captured.err
+
+
+@pytest.mark.parametrize("blank", ["", "  ", " , ,"])
+def test_prepare_cli_lists_every_bundle_when_no_benchmark_is_named(
+    blank: str,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A blank field is "unset", as on the paid smoke button: the whole shelf is listed."""
+    monkeypatch.setattr(prepare_module, "prepare_builtin_assets", _refuse_to_prepare)
+
+    assert prepare_module.main(["--list-bundles", "--for-benchmarks", blank]) == 0
+
+    assert capsys.readouterr().out.split() == sorted(BUILTIN_DEPLOYMENT.asset_bundle_ids)
+
+
+def test_prepare_cli_refuses_named_benchmarks_outside_a_listing(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Naming Benchmarks only narrows the listing; on a prepare it would be silently ignored."""
+    monkeypatch.setattr(prepare_module, "prepare_builtin_assets", _refuse_to_prepare)
+
+    with pytest.raises(SystemExit) as refused:
+        prepare_module.main(["--root", str(tmp_path), "--for-benchmarks", "medxpert"])
+
+    assert refused.value.code == 2
+    assert "--for-benchmarks only narrows --list-bundles" in capsys.readouterr().err
+
+
 def test_every_benchmark_image_build_passes_the_hugging_face_token_secret() -> None:
     """Gated datasets (xstest_safe, OME-1269) prepare only with the ``hf_token`` BuildKit
     secret, because ``docker build`` never sees a shell's variables. A builder that
