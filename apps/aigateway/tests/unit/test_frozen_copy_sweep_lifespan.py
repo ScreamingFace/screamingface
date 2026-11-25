@@ -159,3 +159,21 @@ def test_shutdown_keeps_a_trigger_put_on_app_state(tmp_path: Path) -> None:
 
     assert app.state.frozen_copy_sweep_trigger is fake
     assert fake.calls == ["start", "stop"]
+
+
+def test_the_start_log_has_the_unclaimed_ttl_in_a_second_record(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    app = _app(tmp_path, AIGW_FROZEN_COPY_UNCLAIMED_TTL_SECONDS="3600")
+
+    # WHY the logger name: logs.configure() sets propagate=False on the aigateway logger.
+    with caplog.at_level(logging.INFO, logger=_MAIN_LOGGER):
+        with _client(app):
+            pass
+
+    messages = [r.getMessage() for r in caplog.records if r.name == _MAIN_LOGGER]
+    expiry = [m for m in messages if m.startswith("frozen copy expiry armed")]
+    assert expiry == ["frozen copy expiry armed (unclaimed_ttl_s=3600)"]
+    sweep = [i for i, m in enumerate(messages) if m.startswith("frozen copy sweep armed")]
+    assert len(sweep) == 1
+    assert sweep[0] < messages.index(expiry[0])

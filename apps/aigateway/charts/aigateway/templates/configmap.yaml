@@ -57,6 +57,8 @@ data:
   AIGW_FROZEN_COPY_SWEEP_INTERVAL_SECONDS: {{ .Values.config.frozenCopySweep.intervalSeconds | int64 | quote }}
   AIGW_FROZEN_COPY_OPEN_IDLE_SECONDS: {{ .Values.config.frozenCopySweep.openIdleSeconds | int64 | quote }}
   AIGW_FROZEN_COPY_SWEEP_MAX_ENTRIES: {{ .Values.config.frozenCopySweep.maxEntries | int64 | quote }}
+  # The expiry time of a sealed copy that no Score claims (OME-1947). int64 for the same reason.
+  AIGW_FROZEN_COPY_UNCLAIMED_TTL_SECONDS: {{ .Values.config.frozenCopyUnclaimedTtlSeconds | int64 | quote }}
   # The weekly cache snapshot (OME-1021). Emitted in every case so the chart's posture is
   # visible in the manifest: off unless `snapshot.enabled`, with the one schedule form the
   # app accepts stated rather than assumed. The endpoint is emitted only when enabled —

@@ -44,7 +44,7 @@ Test ids: `S-n` = `prd/copy-sweep.md`, `K-n` = `prd/score-claim.md`,
 | X1 | The sweep deletes the entries of a copy that a Score uses | High: a published Score can no longer be reproduced; no repair | Low | S-1, S-14, K-1, K-2, K-12, K-18, K-28; §5.2 |
 | X2 | A Score has no claim, with no signal (a restore of the gateway database; no gateway URL; an old scoreboard image), and its copy expires | High: no repair after the sweep deleted the entries | Low to medium. The copy has only the time that remains in its period, which can be zero. After a restore of the gateway database, the sweep runs 1 to 5 minutes after the gateway start, usually before a claim pass | K-16, K-28, K-30; §5.4 (run `claim_copies` at once after a restore). This is the result of `[stated ans:Q19]` and `[stated ans:Q22]`; no mechanism is added |
 | X3 | The sweep abandons a copy of a run that is still in progress, or a copy that the run sealed while the mark waited | High: the run loses its capture | Low with the default; high if the idle setting is set below the engine deadline `[stated ans:Q18]` | S-2, S-13, S-31; the query of §5.1 |
-| X4 | The expiry rule deletes copies with no approval of a list | High | Certain: this is the owner's decision `[stated ans:Q22]` `[stated ans:Q23]` | What remains as protection: the claim before the store (K-12), the claim pass at each start (K-28), 90 days between the release of C1 and the first expiry, a clock that no person can set wrong (S-4, S-33), the run log record (S-25); §5.3 |
+| X4 | The expiry rule deletes copies with no approval of a list | High | Certain: this is the owner's decision `[stated ans:Q22]` `[stated ans:Q23]` | What remains as protection: the claim before the store (K-12), the claim pass at each start (K-28), 30 days between the release of C1 and the first expiry, a clock that no person can set wrong (S-4, S-33), the run log record (S-25); §5.3 |
 | X5 | (not used: the approved list does not exist `[stated ans:Q23]`) | — | — | — |
 | X6 | A submit that is accepted today is refused after the change | Medium: the user must run again | Certain for two inputs | Accepted by the owner `[stated ans:Q10]`: a run whose seal failed, and a run on the local runtime with capture, get 422 (K-10). Also a repeat that fills the copy field with a copy that is not sealed (K-24), and a repeat with the same key for a Score that was stored before B2 and whose copy is not sealed (K-35). Not changed: a submit with no copy (K-13), and a scoreboard with no gateway URL (CH-3 of the claim PRD). |
 | X7 | The claim route lets a caller that is not the scoreboard keep copies | Medium | Low | K-5, K-6, K-7 |
@@ -55,7 +55,7 @@ Test ids: `S-n` = `prd/copy-sweep.md`, `K-n` = `prd/score-claim.md`,
 | X12 | The dry-run document or a log record leaks account names | Low | Medium | S-25, K-23, K-31 |
 | X13 | The sweep stops with no signal (for example after each start of the pod) | Medium: storage grows again | Low | S-23, S-24; the run log record; §5.1 |
 | X14 | A Score that was stored before the new scoreboard is live names a copy that is open, abandoned or not known to the gateway | Low: that Score cannot be reproduced, as today | Low (none of 376 on 2026-11-16) | K-20, K-31; §5.2. The list is information for the owner; the Score stays `[stated ans:Q20]` |
-| X15 | The scoreboard is not live with a gateway URL in the 90 days after the release of C1, so no copy of a Score that exists is claimed, and those copies expire | High: no repair | Low | The order of §7.1 of `00-overview.md` (stack B before C1); the merge rule of `00-overview.md` §2 (C1 is not merged until steps 3 and 4 of §7.1 are done in production, because a merge to `main` goes out with the next gateway release); K-28; §5.2 (3, 4) before C1. No code enforces the order `[stated ans:Q22]` |
+| X15 | The scoreboard is not live with a gateway URL in the 30 days after the release of C1, so no copy of a Score that exists is claimed, and those copies expire | High: no repair | Low | The order of §7.1 of `00-overview.md` (stack B before C1); the merge rule of `00-overview.md` §2 (C1 is not merged until steps 3 and 4 of §7.1 are done in production, because a merge to `main` goes out with the next gateway release); K-28; §5.2 (3, 4) before C1. No code enforces the order `[stated ans:Q22]` |
 
 ## 4. Gates
 
@@ -166,11 +166,11 @@ rule and the merge rule of `00-overview.md` §2 and §7.1. No code enforces them
    it.
 2. The public docs with the new rule are published: C3 is merged after C1 is merged. The docs
    name no date `[stated ans:Q32]` (`prd/expired-copy-replay.md` R9).
-3. For information: `python -m aigateway.frozen_copy_sweep --cutoff <that time + 90 days>`
+3. For information: `python -m aigateway.frozen_copy_sweep --cutoff <that time + 30 days>`
    shows the copies that expire first. No person must approve this document. The numbers must
    be near the forecast of `00-overview.md` §9.3. If a copy of a Score is in the candidates,
    its claim is missing: do the checks of §5.2 again.
-4. 90 days after the release, the run log record shows the number of copies marked `expired`.
+4. 30 days after the release, the run log record shows the number of copies marked `expired`.
 
 ### 5.4 After an event that can remove claims
 

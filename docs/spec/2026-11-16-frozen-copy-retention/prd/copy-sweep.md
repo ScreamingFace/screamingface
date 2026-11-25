@@ -15,7 +15,7 @@ The sweep is a background job in the AI Gateway. No user flow starts it. It serv
 
 1. **Idle rule.** An `open` copy that gets no entry for 24 hours becomes `abandoned`, and the
    sweep deletes its entries. `[stated ans:Q5]`
-2. **Expiry rule.** A `sealed` copy that no Score claims becomes `expired` 90 days after its
+2. **Expiry rule.** A `sealed` copy that no Score claims becomes `expired` 30 days after its
    clock starts, and the sweep deletes its entries. `[stated ans:Q2]`
 
 The sweep is always active. It has no switch, and no person approves a list before it deletes
@@ -95,7 +95,7 @@ of the approved list, which the owner removed `[stated ans:Q22]` `[stated ans:Q2
   - Then the copy stays `open` and keeps all its entries.
 - **S3. An unclaimed sealed copy expires.** `[stated ans:Q2]` Must
   - Given a `sealed` copy with `claimed_at IS NULL` for which
-    `COALESCE(retention_from, sealed_at) + 90 days` is in the past
+    `COALESCE(retention_from, sealed_at) + 30 days` is in the past
   - When the sweep runs
   - Then the copy has `status = expired`, and after the purge it has no entry.
 - **S4. A claimed copy never expires.** `[stated ans:Q2]` Must
@@ -108,7 +108,7 @@ of the approved list, which the owner removed `[stated ans:Q22]` `[stated ans:Q2
   - When the sweep runs on 2027-02-01 (62 days after the stamp, 109 days after the seal)
   - Then the copy stays `sealed`
   - And when the sweep runs on 2027-03-01 or later, the copy becomes `expired`.
-  - And a copy that is sealed after the migration has `retention_from IS NULL`, and its 90 days
+  - And a copy that is sealed after the migration has `retention_from IS NULL`, and its 30 days
     start at its seal.
 - **S7. A dry run changes nothing and gives a report.** `[proposed]` Must
   - Given the operator runs `python -m aigateway.frozen_copy_sweep` with no other argument
@@ -232,7 +232,7 @@ key in `charts/aigateway/values.yaml` and a line in `templates/configmap.yaml`
 |---|---|---|---|---|
 | `AIGW_FROZEN_COPY_SWEEP_INTERVAL_SECONDS` | int | `3600` | ≥ 60 | `[proposed]` |
 | `AIGW_FROZEN_COPY_OPEN_IDLE_SECONDS` | int | `86400` | > 0 | `[stated ans:Q5]` `[stated ans:Q18]` |
-| `AIGW_FROZEN_COPY_UNCLAIMED_TTL_SECONDS` | int | `7776000` | > 0 | `[stated ans:Q2]` |
+| `AIGW_FROZEN_COPY_UNCLAIMED_TTL_SECONDS` | int | `2592000` | > 0 | `[stated ans:Q2]` |
 | `AIGW_FROZEN_COPY_SWEEP_MAX_ENTRIES` | int | `100000` | ≥ 1 | `[proposed]` |
 
 - No setting turns the sweep or a rule on or off, and no setting holds a date.
@@ -240,9 +240,9 @@ key in `charts/aigateway/values.yaml` and a line in `templates/configmap.yaml`
   version of this spec had (`…_SWEEP_ENABLED`, `…_UNCLAIMED_EXPIRY_ENABLED`,
   `…_UNCLAIMED_EXPIRY_FROM`) do not exist.
 - This is true for each gateway, also a local or development gateway on SQLite. There, an open
-  copy that is idle for 24 hours is abandoned, and a sealed copy expires after 90 days, because
+  copy that is idle for 24 hours is abandoned, and a sealed copy expires after 30 days, because
   no scoreboard claims it. `[stated ans:Q22]`
-- The 90-day clock of a copy that exists at the release comes from the database, not from a
+- The 30-day clock of a copy that exists at the release comes from the database, not from a
   setting (`erd.md` §2.1, `retention_from`). `[stated ans:Q24]`
 - The idle setting has no lower limit. `[stated ans:Q18]` The operator must keep it above the
   engine deadline of 16 hours
@@ -257,7 +257,7 @@ key in `charts/aigateway/values.yaml` and a line in `templates/configmap.yaml`
   does not change. `[stated ans:Q31]`
 - In the chart template, each number goes through `int64` before `quote`. Helm renders a number
   of 1 000 000 or more from a values file as `1e+06`, and the gateway refuses that text. The
-  default period (7 776 000) is such a number. `[proposed]`
+  default period (2 592 000) is such a number. `[proposed]`
 - Stack A adds three of the four settings (interval, idle time, purge budget).
   `AIGW_FROZEN_COPY_UNCLAIMED_TTL_SECONDS` is used only by the expiry rule, so C1 adds it:
   the field in `config.py`, the chart value, its limit test and its own start log record.

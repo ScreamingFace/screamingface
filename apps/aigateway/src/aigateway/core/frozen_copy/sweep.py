@@ -2,10 +2,12 @@
 
 FEATURE: always on, no switch (Q22) and no approval (Q23). Each gateway runs the sweep on a
 periodic trigger; an operator can also run it by command. An idle open copy becomes `abandoned`,
-and its entries are then deleted in chunks.
+and a sealed copy that no Score claims becomes `expired` when its period ends. The entries of both
+are then deleted in chunks. The rules are in `sweep_rules.py`.
 
 INVARIANT (I3): the mark sets the final status under the copy row lock, after it evaluates the rule
-again under that lock, and before any entry is deleted; a capture or a seal that commits first wins.
+again under that lock, and before any entry is deleted. The rule check under the lock is
+`mark_locked` in `sweep_rules.py` (I2 there): a capture, a seal or a claim that commits first wins.
 INVARIANT (I4): `purged_at` is set only by a statement that checks that no entry remains.
 WHY no global lock: two replicas or the command can run at the same time (row locks, SKIP LOCKED);
 a lock left held after a failure would stop each later run with no signal.
@@ -21,23 +23,31 @@ import time
 from collections import deque
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, Any, Literal, Protocol
+from datetime import datetime
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
-from asyncpg import exceptions as asyncpg_exceptions
 from tortoise.transactions import in_transaction
 
 from aigateway.core.auth.models import Account
 from aigateway.core.snapshot_scheduler import Sleep
 
-from .models import STATUS_ABANDONED, STATUS_EXPIRED, STATUS_OPEN, FrozenCopy, FrozenCopyEntry
+from .models import STATUS_ABANDONED, STATUS_EXPIRED, FrozenCopy, FrozenCopyEntry
+from .sweep_rules import (
+    ExpiryRule,
+    IdleRule,
+    MarkOutcome,
+    SweepCandidate,
+    SweepRule,
+    _is_postgres,
+)
 from .times import as_utc
 
 if TYPE_CHECKING:
     from aigateway.config import Settings
 
 __all__ = [
+    "ExpiryRule",
     "FrozenCopySweep",
     "IdleRule",
     "MarkOutcome",
@@ -64,12 +74,6 @@ _FINISH_PURGE_SQL = (
     "AND NOT EXISTS (SELECT 1 FROM frozen_copy_entries WHERE frozen_copy_id = $2)"
 )
 
-MarkOutcome = Literal["marked", "rule no longer true", "lock timeout", "newest entry not found"]
-
-
-def _is_postgres() -> bool:
-    return FrozenCopy._meta.db.capabilities.dialect == "postgres"
-
 
 async def database_now() -> datetime:
     """The database clock, as an aware UTC time."""
@@ -81,114 +85,11 @@ async def database_now() -> datetime:
     return as_utc(datetime.fromisoformat(rows[0]["now"]))
 
 
-async def _idle_since(copy_id: UUID, entry_seq: int, created_at: datetime) -> datetime | None:
-    if entry_seq == 0:
-        return as_utc(created_at)
-    times: list[Any] = await FrozenCopyEntry.filter(
-        frozen_copy_id=copy_id, seq=entry_seq
-    ).values_list("created_at", flat=True)
-    return as_utc(times[0]) if times else None
-
-
 async def _account_names(ids: set[UUID]) -> dict[UUID, str]:
     if not ids:
         return {}
     rows = await Account.filter(id__in=list(ids)).values("id", "username")
     return {row["id"]: row["username"] for row in rows}
-
-
-@dataclass(frozen=True)
-class SweepCandidate:
-    rule: str
-    copy_id: UUID
-    account_id: UUID
-    entries: int
-    # WHY (erd.md section 2.4): a copy that the rule cannot evaluate is reported with this cause;
-    # the run does not call mark() for it and the dry run does not list it.
-    skip: MarkOutcome | None = None
-
-
-class SweepRule(Protocol):
-    """The shape that the expiry rule of C1 also takes; a candidate can carry a skip cause."""
-
-    name: str
-
-    async def candidates(self, at: datetime) -> list[SweepCandidate]: ...
-
-    async def mark(self, copy_id: UUID, at: datetime) -> MarkOutcome: ...
-
-
-class IdleRule:
-    """An open copy with no new entry for `open_idle_seconds` becomes `abandoned`."""
-
-    def __init__(self, *, open_idle_seconds: int, lock_timeout_ms: int = 2000) -> None:
-        self.name: str = STATUS_ABANDONED
-        self._idle = timedelta(seconds=open_idle_seconds)
-        self._lock_timeout_ms = lock_timeout_ms
-
-    def _is_idle(self, idle_since: datetime, at: datetime) -> bool:
-        return as_utc(at) - idle_since >= self._idle
-
-    async def candidates(self, at: datetime) -> list[SweepCandidate]:
-        rows = await FrozenCopy.filter(status=STATUS_OPEN).values(
-            "id", "account_id", "entry_seq", "created_at"
-        )
-        found: list[SweepCandidate] = []
-        for row in rows:
-            since = await _idle_since(row["id"], row["entry_seq"], row["created_at"])
-            if since is None:
-                found.append(
-                    SweepCandidate(
-                        rule=self.name,
-                        copy_id=row["id"],
-                        account_id=row["account_id"],
-                        entries=row["entry_seq"],
-                        skip="newest entry not found",
-                    )
-                )
-            elif self._is_idle(since, at):
-                found.append(
-                    SweepCandidate(
-                        rule=self.name,
-                        copy_id=row["id"],
-                        account_id=row["account_id"],
-                        entries=row["entry_seq"],
-                    )
-                )
-        return found
-
-    async def mark(self, copy_id: UUID, at: datetime) -> MarkOutcome:
-        try:
-            return await self._mark_under_lock(copy_id, at)
-        # WHY this type and nothing wider: Tortoise 1.1.8 passes SQLSTATE 55P03 through as the
-        # asyncpg error, not as OperationalError. The class is SQLSTATE 55P03 itself, so no
-        # further check is needed.
-        except asyncpg_exceptions.LockNotAvailableError:
-            return "lock timeout"
-
-    async def _mark_under_lock(self, copy_id: UUID, at: datetime) -> MarkOutcome:
-        async with in_transaction() as conn:
-            if _is_postgres():
-                await conn.execute_script(f"SET LOCAL lock_timeout = '{self._lock_timeout_ms}ms'")
-            copy = await FrozenCopy.filter(id=copy_id).select_for_update().first()
-            if copy is None or copy.status != STATUS_OPEN:
-                return "rule no longer true"
-            since = await _idle_since(copy.id, copy.entry_seq, copy.created_at)
-            if since is None:
-                return "newest entry not found"
-            if not self._is_idle(since, at):
-                return "rule no longer true"
-            copy.status = STATUS_ABANDONED
-            copy.swept_at = at
-            copy.entries = copy.entry_seq
-            fields_to_save = ["status", "swept_at", "entries"]
-            if copy.entry_seq == 0:
-                # WHY: spec S16, no entry to delete, so the mark completes the purge in the same
-                # transaction.
-                copy.purged_at = at
-                fields_to_save.append("purged_at")
-            await copy.save(update_fields=fields_to_save)
-            return "marked"
 
 
 @dataclass
@@ -393,11 +294,11 @@ def _log_report(report: SweepReport) -> None:
 
 
 def build_frozen_copy_sweep(settings: Settings) -> FrozenCopySweep:
-    """The sweep of this gateway, from its settings.
-
-    Pull request C1 adds the expiry rule to this list.
-    """
+    """The sweep of this gateway, from its settings. The idle rule runs first (contracts.md K7)."""
     return FrozenCopySweep(
-        [IdleRule(open_idle_seconds=settings.frozen_copy_open_idle_seconds)],
+        [
+            IdleRule(open_idle_seconds=settings.frozen_copy_open_idle_seconds),
+            ExpiryRule(unclaimed_ttl_seconds=settings.frozen_copy_unclaimed_ttl_seconds),
+        ],
         max_entries=settings.frozen_copy_sweep_max_entries,
     )

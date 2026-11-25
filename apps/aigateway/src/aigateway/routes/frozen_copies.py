@@ -159,7 +159,11 @@ def _miss() -> HTTPException:
 
 
 async def _sealed_copy(request: Request, raw_copy_id: str) -> FrozenCopy:
-    """The sealed copy, or the one 404 for unknown, open and malformed ids alike."""
+    """The sealed copy, or the error for each other id.
+
+    An expired copy gets the 410 ``frozen_copy_expired``. An unknown, open or abandoned copy and
+    a malformed id get the one 404 ``frozen_copy_unavailable``.
+    """
     unavailable = HTTPException(
         status_code=404,
         detail={
@@ -172,6 +176,10 @@ async def _sealed_copy(request: Request, raw_copy_id: str) -> FrozenCopy:
     except ValueError:
         raise unavailable from None
     copy = await frozen_copy_store_for(request.app).get(copy_id)
+    if copy is not None and copy.status == STATUS_EXPIRED:
+        # FEATURE (OME-1947, contracts K3): no `X-AIGW-Replay` header; that header marks a
+        # captured error.
+        raise _gone(STATUS_EXPIRED, "the frozen copy expired and its entries were deleted")
     if copy is None or copy.status != STATUS_SEALED:
         raise unavailable
     return copy
@@ -274,14 +282,16 @@ def _not_sealed() -> HTTPException:
     )
 
 
-def _gone(state: str) -> HTTPException:
+def _gone(
+    state: str, message: str = "the frozen copy was swept and its entries were deleted"
+) -> HTTPException:
     # FEATURE (OME-1947, contracts K2): the sweep made the copy final and deleted its entries.
     return HTTPException(
         status_code=410,
         detail={
             "code": "frozen_copy_expired",
             "state": state,
-            "message": "the frozen copy was swept and its entries were deleted",
+            "message": message,
         },
     )
 
@@ -311,8 +321,10 @@ async def read_provenance(
     """The provenance a sealed copy was sealed with (C9).
 
     INVARIANT: the chat replay route's lookup and caller auth: any authenticated account that may
-    replay the copy may read this, and an unknown, open or malformed id is the same 404. It returns
-    the provenance alone, never a stored request (design F2).
+    replay the copy may read this, and an unknown, open, abandoned or malformed id is the same 404.
+    An expired copy is the replay route's 410 `frozen_copy_expired` (OME-1947, contracts K3),
+    although the purge keeps the provenance column: the copy can no longer be replayed, so its
+    provenance has no use. It returns the provenance alone, never a stored request (design F2).
     """
     copy = await _sealed_copy(request, copy_id)
     return _read_stored(copy.provenance)

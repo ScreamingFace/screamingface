@@ -91,6 +91,8 @@ destructive rollback and pruning queries:
 
 `config.frozenCopySweep` sets the frozen copy retention sweep (OME-1947): the interval, the idle time of an open copy, and the purge budget of one run. It has no switch; each gateway runs it. See "Frozen copy retention sweep (OME-1947)" in `apps/aigateway/DEPLOYMENT.md`.
 
+`config.frozenCopyUnclaimedTtlSeconds` sets the time after which the sweep expires a sealed frozen copy that no Score claims. The default is 2592000 seconds (30 days). The rule has no switch and no date setting. See "Frozen copy retention sweep (OME-1947)" in `apps/aigateway/DEPLOYMENT.md`.
+
 ## Who may connect
 
 `networkPolicy.clientPodNames` defaults to `url4-cloud`, `url4-runner` and `aigateway-ui`. In

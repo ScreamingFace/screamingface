@@ -64,7 +64,7 @@ the copy. `[existing apps/aigateway/src/aigateway/core/frozen_copy/models.py:25]
 | `claimed_at` | datetime | yes | the claim route | The time the scoreboard claimed the copy for a Score. `NULL` = no Score is known. A claimed copy never expires. `[stated ans:Q2]` |
 | `swept_at` | datetime | yes | the sweep | The time the sweep moved the copy to `abandoned` or `expired`. `[proposed]` |
 | `purged_at` | datetime | yes | the sweep | The time the sweep deleted the last entry of the copy. `NULL` on a swept copy means that entries can remain. `[proposed]` |
-| `retention_from` | datetime | yes | migration 0019 only | The start of the 90-day clock for a copy that was `sealed` when the expiry rule was released. `NULL` = the clock starts at `sealed_at`. `[stated ans:Q24]` |
+| `retention_from` | datetime | yes | migration 0019 only | The start of the 30-day clock for a copy that was `sealed` when the expiry rule was released. `NULL` = the clock starts at `sealed_at`. `[stated ans:Q24]` |
 
 - This spec adds no "time of the last entry" column. The newest entry of a copy is the entry
   whose `seq` is equal to `frozen_copies.entry_seq`, and the unique index
@@ -74,7 +74,7 @@ the copy. `[existing apps/aigateway/src/aigateway/core/frozen_copy/models.py:25]
   only new code writes would be wrong after a rollback of the image. `[proposed]`
 - The first three columns come with migration 0018. `retention_from` comes with migration 0019,
   which is released with the expiry rule (§5). `[proposed]`
-- No setting stores the start of the 90-day clock. Migration 0019 writes the time of the
+- No setting stores the start of the 30-day clock. Migration 0019 writes the time of the
   release into `retention_from` for each copy that is `sealed` at that time. No code writes the
   column after that. A copy that is sealed later keeps `NULL`. Thus no person can set a wrong
   date. `[stated ans:Q24]`
@@ -133,7 +133,7 @@ replay or claim gets a clear answer and not "unknown copy". The rows are not del
 - **Expiry rule (sealed copies).** A copy expires when both conditions are true:
   1. `status = sealed` and `claimed_at IS NULL`.
   2. `now ≥ COALESCE(retention_from, sealed_at) + unclaimed_ttl_seconds` (default period
-     7 776 000 = 90 days).
+     2 592 000 = 30 days).
 
   `[stated ans:Q2]` `[stated ans:Q7]` `[stated ans:Q24]`
   - For a copy that was sealed before the release of the rule, the clock starts at the release
@@ -194,7 +194,7 @@ replay or claim gets a clear answer and not "unknown copy". The rows are not del
 - `created_at` and `sealed_at` come from the clock of the gateway pod
   `[existing apps/aigateway/src/aigateway/core/frozen_copy/store.py:140]`. The sweep reads the
   current time from the database. A difference of some minutes between the two clocks is
-  accepted: the periods in the rules are 24 hours and 90 days. `[proposed]`
+  accepted: the periods in the rules are 24 hours and 30 days. `[proposed]`
 - Migration 0019 writes `retention_from` from one timezone-aware UTC time that its data step
   computes in Python (§5). It does not use `CURRENT_TIMESTAMP`. `[proposed]`
 
