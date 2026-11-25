@@ -65,11 +65,15 @@ def _finish(record: tuple[Coordinator, Operation] | None, outcome: str | None) -
 
 
 def _settle(record: tuple[Coordinator, Operation] | None, outcome: str | None) -> None:
-    """In Colab, wait (bounded) until the terminal event has been handed to the browser."""
+    """In Colab, wait (bounded) until queued analytics events have been handed to the browser."""
     # WHY: Colab answers a background eval_js only while this cell runs; an upload sent after
     # the call returned is lost and resets consent (2026-11-19 trace). A cancelled call does
-    # not wait: the user asked to stop, and its terminal event stays best-effort.
-    if record is None or outcome in (None, "cancelled") or wiring.origin() != "colab":
+    # not wait: the user asked to stop, and its terminal event stays best-effort. `outcome is
+    # None` means `_outcome` could not read `.ok` off the result (e.g. a detached evaluate()
+    # returns a Run, not a Report) — that is an UNKNOWN outcome, not a reason to skip: a
+    # non-None record already queued its start event via `_begin`/`core.begin()`, and that
+    # queued work still needs to reach the browser before the cell ends (OME-1974 review).
+    if record is None or outcome == "cancelled" or wiring.origin() != "colab":
         return
     try:
         from screamingface._analytics.colab import bridge
@@ -81,7 +85,8 @@ def _settle(record: tuple[Coordinator, Operation] | None, outcome: str | None) -
 
 
 async def _settle_async(record: tuple[Coordinator, Operation] | None, outcome: str | None) -> None:
-    if record is None or outcome in (None, "cancelled") or wiring.origin() != "colab":
+    # WHY `outcome is None` still waits: see `_settle`'s docstring (e.g. a detached evaluate()).
+    if record is None or outcome == "cancelled" or wiring.origin() != "colab":
         return
     from screamingface._analytics.colab import BRIDGE_TIMEOUT
 

@@ -244,6 +244,45 @@ def test_async_finished_event_is_acknowledged_before_the_call_returns(cell):
     assert analytics.status()["enabled"]
 
 
+# --- D5: a detached evaluation has no terminal outcome, but its queued start event still ----
+# --- must reach the browser before the cell ends (review of PR #1952, OME-1974) -------------
+
+
+@pytest.mark.usefixtures("browser")
+def test_detached_evaluation_still_delivers_its_start_event(cell):
+    prompt.offer_and_settle()
+    cell.events_delay = 0.3
+
+    @tracking.tracked("evaluation")
+    def detached(owner, candidates):
+        # A detached evaluate() returns a Run, which has no `.ok` — `_outcome` reports this
+        # as outcome=None (unknown), not "succeeded"/"completed_with_failures".
+        return types.SimpleNamespace(state="running")
+
+    detached(_Owner(), "url4://candidate")
+    cell.running.clear()
+    # No terminal event: a detached Run's real completion is unknown at return time.
+    assert cell.delivered == ["evaluation_started"]
+    state = analytics.status()
+    assert state["choice"] == "accepted" and state["enabled"]
+    assert state["last_error"] is None
+
+
+@pytest.mark.usefixtures("browser")
+def test_async_detached_evaluation_still_delivers_its_start_event(cell):
+    prompt.offer_and_settle()
+    cell.events_delay = 0.3
+
+    @tracking.tracked("evaluation")
+    async def detached(owner, candidates):
+        return types.SimpleNamespace(state="running")
+
+    asyncio.run(detached(_Owner(), "url4://candidate"))
+    cell.running.clear()
+    assert cell.delivered == ["evaluation_started"]
+    assert analytics.status()["enabled"]
+
+
 # --- D1 at import: settle after the importing cell's code, outside the import lock ---------
 # WHY: waiting inside `screamingface/__init__.py` deadlocks on the package import lock (the
 # worker imports `screamingface` modules), observed in Colab on 2026-11-19. A one-shot IPython

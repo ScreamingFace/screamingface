@@ -341,3 +341,49 @@ nothing new.
 - `run_gates.py screamingface --base origin/main --skip-append-only`: ALL GREEN.
 - **Commit**: this ledger entry + the `run_all`/`test_concurrent_async_settles_...` edit, on
   `OME-1974-colab-analytics-status`.
+
+### Round 6 (2026-11-25): HupBaHa's re-review found the two prior blockers fixed, plus one new High
+
+Re-review at head `da9b534a0` confirmed both of sergio-bershadsky's original blockers fixed
+and CI green, but found one real uncovered path: **detached evaluations never flush their
+queued start event.**
+
+**Root cause, confirmed by direct source reading** (`tracking.py`, `runs.py`, `client.py`):
+`evaluate(..., detach=True)` returns a `Run` (`runs.py:66`), which has no `.ok` attribute.
+`_outcome(name, result)` (`tracking.py:98`) computes `succeeded = name != "evaluation" or
+result.ok`; for a detached evaluation this raises `AttributeError`, caught, returning
+`outcome=None`. Both `_finish(record, None)` (correctly skips — no terminal event, since
+success/failure is genuinely unknown for a Run still in flight) and the old
+`_settle`/`_settle_async` guard `outcome in (None, "cancelled")` **also** skipped flushing —
+incorrectly: the start event from `_begin`/`core.begin()` was already queued and still needed
+to reach the browser before the cell ends, same underlying bug class as the ticket's original
+report. Confirmed this is a real gap and not a PR regression (same case fails at base too,
+just surfaces as `invalid_response` there vs `timeout` here, per the review).
+
+**Fix**: narrowed `_settle`'s and `_settle_async`'s skip condition from `outcome in (None,
+"cancelled")` to `outcome == "cancelled"` — an unknown outcome (detach) still flushes queued
+work; a genuinely cancelled operation still doesn't wait (unchanged, re-verified by
+`test_cancelled_operation_does_not_wait_for_its_event`, still passing).
+
+**New regressions** (review's explicit ask): `test_detached_evaluation_still_delivers_its_start_event`
+and its async counterpart in `test_analytics_colab_in_cell.py` — a `@tracked("evaluation")`
+function returning a bare `Run`-shaped object (no `.ok`) still delivers `evaluation_started`
+before the cell ends, with no terminal event (since outcome stays genuinely unknown). Both
+pass; full file (21 tests) and full gate suite (`--skip-append-only`) green.
+
+**Not actioned, surfaced to Filip instead of decided unilaterally** (review's own framing,
+"Medium owner decision"): post-result `_settle`/`_settle_async` can still be interrupted
+(`CancelledError`/`KeyboardInterrupt`) *after* the product call already returned a real
+result, discarding it or replacing a real domain error with the interruption. Reviewer asks
+for either containment (so optional analytics can never override a product outcome) or an
+explicit spec decision to accept this + tests for both paths. This is a design call, not a
+bug with one obvious fix — left for Filip.
+
+**Low follow-ups, not actioned** (review marks non-blocking): `offer_at_import()`'s redundant
+second setup attempt; a shared deadline across staggered `to_thread` settles to avoid
+temporarily starving the executor; spec/plan wording drift on `exchange()`'s timeout
+contract; no focused test for `_done()` in `ColabBridge.clear()` or the sync success-path
+terminal delivery. Out of scope for this round.
+
+- **Commit**: `_settle`/`_settle_async` guard fix + two new regressions + this ledger entry,
+  on `OME-1974-colab-analytics-status`.
