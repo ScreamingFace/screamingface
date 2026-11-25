@@ -102,3 +102,58 @@ def test_the_reader_stops_at_a_second_trigger_like_the_harness(
     scored D where the harness scores no answer (the Fidelity Record's answer sheets S16, S17).
     """
     assert extract_choice_letter(completion, 10, trigger=_HARNESS_TRIGGER) == expected
+
+
+# OME-2018: every wrapper the multiple-choice grader of OME-1907 peels for the imported
+# Benchmarks (its `_WRAPPERS` table), written around a MedXpertQA commit.
+@pytest.mark.parametrize(
+    "completion",
+    [
+        "E",
+        "E.",
+        "(E)",
+        "[E]",
+        "**E**",
+        "__E__",
+        "`E`",
+        "$E",
+        "$E$",
+        "$$E$$",
+        "\\boxed{E}",
+        "$\\boxed{E}$",
+        "**(E)**",
+        f"{_HARNESS_TRIGGER} **(E)**.",
+        f"{_HARNESS_TRIGGER} __E__",
+    ],
+)
+def test_a_wrapped_letter_is_read_as_the_letter(completion: str) -> None:
+    """INVARIANT: decoration around the committed letter never costs the answer.
+
+    Turn 2 asks for the option letter only, and models wrap it: brackets, bold, underline, code
+    ticks, LaTeX. `__E__` was the one form read as no answer, because the harness's word
+    boundary counts an underscore as part of a word.
+    """
+    assert extract_choice_letter(completion, 10, trigger=_HARNESS_TRIGGER) == "E"
+
+
+@pytest.mark.parametrize(
+    ("completion", "expected"),
+    [
+        pytest.param("e", None, id="lower-case-is-not-an-option"),
+        pytest.param("__e__", None, id="lower-case-in-underscores"),
+        pytest.param("EKG", None, id="letter-inside-a-word"),
+        pytest.param("E2", None, id="letter-touching-a-digit"),
+        pytest.param("__K__", None, id="letter-outside-the-option-range"),
+        pytest.param("vitamin_E_level", "E", id="underscore-is-a-separator-now"),
+    ],
+)
+def test_the_underscore_rule_reads_no_letter_the_old_rule_refused_for_another_reason(
+    completion: str, expected: str | None
+) -> None:
+    """INVARIANT: only the underscore changed. A letter still has to be a capital, in this row's
+    option range, with no letter or digit touching it; nothing is guessed from a word.
+
+    The last row is the price of the rule, stated plainly: a letter between underscores inside
+    a snake_case word now reads as that letter, where it read as no answer.
+    """
+    assert extract_choice_letter(completion, 10, trigger=_HARNESS_TRIGGER) == expected

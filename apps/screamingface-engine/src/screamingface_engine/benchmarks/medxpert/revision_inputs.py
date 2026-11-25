@@ -28,7 +28,10 @@ PREPARER_REVISION = "text-test-v1"
 # v3 (OME-1980): turn 2 continues the chat (user prompt, assistant answer, user trigger) and is
 # answered by the one model that wrote the turn-1 answer; the reader keeps the text between the
 # first and second trigger. Under v2 turn 2 was one JSON user message to the whole Candidate.
-PROTOCOL_REVISION = "two-turn-cot-v3"
+# v4 (OME-2018): turn 2's last message opens with the reply rule ("Finish the sentence below with
+# the option letter only, and nothing else."), and the reader reads a letter wrapped in
+# underscores. Under v3 turn 2 sent the bare trigger and the model explained again.
+PROTOCOL_REVISION = "two-turn-cot-v4"
 
 # AIDEV-NOTE (OME-1980): the harness's sampling (temperature 0, seed 0, 2048 or 8192 tokens) is
 # NOT sent, by the owner's call: today's reasoning models reject temperature 0 or run out of

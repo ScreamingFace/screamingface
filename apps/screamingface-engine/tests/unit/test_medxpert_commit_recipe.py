@@ -31,6 +31,7 @@ from screamingface_engine.benchmarks.contract import (
 from screamingface_engine.benchmarks.medxpert.commit import commit_chat, commit_recipe
 from screamingface_engine.benchmarks.medxpert.definition import COMMIT_CHAT_ROUTE, MEDXPERT
 from screamingface_engine.benchmarks.medxpert.prepare import emit
+from screamingface_engine.benchmarks.medxpert.prompts import COMMIT_INSTRUCTION
 from screamingface_engine.benchmarks.medxpert.runtime import _commit_chat
 from screamingface_engine.combine.endpoint import COMBINE_ROUTE
 from screamingface_engine.runner.main import build_executor
@@ -43,6 +44,8 @@ from url4.streaming.interfaces import Completed
 
 _PROMPT = "Q: Case one: pick B\nA: Let's think step by step."
 _TRIGGER = "Therefore, among A through B, the answer is"
+#: Turn 2's last message since OME-2018: the reply rule, a blank line, the harness's trigger.
+_COMMIT_MESSAGE = f"{COMMIT_INSTRUCTION}\n\n{_TRIGGER}"
 _SYNTHESIS_PROMPT = "Synthesize the strongest answer."
 #: The SDK's compiled shapes, written out (see the SDK's `compile_candidate`): a solo model, a
 #: two-member Fusion with a synthesizer on its own model, and a Vote, whose final step is ALSO
@@ -214,9 +217,28 @@ def test_the_commit_chat_is_the_harness_four_message_layout_without_the_system_m
         "messages": [
             {"role": "user", "content": _PROMPT},
             {"role": "assistant", "content": "B is right."},
-            {"role": "user", "content": _TRIGGER},
+            {"role": "user", "content": _COMMIT_MESSAGE},
         ],
     }
+
+
+def test_turn_two_states_its_reply_rule_and_still_ends_on_the_unfinished_sentence() -> None:
+    """INVARIANT: the model is TOLD to reply with the option letter only, and the message still
+    ends on the trigger, so the letter is the next thing it writes.
+
+    With the bare trigger the model read turn 2 as a new question: the first paid run of
+    revision 952ea002b0f5e3b0 got 277 and 496 tokens of new reasoning on 2 of 2 Cases, and one
+    Case changed its turn-1 answer from the key to a wrong letter. The exact bytes are pinned
+    because they are the exam: change this line and the protocol revision must move with it.
+    """
+    chat: dict[str, Any] = json.loads(commit_chat(_PROMPT, "B is right.", _TRIGGER))
+
+    last: str = chat["messages"][-1]["content"]
+    assert last == (
+        "Finish the sentence below with the option letter only, and nothing else."
+        "\n\nTherefore, among A through B, the answer is"
+    )
+    assert last.endswith(_TRIGGER)
 
 
 @pytest.mark.parametrize("answer", ["", "  \n"], ids=["empty", "whitespace-only"])
@@ -271,7 +293,7 @@ class RecordingGateway:
         body: dict[str, Any] = json.loads(request.content)
         self.calls.append(body)
         last: str = str(body["messages"][-1]["content"])
-        commit: bool = last.startswith("Therefore")
+        commit: bool = last.endswith("the answer is")  # OME-2018: the reply rule comes first
         member: bool = body["model"] in ("prov/a", "prov/b")
         text: str = ("A" if member else "B") if commit else "Reasoning... so the answer is B."
         return httpx.Response(
@@ -286,7 +308,9 @@ class RecordingGateway:
 
     def commits(self) -> list[dict[str, Any]]:
         """The turn-2 calls: the ones whose last message is the trigger."""
-        return [c for c in self.calls if str(c["messages"][-1]["content"]).startswith("Therefore")]
+        return [
+            c for c in self.calls if str(c["messages"][-1]["content"]).endswith("the answer is")
+        ]
 
 
 def _assets(root: Path) -> None:
@@ -351,7 +375,7 @@ async def test_a_solo_models_commit_turn_continues_its_own_chat(tmp_path: Path) 
         {"role": "system", "content": "Answer the question."},
         {"role": "user", "content": "Q: Case one: pick B\nA: Let's think step by step."},
         {"role": "assistant", "content": "Reasoning... so the answer is B."},
-        {"role": "user", "content": "Therefore, among A through B, the answer is"},
+        {"role": "user", "content": _COMMIT_MESSAGE},
     ]
     assert result["score"] == 1.0
 

@@ -41,6 +41,7 @@ from screamingface_engine.benchmarks.medxpert.definition import (
     compute_revision,
 )
 from screamingface_engine.benchmarks.medxpert.prepare import emit
+from screamingface_engine.benchmarks.medxpert.prompts import COMMIT_INSTRUCTION
 from screamingface_engine.benchmarks.medxpert.runtime import _commit_chat
 from screamingface_engine.job_env import CAPTURE, REPLAY_FROZEN_COPY
 from screamingface_engine.runner.main import build_executor
@@ -221,7 +222,8 @@ async def test_the_commit_turn_carries_the_reasoning_text_and_none_of_the_record
         {"role": "system", "content": "Answer the question."},
         {"role": "user", "content": _PROMPT},
         {"role": "assistant", "content": _REASONING},
-        {"role": "user", "content": _TRIGGER},
+        # OME-2018: the last message opens with the reply rule, then the trigger.
+        {"role": "user", "content": f"{COMMIT_INSTRUCTION}\n\n{_TRIGGER}"},
     ]
     for key in _RECORD_ONLY_KEYS:
         assert key not in json.dumps(commit["messages"]), f"the commit turn leaked {key!r}"
@@ -408,3 +410,17 @@ def test_the_commit_turn_change_moved_the_published_revision() -> None:
     assert REVISION == FINGERPRINT not in (_RECORD_CARRYING_REVISION, _JSON_MESSAGE_REVISION)
     assert compute_revision(protocol_revision="two-turn-cot-v1") == _RECORD_CARRYING_REVISION
     assert compute_revision(protocol_revision="two-turn-cot-v2") == _JSON_MESSAGE_REVISION
+
+
+# The id MedXpertQA published before OME-2018: its turn 2 sent the bare trigger.
+_BARE_TRIGGER_REVISION = "952ea002b0f5e3b0"
+
+
+def test_stating_the_reply_rule_moved_the_published_revision() -> None:
+    """INVARIANT: an instruction added to turn 2 is a changed exam, so it gets its own id.
+
+    The reply rule is prompt text no hashed template holds, so it moves through the protocol
+    constant: restoring the constant of the bare-trigger exam must compute the id it published.
+    """
+    assert REVISION == FINGERPRINT != _BARE_TRIGGER_REVISION
+    assert compute_revision(protocol_revision="two-turn-cot-v3") == _BARE_TRIGGER_REVISION

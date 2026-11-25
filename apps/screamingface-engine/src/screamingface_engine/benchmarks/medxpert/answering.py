@@ -60,7 +60,12 @@ def extract_choice_letter(
         text = text.replace(phrase, "")
 
     letters = "|".join(chr(ord("A") + i) for i in range(_clamp(options_count)))
-    found = re.findall(rf"\b({letters})\b", text)
+    # NAMED DEVIATION (OME-2018): the harness's `\b` counts an underscore as part of a word, so
+    # the Markdown-underlined `__E__` reads as no answer where `**E**` reads as E. A letter now
+    # stands alone when no letter or digit touches it, the rule the multiple-choice grader of
+    # OME-1907 uses for a lone letter. Every reply `\b` read is read the same; only a letter
+    # next to an underscore changes, from no answer to that letter.
+    found = re.findall(rf"(?<![A-Za-z\d])({letters})(?![A-Za-z\d])", text)
     return found[0] if found else None
 
 

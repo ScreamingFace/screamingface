@@ -5,9 +5,10 @@ string comparison. The first benchmark whose grading spends NO judge tokens.
 
 INVARIANT — the exchange is TWO candidate invocations. Turn 1 reasons freely; turn 2 (the
 commit) CONTINUES that chat (OME-1980): the turn-1 prompt as the user, the Candidate's own turn-1
-answer as the assistant, then only the trigger, so the model completes "…the answer is ___" and
-its commitment comes FIRST. That message layout, the official harness's, not any instruction, is
-what makes the official first-match extraction correct. Sent as one new user message holding
+answer as the assistant, then the reply rule and the trigger, so the model completes "…the answer
+is ___" and its commitment comes FIRST, which is what makes the official first-match extraction
+correct. The harness's layout alone did not hold: with the bare trigger the model still explained
+again (OME-2018, Named Deviation 3). Sent as one new user message holding
 the reasoning (before OME-1980), the model explained again and its first stray capital was
 graded: an external researcher lost 475 of 2,450 Cases.
 
@@ -22,7 +23,10 @@ and the description says so. (2) Sampling and the system message are the Candida
 the harness's (temperature 0, seed 0, 2048 or 8192 tokens; "You are a helpful medical
 assistant."): today's reasoning models reject temperature 0 or run out of tokens at 2048, and
 keeping the system message keeps turn 1 byte-identical across revisions, so reruns replay it from
-the cache (owner's call, OME-1980).
+the cache (owner's call, OME-1980). (3) Turn 2 states its reply rule (OME-2018, owner's call): one
+line before the trigger, "Finish the sentence below with the option letter only, and nothing
+else." (`prompts.COMMIT_INSTRUCTION`); the harness sends the trigger alone. (4) The reader reads
+a letter wrapped in underscores (`__E__`), which the harness's word-boundary rule misses.
 
 References:
     - Paper: https://arxiv.org/abs/2501.18362
@@ -127,7 +131,7 @@ FINGERPRINT = compute_revision()
 #: edited to make a red fingerprint test green; it moves only on a fundamental change, after
 #: ``just engine benchmark-bump medxpert`` and with the owner's sign-off
 #: (``docs/adding-an-imported-benchmark.md``, "Changing a Benchmark's published revision").
-REVISION = "952ea002b0f5e3b0"
+REVISION = "97c31c77b39ed19f"
 
 _ROUTES = benchmark_routes(BENCHMARK_ID, REVISION)
 ROUTE_PREFIX = _ROUTES.prefix
@@ -275,11 +279,14 @@ def install_medxpert(node: Url4Node, assets: Path) -> None:
 ANSWER_FORMAT: str = (
     "Answer format: after its reasoning, the model gets a second turn asking it to finish "
     "'Therefore, among A through J, the answer is' with one option letter, as the next message "
-    "of its own chat. The grader reads that reply the way the official MedXpertQA harness does: "
+    "of its own chat. That message tells the model to reply with the option letter only, which "
+    "the official harness does not. The grader reads the reply the way the official MedXpertQA "
+    "harness does: "
     "if the reply repeats 'the answer is', it keeps only the text between the first and second "
     "time, then takes the first capital option letter standing on its own. So 'D', '(D)', "
-    "'**D**', 'the answer is D' and 'the answer is D. B would be wrong.' all count as D, 'the "
-    "answer is clear: the answer is D' commits to nothing, and a reply with no option letter, "
+    "'**D**', '__D__', 'the answer is D' and 'the answer is D. B would be wrong.' all count as "
+    "D, 'the answer is clear: the answer is D' commits to nothing, and a reply with no option "
+    "letter, "
     "such as 'not sure', scores 0. "
     "A reply that opens in prose commits its first stray capital: 'A humeral shaft fracture, "
     "so D' counts as A, and a standalone 'I' counts as I. Recipe authors: make the commit "
@@ -302,7 +309,8 @@ MEDXPERT = Benchmark(
         "recipe commits whole. Fusion numbers are not comparable to a per-member "
         "implementation. Sampling (temperature, seed, token cap) and the system message are the "
         "candidate's own, not the harness's temperature 0, seed 0, 2,048-token cap and "
-        "medical-assistant system message. " + ANSWER_FORMAT
+        "medical-assistant system message. The commit message also states the reply format, "
+        "which the harness leaves unsaid. " + ANSWER_FORMAT
     ),
     revision=REVISION,
     case_count=CASE_COUNT,

@@ -34,6 +34,7 @@ from dataclasses import replace
 
 from screamingface_engine.benchmarks.contract import CANDIDATE_INPUT_SCHEMA
 from screamingface_engine.benchmarks.invocation import BUDGET_SOURCE
+from screamingface_engine.benchmarks.medxpert.prompts import COMMIT_INSTRUCTION
 from screamingface_engine.benchmarks.operation_outputs import final_reference
 from url4 import render
 from url4.core.errors import ParseError
@@ -52,10 +53,15 @@ def commit_chat(prompt: str, answer: str, trigger: str) -> str:
     """The chat turn 2 sends, as a candidate-input envelope.
 
     Messages, in the official harness's order: the turn-1 prompt (user), the Candidate's own
-    turn-1 answer (assistant, stripped as the harness strips it), the trigger (user). An empty
+    turn-1 answer (assistant, stripped as the harness strips it), then one user message holding
+    the reply rule and the trigger (the rule is ours, a Named Deviation, OME-2018). An empty
     or whitespace-only answer (a refusal, an empty reply, or an abstain) leaves the assistant
     message out, because some providers refuse an empty
     one; the model then gets one cold chance to commit (owner's call on OME-1980).
+
+    Worked example, last message for a 10-option Case:
+    "Finish the sentence below with the option letter only, and nothing else.\n\nTherefore,
+    among A through J, the answer is".
 
     INVARIANT: the bytes depend only on the three texts, so a rerun sends the same turn 2 and
     the AI Gateway's request cache serves it (OME-1786).
@@ -68,7 +74,9 @@ def commit_chat(prompt: str, answer: str, trigger: str) -> str:
     messages: list[dict[str, str]] = [{"role": "user", "content": prompt}]
     if reply:
         messages.append({"role": "assistant", "content": reply})
-    messages.append({"role": "user", "content": trigger})
+    # NAMED DEVIATION (OME-2018): the reply rule comes first, then the harness's trigger, so the
+    # message still ends on the unfinished sentence (see ``prompts.COMMIT_INSTRUCTION``).
+    messages.append({"role": "user", "content": f"{COMMIT_INSTRUCTION}\n\n{trigger}"})
     return json.dumps(
         {"schema": CANDIDATE_INPUT_SCHEMA, "messages": messages},
         ensure_ascii=False,
