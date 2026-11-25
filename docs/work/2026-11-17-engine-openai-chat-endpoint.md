@@ -636,3 +636,36 @@ refusal with no switch; the tool code stays. PRD `tool-calls.md` §0, scenario T
   short outage of the input store; `final_step.cached` and zero counts on a cache hit, not the
   stored counts; the limits of the `ignored_parameters` list (64 characters, 32 names).
 - **Items that wait:** the list in the spec, section 9.
+
+- **Build (2026-11-25):** tiered build run `wf_3043ab30-d15` (33 agents): 5 waves, 11 tasks, each
+  wave green; then the gates, an Opus design review and a fix round.
+- **Design review:** accept with fixes; 14 findings, no structural one. Fixed (9): the ignored
+  names are read before the main parse (F1); the read fields come from the wire model (F2); the
+  root check also runs before a write into a root that appeared later (F3); the end of a stream
+  cancels the read of the answer before the cleanup (F4); one place for the keep-alive time (F5);
+  the comment at the start attempt (F6); the 503 text of the OpenAPI document (F8); the security
+  of the chat operation is set by its path, and one function gives the identity rule (F9); the
+  docs text of the body limit (F12). Left, each low (5): no check of the declared size before a
+  remote read (F7; the 8 MiB bound holds); `calls.py` reads the private clock of the transport
+  (F10); the SDK reader of `cached` does not refuse a value that is not a boolean (F11); the two
+  docs tests share code by copy (F13); one table with one row and two default values (F14).
+- **My own read of the diffs** (lifecycle, result read, blob files, SDK): no defect found. One
+  edit by me: `os.fchmod` runs on POSIX only.
+- **Existing tests of `main` that changed in this round:** `tests/unit/test_gateway_code_screen.py`
+  (the import line) and `packages/screamingface/tests/public_surface_snapshot.json` (the line
+  for `FinalStep.cached`). Tests of this PR that changed: `test_chat_completions_answer.py` (the
+  row of a transient `chat_input_unavailable` is now 503, true, 5: rule RR-S9);
+  `_chat_app.py` and `integration/test_chat_stream_disconnect.py` (the fake runners got
+  `stop_bound` and `start_attempt`); `test_model_inference_docs_snippets.py` (the values of the
+  snippet now win over the injected `max_retries=0`).
+- **Commits (local):** `bd8c45bfa` (import line), `7a6b0d7c3` (spec, plan), `a847415ba` (chat
+  route), `8db7dd9a2` (blob files), `2f1651ae6` (CI paths), `28a1181e1` (SDK), `67faf66a9` (docs).
+- **Gates on `67faf66a9`:** `screamingface-engine`, `screamingface`, `repo` and the
+  `public-docs` build: ALL GREEN with `--skip-append-only`. The gates with no skip wait for the
+  approval record.
+- **Deviations:** the commits are by area, not one for each unit (plan D1): units U-B, U-C and
+  U-E change the same files. The approval record: the permission check of my session refused my
+  write two times, the second time after owner answer R3, so I made the new record as a file outside the
+  repo for the owner to apply (8 changed entries: 7 new hash pairs and 1 new entry).
+- **Venv facts:** the SDK gate needs `uv sync --locked --extra notebook`; the Engine gate needs
+  `uv sync --dev --locked` again after a build run (pyright errors in `tests/unit/inspect`).
