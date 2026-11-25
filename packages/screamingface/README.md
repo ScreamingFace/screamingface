@@ -1804,12 +1804,17 @@ from openai import OpenAI
 
 endpoint = ensemble.chat.endpoint()  # or client.chat.endpoint(ensemble)
 client = OpenAI(
-    base_url=endpoint.base_url, api_key="not-used", default_headers=dict(endpoint.headers)
+    base_url=endpoint.base_url,
+    api_key="not-used",
+    default_headers=dict(endpoint.headers),
+    max_retries=0,
 )
 client.chat.completions.create(
     model=endpoint.model, messages=[{"role": "user", "content": "Hello"}]
 )
 ```
+
+Set `max_retries=0` on the OpenAI client. After a lost connection, the OpenAI client sends the request two more times by default, and each try is a new paid run of the ensemble.
 
 `endpoint.model` is the Candidate URL4 text of the recipe. On an https Engine, `endpoint()` signs in first. With no usable token, it opens the browser sign-in and can wait up to 300 seconds. In a script with no browser, set `SCREAMINGFACE_ACCESS_TOKEN` or call `client.login()` first. The `headers` hold the access token. The token expires: call `endpoint()` again to get new headers. The text form of an endpoint does not show the header values. The SDK does not need the `openai` package.
 
@@ -1819,7 +1824,7 @@ client.chat.completions.create(
 - Each other known parameter, for example `temperature` or `max_tokens`, gives an `IgnoredParameterWarning` and is not sent. Set it in the recipe with `sf.Model(params=...)`.
 - An unknown keyword raises `TypeError`.
 - The SDK does not send a call again by default. With `max_retries=N`, it sends the call again only when the Engine says that this is safe.
-- `timeout=`: The limit in seconds for the full call, all tries included. For a stream, the limit stops when the first chunk comes. The SDK checks the limit at each line from the Engine, so the error can come up to one keep-alive interval (15 s by default) late.
+- `timeout=`: The limit in seconds for the full call, all tries included. The time to read the model catalogue and to compile the recipe is part of the limit. When the limit ends before the request, the call raises the `client_timeout` error and sends no request. For a stream, the limit stops when the first chunk comes. The SDK checks the limit at each line from the Engine, so the error can come up to one keep-alive interval (15 s by default) late.
 - `use_cache=False` sends `Cache-Control: no-store`.
 - The SDK sends no analytics event for an inference call and writes no reply to disk.
 

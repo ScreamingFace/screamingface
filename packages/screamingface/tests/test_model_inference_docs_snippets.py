@@ -178,7 +178,7 @@ def _openai_in_process(
     def in_process(**kwargs: Any) -> openai.OpenAI:
         seen.append(dict(kwargs))
         transport = httpx.MockTransport(plain)
-        return real(**kwargs, max_retries=0, http_client=httpx.Client(transport=transport))
+        return real(**{"max_retries": 0, **kwargs}, http_client=httpx.Client(transport=transport))
 
     monkeypatch.setattr(openai, "OpenAI", in_process)
     return seen, openai_requests

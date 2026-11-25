@@ -11,6 +11,7 @@ client = OpenAI(
     base_url=endpoint.base_url,
     api_key="not-used",
     default_headers=dict(endpoint.headers),
+    max_retries=0,
 )
 
 completion = client.chat.completions.create(

@@ -365,6 +365,12 @@ sf.chat.endpoint(model)`
     <CodeBlock :code="endpointOpenaiExample" language="python" />
 
     <p>
+      Set <code>max_retries=0</code> on the OpenAI client. After a lost connection, the OpenAI
+      client sends the request two more times by default, and each try is a new paid run of the
+      ensemble.
+    </p>
+
+    <p>
       <code>recipe.chat.endpoint()</code>, <code>client.chat.endpoint(model)</code> and <code>sf.chat.endpoint(model)</code> return an <code>InferenceEndpoint</code> with
       <code>base_url</code> (the Engine URL with <code>/v1</code>), <code>model</code> (the
       Candidate URL4 or the model id) and <code>headers</code>. With an <code>AsyncClient</code>,
@@ -521,7 +527,11 @@ sf.chat.endpoint(model)`
         </tr>
         <tr>
           <td><code>FinalStep</code></td>
-          <td><code>binding</code>, <code>model</code>, <code>usage</code>.</td>
+          <td>
+            <code>binding</code>, <code>model</code>, <code>usage</code>, <code>cached</code>
+            (<code>True</code> on a gateway cache hit; then the counts of <code>usage</code> are 0, so
+            keep the last known context size).
+          </td>
         </tr>
         <tr>
           <td><code>ChatCompletionChunk</code></td>

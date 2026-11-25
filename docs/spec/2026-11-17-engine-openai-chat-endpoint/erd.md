@@ -175,7 +175,7 @@ Purpose: the one result body of a chat run. The App changes it into the OpenAI r
 | `finish_reason` | string | `stop`, `tool_calls`, `length` or `content_filter` `[implied]` |
 | `refusal` | string or null | the provider refusal text when `status` is `refused` |
 | `abstain_reason` | string or null | the Engine abstain reason when `status` is `abstained` |
-| `final_step` | object or null | `binding`, `model`, `usage` of the final model step; null when no model step is final `[proposed]` |
+| `final_step` | object or null | `binding`, `model`, `usage` and `cached` of the final model step; null when no model step is final `[proposed]` |
 
 The record does not hold the usage sum or the cost. The run builds its result body before it
 folds its cost `[existing E/runner/executor.py:1113]`, so the handler cannot know them. The App
@@ -184,7 +184,10 @@ CC-S3) `[proposed — review 2]`. No record holds a call count: a run gives one 
 the whole ensemble, not one for each call.
 
 `final_step.usage` is the usage block of the gateway response of the final call. For a call
-served from the cache it holds the stored counts `[proposed — review 2]`.
+served from the gateway cache, its counts are 0, by the rule of the top-level `usage` (ans:Q27,
+OME-1687), and `final_step.cached` is `true`. The answer has the key `cached` only when it is
+`true`. A client keeps its last known context size on a cache hit `[proposed — review round 2,
+RR-S14]`.
 
 Where the facts of the final step come from `[proposed — build of U3]`:
 

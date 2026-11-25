@@ -233,6 +233,12 @@ const errorEnvelope = `{
     <CodeBlock :code="openaiSdkExample" language="python" />
 
     <p>
+      Set <code>max_retries=0</code> on the OpenAI client. After a lost connection, the OpenAI
+      client sends the request two more times by default, and each try is a new paid run of the
+      ensemble.
+    </p>
+
+    <p>
       The SDK needs an <code>api_key</code> value. Any text works, because the Engine ignores it.
       <code>default_headers</code> sends the token with each request. The example uses the local
       stack by default. For a hosted Engine, set <code>ENGINE_BASE_URL</code> and
@@ -309,7 +315,16 @@ const errorEnvelope = `{
           <td>
             The step that wrote the answer: its <code>binding</code> (for example
             <code>model_1</code>), its <code>model</code> and its own <code>usage</code>. It can be
-            null. See the limits below.
+            null. See the limits below. On a cache hit of this step, the counts of its
+            <code>usage</code> are 0 and <code>final_step.cached</code> is true. On a miss,
+            <code>cached</code> is absent.
+          </td>
+        </tr>
+        <tr>
+          <td><code>ignored_parameters</code></td>
+          <td>
+            The names of the top-level request fields that the Engine ignored, sorted. It is absent
+            when the Engine ignored no field. See the limits below.
           </td>
         </tr>
       </tbody>
@@ -417,7 +432,7 @@ const errorEnvelope = `{
         <tr>
           <td>408</td>
           <td><code>request_timeout</code></td>
-          <td>A large body did not arrive in time.</td>
+          <td>The body did not arrive in full in 30 seconds. See the limits below.</td>
           <td>false</td>
         </tr>
         <tr>
@@ -455,18 +470,22 @@ const errorEnvelope = `{
             <code>internal_error</code>, <code>chat_input_unavailable</code>,
             <code>chat_input_invalid</code>
           </td>
-          <td>The Engine failed.</td>
+          <td>
+            The Engine failed. <code>chat_input_unavailable</code> has 500 when the input record is
+            absent.
+          </td>
           <td>false</td>
         </tr>
         <tr>
           <td>502</td>
           <td>
             <code>final_step_ambiguous</code>, <code>result_unavailable</code>,
-            <code>result_invalid</code>, <code>internal_error</code>
+            <code>result_invalid</code>, <code>result_too_large</code>, <code>internal_error</code>
           </td>
           <td>
             The run failed, or the Engine cannot read its result. Other codes of a failed run also
-            come with 502.
+            come with 502. <code>result_too_large</code>: the result is larger than 8 MiB
+            (8,388,608 bytes).
           </td>
           <td>true only for another code of a failed run that is not permanent</td>
         </tr>
@@ -475,11 +494,13 @@ const errorEnvelope = `{
           <td>
             <code>chat_unavailable</code>, <code>catalog_unavailable</code>,
             <code>queue_unavailable</code>, <code>run_failed</code>, <code>worker_draining</code>,
-            <code>server_restarting</code>
+            <code>server_restarting</code>, <code>chat_input_unavailable</code>
           </td>
           <td>
             The Engine cannot run the request now. A retryable <code>run_failed</code>,
             <code>worker_draining</code> or <code>server_restarting</code> answer has a
+            <code>Retry-After: 5</code> header. <code>chat_input_unavailable</code> with 503 is a
+            short outage of the input store. No model call was made, and the answer has a
             <code>Retry-After: 5</code> header.
           </td>
           <td>
@@ -511,11 +532,22 @@ const errorEnvelope = `{
         <code>tool_calls</code>. The answer is 400 <code>tools_not_available</code>, and no run
         starts.
       </li>
-      <li data-limit="unknown-fields">The Engine ignores unknown top-level request fields.</li>
+      <li data-limit="unknown-fields">
+        The Engine ignores unknown top-level request fields. The answer names the ignored fields in
+        <code>screamingface.ignored_parameters</code>, sorted. A field is in this list when its value
+        is not null and the Engine does not read it. The Engine reads <code>model</code>,
+        <code>messages</code>, <code>tools</code>, <code>functions</code>, <code>stream</code>,
+        <code>stream_options</code>, <code>n</code>, <code>logprobs</code>,
+        <code>modalities</code> and <code>audio</code>. The list has at most 32 names, and a name
+        longer than 64 characters is not in it. The key is absent when the Engine ignored no field.
+        The JSON answer and the stream chunk with the <code>screamingface</code> object both have
+        it.
+      </li>
       <li data-limit="usage-sum">
         <code>usage</code> is the sum of the whole ensemble. Thus, a context meter in an agent reads
         high. The real context size is in <code>screamingface.final_step.usage</code>, when
-        <code>final_step</code> is not null.
+        <code>final_step</code> is not null. On a cache hit of the final step, its counts are 0 and
+        <code>screamingface.final_step.cached</code> is true. Then keep the last known context size.
       </li>
       <li data-limit="final-step-null">
         <code>screamingface.final_step</code> and its <code>usage</code> are null in these cases:
@@ -557,10 +589,11 @@ const errorEnvelope = `{
         <code>request_too_large</code>.
       </li>
       <li data-limit="large-bodies">
-        At most four bodies above 1,000,000 bytes are in parse at one time. When no place is free in
-        5 seconds, the answer is 429 <code>overloaded</code>. A body above 1,000,000 bytes must
-        arrive in full in 30 seconds after it gets a place. If not, the answer is 408
-        <code>request_timeout</code>.
+        Each body must arrive in full in 30 seconds from its start, for each size. If not, the
+        answer is 408 <code>request_timeout</code>. At most four bodies above 1,000,000 bytes are
+        in parse at one time. When no place is free in 5 seconds, the answer is
+        429 <code>overloaded</code>. When a body above 1,000,000 bytes gets a place, the limit
+        changes: the body must arrive in full in 30 seconds from that time.
       </li>
       <li data-limit="time-limit">
         One request waits at most <code>chat_max_wait_s</code> seconds (600 by default). Then the
@@ -571,7 +604,9 @@ const errorEnvelope = `{
         <code>data:</code> URIs.
       </li>
       <li data-limit="unsupported-fields">
-        The Engine refuses <code>n</code> above 1, <code>logprobs</code> and audio.
+        The Engine refuses <code>n</code> above 1, <code>logprobs</code> and audio. The answer is
+        400 <code>unsupported_parameter</code>. An <code>n</code> below 1 gets 400
+        <code>invalid_request</code>, with <code>param</code> <code>n</code>.
       </li>
       <li data-limit="buffered-stream">
         The stream is buffered. The answer comes in one piece at the end of the run.

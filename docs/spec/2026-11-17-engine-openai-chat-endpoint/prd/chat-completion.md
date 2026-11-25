@@ -142,6 +142,7 @@ All errors use the OpenAI envelope `{"error": {"message", "type", "param", "code
 | CC-S14 | the recipe has a corrective loop (`$loop_candidate`), at the root or at any depth, Gate bodies included `[proposed — build review of U2]` | 400 `recipe_not_supported` | [implied] |
 | CC-S15 | `model` is a benchmark-linked expression (it has an embedded `candidate` source) | 400 `recipe_invalid`, the message tells the user to send the Candidate URL4 | [proposed] |
 | CC-S16 | `n` > 1, `logprobs: true` or an audio modality | 400 `unsupported_parameter` | [proposed] (overview P4) |
+| CC-S16 | `n` below 1 (0 or negative). `n` = 1 passes | 400 `invalid_request`, `param` `n` | [stated ans:R1] |
 | CC-S17 | body larger than 8,000,000 bytes, or encoded input record larger than 8,000,000 bytes, or `model` longer than 32,000 characters | 413 `request_too_large` | [proposed] |
 | CC-S18 | a picture or file part with a remote URL | 400 `unsupported_content` [proposed]; the envelope accepts only `data:` URIs | [existing E/benchmarks/candidate_input.py:371] |
 | CC-S19 | the caller has 24 runs in flight (evaluation runs and chat requests share this limit `[stated ans:Q25]`), or the queue refuses | 429 `overloaded` with `Retry-After` | [existing E/runner_queue.py:127] |
@@ -163,8 +164,11 @@ table, keyed on the state and the raw code. The route does not reuse the status 
 | succeeded, valid CHAT_RESULT | 200 | — | — |
 | succeeded, no result frame, or an artifact that cannot be read | 502 | `result_unavailable` | false |
 | succeeded, wrong media type or a record that fails validation | 502 | `result_invalid` | false |
+| succeeded, a result above 8 MiB (8,388,608 bytes) `[proposed — review round 2]` | 502 | `result_too_large` | false |
 | failed, `fail_closed` | 422 | `fail_closed` | false |
-| failed, `chat_input_unavailable` or `chat_input_invalid` | 500 | the same code | false |
+| failed, `chat_input_unavailable`, the error is not permanent (a short outage of the input store; no model call was made) `[proposed — review round 2]` | 503 | `chat_input_unavailable`, with `Retry-After: 5` | true |
+| failed, `chat_input_unavailable`, the error is permanent (the input record is absent) | 500 | `chat_input_unavailable` | false |
+| failed, `chat_input_invalid` | 500 | the same code | false |
 | failed, `final_step_ambiguous` | 502 | the same code | false |
 | failed, another code that the Engine vouches for | 502 | the sanitized code | false when the failure is permanent |
 | failed, a code that the Engine does not vouch for | 502 | `internal_error` | false |
@@ -219,6 +223,13 @@ with the abstained status.
 - A body can come with no length header. Thus a request takes one of the 4 places when its
   running byte count passes 1 MB, and a request that waits for a place holds at most 1 MB
   `[proposed — review 3]`.
+- Each body, for each size, must arrive in full within 30 s of the start of its read. Else the
+  answer is 408 `request_timeout`. The rule for a body above 1 MB is unchanged: 30 s from its
+  parse place `[proposed — review round 2]`.
+- The route reads the top level of the body for the names of the ignored fields, and the reply
+  names them in `screamingface.ignored_parameters` `[stated ans:R1]`. These names are request
+  data: no log line, metric label, span attribute or `RequestFacts` field holds them
+  `[proposed — review round 2]`.
 
 **CC-S36 Each helper error has the OpenAI shape.** `[proposed — review 1]` M×H
 - Given `_schedule` or a dependency raises `ProblemException`

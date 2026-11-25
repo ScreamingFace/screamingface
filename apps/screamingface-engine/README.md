@@ -325,7 +325,8 @@ curl http://localhost:9108/v1/chat/completions -H 'Content-Type: application/jso
 - **The CHAT_RESULT record.** Schema `screamingface.chat-result.v1`, media type
   `application/vnd.screamingface.chat-result+json`. The run ends with one record: `status`
   (`answered`, `abstained` or `refused`), `content`, `tool_calls`, `finish_reason`,
-  `refusal`, `abstain_reason` and `final_step` (`binding`, `model`, `usage`). The record holds
+  `refusal`, `abstain_reason` and `final_step` (`binding`, `model`, `usage`, and `cached`
+  on a gateway cache hit). The record holds
   no usage sum and no cost. The App reads them from the root cost-usage frame of the run, and it
   changes the record into the OpenAI response. A failed run has no record, and the App answers
   with an HTTP error.
@@ -348,6 +349,27 @@ curl http://localhost:9108/v1/chat/completions -H 'Content-Type: application/jso
   then stops its run, deletes its input record, and answers `503 server_restarting` (a stream
   gets the error event). uvicorn calls the shutdown hook of the App only after each open request
   has ended, so a hook is too late for this.
+- **Ignored fields.** The reply names each top-level request field that the Engine ignored (its
+  value is not null, and it is not one of `model`, `messages`, `tools`, `functions`,
+  `stream`, `stream_options`, `n`, `logprobs`, `modalities`, `audio`) in
+  `screamingface.ignored_parameters`: sorted, at most 32 names, and a name longer than 64
+  characters is left out. The key is absent when no field was ignored. The JSON answer and the
+  stream chunk with the `screamingface` object both have it. The names are request data: no log
+  line, metric label, span attribute or `RequestFacts` field holds them
+  (`rest/chat_ignored.py`).
+- **`n`.** `n` below 1 gets `400 invalid_request` (param `n`). `n` above 1 stays
+  `400 unsupported_parameter`.
+- **A cache hit of the final step.** The counts of `final_step.usage` are 0 and
+  `final_step.cached` is `true`, the same rule as the top-level `usage`. The key is absent on a
+  miss. A client keeps its last known context size on a hit.
+- **Result size.** A result above 8 MiB (8,388,608 bytes, `CHAT_RESULT_MAX_BYTES`) answers
+  `502 result_too_large` with `x-should-retry: false`.
+- **Input store outage.** A short outage of the input store answers `503 chat_input_unavailable`
+  with `x-should-retry: true` and `Retry-After: 5` (no model call was made). An absent input
+  record stays `500 chat_input_unavailable` with `x-should-retry: false`.
+- **Body read time.** Each body must arrive in full within 30 s of its start, for each size
+  (`BODY_READ_TIMEOUT_S`); else `408 request_timeout`. When a body above 1,000,000 bytes gets
+  its parse place, the limit changes: the rest of the body must arrive within 30 s from that time.
 - **Stream errors.** An error after a stream started is one event
   `data: {"error": {"message", "type", "code", "should_retry", "retry_after"?}}`; `should_retry` and
   `retry_after` are the values of the `x-should-retry` and `Retry-After` headers of a plain answer
