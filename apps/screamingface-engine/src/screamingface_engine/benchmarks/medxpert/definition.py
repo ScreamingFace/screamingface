@@ -11,8 +11,9 @@ what makes the official first-match extraction correct. Sent as one new user mes
 the reasoning (before OME-1980), the model explained again and its first stray capital was
 graded: an external researcher lost 475 of 2,450 Cases.
 
-WHO COMMITS — the one model call that wrote the turn-1 answer (a Fusion's synthesizer, without
-its synthesis prompt); any other recipe runs whole on the chat (`commit.commit_recipe`).
+WHO COMMITS — the one model call that wrote the turn-1 answer (a Fusion's synthesizer, or a
+writer after Rank or Filter, without the instruction about its panel); any other recipe runs
+whole on the chat (`commit.commit_recipe`).
 
 NAMED DEVIATIONS — (1) the two-turn exchange is imposed at the CANDIDATE BOUNDARY: a Fusion's
 members reason once, on turn 1, and never see turn 2; a per-member implementation would run two
@@ -295,8 +296,9 @@ MEDXPERT = Benchmark(
         "accuracy over every case run, reported beside the fraction actually answered — a case "
         "the model leaves unanswered, or that fails, counts as wrong. "
         "The two-turn exchange is applied at the candidate boundary: the commit continues the "
-        "model's own chat, the official harness's message layout. For a fusion closed by a "
-        "synthesizer model, the members reason once and the synthesizer alone commits; any other "
+        "model's own chat, the official harness's message layout. When one model writes the "
+        "answer from the members' replies (a fusion's synthesizer model, or a writer after a "
+        "selection step), the members reason once and that model alone commits; any other "
         "recipe commits whole. Fusion numbers are not comparable to a per-member "
         "implementation. Sampling (temperature, seed, token cap) and the system message are the "
         "candidate's own, not the harness's temperature 0, seed 0, 2,048-token cap and "

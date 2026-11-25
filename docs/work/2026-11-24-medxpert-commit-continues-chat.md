@@ -86,3 +86,10 @@ byte-identical and reruns replay it from the AI Gateway's shared cache.
   `candidate_contract_error`; the commit-recipe route logs which path ran; the description says
   "a fusion closed by a synthesizer model"; a new end-to-end test runs a recipe the shortcut
   cannot lift; the local-model Fusion test is back to its original assertion.
+- **Review round 2 (2026-11-25):** the lifted step keeps its instruction only when it read
+  `$input` on turn 1, not by its `synthesis_` name: a writer after Rank or Filter compiles to
+  `model_N`, and its writer prompt was being sent as the commit's system message; four real
+  SDK-compiled recipes (solo, Fusion, budgeted Fusion, Rank then writer) are pinned in
+  `tests/fixtures/medxpert_sdk_compiled_recipes.json`; the path log is debug; the prior-test
+  edits are pinned in `.claude/test-change-approvals/OME-1980.json`; the page names the writer
+  case.

@@ -157,6 +157,48 @@ def test_the_shortcut_keeps_the_candidates_budget() -> None:
     assert names == ["_sf_budget", "synthesis_1"]
 
 
+#: Real Client SDK output, so a compiler change that moves the shape fails here instead of
+#: silently sending every Fusion down the whole-recipe path (the file says how it was made).
+_SDK_RECIPES: dict[str, str] = {
+    name: entry["url4"]
+    for name, entry in json.loads(
+        (Path(__file__).parents[1] / "fixtures" / "medxpert_sdk_compiled_recipes.json").read_text()
+    )["recipes"].items()
+}
+_SDK_MEMBER_PROMPT = (
+    "Answer the request accurately and completely. "
+    "Follow every instruction and formatting constraint in the request."
+)
+
+
+@pytest.mark.parametrize(
+    ("shape", "sources", "writer", "instruction"),
+    [
+        pytest.param("solo", ["model_1"], "/prov/a", _SDK_MEMBER_PROMPT, id="solo"),
+        pytest.param("fusion", ["synthesis_1"], "/prov/s", "", id="fusion"),
+        pytest.param(
+            "budgeted_fusion", ["_sf_budget", "synthesis_1"], "/prov/s", "", id="budgeted-fusion"
+        ),
+        pytest.param("rank_then_writer", ["model_4"], "/prov/w", "", id="rank-then-writer"),
+    ],
+)
+def test_sdk_compiled_recipes_commit_with_the_one_model_that_wrote_turn_one(
+    shape: str, sources: list[str], writer: str, instruction: str
+) -> None:
+    """INVARIANT: on real SDK output, only the final writer commits, reading the chat.
+
+    It keeps its instruction only when it read the Case on turn 1. A writer after Rank compiles
+    to `model_4`, not `synthesis_N`, and its instruction ("Write the final answer to the input
+    from the selected answers.") would be sent as the commit's system message with no selected
+    answers, so it goes, as a synthesizer's does.
+    """
+    shortcut: str = commit_recipe(_SDK_RECIPES[shape], _model_routes)
+
+    assert [s.name for s in _root(shortcut).sources if isinstance(s, Source)] == sources
+    call = _call(shortcut, sources[-1])
+    assert (call.path, call.context, call.intent) == (writer, "$input", Text(instruction))
+
+
 # --- the chat turn 2 continues ----------------------------------------------------------------
 
 

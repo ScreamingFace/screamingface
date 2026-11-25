@@ -86,9 +86,10 @@ def commit_recipe(candidate: str, is_model_route: Callable[[str], bool]) -> str:
         value is a direct call to one of the world's model routes. A Vote's ``synthesis_1`` is
         a call to the Engine's combine route, so it fails here.
     Stage 3 — build the shortcut: that step alone, reading ``$input`` (the commit chat), plus
-        the Candidate's budget source so its caps still bind. A synthesizer drops its synthesis
-        prompt (there is no panel to synthesize on turn 2); a plain model keeps its own
-        instruction, the one it answered turn 1 under.
+        the Candidate's budget source so its caps still bind. A step that read the Case
+        (``$input``) on turn 1 keeps its own instruction, the one it answered under; any other
+        step (a synthesizer, a writer after Rank or Filter) drops it, because its instruction
+        is about a panel or a selection that turn 2 does not send.
 
     Anything that fails a stage, or text that does not parse, returns ``candidate`` unchanged:
     the whole recipe runs on the chat, as every model ran on turn 1.
@@ -105,10 +106,14 @@ def commit_recipe(candidate: str, is_model_route: Callable[[str], bool]) -> str:
     root, step, model_call = found
 
     # Stage 3 — that model alone, on the chat, under the Candidate's budget.
+    # WHY the instruction is kept only for a step that read `$input` on turn 1: any other step
+    # (a Fusion's synthesizer, a writer after Rank or Filter) was told how to use its turn-1
+    # context ("Write the final answer ... from the selected answers."), which turn 2 does not
+    # send. The name cannot tell them apart: a writer after a reducer compiles to `model_N`.
     # WHY an empty instruction, not none: url4 requires every call to carry one, and the model
     # connector sends no system message for an empty instruction.
-    synthesizer: bool = (step.name or "").startswith("synthesis_")
-    intent: Text = Text("") if synthesizer else _text_intent(model_call)
+    read_the_case: bool = model_call.context == INPUT_REF
+    intent: Text = _text_intent(model_call) if read_the_case else Text("")
     call: RelExpr = replace(model_call, context=INPUT_REF, intent=intent)
     budget: list[Source] = [
         source

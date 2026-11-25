@@ -246,7 +246,8 @@ def _commit_recipe_endpoint(node: Url4Node) -> Callable[[Request], str]:
         recipe: str = commit_recipe(request.context, lambda path: path in models)
         # WHY a log line: a recipe the shortcut cannot lift runs whole with no error, which for a
         # Fusion means members billed twice again. This says which path ran, never the recipe.
-        _LOG.info(
+        # WHY debug: it fires once per Case (2,450 lines a run at info).
+        _LOG.debug(
             "MedXpertQA commit turn: %s",
             "one model" if recipe != request.context else "whole recipe",
         )
@@ -268,6 +269,11 @@ def _with_turn_one_rows(commit: CandidateAnswer, turn_one: object) -> CandidateA
     charges or combine/decision evidence. Copying the accounting counts nothing twice: the run's
     cost comes from its own usage total, not from these rows, and each member made exactly one
     call. A row the commit ran itself is never replaced.
+
+    AIDEV-NOTE: the writer's row is the commit's own, so ``op_synthesis_1`` carries only its
+    turn-2 call. Its turn-1 call (for a Fusion, the costliest one) is in no row: the SDK shows
+    it in the run's unattributed remainder (run total minus the rows), so it is still counted,
+    once.
 
     Worked example: turn 1 [op_model_1 "A", op_model_2 "D", op_synthesis_1 "...D"], commit
     [op_synthesis_1 "D."] → [op_model_1 "A", op_model_2 "D", op_synthesis_1 "D."].
