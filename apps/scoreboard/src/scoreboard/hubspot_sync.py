@@ -35,8 +35,11 @@ from tortoise.expressions import Q, Subquery
 from tortoise.transactions import in_transaction
 
 from . import logs
+from .classification.recipe_shape import recipe_shape
 from .config import Settings
 from .crm.decisions import (
+    PROP_STAGE,
+    CardState,
     Stages,
     Submission,
     Target,
@@ -49,7 +52,7 @@ from .crm.decisions import (
 )
 from .crm.dry_run import DryRunSink
 from .crm.hubspot import HubSpotSink, build_client
-from .crm.port import CrmAuthFailed, CrmError, CrmRateLimited, CrmSink
+from .crm.port import Contact, CrmAuthFailed, CrmError, CrmRateLimited, CrmSink
 from .crm.settings import HubSpotSyncSettings
 from .db import DEFAULT_CONNECTION, close_db, init_db
 from .scores.models import Baseline, HubSpotSyncRecord, Score
@@ -62,12 +65,13 @@ from .scores.models.hubspot_sync import (
 )
 from .scores.store import ScoreStore
 
-logger = logging.getLogger(__name__)
+# INVARIANT: a fixed name, not `__name__`. The CronJob runs `python -m scoreboard.hubspot_sync`,
+# where `__name__` is "__main__", outside the `scoreboard` logger tree that `logs.configure()`
+# sets up, so every INFO line (the run summary included) was dropped in prod.
+logger = logging.getLogger("scoreboard.hubspot_sync")
 
 BACKOFF_START = timedelta(minutes=5)
 BACKOFF_CAP = timedelta(hours=6)
-FUSION = "fusion"
-SOLO = "model"
 
 
 @dataclass(frozen=True)
@@ -105,13 +109,6 @@ class _Rollback(Exception):  # noqa: N818 - control flow, not an error
         self.summary = summary
 
 
-def _candidate_kind(metadata: Any) -> str | None:
-    # WHY metadata: the Client sends `candidate_kind` (model, fusion, pipeline, …) inside the
-    # submission's free-form metadata, and the scoreboard stores it as-is. OME-1852 chose the same
-    # field; never guess a fusion from model names or counts.
-    return metadata.get("candidate_kind") if isinstance(metadata, dict) else None
-
-
 @dataclass(frozen=True)
 class _Board:
     scores_by_id: dict[str, float]
@@ -135,13 +132,13 @@ class _Boards:
         # WHY the store's board: rule B compares against the rows the public board ranks, at the
         # registered revision and Case count, not against every run ever stored.
         rows = await self._store.leaderboard(benchmark_id, None, connection=self._connection)
-        kinds = {
-            str(row["id"]): _candidate_kind(row["metadata"])
+        shapes = {
+            str(row["id"]): recipe_shape(row["url4_expression"])
             for row in await Score.filter(id__in=[row.source_id for row in rows])
             .using_db(self._connection)
-            .values("id", "metadata")
+            .values("id", "url4_expression")
         }
-        solo = [row.score for row in rows if kinds.get(row.source_id) == SOLO]
+        solo = [row.score for row in rows if shapes.get(row.source_id) == "solo"]
         baselines = await (
             Baseline.filter(benchmark_id=benchmark_id).using_db(self._connection).values("score")
         )
@@ -154,9 +151,12 @@ class _Boards:
     async def qualifies(self, score: dict[str, Any]) -> bool:
         """Rule B (Filip, 2026-11-20): a fusion that beats every solo reference on its board.
 
+        Solo is one model called once; anything else, one model sampled and combined included,
+        is a fusion (Filip and Irina, 2026-11-26), read from the run's Recipe.
+
         INVARIANT: a board with no solo reference gives no flag, and a tie is not a win.
         """
-        if _candidate_kind(score["metadata"]) != FUSION:
+        if recipe_shape(score["url4_expression"]) != "fusion":
             return False
         board = await self.get(score["benchmark_id"])
         on_board = board.scores_by_id.get(str(score["id"]))
@@ -173,7 +173,7 @@ async def _queue(
             "id",
             "submitted_by",
             "benchmark_id",
-            "metadata",
+            "url4_expression",
             "regraded_from_id",
             "benchmark__visibility",
         )
@@ -264,7 +264,62 @@ async def _submissions(connection: BaseDBAsyncClient | None, email: str) -> list
     ]
 
 
-async def _apply(sink: CrmSink, email: str, target: Target, stages: Stages) -> str | None:
+def _fields(properties: dict[str, str]) -> str:
+    # WHY names only: the values are public leaderboard links and counts, but a card name is a
+    # person's name; the log says WHAT changed, HubSpot holds the values.
+    return ", ".join(sorted(key for key in properties if key not in ("dealname", "dealstage")))
+
+
+def _refusal(cards: list[CardState], stages: Stages) -> str | None:
+    if len(cards) > 1:
+        return "ambiguous_card"
+    if cards and cards[0].stage_id == stages.dropped_out:
+        return "dropped_out"
+    return None
+
+
+def _describe(stage_id: str, changes: dict[str, str]) -> str:
+    parts = []
+    if PROP_STAGE in changes:
+        parts.append(f"stage {stage_id} -> {changes[PROP_STAGE]}")
+    if _fields(changes):
+        parts.append(f"set {_fields(changes)}")
+    return ", ".join(parts) or "no change"
+
+
+async def _write_card(
+    sink: CrmSink,
+    contact: Contact,
+    card: CardState | None,
+    properties: dict[str, str],
+    *,
+    announce: bool,
+) -> None:
+    """Update the person's card with `properties`, or create it when `card` is None."""
+    if card is not None:
+        await sink.update_card(card.id, properties)
+        if announce:
+            logger.info(
+                "hubspot sync: card %s for contact %s: %s",
+                card.id,
+                contact.id,
+                _describe(card.stage_id, properties),
+            )
+        return
+    card_id = await sink.create_card(contact.id, properties)
+    if announce:
+        logger.info(
+            "hubspot sync: created card %s for contact %s in stage %s, set %s",
+            card_id,
+            contact.id,
+            properties[PROP_STAGE],
+            _fields(properties),
+        )
+
+
+async def _apply(
+    sink: CrmSink, email: str, target: Target, stages: Stages, *, announce: bool = False
+) -> str | None:
     """Bring one person's contact and card in line with `target`; returns a non-send reason.
 
     INVARIANT (Bennett's rules): match the contact by email and create one only if none exists;
@@ -273,23 +328,26 @@ async def _apply(sink: CrmSink, email: str, target: Target, stages: Stages) -> s
     """
     contact = await sink.find_contact(email)
     cards = await sink.sota_cards(contact.id) if contact else []
-    refusal: str | None = None
-    if len(cards) > 1:
-        refusal = "ambiguous_card"
-    elif cards and cards[0].stage_id == stages.dropped_out:
-        refusal = "dropped_out"
+    refusal = _refusal(cards, stages)
     if refusal is not None:
+        if announce and contact is not None:
+            logger.info("hubspot sync: contact %s left alone (%s)", contact.id, refusal)
         return refusal
     if contact is None:
         contact = await sink.create_contact(email)
+        if announce:
+            logger.info("hubspot sync: created contact %s", contact.id)
     day = last_active_to_write(contact.last_active, target.last_active)
     if day is not None:
         await sink.set_last_active(contact.id, day)
     if cards:
-        await sink.update_card(cards[0].id, card_changes(cards[0], target, stages) or {})
+        properties = card_changes(cards[0], target, stages) or {}
     else:
         name = card_name(contact.first_name, contact.last_name, email)
-        await sink.create_card(contact.id, new_card_properties(target, name=name))
+        properties = new_card_properties(target, name=name)
+    await _write_card(
+        sink, contact, cards[0] if cards else None, dict(properties), announce=announce
+    )
     return None
 
 
@@ -300,21 +358,23 @@ async def _mark(
     status: str,
     reason: str | None,
     now: datetime,
-) -> None:
+) -> datetime | None:
     rows = HubSpotSyncRecord.filter(
         status__in=DUE_STATUSES, score__submitted_by__iexact=email
     ).using_db(connection)
     if status != STATUS_FAILED:
         await rows.update(status=status, reason=reason, next_attempt_at=None)
-        return
+        return None
     # WHY one backoff per person: their rows succeed or fail together in one HubSpot update.
     attempts = 1 + max((int(row["attempts"]) for row in await rows.values("attempts")), default=0)
+    next_attempt = now + backoff(attempts)
     await rows.update(
         status=STATUS_FAILED,
         reason=reason,
         attempts=attempts,
-        next_attempt_at=now + backoff(attempts),
+        next_attempt_at=next_attempt,
     )
+    return next_attempt
 
 
 async def _process(
@@ -323,6 +383,8 @@ async def _process(
     config: SyncConfig,
     now: datetime,
     summary: SyncSummary,
+    *,
+    announce: bool = False,
 ) -> None:
     due = await (
         HubSpotSyncRecord.filter(status__in=DUE_STATUSES)
@@ -337,7 +399,7 @@ async def _process(
             continue
         target = target_for(submissions, config.stages, config.base_url)
         try:
-            refusal = await _apply(sink, email, target, config.stages)
+            refusal = await _apply(sink, email, target, config.stages, announce=announce)
         except CrmRateLimited:
             # WHY no attempt spent: HubSpot asked us to slow down; the next run carries on.
             summary.rate_limited = True
@@ -345,7 +407,14 @@ async def _process(
         except CrmAuthFailed:
             raise
         except CrmError as error:
-            await _mark(connection, email, status=STATUS_FAILED, reason=str(error), now=now)
+            retry = await _mark(connection, email, status=STATUS_FAILED, reason=str(error), now=now)
+            if announce and retry is not None:
+                # INVARIANT: no email in the log; the failed rows name the person in the database.
+                logger.info(
+                    "hubspot sync: one submitter failed (%s), next attempt %s",
+                    error,
+                    retry.isoformat(),
+                )
             summary.failed += 1
             continue
         if refusal == "ambiguous_card":
@@ -384,7 +453,7 @@ async def run_sync(
         return summary
     if not dry_run:
         await _queue(None, config, summary)
-        await _process(sink, None, config, now, summary)
+        await _process(sink, None, config, now, summary, announce=True)
         summary.waiting = await _waiting(now)
         return summary
     try:

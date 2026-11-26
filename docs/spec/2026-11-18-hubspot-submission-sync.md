@@ -91,15 +91,25 @@ For one submitter:
   target if the target is later. A card in Project completed, Publication or Dropped out is
   never moved (those are set by hand).
 - **SOTA flag (rule B, Filip, 2026-11-20, "for starters"):** a submission qualifies when
-  1. its `candidate_kind` is `fusion` (Irina, 2026-11-19: only a fusion, not a solo model);
+  1. it is a fusion: its Recipe is anything other than one model node (Irina, 2026-11-19: only
+     a fusion, not a solo model; Filip and Irina, 2026-11-26: one model sampled several times
+     and combined, "self fusion", is a fusion too);
   2. the board, at its registered revision, has at least one solo reference: an entry whose
-     `candidate_kind` is `model`, or an imported single-model baseline;
+     Recipe is one model node, or an imported single-model baseline;
   3. its score is strictly higher than every solo reference on that board.
+
+  The Recipe is the JSON the Client writes into the `_sf_recipe` source of the Candidate
+  (`screamingface.recipe.v1`); the job parses the stored `url4_expression` with the `url4`
+  package (PyPI pin) and reads the top node's `kind`. A run whose Recipe cannot be read is
+  neither a fusion nor a solo reference.
 
   Checked once, when the job first processes the submission, and recorded in the sync row.
   On the first qualifying submission, set `sf_sota_achieved` = true and `sf_sota_entry` to
-  its public page. Set once, never cleared, never moved to a later entry. A row without
-  `candidate_kind` is neither a fusion nor a solo reference. Rejected alternatives: top
+  its public page. Set once, never cleared, never moved to a later entry. Changed 2026-11-26
+  from the Client's `candidate_kind` label (Irina): it called Shuai Wu's two-model
+  gdpval-text duo `pipeline`, so the flag missed it. `Score.models` was rejected too: it
+  lists each route once, so three samples of one model plus a selector look like one call.
+  Rejected alternatives: top
   score alone (trivial on empty boards), the Pareto frontier (7 of 8 people on 2026-11-19).
 - **😱 Last Active Date (contact):** the time of the newest eligible submission, written
   only when later than the stored value.

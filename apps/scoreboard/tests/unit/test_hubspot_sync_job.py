@@ -9,6 +9,7 @@ at the right stage, while the team's own runs, reruns and private boards never s
 
 from __future__ import annotations
 
+import json
 import uuid
 from collections.abc import Mapping
 from dataclasses import replace
@@ -18,6 +19,7 @@ from typing import Any
 
 import pytest
 from tortoise.transactions import in_transaction
+from url4 import expr, render, src, text
 
 from scoreboard.crm.decisions import (
     PROP_COUNT,
@@ -96,6 +98,31 @@ class FakeSink:
         self.writes.append(("update_card", card_id, dict(properties)))
 
 
+# WHY the Recipe kind, not the Client's `candidate_kind` label: rule B reads the Recipe the run
+# carries; one model is solo, anything else a fusion (Filip and Irina, 2026-11-26).
+SOLO = "model"
+DUO = "fusion"
+
+
+def _stored(recipe_kind: str) -> str:
+    """A stored url4 expression whose Candidate carries a Recipe of `recipe_kind`."""
+    recipe = json.dumps({"schema": "screamingface.recipe.v1", "recipe": {"kind": recipe_kind}})
+    candidate = render(
+        expr(
+            src("/openrouter/acme/m1", name="model_1"),
+            src(text(recipe), name="_sf_recipe", weight=0.0),
+            intent=text("$model_1"),
+        )
+    )
+    return render(
+        expr(
+            src(text(candidate), name="candidate", weight=0.0),
+            src("/benchmarks/mmlu/aggregate", name="result"),
+            intent=text(""),
+        )
+    )
+
+
 async def _board(benchmark_id: str = "mmlu", *, visibility: str = "public") -> None:
     await Benchmark.create(id=benchmark_id, display_name=benchmark_id, visibility=visibility)
 
@@ -106,18 +133,17 @@ async def _score(
     benchmark: str = "mmlu",
     spec: str = "recipe-a",
     score: float = 0.5,
-    kind: str | None = None,
     day: int = 10,
+    recipe: str | None = None,
 ) -> Score:
     row = await Score.create(
         spec_id=spec,
-        url4_expression="url4://x",
+        url4_expression="url4://x" if recipe is None else _stored(recipe),
         score=score,
         total_questions=10,
         ran_with_providers=[],
         benchmark_id=benchmark,
         submitted_by=submitted_by,
-        metadata={"candidate_kind": kind} if kind else None,
     )
     await Score.filter(id=row.id).update(submitted_at=datetime(2026, 11, day, 9, 0, tzinfo=UTC))
     return row
@@ -341,8 +367,8 @@ async def test_a_dry_run_reads_but_changes_no_row(tortoise_db: None) -> None:
 
 async def test_a_fusion_beating_every_solo_model_sets_the_sota_flag(tortoise_db: None) -> None:
     await _board()
-    await _score("rival@lab.org", spec="solo", score=0.70, kind="model")
-    await _score("ana@uni.edu", spec="fusion", score=0.80, kind="fusion")
+    await _score("rival@lab.org", spec="solo", score=0.70, recipe=SOLO)
+    await _score("ana@uni.edu", spec="fusion", score=0.80, recipe=DUO)
     sink = FakeSink()
 
     await run_sync(sink, CONFIG, now=NOW)
@@ -360,32 +386,32 @@ async def test_a_fusion_beating_every_solo_model_sets_the_sota_flag(tortoise_db:
 
 
 @pytest.mark.parametrize(
-    ("fusion_score", "solo_kind", "baseline_score", "qualifies"),
+    ("fusion_score", "other_recipe", "baseline_score", "qualifies"),
     [
-        (0.80, "model", None, True),
-        (0.70, "model", None, False),  # a tie is not a win
-        (0.60, "model", None, False),
+        (0.80, SOLO, None, True),
+        (0.70, SOLO, None, False),  # a tie is not a win
+        (0.60, SOLO, None, False),
         (0.80, None, None, False),  # no solo reference on the board
-        (0.80, "fusion", None, False),  # only other fusions: nothing solo to beat
+        (0.80, DUO, None, False),  # only other fusions: nothing solo to beat
         (0.80, None, 0.75, True),  # an imported baseline is a solo reference
-        (0.80, "model", 0.85, False),
+        (0.80, SOLO, 0.85, False),
     ],
 )
 async def test_rule_b(
     tortoise_db: None,
     fusion_score: float,
-    solo_kind: str | None,
+    other_recipe: str | None,
     baseline_score: float | None,
     qualifies: bool,
 ) -> None:
     await _board()
-    if solo_kind is not None:
-        await _score("rival@lab.org", spec="other", score=0.70, kind=solo_kind)
+    if other_recipe is not None:
+        await _score("rival@lab.org", spec="other", score=0.70, recipe=other_recipe)
     if baseline_score is not None:
         await Baseline.create(
             benchmark_id="mmlu", model_name="gpt-x", score=baseline_score, source="lmarena"
         )
-    fusion = await _score("ana@uni.edu", spec="fusion", score=fusion_score, kind="fusion")
+    fusion = await _score("ana@uni.edu", spec="fusion", score=fusion_score, recipe=DUO)
 
     await run_sync(FakeSink(), CONFIG, now=NOW)
 
@@ -394,12 +420,49 @@ async def test_rule_b(
 
 async def test_a_solo_model_never_qualifies_even_alone_at_the_top(tortoise_db: None) -> None:
     await _board()
-    await _score("rival@lab.org", spec="weak", score=0.2, kind="model")
-    solo = await _score("ana@uni.edu", spec="solo", score=0.9, kind="model")
+    await _score("rival@lab.org", spec="weak", score=0.2, recipe=SOLO)
+    solo = await _score("ana@uni.edu", spec="solo", score=0.9, recipe=SOLO)
 
     await run_sync(FakeSink(), CONFIG, now=NOW)
 
     assert (await _rows())[solo.id].sota_qualified is False
+
+
+async def test_a_pipeline_recipe_is_a_fusion(tortoise_db: None) -> None:
+    # Shuai Wu's gdpval-text duo: two models and a synthesizer, a `pipeline` Recipe.
+    await _board()
+    await _score("rival@lab.org", spec="solo", score=0.79, recipe=SOLO)
+    duo = await _score("ana@uni.edu", spec="duo", score=0.81, recipe="pipeline")
+
+    await run_sync(FakeSink(), CONFIG, now=NOW)
+
+    assert (await _rows())[duo.id].sota_qualified is True
+
+
+async def test_one_model_sampled_and_combined_is_a_fusion(tortoise_db: None) -> None:
+    # Akshat Gupta's argon x3 with a selector: one model, a `fusion` Recipe ("self fusion").
+    await _board()
+    await _score("rival@lab.org", spec="solo", score=0.69, recipe=SOLO)
+    sampled = await _score("ana@uni.edu", spec="argon-x3", score=0.70, recipe=DUO)
+
+    await run_sync(FakeSink(), CONFIG, now=NOW)
+
+    assert (await _rows())[sampled.id].sota_qualified is True
+
+
+async def test_a_run_without_a_readable_recipe_is_neither_fusion_nor_solo(
+    tortoise_db: None,
+) -> None:
+    await _board()
+    await _score("rival@lab.org", spec="old", score=0.95)
+    await _score("cy@uni.edu", spec="solo", score=0.70, recipe=SOLO)
+    fusion = await _score("ana@uni.edu", spec="fusion", score=0.80, recipe=DUO)
+    old_fusion = await _score("bo@uni.edu", spec="old-fusion", score=0.99)
+
+    await run_sync(FakeSink(), CONFIG, now=NOW)
+
+    rows = await _rows()
+    assert (rows[fusion.id].sota_qualified, rows[old_fusion.id].sota_qualified) == (True, False)
 
 
 # --- deleting scores still works with sync rows ----------------------------------------------
