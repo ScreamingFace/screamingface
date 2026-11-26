@@ -383,7 +383,18 @@ validation, selected-call ports, attempt facts and error normalization. Keep one
 codec at that boundary; it does not expose transport or presentation types to the policy.
 `world/routing.py` keeps the profile envelope and its non-disclosing refusal presentation. The
 Router DAG adapter consumes the same core without changing the existing E4c Gate parser or JOIN.
-Unit 6 pins the exact url4 text of the panel body here, within these rules, before code.
+Unit 5.2 owns the strict C2/C3/C5 records and pure C6 `select="all"` decisions, including
+ordered selected indices, unknown labels and `default`/`no_selection` outcomes. Its runtime
+execution covers `select="one"`, default and no selection; it does not execute a subset panel
+or change `combine._parse_selection`. Unit 6 owns the Router-to-combine selection reader,
+the compiled panel body, its quorum and synthesizer failures, and the C13 inline subset entry.
+The selection reader uses the accepted ADMIT and validated DECIDE for the same binding; it
+uses admitted candidate indices, never raw labels as URL4 bindings. Only successful selected
+answers reach the reducer or synthesizer; quorum and the collected panel row follow rule 2 above.
+**Panel hold:** before subset runtime or compiler code, approve one exact positive and one
+failing rendered URL4 golden against the landed Unit 5.2 C4 reader and existing combine seam.
+These goldens pin the panel slots, combine selection codec, input and synthesis rendering;
+the flow sketch above is not executable syntax.
 
 ## C5 — Decision record `screamingface.router-decision.v1` (Units 5.2 and 6)
 
@@ -523,38 +534,58 @@ C18 wires each of these positions.
 - Recipe retry advice is conservative when siblings may have spent; a "no model I/O" statement is
   scoped to one Router occurrence. The direct helper keeps its retry table.
 
-## C12 — Capability gate (Units 6 and 7, with OME-1921/1922)
+## C12 — Capability gate (Units 6 and 7)
 
 ```json
-{"object": "engine_capabilities", "contract": "engine-capabilities-v1",
- "capabilities": ["e4c-branch-v1", "router-v1", "classify-frozen-copy-v1", "router-input-ref-v1",
-                  "router-placement-v1"]}
+{"object":"engine_capabilities","contract":"engine-capabilities-v1","capabilities":[]}
 ```
 
-- `GET /v1/capabilities` on the Engine App, under the same caller auth as `/v1/operators`, returning
-  the document above. If OME-1921 settles a different endpoint or E4c ID before Unit 6, Unit 6
-  moves the Router IDs into it unchanged; otherwise Unit 6 ships this one. The object keys are
-  strict; the ID list is open, and readers ignore IDs they do not know.
+- Unit 6 ships one `GET /v1/capabilities` on the Engine App (`rest/capabilities.py`) and one
+  SDK codec in `_engine/capabilities.py` shared by sync and async Clients. OME-1921/1922
+  closed without a discovery landing, so the plan's fallback applies. Keep `/v1/operators`
+  ingress exposure, with no run capability required
+  on discovery itself. The object above is closed, including rejection of duplicate keys; the
+  list contains unique nonempty strings, emitted in lexical order. Readers ignore unknown
+  IDs in a valid document. Responses use `Cache-Control: private, no-store`; no ETag or stale
+  fallback. `/v1/operators`, route presence and App version are not substitutes.
+- `Settings.advertised_capabilities` (`URL4_CLOUD_ADVERTISED_CAPABILITIES`) is one JSON string
+  array, default `[]`. The dormant release allows only the empty set. Subsequent releases
+  reject duplicate or unknown configured IDs and any ID that release cannot advertise.
+  `classify-frozen-copy-v1`, `router-input-ref-v1` and `router-placement-v1` each require
+  `router-v1`. `e4c-branch-v1` is not enabled by this Unit. Configuration is not fleet evidence.
 - `router-v1` covers C2-C6, C10, the run definition set (C9), the inline entry and envelope (C13), the
   stored-result changes (C15) and the classifier catalog (C17);
   `classify-frozen-copy-v1` covers C9, its run manifest included; `router-input-ref-v1` covers C14;
   `router-placement-v1` covers C18 and the url4 reader of C19. A Recipe with a Router anywhere but
   its root needs `router-placement-v1`. Unit 7 adds it; until then the SDK refuses such a Recipe
   before submission.
-- The SDK checks the IDs a Recipe needs before `POST /runs` and the first `GET /?q=`, and before
-  minting a capability, and refuses with no run started. A missing document means no capability.
-  Endpoint success elsewhere is not evidence.
+- Compute required IDs for the whole plan and mode: base Router, classify replay/capture when
+  requested for a Router run, prepared input when used, and placement in Unit 7. Fetch once
+  per capability-requiring submission, fresh, before mint, `POST /runs` and root `GET /?q=`.
+  Explicit C14 preparation checks base Router and prepared-input IDs before uploading.
+  Missing, invalid or insufficient discovery raises `EngineCapabilityError` before run creation;
+  an auth or transport failure is not replaced with a cached positive or silently retried as a
+  legacy plan. Preserve its existing diagnostic category. The string-profile helper and non-Router
+  evaluation incur no capability request. ADMIT independently validates the occurrence.
 - An ID states what the whole fleet can run. The App advertises it only when every worker that can
   take a current or queued run, and the Gateway, have its readers. App metadata alone is not
   evidence (`engine/router-execution.md:147-154`).
-- While any eligible worker lacks the readers, the ID is not advertised. Before an older worker
-  takes work again, by rollback or by reintroduction, the App withdraws the ID: the SDK then refuses
-  new submissions that need it, and accepted runs that need it drain first (`:427-430`).
+- Deploy the dormant discovery path and C10/C15 readers, then the corresponding Gateway and
+  Engine runtime readers; qualify every App replica, eligible worker (including queued work),
+  Gateway and applicable result reader before advertising. Release or enable SDK writers only
+  after the required IDs are proved. For rollback withdraw dependent IDs before the base ID across
+  all replicas, fence new affected admissions and drain accepted runs before older workers take
+  work. A discovery check alone leaves a check-to-submit race: keep compatible readers servicing
+  racing starts until the admission fence is effective. Preserve readers for retained results and
+  frozen copies after withdrawal (`engine/router-execution.md:427-430`).
 - Before hosted activation, characterize a new App with an old eligible worker for standalone and
   composed Router plans, a Fusion whose Router member carries the C19 mark included. It passes only
   when the work is refused before any source, classifier, selected-model, sibling or synthesizer
   I/O, with zero paid calls. A paid call falsifies the simple rollout; the operations mechanism
   (homogeneous pool, drain or capability-aware queue) then follows that evidence (`:155-158`).
+- **SDK integration hold:** sequence shared Client composition with open GitHub PR #1952 or use
+  an explicitly coordinated, reviewed base. Recheck the final `client.py` and package exports
+  before qualifying the reader or writer.
 
 ## C14 — Prepared inputs (Unit 6, last PR)
 
@@ -574,16 +605,67 @@ the source, and refuses a declared `revision` that does not recompute with
 `router_definition_invalid`. A prepared-definition read failure fails the run before `url4_run`; a
 prepared-question read failure is phase `input` of its occurrence (C11).
 
-Left to the Unit 6 input spec, before its code: SDK method names and the typed reference shape;
-the backing store, evaluated first against existing run-file admission and attachment blob references
-(neither is assumed sufficient); write and read authority independent of the digest; complete-upload
-visibility; availability to actual workers; retention through the queue, run and recovery horizon;
-quotas, expiry, cleanup and the failure for missing, denied, expired or mismatched data; the layout for
-several prepared definitions in one run; the Router-input reader's resource paths and codecs; and the
-supported question bound. The existing Engine database boundary remains fixed: only `runs/` may import
-Tortoise, asyncpg or aiosqlite. World/runner code consumes a framework-free input port backed by a
-worker-visible adapter. Existing blob infrastructure is reusable only after its image/PDF-only media
-policy is extended by an explicit bounded text/JSON, authority and retention contract.
+### Prepared-input boundary and candidate wire
+
+- Engine owns preparation, admission and reading. Use a verified caller principal for `PUT`,
+  not a run token or a digest as permission. Admit against that principal and declare every held
+  reference before scheduling. Only a worker with the trusted accepted run context can read a held
+  reference; it rechecks authority and integrity. A hold does not preserve revoked permission.
+  Do not accept owner claims or credentials from the URL4 expression. Equal bytes across callers
+  confer no access or existence signal. There is no public raw-read route.
+- Candidate SDK surface, pending the input-leaf decision: `prepare_router_definition(router)`
+  returns `PreparedRouterDefinition` (reference plus C3 revision), and
+  `prepare_router_question(input)` returns `PreparedRouterQuestion`; sync and async share their
+  semantics. `router.with_prepared_definition(ref)` is inert, pairs the ref only with the same
+  C3 revision, and retains authored Models to compile literal `Calls`. The Router overload alone
+  accepts a prepared question. Preparation is explicit; recheck final encoded size before mint
+  for the chosen carriers and refuse if even that form does not fit (C16).
+- Candidate write is `PUT /v1/router-inputs/{kind}/sha256/{hex}`, with `kind` exactly `definition`
+  or `question` and `hex` exactly 64 lowercase hex digits. Definition bytes are canonical C3 JSON
+  of `D` without its enclosing revision preimage (`application/json`, at most 65,536 bytes);
+  question bytes are strict UTF-8 text (`text/plain; charset=utf-8`), never normalized. Use the
+  raw bytes for SHA-256; validate size, digest and decoded format before committed visibility.
+  The closed receipt has `contract="router-input-ref-v1"`, `kind`, `sha256="sha256:<hex>"`,
+  integer `size_bytes` and `expires_at` (RFC 3339 UTC with `Z`). A same-scope retry while valid
+  returns the existing receipt without extending expiry; explicit authorized re-preparation can
+  restore an expired source. This never retries a run.
+- The internal resource refs `/ensemble/router/v1/input/definition` and
+  `/ensemble/router/v1/input/question` take closed `{contract, kind, sha256}` values under the
+  receipt's types. Definition refs are decoded by the executor through the reader port before
+  `url4_run`, not executed as URL4 definition fetches. The question resource delivers the C4 input
+  document. Compile one definition ref per `router_N` intent alongside literal `router`,
+  `revision` and `Calls`; freeze by binding, not by digest. No URL4 grammar or attachment behavior
+  changes. Missing, denied or expired data shares `router_input_unavailable`; a verified reader's
+  corrupt content or wrong codec is `router_input_invalid`. Keep storage outages distinct from
+  permanent input invalidity. The input-leaf decision must reserve the selected codes under C11
+  and confirm their pre-run versus phase `input` presentation; do not widen the Gateway relay.
+
+### Retention hold before the input leaf
+
+Publish only complete immutable sources and admit only if the exact inputs can be retained across
+the maximum supported queue delay, run lifetime and same-run recovery window, including clock
+margin, even across an App or worker restart. Unused inputs expire and sweep under bounded
+per-principal and total object/byte quotas. The input authority is separate from result retention;
+C15 read-back does not need the source. C9 replay executes and still needs authorized retained
+inputs. Withdraw new prepared admissions first and retain accepted input holds through drain.
+
+**Input-leaf decision:** sign one worker-visible Engine backend and its numeric queue/run/recovery
+horizon, margin, quotas, expiry and question cap before code. Prefer a dedicated durable namespace
+with bounded absolute expiry only if admission can prove the source outlives that horizon and no
+purge can preempt it. Otherwise use a durable admission hold in `runs/`: commit it before queueing,
+reconcile interrupted admissions and sweep only expired, unheld data. Qualify worker recovery and
+sweep/admission races. Confirm the candidate SDK/API and the 16,384- versus 65,536-byte prepared
+question cap against the supported C7 target and byte budget in that same decision. A backend or
+horizon that cannot carry a queued run blocks the leaf.
+Pin the exact closed C2 discriminator for prepared definitions in this decision. The proposed
+definition path identifies the reader codec at the executor boundary; it is not a fetch that
+executes inside the URL4 block.
+
+Check the final OME-1970 comparison base (#2067–#2069) before the decision. A process-local,
+evictable Gateway attachment cache is not the worker-visible source authority; the existing image/PDF
+Engine blob store and result-artifact store do not supply this contract unchanged. Reuse only
+verified storage primitives behind the bounded text/JSON reader and write policy. World/runner use
+a framework-free port; only `runs/` may import the database stack or own new migrations.
 
 ## C15 — Kinds, topology, stored results and reports (Units 6 and 7)
 
@@ -598,27 +680,28 @@ policy is extended by an explicit bounded text/JSON, authority and retention con
   and `is_provider` (`:69-72`) is false when it is set, so the record is never counted as a provider
   call. The wire `OperationOutput` (`benchmarks/contract.py:370`, `decision` at `:397`) gains `router`,
   excluded when `None` like `decision`, so a result without a Router stays byte-identical; the
-  projection copies it where it copies `decision` (`benchmarks/operation_outputs.py:135`, `:201`,
-  `:214`). The operation projection admits the JOIN binding: `_BINDING`
-  (`benchmarks/operation_outputs.py:60`) and the SDK pattern (`_operation_bindings.py`) add `router`,
+  projection copies it where `_attributed` copies `decision` (`benchmarks/operation_outputs.py:221-265`).
+  The operation projection admits the JOIN binding: `_BINDING`
+  (`benchmarks/operation_outputs.py:62`) and the SDK pattern (`_operation_bindings.py`) add `router`,
   and the shared fixture `apps/screamingface-engine/tests/unit/data/combine_contract/binding_names.json`
   accepts `router_7` and rejects `router_7_admit`, `router_7_decide` and `router_7_block`, read by
   `apps/screamingface-engine/tests/unit/test_binding_names_fixture.py` and
   `packages/screamingface/tests/unit/test_binding_pattern_conformance.py`.
 - A Router abstention marks its Case abstained. `final_operation_abstained`
-  (`benchmarks/operation_outputs.py:118-138`, called at `benchmarks/invocation.py:92`) reads only
-  `combine` and the Gate `decision` today; it also returns true for an operation whose
-  `router.status` is `abstained`. `_final_reference` (`benchmarks/operation_outputs.py:143-158`)
-  follows a root `$gate_N_block` to its JOIN only through `_GATE_BLOCK` (`:62`, checked in
-  `_gate_block` at `:161-175`); that pattern also admits `router_N_block`. A Router whose abstention
+  (`benchmarks/operation_outputs.py:144-156`, called at `benchmarks/invocation.py:92`) uses
+  `_abstained_result` (`:159-171`) to read only `combine` and the Gate `decision` today; it also
+  returns true for an operation whose `router.status` is `abstained`. `_final_reference`
+  (`benchmarks/operation_outputs.py:186-201`) follows a root `$gate_N_block` to its JOIN through
+  `_GATE_BLOCK` (`:64`, checked in `_gate_block` at `:204-218`); that pattern also admits
+  `router_N_block`. A Router whose abstention
   is the Candidate's result, standalone or in every position where a Gate's abstention marks the
   Case today, then stores the Case as abstained with the empty answer (`abstained` on
   `CandidateInvocation`, `benchmarks/contract.py:437`), never as an answered empty string (C10).
   Positions inside a composition follow C18.
 - Router operations are attributed like a Gate's. `_operation_bindings`
-  (`benchmarks/operation_outputs.py:238`) enters a Gate block through `_GATE_BLOCK` in
-  `_scope_sources` (`:313-333`) and parses gated iterate bodies named by `_GATE_ITERATE` (`:63`,
-  `gate_N_then|else`) in `_gated_scopes` (`:279-299`). The block pattern admits `router_N_block` and
+  (`benchmarks/operation_outputs.py:281`) enters a Gate block through `_GATE_BLOCK` in
+  `_scope_sources` (`:356-376`) and parses gated iterate bodies named by `_GATE_ITERATE` (`:65`,
+  `gate_N_then|else`) in `_gated_scopes` (`:322-342`). The block pattern admits `router_N_block` and
   the iterate pattern admits the Router's gated iterates (`router_N_sel`, `router_N_cK`, `router_N_d`,
   `router_N_panel`), so the JOIN record and every Router model call that ran become operations, and an
   unselected candidate, gated and never called, becomes none.
@@ -634,10 +717,13 @@ policy is extended by an explicit bounded text/JSON, authority and retention con
   one or from its C5 records. Reading a stored result never fetches an input source, reads a frozen
   copy or reruns classification. Rebuilding from a bare `url4` with no stored result needs the
   prepared source, as any execution does.
-- Persistence. Every path that keeps a result keeps `router` and `router_definitions`. Each reader
-  ships before any writer, and no stored report is migrated.
+- Persistence. Every path that keeps a result keeps `router` and `router_definitions`. Engine and
+  SDK lockstep readers, including saved-run consumers, ship before any writer. C13 decoders and
+  applicable strict external result readers must accept the new form before exposed writers.
+  Keep readers through rollback. Neither stored reports nor legacy results are migrated.
   - Saved run: `sf.reports` keeps the Engine result body as `result.json` beside the
-    `screamingface.saved-run.v1` manifest (`_results/store.py:100-105`, `:209-213`) and rebuilds the
+    `screamingface.saved-run.v1` manifest (`ResultStore.record`, `_results/store.py:98-105`, and
+    `ResultStore._decode_manifest`, `:209-215`) and rebuilds the
     `CandidateResult` from it (`reports.py:302-315`), so the snapshot needs no manifest field. The
     strict `_candidate_payload` (`_evaluation/results.py:254-292`) admits `router_definitions` as an
     optional key, as it admits `scores`, and `_candidate_result` (`:157-225`) passes it on. A result
@@ -675,8 +761,23 @@ The design requires validated bounds and rules out unbounded "configurable" valu
 | Router members in one Fusion | 1 and 3 qualified | Design; more needs its own limit and test |
 | Routers in one run | At most 256, each `router` binding once | The seal provenance bound (C9); the SDK refuses before submission, the run definition set before `url4_run` (`router_definition_invalid`) |
 | Router nesting | Candidates are Models only | Design |
-| Inline question | Up to the measured GET limit; larger needs C14 | Unit 6 measures |
-| Engine root request target | Unit 6 chooses an application limit below the smallest qualified server/parser envelope; SDK refuses before mint, Engine after auth with 414 only inside that envelope. At or above an outer parser ceiling, 400 may occur before the App/auth and is not an Engine 414 | `_require_q` (`rest/routes.py:257`) has no bound today; qualify Uvicorn protocol/parser choices with one-write and fragmented delivery plus the largest real Authorization/identity/trace headers. h11 bounds the whole incomplete request head, not the target alone; httptools differs. The mount's 8 KiB is not this contract |
+| Inline question | Remaining encoded target budget for the actual compiled plan, subject to applicable input limits; larger needs an explicit C14 carrier | Root target limit is held below |
+| Engine root request target | Unit 6 chooses an application limit below the smallest qualified server/parser envelope; SDK refuses before mint, Engine after auth with 414 only inside that envelope. At or above an outer parser ceiling, 400 may occur before the App/auth and is not an Engine 414 | `_require_q` (`rest/routes.py:246-254`) has no bound today; qualify Uvicorn protocol/parser choices with one-write and fragmented delivery plus the largest real Authorization/identity/trace headers. h11 bounds the whole incomplete request head, not the target alone; httptools differs. The mount's 8 KiB is not this contract |
+
+Count final origin-form `path?query` bytes including a transmitted prefix. Use the constructed
+request target in the SDK and raw path/query in the App, removing any ASGI-only `root_path`
+addition exactly once. The SDK refuses before mint. The App checks after `VerifiedClaims` and
+before query admission or scheduling, with a sanitized RFC 9457 414 when the request reaches it.
+Keep the separate direct-mount and non-root contracts.
+
+**Root limit hold:** the serving owner must approve `L` from a measured header/profile matrix on
+the qualified server/parser and ingress, proving `L+1` still reaches auth and the App with margin.
+An in-process CPython 3.13 Darwin probe with Uvicorn 0.52.3, h11 0.16.0 and httptools 0.8.0
+tested a synthetic 8,192-byte Bearer payload plus identity/trace headers. Fragmented h11 passed a
+target of 8,002 bytes and refused 8,003 before ASGI; httptools passed 65,535 and refused 65,536
+for that fixture. This is parser evidence, not a deployed HTTP limit. Record pinned settings,
+maximum representative headers and segmentation, then test `L−1/L/L+1`, pre-App refusals,
+auth ordering, escaping and carrier parity. Do not choose a production value from the stand-in app.
 
 None of these bounds is a token count; token-aware limits are enforced inside each target (C7). A
 Unit 6 measurement may lower a bound; raising one is a contract change.
