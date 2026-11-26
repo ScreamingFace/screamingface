@@ -1460,11 +1460,28 @@ class SpecHistoryRow(BaseModel):
     submitted_at: datetime
     submitted_by: SubmittedBy
     authors: Authors = None
+    # FEATURE: OME-2015 — same field and masking as `LeaderboardEntry.authors_metadata`.
+    authors_metadata: dict[str, dict[str, Any]] | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
     verified_by_screamingface: bool
     run_cost_usd: Decimal | None
     run_cost_status: RunCostStatus | None
     cache_saved_cost_usd: Decimal | None
     cache_saved_cost_archive_usd: Decimal | None
+
+    @field_serializer("authors_metadata", when_used="json")
+    def publish_authors_metadata(
+        self, value: dict[str, dict[str, Any]] | None
+    ) -> dict[str, dict[str, Any]] | None:
+        if value is None:
+            return None
+        credit_line = (
+            self.authors
+            if self.authors is not None
+            else ([] if self.submitted_by is None else [self.submitted_by])
+        )
+        return _publish_authors_metadata(value, credit_line)
 
 
 class ReproductionClientInfo(ClientInfo):
@@ -1540,12 +1557,37 @@ class LeaderboardEntry(BaseModel):
     submitted_at: datetime
     submitted_by: SubmittedBy
     authors: Authors = None
+    # FEATURE: OME-2015 — published the same way `ScoreSchema.authors_metadata` is: EXCLUDED WHEN
+    # ABSENT (a legacy/never-edited row serves exactly the payload it always served), and masked by
+    # the author's published name on JSON read, never the raw email (`publish_authors_metadata`
+    # below mirrors `_publish_authors_metadata`'s use on `ScoreSchema`).
+    authors_metadata: dict[str, dict[str, Any]] | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+        description=(
+            "Metadata about each credited author (e.g. `website`, `full_name`). Keyed by the "
+            "name the author has in the published `authors` list. Absent when never set."
+        ),
+    )
     verified_by_screamingface: bool
     url4_expression: str
     # Self-reported and unverifiable: re-running a submission tells us what *we*
     # paid, not what the submitter paid. Exposed so the board can show it, but it
     # must be presented with its provenance and never as a verified figure.
     run_cost_usd: RunCostUsd
+
+    @field_serializer("authors_metadata", when_used="json")
+    def publish_authors_metadata(
+        self, value: dict[str, dict[str, Any]] | None
+    ) -> dict[str, dict[str, Any]] | None:
+        if value is None:
+            return None
+        credit_line = (
+            self.authors
+            if self.authors is not None
+            else ([] if self.submitted_by is None else [self.submitted_by])
+        )
+        return _publish_authors_metadata(value, credit_line)
 
 
 class LeaderboardStoreEntry(LeaderboardEntry):

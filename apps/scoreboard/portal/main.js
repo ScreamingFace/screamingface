@@ -214,9 +214,38 @@ window.ScorePortal = (function () {
     if (value === null || value === undefined || value === "") return EM_DASH;
     return String(value);
   }
-  function formatAuthors(values) {
-    if (!Array.isArray(values) || values.length === 0) return EM_DASH;
-    return values.map(String).join(", ");
+  // `authors_metadata` is keyed by the SAME published name `values` carries (the
+  // store masks both the same way), so a plain lookup by author string pairs each name with its
+  // entry. An author with a safe http(s) `website` renders as a link, labelled with `full_name`
+  // when the submitter gave one and the published name otherwise; everyone else renders as
+  // plain text, exactly as before. Returns a plain inline wrapper (built with `el`, like every
+  // other node in this file) rather than a bare fragment, so no caller or test harness needs a
+  // `document.createDocumentFragment` it never had to provide before.
+  function formatAuthors(values, metadata) {
+    var wrap = el("span");
+    if (!Array.isArray(values) || values.length === 0) {
+      wrap.appendChild(document.createTextNode(EM_DASH));
+      return wrap;
+    }
+    metadata = metadata && typeof metadata === "object" ? metadata : {};
+    values.forEach(function (value, index) {
+      if (index > 0) wrap.appendChild(document.createTextNode(", "));
+      var name = String(value);
+      var entry = metadata[value];
+      var website = entry && typeof entry === "object" ? httpUrlOrNull(entry.website) : null;
+      var label =
+        entry && typeof entry === "object" && typeof entry.full_name === "string" && entry.full_name
+          ? entry.full_name
+          : name;
+      if (website === null) {
+        wrap.appendChild(document.createTextNode(label));
+        return;
+      }
+      var a = link(null, website, label);
+      a.setAttribute("rel", "noopener noreferrer nofollow");
+      wrap.appendChild(a);
+    });
+    return wrap;
   }
   function formatCount(value, singular, plural) {
     var count = typeof value === "number" && !isNaN(value) ? value : 0;

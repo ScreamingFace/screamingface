@@ -285,6 +285,10 @@ async def test_history_rows_carry_only_the_history_columns(client: AsyncClient) 
         "submitted_at",
         "submitted_by",
         "authors",
+        # OME-2015: a deliberate addition, owner-decided — author credit metadata (website,
+        # full_name) reaches the history read the same way `authors` already does. Still
+        # exhaustive, so any other field appearing here still fails.
+        "authors_metadata",
         "verified_by_screamingface",
         "run_cost_usd",
         "run_cost_status",

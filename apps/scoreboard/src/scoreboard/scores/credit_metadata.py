@@ -50,6 +50,11 @@ KNOWN_TEXT_MAX_CHARS: Mapping[str, int] = {
     "citation": 2000,
 }
 URL_KEY = "url"
+# FEATURE: OME-2015 — an author's personal website, validated exactly like `url`/`paper_url`
+# (http/https only, no user-info, length cap). A second KNOWN URL key rather than a rename of
+# `URL_KEY`: `url` stays the paper's own link (split out by `split_paper_metadata`); `website` is
+# an author-entry key only and carries no such split.
+WEBSITE_KEY = "website"
 
 PAPER_URL_MAX_CHARS = 2048
 _PAPER_URL_SCHEMES = frozenset({"http", "https"})
@@ -217,7 +222,7 @@ def _text_problem(value: object, limit: int, *, text_only: bool) -> str | None:
 
 
 def _value_problem(key: str, value: object) -> str | None:
-    if key == URL_KEY:
+    if key in (URL_KEY, WEBSITE_KEY):
         return _url_problem(value)
     if key in KNOWN_TEXT_MAX_CHARS:
         return _text_problem(value, KNOWN_TEXT_MAX_CHARS[key], text_only=True)

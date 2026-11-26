@@ -60,6 +60,9 @@ from .schemas import (
 _RAW_ROW_FIELDS = (
     "ran_with_providers",
     "authors",
+    # FEATURE: OME-2015 — another JSONField read through the raw pypika projection; needs the
+    # same to_python_value decode as `authors` (the driver otherwise hands back a JSON string).
+    "authors_metadata",
     "run_cost_usd",
     "cache_saved_cost_usd",
     "cache_saved_cost_archive_usd",
@@ -67,7 +70,13 @@ _RAW_ROW_FIELDS = (
 # Columns whose DTO type admits None, so an unreadable value can degrade in place.
 # Anything not listed here forces the row to be dropped instead — see _to_python_rows.
 _NULLABLE_RAW_FIELDS = frozenset(
-    {"authors", "run_cost_usd", "cache_saved_cost_usd", "cache_saved_cost_archive_usd"}
+    {
+        "authors",
+        "authors_metadata",
+        "run_cost_usd",
+        "cache_saved_cost_usd",
+        "cache_saved_cost_archive_usd",
+    }
 )
 # The two savings `reproduction_cost` adds to a `complete` spend (OME-1382, D7).
 _SAVING_RAW_FIELDS = frozenset({"cache_saved_cost_usd", "cache_saved_cost_archive_usd"})
@@ -1064,6 +1073,7 @@ def _build_leaderboard_query(
             scores.submitted_at,
             scores.submitted_by,
             scores.authors,
+            scores.authors_metadata,
             scores.verified_by_screamingface,
             scores.url4_expression,
             scores.run_cost_usd,
@@ -1109,6 +1119,7 @@ def _build_leaderboard_query(
             ranked.submitted_at,
             ranked.submitted_by,
             ranked.authors,
+            ranked.authors_metadata,
             ranked.verified_by_screamingface,
             ranked.url4_expression,
             ranked.run_cost_usd,
@@ -1241,6 +1252,7 @@ _HISTORY_COLUMNS: tuple[str, ...] = (
     "submitted_at",
     "submitted_by",
     "authors",
+    "authors_metadata",
     "verified_by_screamingface",
     "run_cost_usd",
     "run_cost_status",
@@ -1258,6 +1270,7 @@ _OWNED_COLUMNS: tuple[str, ...] = (
     "submitted_at",
     "submitted_by",
     "authors",
+    "authors_metadata",
     "verified_by_screamingface",
     "url4_expression",
     "run_cost_usd",

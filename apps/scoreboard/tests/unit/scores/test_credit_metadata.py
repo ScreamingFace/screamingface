@@ -176,6 +176,44 @@ def test_keep_matching_drops_removed_authors_and_keeps_the_stored_spelling() -> 
     assert keep_matching_authors(stored, ["carol@x.org"]) == {}
 
 
+# --- website (OME-2015) ------------------------------------------------------------------------
+
+
+def test_a_website_with_a_safe_https_url_passes() -> None:
+    assert authors_metadata_problems({ANA: {"website": "https://ana.example/"}}) == []
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "ftp://example.org/ana",
+        "https://user@example.org/",
+        "",
+        "https://example.org/" + "a" * 2048,
+        5,
+    ],
+)
+def test_a_bad_website_is_one_problem_naming_the_key(value: Any) -> None:
+    # Same rules as `paper_metadata`'s `url` (the shared validator reused exactly): scheme,
+    # user-info and length are all checked the same way, for the same reason.
+    assert _locs(authors_metadata_problems({ANA: {"website": value}})) == [
+        ("authors_metadata", ANA, "website")
+    ]
+
+
+def test_website_coexists_with_every_other_known_and_open_author_key() -> None:
+    value = {
+        ANA: {
+            "full_name": "Ana Silva",
+            "institution": "MIT",
+            "website": "https://ana.example/",
+            "orcid": "0000",
+        }
+    }
+
+    assert authors_metadata_problems(value) == []
+
+
 # --- the request schemas -----------------------------------------------------------------------
 
 
@@ -353,3 +391,19 @@ def test_a_key_matching_no_credited_author_still_never_publishes_its_domain() ->
     row = _read(authors=[BO], authors_metadata={ANA: {"full_name": "Ana"}})
 
     assert row.model_dump(mode="json")["authors_metadata"] == {"ana": {"full_name": "Ana"}}
+
+
+def test_website_and_full_name_pass_through_the_key_mask_unchanged() -> None:
+    # FEATURE: OME-2015 — the mask above renames only the dict's KEY (the author's email) to the
+    # published display name; it never touches an entry's own fields. `website`/`full_name` are
+    # author-provided display fields meant to be published as sent.
+    row = _read(
+        authors=[ANA, BO],
+        authors_metadata={ANA: {"website": "https://ana.example/", "full_name": "Ana Silva"}},
+    )
+
+    public = row.model_dump(mode="json")
+
+    assert public["authors_metadata"] == {
+        "ana": {"website": "https://ana.example/", "full_name": "Ana Silva"}
+    }
