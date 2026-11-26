@@ -81,7 +81,8 @@ and any live, paid or production call while writing this spec.
 | 6 Router Recipe | Readers first; `sf.Router` kind; standalone evaluation; inline entry and `route_answer`; classify capture/replay, the run definition set and the run manifest; prepared inputs and their retained snapshot | 5.2; capability path (C12) |
 | url4 leaf | The `expand.at_most_one=true` package extension in `packages/url4`: parser validation, lowering, both panels, code binding, builder and renderer, and the cross-version test on the `455166b0d` reader (C19) | Fresh main only |
 | 7 Router in Fusion | One-Router and three-Router Fusion; Model-equivalent placements with each position's outcome (C18); `router-placement-v1` (C12) | 6; url4 leaf |
-| 8 BERT reference | Fixed-label serving bundle and qualification through the scalar contract | 6 (model-free conformance can start earlier) |
+| 8A fixed-label reference | Isolated DistilBERT serving bundle and model-free conformance through the existing scalar contract | Existing scalar path; approval of the C7 reference fragment |
+| 8B fixed-label Router | Standalone Router integration with the 8A fixture | 6 and 8A |
 | 9 Qualification | Integrated, live and hosted evidence on Linux/NATS/JetStream | 5-8 and an owner-approved window |
 
 Readers ship before writers in every Unit: `no_selection`, Router IR and decision readers,
@@ -252,8 +253,11 @@ storage, API, IR or serving decision cannot be stated unambiguously here.
 - Unit 7: placement refusal messages; the forms C18 leaves open (the member read, its route and the
   marked member slot, the Pipeline gate, a Router as a panel Gate's decision call in the IR, the
   report view of that Gate).
-- Unit 8: the BERT checkpoint, revision, runtime and label mapping; the reference server's
-  token-aware input check (special tokens counted, no truncation) and its refusal status and code.
+- Unit 8A (**amendment pending owner approval**): the checkpoint, artifact and serving boundary,
+  native scalar wire, labels, token budget and refusal are pinned in the
+  [C7 fixed-label reference](contracts-replay.md#fixed-label-reference-unit-8a). The isolated
+  lock and consumed-file inventory are verified before implementation against the selected runtime.
+  Checkpoint provisioning and real model qualification require separate approval.
 - Unit 9: the hosted window, intermediary URL limits and mixed App/worker characterization.
 
 ## 10. Documents

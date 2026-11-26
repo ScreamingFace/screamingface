@@ -225,7 +225,8 @@ All against a fake HTTP upstream; it must pass before Unit 5.2 depends on the co
 | 6, inputs | C14 and C16: carrier parity, missing/denied/expired/mismatched/partial sources including queued worker reads, size extremes, unknown outcomes with no rerun, prepared drift refused at the replay boundary, read-back after input expiry from `router_definitions`; qualify each supported Uvicorn parser/protocol with one-write and fragmented delivery using the largest real Authorization/identity/trace header set, choose the Engine limit below the smallest whole-request envelope, assert in-envelope over-limit gives post-auth 414 and outer parser refusal may give pre-App 400 | 12 |
 | url4 leaf | C19 in both panels and the code binding; the refusals (no `;expand`, no name, the mark before every source-level key on an expression-valued source); the cross-version run on the `455166b0d` reader; parse, render and builder round trip; clean base-wheel execution with Pydantic absent; prior url4 suites unchanged | None; C19 is a url4 form, not a design rule |
 | 7 | C18: one-Router and three-Router Fusion; every C18 row in §5 (Gate branch, Cascade tier and last tier, Pipeline stage, Fusion member under each quorum, synthesizer, budget); three-Router capture/replay preserves sibling identities and costs; a failed Router member keeps its C5 record; recursive candidates are refused; the `router-placement-v1` check (C12) | 2, 3, 9, 13, 14 |
-| 8 | BERT scalar fixture and fixed-label Router (V4 form), complete label coverage, tie and unknown-winner handling, token-aware refusal at and over the bound reaching the Router as a classifier failure (C7); serving stack has its own lock/artifact and leaks no dependency into shared manifests | 4 |
+| 8A | Model-free [fixed-label reference](contracts-replay.md#fixed-label-reference-unit-8a) matrix below, including actual Client → Engine → Gateway → loopback fixture through existing scalar classify; isolated build, lock and artifact verification | Scalar portion of 4 |
+| 8B | After 6 and 8A, standalone fixed-label Router in the V4 form; complete label coverage, tie and unknown-winner handling, and over-bound native refusal reaching the Router as a classifier failure with no generation or default call | Router portion of 4 |
 | 9 | The rebuilt SDK wheel repeats the Unit 6 clean-base proof; an exact exported `[runtime]` lock environment installs it with `--no-deps`, asserts material versions, boots its vendored Gateway and separate Engine environment and passes strict records, attempt headers and fake capture/replay; live BERT, Laya and Jev use separate approved endpoints; hosted Linux/NATS/JetStream run covers intermediary URL limits; a new App with an old eligible worker refuses standalone and composed Router plans, a C19-marked Fusion included, before any source, classifier, model, sibling or synthesizer I/O, with zero paid calls; withdrawing `router-placement-v1` stops new marked submissions while accepted ones drain (C12) | 8, 12, 13 |
 
 Across Units, every Router test also checks: unselected candidates make zero calls, every Engine
@@ -235,6 +236,100 @@ claimed free retry. Every strict numeric boundary rejects `NaN`, positive/negati
 `1e999`/`-1e999` after parsing and a boolean used as a number; every closed union rejects missing/extra keys and any input matching zero or
 multiple variants. Run the same vectors through Gateway/Engine Pydantic models, raw JSON/stored-result
 readers, the C13 envelope and the dependency-free SDK decoder.
+
+### Unit 8A model-free first RED
+
+Start with the real reference HTTP boundary and fake tokenizer/head ports with call counters.
+Give the fixture synthetic token IDs and two logits, with output labels from the approved contract.
+First pin exact text delivery and the token cliff: 511 and 512 IDs including special tokens are
+accepted and passed unchanged to the head once; 513 returns the exact native 422 body and runs
+the head zero times. Include a case where special tokens alone push it over and a fixture that
+would pass if the server truncated at 512. This proves the adapter's control flow, not real counts
+for any text under the selected checkpoint.
+
+| Boundary | Required deterministic witness |
+|---|---|
+| Request codec | A text with leading/trailing whitespace, mixed case and Unicode reaches the tokenizer unchanged. Duplicate, missing and unknown keys, a batch, null or numeric input, and invalid UTF-8 or a lone surrogate refuse before tokenization. At the inclusive wire bound a valid body reaches JSON validation; one byte more, including fragmented delivery, refuses with zero tokenizer/head calls. |
+| Media and precedence | Use the header/combined-failure vectors below. Check status, exact closed error body, uncompressed `application/json`, and body-reader/tokenizer/head counts at each rejected boundary. |
+| Output codec | Equal logits give ordered `NEGATIVE`, `POSITIVE` at 0.5 each; another pair proves full-vector softmax rather than sorting, thresholding or taking a maximum. Test large finite logits and refuse wrong arity, NaN, infinities and booleans without emitting scores. |
+| Offline provisioning | Use the exact fixture manifest below; verify when each malformed input fails before loader entry and while external networking is denied. |
+| Scalar composition and readiness | Use separate pinned Gateway and Engine processes and the SDK over loopback. Gateway uses multi-account auth with synthetic identities and grants/Connections, not the single anonymous principal of disabled auth. Test one granted caller plus denied and missing-Connection callers (zero upstream calls). Verify the original text and ordered normalized scores, and readiness `ping` through the same codec. A native over-token 422 makes one upstream send with no overload resend and maps to sanitized 502 `provider_error` at Gateway. A C7 character limit refuses before any send; keep existing scalar top-k coverage unchanged. |
+| Isolation | From the isolated project, use `uv lock --check --offline`, `uv run --frozen --offline pytest -q` and its pinned lint, type and build checks. Inspect the Linux x86_64 CPU / Python 3.12 wheel resolution and built reference artifact; exclude weights, fetched tokenizer/config files and caches. Check the product manifests, locks and SDK base/runtime inclusion paths did not acquire any serving dependency. |
+
+**Native header and precedence vectors.** Unless noted, use body `{"inputs":"ping"}` and a
+valid fake encoding and head. Treat each listed disallowed form as a separate case.
+
+| Headers or body | Response and boundary |
+|---|---|
+| `application/json` with no `Content-Encoding`; `application/json; charset=utf-8` with `identity`; `Application/JSON ; CHARSET="UTF-8"` with `Identity` and surrounding spaces/tabs | Each returns 200 and one head call. |
+| Missing or duplicate `Content-Type` (even identical), comma list, `application/problem+json`, wrong charset, extra or repeated charset parameter, whitespace around `=` | 415 `unsupported_media_type`; no body read. |
+| Valid `Content-Type`, but empty, duplicate or comma-list `Content-Encoding`, or `gzip` | 415 `unsupported_media_type`; no body read. |
+| Refused header and a body of 65,537 bytes that is also invalid JSON | 415 wins; no body read. |
+| Valid headers and 65,537 bytes of invalid JSON in two chunks | 413 `request_too_large` wins; never call tokenizer/head. |
+| Valid headers, at most 65,536 bytes, but `{"inputs":"ping","extra":0}` with a tokenizer double that would emit 513 IDs | 400 `invalid_request` wins; no tokenizer or head call. |
+| Valid request, 513 IDs including specials, and a head double that would raise | 422 `input_token_limit_exceeded` wins; exactly one tokenizer call and no head call. At 512 IDs with the same failing head, return 500 `classifier_failed`. |
+
+**Offline fixture.** Put only the manifest below and these four fake regular files at the test
+artifact root: `config.json` and `tokenizer_config.json` contain the two bytes `{}`;
+`model.safetensors` contains the four bytes `head`; `vocab.txt` contains the three bytes `abc`.
+None has a newline. These bytes are for fake loaders only, not a model checkpoint. For the
+manifest use the exact UTF-8 bytes of the fenced JSON below, with LF line endings and one final LF.
+Set `SF_BERT_REFERENCE_MANIFEST_SHA256` outside that root to
+`9f94a3b04de4138225dc013b8cb2d858f99279ea87eb658b184d127e64b699a7`.
+
+```json
+{
+  "schema": "screamingface.bert-reference-artifacts.v1",
+  "model": "distilbert/distilbert-base-uncased-finetuned-sst-2-english",
+  "revision": "714eb0fa89d2f80546fda750413ed43d93601a13",
+  "license": "Apache-2.0",
+  "files": [
+    {
+      "path": "config.json",
+      "size_bytes": 2,
+      "sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+    },
+    {
+      "path": "model.safetensors",
+      "size_bytes": 4,
+      "sha256": "9f2e6d33a3717ee826353a404ba4618d1aeeb6879ad7936bce8ed5f46814924d"
+    },
+    {
+      "path": "tokenizer_config.json",
+      "size_bytes": 2,
+      "sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+    },
+    {
+      "path": "vocab.txt",
+      "size_bytes": 3,
+      "sha256": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+    }
+  ]
+}
+```
+
+The valid snapshot reaches the fake loaders. Each invalid variant fails startup with zero loads:
+
+- Keep the expected digest fixed and remove only the final LF; also test missing, malformed or
+  mismatched external digest and an in-tree digest file in place of the external setting.
+- Separately supply the matching digest of each malformed manifest from the test harness, so schema
+  checks cannot pass merely by failing the digest check. Try wrong version/identity, missing,
+  extra and duplicate keys at both record levels, empty files, repeated or reversed paths, `true`
+  or `2e0` as a size, and uppercase hex. Try `/vocab.txt`, `../vocab.txt`, `./vocab.txt`, a nested or
+  backslash path, a non-ASCII or uppercase alias, and the reserved `manifest.json` as file paths.
+- Keep the manifest fixed and change one file's length, or change one byte without changing its length.
+  Remove a listed file, add a hidden file or nested directory, or replace a listed file with a
+  directory or FIFO. Reject a symlink replacing the root, manifest or a listed file, even if it points
+  to the exact bytes inside or outside the root. Assert refusal without opening a non-regular
+  payload for hashing, following a symlink, or making a fallback download.
+
+Record exact base, interpreter, platform, lock/fixture digests, commands, outcomes, counters and
+any skips. Keep the harness and fixtures in the isolated project so the product test suites do not
+read them. A skipped or stubbed public path does not establish scalar composition. Preserve existing
+product tests. Unit 8B tests the V4 fixed-score form with the qualified labels, exact matching and
+no dynamic instructions/descriptions (reject even null or empty fields). Keep the existing C3 V4
+hash vector unchanged. Neither the fixture result nor a sentiment score establishes real inference,
+hosted readiness or Router quality; Unit 9 requires a separately approved window.
 
 ## 7. Not proven before Unit 9
 
