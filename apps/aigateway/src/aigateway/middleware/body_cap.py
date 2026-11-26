@@ -91,15 +91,28 @@ class BodyCapMiddleware:
         *,
         max_bytes: int,
         path_limits: Mapping[str, int] | None = None,
+        exempt_prefixes: tuple[str, ...] = (),
     ) -> None:
         self.app = app
         self.max_bytes = max_bytes
         # WHY per path: the admin snapshot upload has its own, larger, separately configured cap
         # (`AIGW_CACHE_UPLOAD_MAX_BYTES`). It gets that bound here — it is not exempted.
         self.path_limits = dict(path_limits or {})
+        # FEATURE (OME-1970, decision 4): the Case file upload route (`/v1/blobs/`) takes files up
+        # to 15,000,000 bytes and refuses a larger one ITSELF, with its own typed code
+        # (`blob_too_large`) and the same no-buffering rule as here, so it is left to that route.
+        # INVARIANT: a prefix listed here is a route that enforces its own cap while streaming;
+        # each prefix ends with `/`, so it exempts whole path segments only (`/v1/blobs/` never
+        # exempts `/v1/blobsy`).
+        if not all(prefix.endswith("/") for prefix in exempt_prefixes):
+            raise ValueError("an exempt body-cap prefix must end with '/'")
+        self.exempt_prefixes = exempt_prefixes
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        if self.exempt_prefixes and route_path(scope).startswith(self.exempt_prefixes):
             await self.app(scope, receive, send)
             return
         limit = self.path_limits.get(route_path(scope), self.max_bytes)

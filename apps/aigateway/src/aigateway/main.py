@@ -31,6 +31,7 @@ from .core.credits.service import CreditService
 from .core.discovery_runtime import DiscoveryRuntime
 from .core.frozen_copy.sweep_trigger import build_sweep_trigger
 from .core.loader import load_plugins
+from .core.media_store import MediaStore
 from .core.model_catalog import build_model_catalog
 from .core.parameter_discovery import DiscoveryLimits, HttpxDiscoveryClient
 from .core.parameter_discovery_cache import (
@@ -61,6 +62,7 @@ from .routes import (
     api_key_validation,
     auth,
     auth_session,
+    blobs,
     cache_entries,
     chat,
     classifications,
@@ -433,10 +435,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # oversized body is refused before any layer reads it.
     # WHY the snapshot path keeps its own bound: it is an admin multipart upload with its own,
     # larger cap; the extra MiB is the multipart envelope around the archive.
+    # WHY the Case file upload is exempt (OME-1970, decision 4): it takes files up to
+    # 15,000,000 bytes, over this cap, and refuses a larger one itself while streaming, with its
+    # own typed code (`routes/blobs.py`).
     app.add_middleware(
         BodyCapMiddleware,
         max_bytes=settings.max_request_bytes,
         path_limits={"/v1/admin/cache/snapshots": settings.cache_upload_max_bytes + 1024 * 1024},
+        exempt_prefixes=(blobs.BLOB_ROUTE_PREFIX,),
     )
 
     # FEATURE (contract C7): the attempt header. Registered between the body cap and the call id,
@@ -476,6 +482,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.provider_access = ConnectionBackedProviderAccess(app)
     app.state.request_cache_store = TortoiseRequestCacheStore(
         availability=ConfiguredCacheAvailability(settings.request_cache_enabled)
+    )
+    # FEATURE (OME-1970): uploaded Case files, in memory only and per process — a restart or a
+    # second pod starts empty, and the Engine uploads again (PR 8).
+    app.state.media_store = MediaStore(
+        max_bytes=settings.blob_store_max_bytes,
+        scope_ttl_seconds=settings.blob_scope_ttl_seconds,
     )
     # OME-1044: the Tavily retrieval lane takes no availability gate — it is unconditional
     # (owner decision), so unlike the response cache above there is nothing to configure.
@@ -538,6 +550,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(model_parameters.router)
     app.include_router(tavily_retrieval_cache.router)
     app.include_router(chat.router)
+    app.include_router(blobs.router)
     # FEATURE: hosted BYOM Unit 3 — classifier inference and its catalog.
     app.include_router(classifications.router)
     app.include_router(classifiers.router)

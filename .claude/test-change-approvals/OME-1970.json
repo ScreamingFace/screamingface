@@ -1,0 +1,14 @@
+{
+  "issue": "OME-1970",
+  "branch": "OME-1970-pr4-gateway-upload-store",
+  "approver": "owner (OME-1970 Plan, PR 4 and decision 5: the gateway declares the new upload refusal codes; directed 'implement all' 2026-11-26)",
+  "date": "2026-11-26",
+  "scope": "codes.json: three new gateway codes appended (blob_too_large, blob_unsupported_media_type, blob_digest_mismatch); no code removed or renamed.",
+  "reason": "The upload route (OME-1970 PR 4) refuses oversize, unsupported and mismatched files with typed codes, which the gateway's code-declaration contract and the Engine parity test read from this fixture.",
+  "files": {
+    "apps/aigateway/tests/fixtures/gateway_error_codes/codes.json": {
+      "base_blob": "2255d4e858619dcae0f8234b819a36b4e79d30d4",
+      "approved_blob": "ce13f5f972de9472aaf5412e417ded95bc14e1b9"
+    }
+  }
+}
