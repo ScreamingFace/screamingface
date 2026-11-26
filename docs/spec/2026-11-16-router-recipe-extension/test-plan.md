@@ -28,8 +28,7 @@ Unit must prove, the first failing tests and the prior-test transitions that nee
 | 5.1 | `apps/aigateway/tests/fixtures/cache_hit_contract/openrouter_hit.json`, written by `tests/unit/test_cache_hit_contract_fixture.py` | The chat cache hit carries `x-aigw-upstream-attempts: 0` (C7) | `f935a58399c7` |
 | 5.2 | `apps/screamingface-engine/tests/unit/test_url4_executor.py` | Allowlist for the Router runtime module | At 5.2 base |
 | 5.2 | Engine tests pinning the exact `ENGINE_RESERVED_CODES` set, if any | `ROUTER_CODES` joins it | Listed in the Unit 5.2 ledger at its base |
-| 5.2 | Any test asserting a world without benchmarks serves no runtime routes | Router, branch and combine runtimes install with the Gateway world (C4) | Listed in the Unit 5.2 ledger at its base |
-| 5.2 | Engine tests pinning `_post_completion`'s return shape, if any | It also returns the Engine attempt count (C8) | Listed in the Unit 5.2 ledger at its base |
+| 5.2 | Engine tests pinning the Gateway world's exact runtime routes, if any | The Router runtime joins the existing branch and combine runtimes, including without benchmarks (C4) | Listed in the Unit 5.2 ledger at its base |
 | 6, readers | `apps/screamingface-engine/tests/unit/test_combine_pick_output.py` (`:358`, `:368`) | Vocabulary gains `no_selection` | At 6 base |
 | 6, readers | `apps/screamingface-engine/tests/unit/test_combine_band.py` (`:682-694`) | Same | At 6 base |
 | 6, readers | `apps/screamingface-engine/tests/unit/test_combine_gate_words.py` (`:776`, `:782`) | Same | At 6 base |
@@ -60,8 +59,10 @@ existing manifests (`OME-1822.json`, `OME-1823.json`) were approved against `ffc
 `b72408d416e7`; they are not relabeled or rewritten. Each Unit reruns the append-only check on
 its real diff and lists every path it reports in its ledger, including any missing above.
 `apps/screamingface-engine/tests/unit/test_classification_frozen_copy.py` keeps asserting that the
-direct classification mount refuses capture and replay; Router capture is tested in new files. The
-three pinned `report.v1` exports (`packages/screamingface/tests/data/report_v1_combine_report.json`,
+direct classification mount refuses capture and replay; Router capture is tested in new files.
+Prior `_post_completion` tests keep their two-value unpacking and are rerun unchanged. The optional
+observer has separate tests (C8).
+The three pinned `report.v1` exports (`packages/screamingface/tests/data/report_v1_combine_report.json`,
 `report_v1_gate_report.json`, `report_v1_vote_median_report.json`) stay byte-identical, because
 `router_definitions` and `router` are written only when present (C15): their tests are rerun, not
 changed. The url4 leaf changes no other prior test: unmarked and `;expand` sources keep their
@@ -74,6 +75,7 @@ behavior and rendered bytes (C19).
 | Pilot landing | The pilot's own routing tests on the integrated diff, unchanged, plus main's full suites |
 | 5.1 | A choice target receives a native SystemOne body whose criteria follow `options` order, and the response projects to `classification-scores-v1` in returned order |
 | 5.2 | The C3 golden vectors V1-V5 recomputed from their definitions, then the shared pure policy table (C6) as parametrized cases, with the named-profile adapter still mapping a tie to `routing_ambiguous` |
+| 5.2 | A dynamic named profile sends choices in branch order and hashes its bound parameters. A mixed configuration fails at startup; metadata refusal, tie and a missing or extra label make no branch call. The fixed-profile TOML, digest, scalar body and distinct refusal codes stay unchanged. |
 | 6, readers | `screamingface.answer.v1` decoders in SDK and Engine accept `no_selection`; nothing writes it yet |
 | 6 | `sf.Router` construction: author order kept, `str` and `sf.Model` normalize to equal IR and the C3 vectors, input mutation cannot change it, every C1 matrix row |
 | 6 | `client.evaluate(router, benchmark=...)` against fake upstreams calls the classifier once and exactly one selected Model per Case |
@@ -169,12 +171,15 @@ All against a fake HTTP upstream; it must pass before Unit 5.2 depends on the co
 | 5.2 / 6 | C4, C5 | Failure completion, one test per terminal path with the C5 record read from the Case recorder and the failure re-raised with its code and permanence: prepared-question input failure, per-occurrence metadata ADMIT refusal, scoring classify failure, LLMClassifier failure, invalid evidence, selected candidate failure, default failure, `quorum="all"` member failure, `quorum_not_met`, synthesizer failure; plus answered, default and `no_selection` paths. Each publishes exactly one record, and no record holds a message; the separate run-file admission refusal above publishes none |
 | 5.2 | C4 | A Router outside a recorder scope is refused `router_unsupported` with zero model requests |
 | 5.2 | C5 | The draft is never accepted by the stored-result, report or envelope readers |
+| 5.2 | C4/C5 | The selected default's admitted Model and `Calls` supply the JOIN roles and attempt evidence. Malformed draft or mismatched occurrence/slots are contract errors. An input refusal takes precedence, performs no metadata or provider read and publishes exactly one `input` record with null definition fields; an `admit` refusal also has null fields. No valid binding means no invented record. |
 | 5.2 | C5, C6 | Llm reply parser: classifier order, duplicates once, every distinct unknown kept in reply order and cut at 64 characters, 33 distinct unknowns give `unparsed`; E4c Gate parsing unchanged |
 | 5.2 | C6 | Every table row, including regex `no_match` and llm `unparsed` giving `empty`, and llm `unrecognized` with and without a recognized label |
 | 5.2 | C8 | Attempt facts for scoring classify, LLMClassifier, candidate, default and Model synthesizer calls, on success and failure: an Engine transport retry gives `engine_attempts: 2`; OME-1872 retries count for chat; the header sums across Engine attempts; a missing header or a lost reply gives `null`; a replayed or cached call gives `0`; `possibly_billed` follows its table; no policy retry after a classifier failure and no default run |
+| 5.2 | C8 | Drive the direct named-profile entry through classifier and selected branch. Show internal role facts for success, refusal and failure, no fact for an unstarted role, no cross-invocation or late-cancellation write, no Candidate record, and identical public body and retry semantics. Test the optional observer through transport/queue and existing Candidate retries and on a final exception; no change to the two-value return. |
 | 5.2 | C8 | Seeds by source in a seeded run: scoring sends no seed and does not refuse; an LLMClassifier call carries the seed as the E4c selector call does; regex makes no call; direct `GET /classify` still refuses |
 | 5.2 | C11 | Spoof matrix: an upstream branch or classifier response carrying each Router code is not relayed as that code (reserved), per case, at terminal HTTP and in the C13 envelope |
-| 5.2 | C17 | `GET /v1/classifiers` projects rows strictly with both `limits` variants and `null`, refuses an unknown limit key or contract, applies the caller identity of `/v1/models`, and makes no inference |
+| 5.2 | C17 | `GET /v1/classifiers` projects rows strictly with both `limits` variants and `null`, omits a row with an unknown limit key or contract, applies the caller identity of `/v1/models`, and makes no inference |
+| 5.2 | C16/C17 | Fresh reads for two concurrent callers and a changed grant; no stale response on failure. Include a visible classifier outside the declared chat routes and profiles. Drop invalid or duplicate rows without changing valid order. Exercise inclusive byte bound, one byte more across chunks, unsupported encoding, malformed envelope and correctly empty list. Check private headers and zero inference. |
 | 5.2 | C4 | A classifier-only world without benchmarks serves the Router, branch and combine routes, none as a direct mount, and runs an inline subset Router there |
 | 6 | C1 | Every constructor matrix row with its exception class: `quorum=True` is `TypeError`; `quorum=0` and `quorum=len+1` are `ValueError`; a non-`str` classifier ID, an empty one; `instructions` of the wrong type, empty, over the bound; a non-mapping `candidates`; a non-`str` key; a wrong classifier or policy object; a wrong `match` or `select` value and type; a non-mapping record, an extra key, a non-`str` description, a Recipe model; `optional=True` and explicit `name=` on candidate, default and synthesizer Models; selector label set unequal to candidate keys; every cross-field rule |
 | 6 | C1 | Closed synthesizer: `str`, `sf.Model` and `sf.Vote()` accepted; `sf.Vote(weights=...)`, `sf.Vote(over="benchmark")`, every other step, a Recipe, Pipeline and Fusion refused |

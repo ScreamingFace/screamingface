@@ -57,6 +57,8 @@ inline entry is therefore one Engine adapter shaped like Candidate Invocation
 | `failed` | `null` | `null` | `decision.failure` plus `may_have_billed` |
 
 - `status` always equals `decision.status`; every other combination is a decode error.
+- On failed `input` and `admit` envelopes, `decision.revision`, `decision.revision_scheme` and
+  `decision.policy` are all null (C5). Other envelopes retain the admitted identity.
 - `failure.code` is the failing operation's bounded code (a Router code, `aigateway_http_<status>`,
   `quorum_not_met`, `frozen_copy_miss`, ...) as data in an Engine-authored record. It is never a
   message, and `phase` never derives from it. A relayed upstream code cannot be a Router code (C11).
@@ -123,14 +125,23 @@ Engine, and classifier metadata lives in the Gateway; the Engine serves model di
 ```
 
 - Same caller identity, credential handling and RFC 9457 problem mapping as `GET /v1/models`; it
-  lists the caller-visible Gateway classifiers (C7 rows) projected to `id`, `input_contracts` and
-  `limits`, copied without change, and makes no inference. Unit 5.2 pins here, before code, whether
-  it caches per caller and whether the Engine world bounds the list.
+  fetches a fresh Gateway list for each request with the existing selector refusal. Success and
+  route-generated refusals carry `Cache-Control: private, no-store` and
+  `Vary: X-Profile, X-User-Email`. There is no per-caller cache, cross-request coalescing, ETag or
+  stale fallback. The list makes no inference or readiness call and reads no credential secret.
+- Project the caller-visible Gateway rows to `id`, `input_contracts` and `limits` in their original
+  order. No intersection with the Engine's chat routes, named profiles or admission overlay.
+  Request identity encoding and bound the successful body during the read to 1,000,000 bytes
+  inclusive, before JSON decoding. Unsupported content encoding, an oversized body or a malformed
+  list envelope produces a fixed, sanitized 502 problem; do not truncate or return an empty
+  success. Keep the existing authentication and timeout mappings.
 - Rows are strict under C7: an unknown `input_contracts` value, a `limits.contract` other than
   `classifier-limits-v1`, a missing or unknown limit key, or a value outside `1..2147483647` makes that
   row unusable, and the SDK refuses a Router that needs it. A missing row means the classifier is
   not usable. `limits: null` is a valid row for a target that declares no limits: the classifier
   still serves direct scalar classification, and ADMIT and the SDK preflight refuse a Router that
-  needs it.
-- ADMIT reads the same Gateway metadata on its own; the SDK preflight never replaces it.
+  needs it. Omit unusable rows and all rows with a duplicate classifier ID.
+- ADMIT independently reads caller-scoped details for the requested classifier and checks its
+  identity, C7 metadata and Connection access. The SDK's list is preflight metadata, not
+  authorization. The actual dispatch is still authorized by the Gateway.
 - Covered by `router-v1` (C12); the SDK reads it only after the capability check.

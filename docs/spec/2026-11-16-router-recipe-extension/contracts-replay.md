@@ -301,10 +301,29 @@ The facts go to the active recorder scopes on their own channel beside the opera
 so `OperationCall` and every existing projection stay unchanged. JOIN (C4) reads the latest fact per
 binding, as `_recorded` reads the latest call (`world/branch.py:800-808`).
 
+The direct `/route-answer` adapter opens a private attempt scope for one invocation. Its slots are
+`classifier` and `branch`; each keeps only the latest bounded fact for that logical role. The scope
+is available to nested model dispatch but not to concurrent invocations. Preflight reads are not
+attempts; a refusal before dispatch leaves both slots empty. The adapter closes the scope on
+success, failure and cancellation, with no late writes. Tests read the scoped facts through an
+internal sink. The adapter does not create a Candidate recorder or a C5 record, add public fields,
+change the fixed-profile revision or retry rules, or record request bodies, credentials or raw
+response data. The direct `/classify` contract is unchanged.
+
+Use one optional keyword-only attempt observer at the Engine HTTP transport seam. It is separate
+from the capture probe and the existing `_post_completion` return remains
+`tuple[httpx.Response, bool]` with the same meaning. Observe each initiated HTTP request (including
+a connect failure), each returned attempt header and the existing classification of queue refusal,
+definite no-send, or possibly sent without a reply. Record counters/status only, not a copy of every
+response. Carry the same observer through the existing `_post_answered` retry loop for that logical
+call. Calls without an observer keep the current behavior. Finalize once on a success or failure at
+the call boundary, including when the last transport attempt raises. Deadline and cancellation
+propagate; observation does not change whether a retry runs.
+
 | Field | Definition |
 |---|---|
-| `engine_attempts` | Every HTTP request the Engine sent for the logical call: the transport retry (`_TRANSPORT_RETRIES = 1`, `world/connector.py:165`, `:993-1040`) and, for Candidate chat calls, the OME-1872 answered-call retries (`world/candidate_call_retry.py`, `_post_answered`, `world/connector.py:1293-1332`). Unit 5.2 makes `_post_completion` return the count beside the possibly-billed mark it returns today |
-| `upstream_attempts` | The sum of the C7 header over the Engine attempts. `null` when any Engine attempt got no response or a response without the header: unknown, never zero. `0` for a replayed or cached call (C7). On a chat success with complete accounting and no omitted attempts, disagreement with `sum(1 + redirect_hop_count)` is `null`; partial or bounded/omitted accounting supplies no independent mismatch check |
+| `engine_attempts` | Every attempt initiated at the HTTP boundary for the logical call, including the bounded transport/queue retries and any existing OME-1872 Candidate chat retry. Read the count from the optional observer; do not count local refusals or change the return shape. |
+| `upstream_attempts` | The sum of the C7 header over the Engine attempts. `null` when any Engine attempt got no response or a response without the header: unknown, never zero. A replay or cache hit contributes `0`; a final zero header does not replace earlier counts or unknowns. On a chat success with complete accounting and no omitted attempts, disagreement with `sum(1 + redirect_hop_count)` is `null`; partial or bounded/omitted accounting supplies no independent mismatch check. |
 | `possibly_billed` | `true` when `upstream_attempts` is above `0`, or is `null` while the connector's existing mark (`world/connector.py:1031`) says an Engine attempt may have been sent; `false` only when every Engine attempt is known to have reached no provider |
 
 Retries below the policy stay as on main: the Engine transport retry shared by classify and chat,

@@ -135,6 +135,25 @@ Synthesizer    = {"kind": "model", "model": Model}
   `router-policy`; a named-profile definition (Unit 5.2) accepts only `unique-argmax-v1`, with
   `default`, `synthesizer` and `quorum` all `null`. Both decode into one internal policy value that
   the pure core (C6) evaluates.
+- Named profiles stay in `[routing.profiles.<id>]`. A fixed profile keeps exactly `classifier`,
+  `classifier_contract`, `policy` and `branches`, its three labels, and the branch keys `model`
+  and `max_tokens`. A dynamic profile adds exactly `revision_scheme = "router-definition-v1"`
+  and `instructions`; each `[routing.profiles.<id>.branches.<label>]` adds exactly `description`.
+  Both use `classifier_contract = "classification-scores-v1"` and `policy = "unique-argmax-v1"`.
+  For dynamic profiles, the branch keys are the whole label set, and table order is candidate
+  and choice order. Each `model` names a declared provider-prefixed chat route. `max_tokens` is
+  an integer in `1..32768`, not a boolean. Dynamic labels, instructions, descriptions, count and
+  normalized size satisfy C16. Missing, extra, mistyped or mixed keys fail world validation
+  without a Gateway request. The error names the field and rule, not the value.
+- The dynamic form normalizes to `ChoiceScoring` and ordered `Described` candidates. Each Model
+  has its canonical Gateway ID, `prompt: null` and exactly the explicit call parameters as
+  strings: `max_tokens` and `web_search: "false"`. Before inference, check caller-visible
+  classifier details, `choice` capability, the result contract and valid non-null C7 limits
+  for the input and choices, plus access and `max_tokens` acceptance for each branch. The Engine
+  interprets `web_search: "false"`; preflight does not require Gateway support for it. Send the C7
+  choice input to the classifier and the exact original question to the selected Model.
+  Fixed profiles keep scalar input and do not begin requiring C7 limits. Both keep the existing
+  named-profile wire, mode checks and authorization on actual dispatch.
 - `router` and every `Calls` value are compiler bindings, never derived from a raw label. `router` is
   `router_N`, numbered like E4c's `gate_N`; `Calls` names the binding each role's model call carries:
   the LLMClassifier call's `selector_N` (`null` for `scoring` and `regex`; a scoring classify call is
@@ -169,6 +188,11 @@ canonical(v) = json.dumps(v, sort_keys=True, separators=(",", ":"), ensure_ascii
   `{"type": "unique-argmax-v1"}`; its config states `revision_scheme = "router-definition-v1"`, the
   Engine's routing evidence records it, and the `routed-answer-v1` wire is unchanged, so a v1 reader
   sees only the `sha256:<64 hex>` string.
+- The dynamic profile hashes `D` from C2 normalization: branch order, instructions, descriptions
+  and bound parameters enter the digest; the profile ID and question do not. V3 tests the
+  hash scheme, independent of the profile configuration's parameter mapping. Use a new profile
+  ID when changing a binding or classifier template. Deploy compatible readers before distributing
+  dynamic configuration; withdraw it and drain its runs before reintroducing old readers.
 
 Golden vectors, shared by Unit 5.2 and Unit 6 tests. `D` (dynamic choice):
 
@@ -206,24 +230,32 @@ a Pipeline, `$_sf_recipe_input` in a nested invocation, and the entry-bound inpu
 
 ```text
 router_N_input   = <C14 input adapter: {"input": str} | {"failed": {"code": str, "permanent": bool}}>
-router_N_admit   = /ensemble/router/v1/admit($router_N_input)!'<router-spec.v1>'
+router_N_admit   = /ensemble/router/v1/admit($router_N_input)!'<router-spec.v1>'?binding=router_N
 router_N_scores  = /ensemble/router/v1/classify($router_N_admit)                           scoring
 router_N_open_s  = /ensemble/router/v1/open($router_N_admit)!'classify'                    llm, regex
 router_N_sel     = $router_N_open_s*(<LLMClassifier call over Q>);iteration.on_error=collect          llm
 router_N_sel     = $router_N_open_s*(<KEYWORDS over Q>);iteration.on_error=collect                    regex
 router_N_decide  = /ensemble/router/v1/decide({admit: $router_N_admit,
-                                               evidence: $router_N_scores | $router_N_sel})
+                                               evidence: $router_N_scores | $router_N_sel})?binding=router_N
 router_N_open_cK = /ensemble/router/v1/open($router_N_decide)!'cK'          select="one", per candidate
 router_N_cK      = $router_N_open_cK*(<candidate K Model call over Q>);iteration.on_error=collect
 router_N_open_d  = /ensemble/router/v1/open($router_N_decide)!'default'     only with default=
 router_N_d       = $router_N_open_d*(<default Model call over Q>);iteration.on_error=collect
 router_N_open_p  = /ensemble/router/v1/open($router_N_decide)!'panel'       select="all"
 router_N_panel   = $router_N_open_p*(<panel body>);iteration.on_error=collect                         select="all"
-router_N         = /ensemble/router/v1/join({decision: $router_N_decide, cK?, d?, panel?})?binding=router_N
+router_N         = /ensemble/router/v1/join({admit: $router_N_admit, decision: $router_N_decide,
+                                             cK?, d?, panel?})?binding=router_N
 ```
 
-An accepted ADMIT document carries the exact `input` string beside the normalized definition. The
-scoring route receives only that whole document, validates the accepted variant and then extracts its
+This is a data-flow sketch, not canonical URL4 syntax; `?binding` denotes a call parameter.
+ADMIT and DECIDE each take exactly one parameter, the same compiler-supplied occurrence `binding`,
+as non-provider identity.
+An accepted C2 envelope must name that same `router`; a refused definition supplies no identity or
+metadata for the record. A context without a valid occurrence binding is a contract error, not a
+Router failure record.
+An accepted ADMIT document has exactly `input` (the original question string) and `spec` (the
+validated C2 envelope, including `Calls`, revision and normalized definition). The scoring route
+receives only that whole document, validates the accepted variant and then extracts its
 input inside the route before dispatching; caller-side URL4 traversal never reads an absent field.
 For LLMClassifier, RegexClassifier and every model body, OPEN is the success gate and `Q` means the
 accepted `$router_N_admit.input` resolved only inside the opened iterate. An input failure therefore
@@ -232,7 +264,7 @@ reaches DECIDE/JOIN without URL4 substituting `""` and without any classifier ca
 When the scoring route receives a non-accepted ADMIT document, it returns exactly
 `{"not_run": true}` without calling the classification port. DECIDE accepts that document only beside
 the same non-accepted ADMIT result and ignores it as evidence; `{"not_run": true}` beside accepted
-ADMIT is `router_evidence_invalid`. Unit 5.2 pins this route document before code.
+ADMIT is `router_evidence_invalid`.
 
 Inputs of each step:
 
@@ -248,10 +280,11 @@ Inputs of each step:
 the completed C5 record, by JOIN, before the occurrence fails or answers. The mechanism has four
 parts, and the inline entry (C13) uses it rather than its own:
 
-1. **Failures travel as data until JOIN.** ADMIT does not raise for a refused definition; it returns
-   a refusal document `{"refused": {"code": str}}`. It also carries the input adapter's strict
-   failure document forward without metadata or provider I/O. The Router's own classify route catches the
-   classification port's failure and returns `{"failed": {"code": str, "permanent": bool}}`. Every
+1. **Failures travel as data until JOIN.** ADMIT returns a closed refusal document for a definition
+   or metadata preflight refusal: `{"refused": {"code": str, "permanent": bool}}`. It also carries the
+   input adapter's strict failure document forward without metadata or provider I/O. The Router's own
+   classify route catches the classification port's failure and returns
+   `{"failed": {"code": str, "permanent": bool}}`. Every
    model call of the occurrence sits in an OPEN-gated iterate with `iteration.on_error=collect`, so
    its failure becomes one error row `{"error": {"kind", "message", "code"?, "retryable"?}}`
    (`packages/url4/src/url4/dag/nodes/_shared.py:163-183`). This differs from E4c on purpose: E4c
@@ -264,14 +297,18 @@ parts, and the inline entry (C13) uses it rather than its own:
    DECIDE; `quorum="all"` makes every selected member required; a number `q` makes them optional with
    floor `min(q, selected)`), as `client/router-recipes.md:113-117` requires.
 3. **DECIDE never raises for a Router outcome.** It returns the internal draft (C5): failed at phase
-   `input` for an input failure document, failed at phase `admit` for a definition refusal document,
-   failed at phase `classify` for a classifier failure document or an error row,
+   `input` for an input failure document, failed at phase `admit` for an ADMIT refusal (copying its
+   `code` and `permanent` unchanged), failed at phase `classify` for a classifier failure or error row,
    failed at phase `decide` with `router_evidence_invalid` for invalid evidence, else the C6 result.
    It raises only an Engine contract error for a malformed context, a defect that ends the run like
    any E4c contract error.
-4. **JOIN is the single publisher.** It reads the draft, the iterate rows and the attempt facts
-   (C8) of every `Calls` binding, builds the completed C5, publishes it under its own fingerprint
-   (`?binding=router_N`) as `record_gate_call` does (`operation_calls.py:258`), and only then either
+4. **JOIN is the single publisher.** It reads the ADMIT result, the draft and the iterate rows.
+   It checks occurrence identity, draft/ADMIT agreement and slot roles. For an accepted ADMIT it
+   uses the `Calls`, default Model, quorum and synthesizer kind in `admit.spec` to match actual iterate
+   results and C8 attempt facts to roles; it never infers a binding from a label or a default
+   Model from an attempt. The question is not stored, published or logged by JOIN. It builds the
+   completed C5 and publishes it under its own fingerprint (`?binding=router_N`) as
+   `record_gate_call` does (`operation_calls.py:258`), and only then either
    returns the answer text, returns `""` for an abstention, or raises a `ResolutionError` with the
    failing operation's code and permanence, built like `fail_closed`
    (`benchmarks/failure_classes.py:102`). An error row's `message` is dropped: the record keeps
@@ -329,8 +366,8 @@ The Router runtime installs `/ensemble/router/v1/{admit,classify,decide,open,joi
 entry `/ensemble/router/v1/answer` (C13). The Router runtime, the branch runtime
 (`install_branch_runtime`, `world/branch.py:219`, which also serves KEYWORDS) and the combine runtime
 (`install_combine_runtime`, `world/combine.py:51`) install whenever the Gateway world is composed,
-after the direct-mount snapshot (`world/factory.py:252`), so none becomes a direct mount; today they
-install only beside benchmarks (`world/factory.py:171-185`, `:253`). Candidate invocation and the
+after the direct-mount snapshot, so none becomes a direct mount. The Router runtime joins the
+existing branch and combine runtimes in worlds without benchmarks. Candidate invocation and the
 corrective runtime stay benchmark-only. The named-profile mount keeps
 `node.fetch(encode_subrequest(...))` for its selected call; both paths end in the connector's
 `_ModelEndpoint` (`world/connector.py:415`). They are adapters over one Engine-owned routing
@@ -339,25 +376,40 @@ evidence validation, C6 policy, selected-route dispatch ports, attempt facts and
 have one implementation. The shared connector endpoint is the selected-route dispatch port; the
 profile adapter may reach it through `node.fetch` while the Router DAG reaches it through its compiled
 call. The profile wire/presenter and Router DAG/JOIN remain separate adapters.
+
+`world/routing_policy.py` owns the pure C6 decision over validated evidence, with no imports of
+HTTP, url4, configuration or recorders. `world/routing_core.py` owns shared preflight, evidence
+validation, selected-call ports, attempt facts and error normalization. Keep one strict C2/C3/C5
+codec at that boundary; it does not expose transport or presentation types to the policy.
+`world/routing.py` keeps the profile envelope and its non-disclosing refusal presentation. The
+Router DAG adapter consumes the same core without changing the existing E4c Gate parser or JOIN.
 Unit 6 pins the exact url4 text of the panel body here, within these rules, before code.
 
 ## C5 — Decision record `screamingface.router-decision.v1` (Units 5.2 and 6)
 
-Only the completed record exists outside the Engine. DECIDE's draft
-`screamingface.router-decision-draft.v1` is internal: it carries `router`, `revision`,
-`revision_scheme`, `policy`, `evidence`, `outcome`, `reason`, `selected`, `unknown_labels` and, for
-`outcome` `failed`, `{"phase", "code", "permanent"}`; Unit 5.2 pins its strict shape here before
-code. No stored result, report reader or envelope accepts a draft. Like E4c records, the completed
-record holds labels, numbers, ids and bounded codes only, never question, answer, description or
-error message text.
+Only the completed record exists outside the Engine. DECIDE's draft is a closed JSON object with
+exactly `schema`, `router`, `revision`, `revision_scheme`, `policy`, `evidence`, `outcome`, `reason`,
+`selected` and `unknown_labels`, plus `failure` only when `outcome` is `failed`. `schema` is
+`screamingface.router-decision-draft.v1`. `router` is the C4 occurrence binding; `revision`,
+`revision_scheme` and `policy` are the admitted C2/C3 values, or all null iff failure is at `input`
+or `admit`. `evidence`, `outcome`, `reason`, `selected` and `unknown_labels` use the types and
+order below. On success the draft carries valid evidence; `selected` is nonempty only on
+`selected`, has one entry for single selection and names only consistent zero-based C2 candidate
+indices. On failure, `evidence` and `reason` are null and both lists are empty. `failure` has
+exactly `phase` (`input`, `admit`, `classify` or `decide`), a bounded C11 `code` and a Boolean
+`permanent`. A failed draft opens no body. Readers reject repeated or unknown keys, invalid types,
+non-finite values and inconsistent combinations without coercing them. JOIN uses `permanent`
+when raising; the completed record does not store it. No stored result, report reader or envelope
+accepts a draft. The completed record holds labels, numbers, IDs and bounded codes only, never
+question, answer, description or error message text.
 
 | Key | Value |
 |---|---|
 | `schema` | `"screamingface.router-decision.v1"` |
 | `router` | As C2 |
-| `revision`, `revision_scheme`, `policy` | As C2; `null` iff `failure.phase` is `admit`, because a refused definition is not echoed |
+| `revision`, `revision_scheme`, `policy` | As C2; all `null` iff `failure.phase` is `input` or `admit`. An input failure takes precedence and a refused definition is not echoed. |
 | `evidence` | `null` when no valid evidence exists; else one of the forms below |
-| `outcome` | `selected` \| `default` \| `no_selection` \| `failed` (no policy result: phases `admit` to `decide`) |
+| `outcome` | `selected` \| `default` \| `no_selection` \| `failed` (no policy result: `input`, `admit`, `classify` or `decide`) |
 | `reason` | `null` iff `outcome` is `failed`; else `unique_max` or `exact` for `selected`, and `tie`, `empty`, `unknown_only`, `unknown_selected` or `multiple_selected` for `default` and `no_selection` |
 | `selected` | `[{"index": int, "label": str, "model": str}]` in classifier order (returned order for scores, reply order for llm, KEYWORDS order for regex); `model` is that candidate's canonical Model ID (C2 `Model.model`); `[]` unless `outcome` is `selected` |
 | `unknown_labels` | Every returned label with no candidate, in classifier order: all of them for scores, the selector's `unknown` list for a selector |
@@ -392,9 +444,10 @@ on its own: a reader needs no definition to name the Models that answered.
 
 Invariants: `answered` has `outcome` `selected` or `default` and no failed required branch;
 `abstained` has `outcome` `no_selection`, or a subset whose synthesis abstained; `failed` has a
-`failure`, and its `outcome` is `failed` for phases `admit` to `decide`, else the decision it was
-executing. A `phase` is fixed by which binding failed (C11), never by a code. Unselected candidates
-appear as declared alternatives only; no record invents an operation, usage or a zero cost for them.
+`failure`, and its `outcome` is `failed` for `input`, `admit`, `classify` or `decide`; otherwise it
+keeps the decision it was executing. A `phase` is fixed by which binding failed (C11), never by a code.
+Unselected candidates appear as declared alternatives only; no record invents an operation, usage
+or a zero cost for them.
 Unknown classifier cost stays `null` in the Router and in enclosing totals.
 
 ## C6 — Pure policy, version 1 (Unit 5.2)
@@ -414,7 +467,8 @@ Unknown classifier cost stays `null` in the Router and in enclosing totals.
 | `exact/all` | `unrecognized`, no recognized label | `default`, else `no_selection` / `unknown_only` |
 | `exact/*` | `no_match` (regex) or `unparsed` (llm) | `default`, else `no_selection` / `empty` |
 | `unique-argmax-v1` | Unique maximum on a profile label | The selected profile route |
-| `unique-argmax-v1` | Tie; missing or extra label | `routing_ambiguous`; the pilot's existing error, unchanged |
+| `unique-argmax-v1` | Complete vector with exactly the profile labels; tie at the maximum | `routing_ambiguous`; no branch call |
+| `unique-argmax-v1` | Well-formed vector with a missing or extra profile label | `routing_invalid_scores`; no branch call |
 
 The policy never sorts, normalizes or invents scores, never promotes a runner-up and claims no
 calibration (`engine/router-execution.md:229-251`). With a selector source, every recognized label
@@ -444,6 +498,8 @@ C18 wires each of these positions.
 - The shared use case classifies every Gateway refusal after a classifier or branch POST as execution
   origin, `aigateway_http_<status>`, with a bounded cause. It never consults a mount table; the
   pilot's mount mapping (pilot `world/gateway_endpoints.py:95`) becomes the direct presenter only.
+  The direct presenter preserves its shipped access-loss and refusal mappings, without changing
+  the internal origin or attempt facts.
 - Phases, fixed by where the failure was observed: `admit` (a refusal document from
   `router_N_admit`), `input` (the prepared-question reader), `classify` (`router_N_scores` or
   `router_N_sel`), `decide` (`router_N_decide`), `generate` (a selected `router_N_cK`), `default`
@@ -452,11 +508,12 @@ C18 wires each of these positions.
 - New Engine codes: `router_definition_invalid` and `router_unsupported` at ADMIT,
   `router_evidence_invalid` at DECIDE. Router failures otherwise keep the failing operation's code
   and permanence; the three new codes are permanent.
-- The new codes form `ROUTER_CODES`, and `ENGINE_RESERVED_CODES` (`error_text.py:112`, today
-  `ENGINE_ERROR_CODES | CONTROL_PLANE_TERMINAL_CODES`) adds it, as the pilot did for its
-  `ROUTING_CODES`. `connector._upstream_code` (`world/connector.py:2005-2010`) relays any upstream code
-  that is not reserved; without this a branch chat failure could carry `router_definition_invalid` and
-  read as an ADMIT refusal with no model I/O.
+- The new codes form `ROUTER_CODES`. Unit 5.2 adds it to `ENGINE_RESERVED_CODES`, which already
+  contains `ENGINE_ERROR_CODES | CONTROL_PLANE_TERMINAL_CODES | ROUTING_CODES`
+  (`error_text.py:147-149`). `gateway_transport._upstream_code` (`world/gateway_transport.py:1300-1315`)
+  lifts only string codes in the closed `GATEWAY_CODES` set that are not Engine-reserved; otherwise
+  it keeps `aigateway_http_<status>`. A branch chat failure cannot present an Engine-authored
+  `router_definition_invalid` as if ADMIT had refused before model I/O.
 - Per case: declared codes stay themselves (`benchmarks/contract.py:60`, including `quorum_not_met`);
   undeclared Router and pilot routing codes become `upstream_error` with `source_code`
   (`benchmarks/aggregation.py:176-183`). No Router code joins `ENGINE_ERROR_CODES` (`error_text.py:64`).
@@ -613,6 +670,8 @@ The design requires validated bounds and rules out unbounded "configurable" valu
 | Candidate description | 1-1,024 characters | |
 | Classifier instructions | 1-4,096 characters | Below E4c `MAX_LABEL_PROMPT_CHARS = 16_384` (`_surface/selectors.py:30`) |
 | Serialized `router-spec.v1` | 64 KiB | Checked by ADMIT and the SDK |
+| Dynamic named-profile normalized `D` | 64 KiB of canonical C3 JSON | Checked at world validation; separate from the `router-spec.v1` envelope bound |
+| Engine classifier catalog upstream response | 1,000,000 identity-encoded bytes inclusive | Bounded during read before JSON (C17), independent of catalog membership and C7 target limits |
 | Router members in one Fusion | 1 and 3 qualified | Design; more needs its own limit and test |
 | Routers in one run | At most 256, each `router` binding once | The seal provenance bound (C9); the SDK refuses before submission, the run definition set before `url4_run` (`router_definition_invalid`) |
 | Router nesting | Candidates are Models only | Design |
