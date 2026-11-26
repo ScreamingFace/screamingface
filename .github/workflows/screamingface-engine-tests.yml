@@ -40,6 +40,10 @@ on:
       - "packages/screamingface/examples/*.ipynb"
       # the layering script that the layering tests load and the `test` job runs
       - ".claude/scripts/check_layering.py"
+      # the repo-root marker that tests/unit/test_credit_contract.py finds the repo by
+      - ".claude/sdlc.local.md"
+      # what both images copy from their repo-root build context
+      - ".dockerignore"
       # every workflow, deploy script and justfile that tests/unit/test_benchmark_deployment.py
       # checks for a benchmark image build
       - ".github/workflows/*.yml"
@@ -87,6 +91,10 @@ on:
       - "packages/screamingface/examples/*.ipynb"
       # the layering script that the layering tests load and the `test` job runs
       - ".claude/scripts/check_layering.py"
+      # the repo-root marker that tests/unit/test_credit_contract.py finds the repo by
+      - ".claude/sdlc.local.md"
+      # what both images copy from their repo-root build context
+      - ".dockerignore"
       # every workflow, deploy script and justfile that tests/unit/test_benchmark_deployment.py
       # checks for a benchmark image build
       - ".github/workflows/*.yml"
@@ -113,9 +121,9 @@ env:
 jobs:
   # WHY: a change outside the Engine reaches this workflow only through a file its unit tests
   # read (the `paths:` filters above, pinned by tests/unit/test_engine_ci_path_filters.py), and
-  # `test` runs those contract twins. The images build only from the Engine and url4, so
-  # `image`, `conformance` and `chart` run only when they or this workflow changed
-  # (tests/unit/test_engine_ci_heavy_jobs.py).
+  # `test` runs those contract twins. The images build only from the Engine, url4 and the
+  # root `.dockerignore`, so `image`, `conformance` and `chart` run only when they or this
+  # workflow changed (tests/unit/test_engine_ci_heavy_jobs.py).
   changes:
     name: Classify the change
     runs-on: ubuntu-latest
@@ -133,19 +141,27 @@ jobs:
           BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
           HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-          ENGINE_PATHS: '^(apps/screamingface-engine/|packages/url4/|\.github/workflows/screamingface-engine-tests\.yml$)'
+          ENGINE_PATHS: '^(apps/screamingface-engine/|packages/url4/|\.dockerignore$|\.github/workflows/screamingface-engine-tests\.yml$)'
         # INVARIANT: only a clean, non-empty diff that names none of them skips the heavy jobs.
-        # A manual run, an empty diff or a base git cannot find runs them. A new branch's first
-        # push has an all-zero base, so it is compared with where it left the default branch.
+        # A manual run or a base git cannot find runs them. An empty diff would too, though a
+        # path-filtered event never has one. A new branch's first push has an all-zero base,
+        # so it is compared with where it left the default branch.
+        # WHY two ranges: GitHub filters a pull request by what its branch changed since it
+        # left the base (`base...head`), and a push by its two trees (`before..after`). A
+        # force-push that drops an Engine commit changes the Engine only in the second.
         run: |
           engine=true
           paths="$RUNNER_TEMP/changed-paths"
           if [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
             BASE=$(git merge-base "origin/$DEFAULT_BRANCH" "$HEAD" 2>/dev/null) || true
           fi
+          range="$BASE...$HEAD"
+          if [ "$EVENT" = "push" ]; then
+            range="$BASE..$HEAD"
+          fi
           if [ "$EVENT" != "workflow_dispatch" ] \
             && [ -n "$BASE" ] \
-            && git diff --name-only --no-renames "$BASE...$HEAD" > "$paths" \
+            && git diff --name-only --no-renames "$range" > "$paths" \
             && [ -s "$paths" ] \
             && ! grep -qE "$ENGINE_PATHS" "$paths"; then
             engine=false

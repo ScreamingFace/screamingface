@@ -6,13 +6,15 @@ contract twins it can break, without a 30 to 45 minute image build it cannot cha
 
 INVARIANT: the `changes` job calls a change an Engine change when a changed path matches its
 `ENGINE_PATHS` pattern, or when it cannot tell, and `image`, `conformance` and `chart` run only
-then. Every build-context path the Engine Dockerfiles copy, and the workflow itself, matches the
-pattern, so a change that alters an image always builds it. `test` runs for every change.
+then. Every build-context path the Engine Dockerfiles copy, the build context's `.dockerignore`,
+and the workflow itself match the pattern, so a change that alters an image always builds it.
+`test` runs for every change.
 """
 
 from __future__ import annotations
 
 import os
+import posixpath
 import re
 import subprocess
 from pathlib import Path
@@ -20,6 +22,7 @@ from typing import Any
 
 import pytest
 import yaml
+from engine_ci_support import filters, glob
 
 _REPO = Path(__file__).resolve().parents[4]
 _ENGINE = _REPO / "apps" / "screamingface-engine"
@@ -44,6 +47,16 @@ def _classifier() -> dict[str, Any]:
 
 def _engine_change(path: str) -> bool:
     return re.search(_classifier()["env"]["ENGINE_PATHS"], path) is not None
+
+
+def _starts_the_workflow(path: str) -> bool:
+    return any(glob(pattern).fullmatch(path) for pattern in filters()["push"])
+
+
+def _image_builds() -> list[dict[str, Any]]:
+    """The `with:` of each image build step of the `image` job."""
+    steps: list[dict[str, Any]] = _jobs()["image"]["steps"]
+    return [s["with"] for s in steps if str(s.get("uses", "")).startswith("docker/build-push")]
 
 
 def _copied_sources() -> list[str]:
@@ -78,9 +91,26 @@ def test_every_path_an_engine_image_is_built_from_is_an_engine_change() -> None:
 
     assert len(sources) >= 3, f"the Dockerfile COPY parse found too little: {sources}"
     for source in sources:
-        probe = f"{source}/probe" if (_REPO / source).is_dir() else source
-        assert _engine_change(probe), source
+        # WHY: a directory source matches only with a file under it.
+        assert _engine_change(source) or _engine_change(f"{source}/probe"), source
     assert _engine_change(_WORKFLOW.relative_to(_REPO).as_posix())
+
+
+def test_each_image_build_input_is_an_engine_change_that_starts_the_workflow() -> None:
+    """WHY: both images build from the repo root, so its `.dockerignore` decides what they copy."""
+    builds = _image_builds()
+    inputs = [
+        path
+        for build in builds
+        for path in (posixpath.normpath(f"{build['context']}/.dockerignore"), build["file"])
+    ]
+
+    assert len(builds) >= 2, builds
+    for path in inputs:
+        assert _engine_change(path), path
+        assert _starts_the_workflow(path), path
+    for source in _copied_sources():
+        assert _starts_the_workflow(source) or _starts_the_workflow(f"{source}/probe"), source
 
 
 #: WHY made-up names: a real repo path here would read as a test input to the path-filter guard.
@@ -193,3 +223,21 @@ def test_a_new_branch_is_compared_with_where_it_left_the_default_branch(
     _git(repo, "update-ref", "refs/remotes/origin/main", shas[0])
 
     assert _classify(repo, "push", _ZERO, shas[head]) == expected
+
+
+@pytest.mark.parametrize(
+    ("event", "expected"),
+    [
+        pytest.param("push", "true", id="a-push-that-drops-an-engine-commit"),
+        pytest.param("pull_request", "false", id="a-pull-request-whose-base-gained-one"),
+    ],
+)
+def test_a_push_compares_its_two_trees_and_a_pull_request_its_own_commits(
+    history: tuple[Path, list[str]], event: str, expected: str
+) -> None:
+    """WHY: GitHub filters a push by `before..after` and a pull request by `base...head`."""
+    repo, (_, sdk, engine) = history
+    _git(repo, "checkout", "-q", sdk)
+    other = _commit(repo, "packages/screamingface/src/screamingface/other_module.py")
+
+    assert _classify(repo, event, engine, other) == expected
