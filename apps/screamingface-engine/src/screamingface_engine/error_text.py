@@ -29,6 +29,7 @@ __all__ = [
     "ENGINE_ERROR_CODES",
     "ENGINE_RESERVED_CODES",
     "PUBLIC_UNVOUCHED_CODES",
+    "ROUTER_CODES",
     "ROUTING_CODES",
     "public_identifier",
     "public_message",
@@ -144,8 +145,20 @@ ran. The MESSAGE is not vouched for: disjoint from :data:`ENGINE_ERROR_CODES`. P
 routing table by ``tests/unit/test_routing_relayed_errors.py``.
 """
 
+ROUTER_CODES: frozenset[str] = frozenset(
+    {"router_definition_invalid", "router_unsupported", "router_evidence_invalid"}
+)
+"""The Router's own codes (Unit 5.2, contracts C11): two at ADMIT, one at DECIDE, all permanent.
+
+The CODE says a Router occurrence was refused before its model I/O, or its evidence was. A
+branch or classifier failure that could borrow one would claim that after a provider may have
+spent. The MESSAGE is not vouched for: disjoint from :data:`ENGINE_ERROR_CODES`, so a terminal
+run boundary reports one as ``internal_error`` and a record carries the phase. Pinned to the
+minting modules by ``tests/unit/test_router_codes.py``.
+"""
+
 ENGINE_RESERVED_CODES: frozenset[str] = (
-    ENGINE_ERROR_CODES | CONTROL_PLANE_TERMINAL_CODES | ROUTING_CODES
+    ENGINE_ERROR_CODES | CONTROL_PLANE_TERMINAL_CODES | ROUTING_CODES | ROUTER_CODES
 )
 """Every code a public boundary reads as engine-authored. No upstream may mint one of these
 (``world/gateway_transport.py::_raise_for_status``), or it could borrow the engine's voice."""

@@ -54,7 +54,10 @@ from screamingface_engine.world.connector import (
     build_aigateway_world,
 )
 from screamingface_engine.world.corrective import install_corrective_runtime
-from screamingface_engine.world.gateway_endpoints import install_gateway_endpoints
+from screamingface_engine.world.gateway_endpoints import (
+    install_gateway_endpoints,
+    install_router_runtime,
+)
 from screamingface_engine.world.routing_config import RoutingProfile
 from url4.cli._serve import make_data_provider, make_identity_handler, make_shelf_handler
 from url4.io.layer import IOLayer
@@ -194,6 +197,8 @@ async def _install_internal_routes_or_close(world: AigatewayWorld, cfg: Aigatewa
     """Install the internal and final-step routes on a gateway world; a refusal closes it first."""
     try:
         _install_internal_routes(world.node)
+        # The Router steps (Unit 5.2, C4): they read the world's Gateway client and routes.
+        install_router_runtime(world, cfg)
         # The chat final-step routes (tool-calls §3.2): one per declared model, with the gateway
         # world.
         install_chat_final(world, cfg)

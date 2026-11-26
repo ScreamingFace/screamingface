@@ -30,7 +30,7 @@ import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Any
+from typing import TYPE_CHECKING, Any, TypedDict
 
 import httpx
 
@@ -111,6 +111,10 @@ from url4.streaming.protocol import CachePolicy
 # name. This code moved from `runner/connector.py` to `world/connector.py` and then here; the
 # name keeps every model-call lifecycle line byte-identical to `main`. It is the SAME logger
 # object that `world/connector.py` holds.
+if TYPE_CHECKING:
+    # WHY only for the type: `attempt_facts` reads `_GatewayRefusal` from this module.
+    from screamingface_engine.world.attempt_facts import AttemptObserver
+
 logger = logging.getLogger("screamingface_engine.runner.connector")
 
 _COMPLETIONS_PATH = "/v1/chat/completions"
@@ -188,6 +192,7 @@ async def round_trip(
     replay_frozen_copy: str | None = None,
     signal_accounting: list[SignalAccounting] | None = None,
     reply_logprobs: list[ReplyLogprobs | None] | None = None,
+    observer: AttemptObserver | None = None,
 ) -> Choice:
     # FEATURE: OME-1161 exposes execution facts to optional, node-associated observers.
     async with ModelCall(real_model_id, current_log_sink()) as observation:
@@ -203,6 +208,7 @@ async def round_trip(
             observation=observation,
             replay_frozen_copy=replay_frozen_copy,
             reply_logprobs=reply_logprobs,
+            observer=observer,
         )
 
 
@@ -219,6 +225,7 @@ async def _observed_round_trip(
     replay_frozen_copy: str | None,
     signal_accounting: list[SignalAccounting] | None = None,
     reply_logprobs: list[ReplyLogprobs | None] | None = None,
+    observer: AttemptObserver | None = None,
 ) -> Choice:
     """One gateway round trip with its lifecycle in the log.
 
@@ -236,12 +243,14 @@ async def _observed_round_trip(
             body=body,
             cache=cache,
             replay_frozen_copy=replay_frozen_copy,
+            observer=observer,
         )
         data = _json_or_raise(resp)
         # FEATURE (spec 2026-10-16-judge-redraw-live-only): tell a watching judge step whether
         # this reply is live or a recording (cache hit, frozen-copy replay); a recording is
         # never redrawn. Recorded only once the gateway answered with a body.
         record_reply_origin(round_trip_origin(outcome, replay_frozen_copy))
+        _check_live_accounting(observer, data, outcome, replay_frozen_copy)
         _retain_reply_facts(
             data,
             body,
@@ -302,6 +311,21 @@ async def _observed_round_trip(
     )
     observation.completed(choice.finish_reason)
     return choice
+
+
+def _check_live_accounting(
+    observer: AttemptObserver | None,
+    data: Mapping[str, Any],
+    outcome: CacheOutcome,
+    replay_frozen_copy: str | None,
+) -> None:
+    """FEATURE (C7/C8): a live success's own accounting checks its last attempt header.
+
+    WHY live only: a cache hit or a replay carries the original call's accounting, which says
+    nothing about the sends of this one.
+    """
+    if observer is not None and round_trip_origin(outcome, replay_frozen_copy) == "live":
+        observer.check_accounting(data.get("_aigw"))
 
 
 def _report_response(choice: Choice, cache: CacheOutcome, aigw: object = None) -> None:
@@ -522,6 +546,7 @@ async def _post_completion(
     body: dict,
     path: str = _COMPLETIONS_PATH,
     probe: _CaptureProbe | None = None,
+    observer: AttemptObserver | None = None,
 ) -> tuple[httpx.Response, bool]:
     """Use one bounded retry policy for transport failures and explicit queue expiry.
 
@@ -536,6 +561,8 @@ async def _post_completion(
     ambiguous after a retry that followed a request which may have been sent. A connect-phase
     failure (`_NEVER_SENT`) is not a lost reply: no request byte left the Engine, so the gateway
     stored nothing for that try (OME-1775 R3).
+    FEATURE (C8): an ``observer`` counts each attempt this loop initiates and the upstream sends
+    behind it. It only watches: the return, the retries and the raised errors stay the same.
     """
     deadline = _current_deadline()
     configured = _transport_budget(http_client, headers)
@@ -549,17 +576,14 @@ async def _post_completion(
             )
         except httpx.TransportError as exc:
             last = exc
-            if probe is not None and not isinstance(exc, _NEVER_SENT):
-                # Told now, not at the answer: a call whose every attempt fails never gets one.
-                # WHY: a connect-phase failure sent nothing, so it is no lost reply (OME-1775 R3).
-                probe.lost_reply()
+            _note_lost_reply(exc, probe, observer)
             possibly_billed = possibly_billed or not isinstance(exc, _NEVER_SENT)
             if isinstance(exc, httpx.TimeoutException) and _deadline_bound(timeout, configured):
                 raise _deadline_exceeded(exc) from exc
             if attempt < _TRANSPORT_RETRIES:
                 await _retry_transport(attempt, deadline, configured, exc)
             continue
-        if _queue_timeout(response) and attempt < _TRANSPORT_RETRIES:
+        if _note_answer(response, observer) and attempt < _TRANSPORT_RETRIES:
             if await _retry_queue(response, attempt, deadline, configured):
                 continue
         return response, possibly_billed
@@ -569,6 +593,27 @@ async def _post_completion(
         code="aigateway_transport_error",
         permanent=False,
     ) from last
+
+
+def _note_lost_reply(
+    exc: httpx.TransportError, probe: _CaptureProbe | None, observer: AttemptObserver | None
+) -> None:
+    """Tell the capture probe and the attempt observer that this attempt got no response."""
+    never_sent = isinstance(exc, _NEVER_SENT)
+    if observer is not None:
+        observer.lost(never_sent=never_sent)
+    if probe is not None and not never_sent:
+        # Told now, not at the answer: a call whose every attempt fails never gets one.
+        # WHY: a connect-phase failure sent nothing, so it is no lost reply (OME-1775 R3).
+        probe.lost_reply()
+
+
+def _note_answer(response: httpx.Response, observer: AttemptObserver | None) -> bool:
+    """Whether ``response`` is a queue refusal, after the attempt observer has seen it."""
+    queue_refusal = _queue_timeout(response)
+    if observer is not None:
+        observer.answered(response.headers, queue_refusal=queue_refusal)
+    return queue_refusal
 
 
 def _transport_budget(client: httpx.AsyncClient, headers: dict[str, str]) -> float | None:
@@ -766,6 +811,7 @@ async def _fetch_completion(
     body: dict,
     cache: CachePolicy,
     probe: _CaptureProbe | None = None,
+    observer: AttemptObserver | None = None,
 ) -> tuple[httpx.Response, CacheOutcome]:
     """One chat-completions round trip under this run's cache policy, plus what the gateway
     reported about the cache — re-issued without the cache when the answer cannot be served.
@@ -795,6 +841,7 @@ async def _fetch_completion(
         # Attempt 2+ keeps its number; for every other call this is exactly the old merge.
         body=with_cache_policy(body, cache),
         probe=probe,
+        observer=observer,
     )
     _raise_for_status(resp, logprobs_requested=_asks_logprobs(body))
     outcome = read_cache_outcome(resp.headers, retried=retried)
@@ -808,6 +855,7 @@ async def _fetch_completion(
         headers=headers,
         body=with_cache_policy(body, CachePolicy(participate=False)),
         probe=probe,
+        observer=observer,
     )
     _raise_for_status(resp, logprobs_requested=_asks_logprobs(body))
     # WHY carry the first round trip's flag: it records that a possibly billed attempt was lost
@@ -821,6 +869,7 @@ async def _post_answered(
     headers: dict[str, str],
     body: dict,
     probe: _CaptureProbe | None,
+    observer: AttemptObserver | None = None,
 ) -> tuple[httpx.Response, bool]:
     """Post one chat request; a Candidate call the gateway failed for a moment is asked again.
 
@@ -851,7 +900,9 @@ async def _post_answered(
     retry_number: int = 0
     while True:
         # Stage 1 — one try.
-        resp, billed = await _post_completion(http_client, headers=headers, body=body, probe=probe)
+        resp, billed = await _post_completion(
+            http_client, headers=headers, body=body, probe=probe, observer=observer
+        )
         if probe is not None:
             probe.read(resp)
         possibly_billed = possibly_billed or billed
@@ -950,6 +1001,18 @@ def _capture_target() -> tuple[CaptureTally, str] | None:
     return tally, tally.frozen_copy_id
 
 
+class _Observing(TypedDict, total=False):
+    observer: AttemptObserver
+
+
+def _observing(observer: AttemptObserver | None) -> _Observing:
+    """The ``observer`` keyword for `_fetch_completion`, or none at all for an unobserved call.
+
+    WHY none at all: an unobserved call keeps today's exact call into that layer.
+    """
+    return {} if observer is None else {"observer": observer}
+
+
 async def _recorded_completion(
     http_client: httpx.AsyncClient,
     *,
@@ -957,6 +1020,7 @@ async def _recorded_completion(
     body: dict,
     cache: CachePolicy,
     replay_frozen_copy: str | None,
+    observer: AttemptObserver | None = None,
 ) -> tuple[httpx.Response, CacheOutcome]:
     """One gateway round trip in the run's frozen-copy mode.
 
@@ -968,11 +1032,17 @@ async def _recorded_completion(
     """
     if replay_frozen_copy is not None:
         return await _fetch_replay(
-            http_client, headers=headers, body=body, copy_id=replay_frozen_copy
+            http_client,
+            headers=headers,
+            body=body,
+            copy_id=replay_frozen_copy,
+            observer=observer,
         )
     target = _capture_target()
     if target is None:
-        return await _fetch_completion(http_client, headers=headers, body=body, cache=cache)
+        return await _fetch_completion(
+            http_client, headers=headers, body=body, cache=cache, **_observing(observer)
+        )
     tally, copy_id = target
     digest = request_digest(body)
     # Q27 (design §5.4): the call takes its occurrence ONCE, when it is first sent. Every transport
@@ -989,6 +1059,7 @@ async def _recorded_completion(
             body=body,
             cache=cache,
             probe=probe,
+            **_observing(observer),
         )
     except BaseException as exc:
         # A cancelled call left no answer the copy can serve (D1); an error response says itself.
@@ -1029,6 +1100,7 @@ async def _fetch_replay(
     headers: dict[str, str],
     body: dict,
     copy_id: str,
+    observer: AttemptObserver | None = None,
 ) -> tuple[httpx.Response, CacheOutcome]:
     """One chat round trip of a REPLAY run: the copy's answer to this request (design §5.3).
 
@@ -1050,6 +1122,7 @@ async def _fetch_replay(
             headers={**headers, **call_key_headers(case_key, occurrence)},
             body=body,
             path=replay_chat_path(copy_id),
+            observer=observer,
         )
     except ResolutionError as exc:
         # Design §5.3 item 2a: every transport attempt failed, and the copy served nothing. A retry

@@ -152,6 +152,15 @@ class ModelParameterBadResponse(CatalogBadResponse):
     detail = "aigateway returned an unusable model-parameter contract"
 
 
+class ClassifierBadResponse(CatalogBadResponse):
+    """The classifier list was encoded, over its size bound, or not a list envelope (C17).
+
+    INVARIANT: the detail is fixed; nothing the Gateway sent reaches the caller.
+    """
+
+    detail = "aigateway returned an unusable classifier list"
+
+
 class ModelNotInstalled(CatalogError):
     """The requested model is absent from this Engine's declared execution world."""
 
@@ -201,12 +210,25 @@ class ModelParameterSource(Protocol):
         ...
 
 
+@runtime_checkable
+class ClassifierSource(Protocol):
+    """Anything that can list the caller's usable classifiers (C17), fresh on every call."""
+
+    async def fetch_classifiers(
+        self, credential: Credential, *, traceparent: str | None = None
+    ) -> list[dict[str, object]]:
+        """The caller-visible rows as `{id, input_contracts, limits}`, in the Gateway's order."""
+        ...
+
+
 __all__ = [
     "CatalogBadResponse",
     "CatalogError",
     "CatalogRejected",
     "CatalogSource",
     "CatalogUnavailable",
+    "ClassifierBadResponse",
+    "ClassifierSource",
     "Credential",
     "ModelCatalog",
     "ModelNotInstalled",

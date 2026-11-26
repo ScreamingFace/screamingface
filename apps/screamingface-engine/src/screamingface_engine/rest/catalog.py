@@ -11,8 +11,8 @@ Owns request-side concerns only (credential resolution, conditional-request/ETag
 in ``screamingface_engine.catalog.cache.CatalogService``.
 
 ``GET /v1/models`` is the cached summary. ``GET /v1/model-parameters`` is the uncached,
-identity-bound detail. Every response is private and varies by the identity inputs that can
-change it.
+identity-bound detail. ``GET /v1/classifiers`` (C17) is the caller's uncached classifier list.
+Every response is private and varies by the identity inputs that can change it.
 
 BOTH surfaces are bounded by the same declared execution world
 (``screamingface_engine.world.config``):
@@ -33,7 +33,12 @@ from fastapi.responses import JSONResponse
 from screamingface_engine import job_env
 from screamingface_engine.auth import PROBLEM_MEDIA_TYPE, ProblemException
 from screamingface_engine.catalog.cache import CatalogService
-from screamingface_engine.catalog.port import CatalogError, Credential, ModelParameterSource
+from screamingface_engine.catalog.port import (
+    CatalogError,
+    ClassifierSource,
+    Credential,
+    ModelParameterSource,
+)
 from screamingface_engine.rest.conditional import validator_matches
 from screamingface_engine.rest.selector import X_PROFILE_PARAMETER, refuse_selector
 from url4.streaming.trace import valid_traceparent
@@ -224,6 +229,71 @@ async def model_parameters(
         media_type="application/json",
         headers=_model_parameter_headers(result.status),
     )
+
+
+_CLASSIFIER_RESPONSES: dict[int | str, dict[str, object]] = {
+    200: {"description": "The classifiers this caller can name, with their C7 input metadata."},
+    400: {
+        "description": (
+            "The request states the unsupported `X-Profile` header (`code: x_profile_unsupported`)."
+        ),
+        "content": _PROBLEM_CONTENT,
+    },
+    401: {"description": "aigateway refused the caller's identity."},
+    502: {"description": "aigateway returned an unusable classifier list."},
+    503: {"description": "The classifier list is not configured on this deployment."},
+    504: {"description": "aigateway did not respond in time."},
+}
+
+
+@router.get(
+    "/v1/classifiers",
+    tags=["Catalog"],
+    summary="List the classifiers this caller can name",
+    responses=_CLASSIFIER_RESPONSES,
+    description=(
+        "List the caller-visible aigateway classifiers with the inputs each takes and the limits "
+        "it enforces (`id`, `input_contracts`, `limits`), in aigateway's order. Read fresh for "
+        "every request and never cached.\n\n"
+        "Rows whose metadata breaks the classifier-limits contract, and every row of a repeated "
+        "ID, are omitted: a missing row means the classifier is not usable. The list is metadata "
+        "for a preflight, not authorization; aigateway authorizes each call."
+    ),
+)
+async def list_classifiers(
+    request: Request,
+    _x_profile: Annotated[str | None, X_PROFILE_PARAMETER] = None,
+) -> Response:
+    """List the caller's usable classifiers (C17), fresh, private and uncached."""
+    refuse_selector(request.headers, problem_headers=_MODEL_PARAMETER_HEADERS)
+    source = _require_classifier_source(request)
+    try:
+        rows = await source.fetch_classifiers(
+            _caller(request.headers), traceparent=_traceparent(request.headers)
+        )
+    except CatalogError as exc:
+        # INVARIANT: the problem's detail is the error type's fixed text, never the message an
+        # upstream body might have fed into it.
+        logger.info("classifier list request failed: %s", type(exc).__name__)
+        raise ProblemException(
+            status=exc.status,
+            title=exc.title,
+            detail=type(exc).detail,
+            headers=_model_parameter_headers(exc.status),
+        ) from exc
+    return JSONResponse(content={"object": "list", "data": rows}, headers=_MODEL_PARAMETER_HEADERS)
+
+
+def _require_classifier_source(request: Request) -> ClassifierSource:
+    source = getattr(request.app.state, "classifiers", None)
+    if source is None:
+        raise ProblemException(
+            status=503,
+            title="Service Unavailable",
+            detail="the classifier list is not configured (URL4_CLOUD_AIGATEWAY_BASE_URL)",
+            headers=_MODEL_PARAMETER_HEADERS,
+        )
+    return source
 
 
 def _require_service(request: Request) -> CatalogService:
