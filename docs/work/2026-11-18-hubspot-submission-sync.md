@@ -147,3 +147,25 @@ Written in the spec.
   upload rate limit; GitHub does not allow re-running that run). Filip chose to merge.
 - Infra handed to Stephen as OME-2002 (blocks OME-1991). Khoa's #2001 also adds a `0026`
   migration and must renumber.
+
+### Logging and SOTA rule fixes before go-live (2026-11-26, #2074)
+
+- The first prod dry runs logged no summary: the logger was named `__name__`, which is
+  `"__main__"` under `python -m`, outside the configured `scoreboard` tree. Fixed name; a real
+  run now logs each contact and card write, refusals and failures, with HubSpot ids and no
+  email. A subprocess test runs the module the way the CronJob does.
+- Irina (2026-11-26): Shuai Wu reached SOTA on gdpval-text but the dry run missed him. Rule B
+  read the Client's `candidate_kind`, which labels his two-model runs `pipeline`. Decision
+  (Filip, with Irina's "self fusion"): solo is a Recipe of one model node, anything else is a
+  fusion, one model sampled and combined included. Read from the `_sf_recipe` JSON in the
+  stored `url4_expression`, parsed with `url4` (PyPI pin `>=1.4.1,<2`, no Dockerfile change).
+  `Score.models` was tried first and dropped: it lists each route once, so Akshat Gupta's
+  argon x3 plus a selector looked like one call.
+- The existing SOTA tests were rewritten to build real url4 expressions instead of setting the
+  label (Filip approved editing prior tests; gate run with `--skip-append-only`).
+- Checked read-only against the public prod boards: all 432 entries on the 49 boards our
+  submitters touch have a readable Recipe. SOTA: Ahsan Bilal and Akshat Gupta stay, Shuai Wu
+  and Justice Owusu Agyemang added; the other 15 unchanged.
+- Known and accepted: a self-corrective run (one model revising its own answer) counts as a
+  fusion; the first real run loads every unqueued score's expression at once (tens of MB at
+  most).
