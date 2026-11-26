@@ -1,9 +1,9 @@
 ---
 ticket: OME-1970
 stack: screamingface-engine
-status: in_progress
+status: done
 started: 2026-11-26
-finished:
+finished: 2026-11-26
 ---
 
 # picture-floor-check — refuse a picture over the hosts' floor at seal time; fit labbench2_figqa2_img's two
@@ -52,7 +52,26 @@ this one and ruled the published revision HOLDS (26 Nov: no stored runs on this 
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:**
-- **Commits:**
-- **Gates:**
-- **Deviations:**
+- **Actual files:** as planned, plus `picture_size.py` (a new module: the header-only size
+  reader, kept out of `picture_input.py`), the CHANGELOG entry, the OME-1970 task mirror and the
+  test-change approval `.claude/test-change-approvals/OME-1970.json`.
+- **Commits:** e6ab83422 — feat(screamingface-engine): refuse a picture over the hosts' floor at
+  seal time; fit labbench2_figqa2_img's two figures as lossless WebP; then this ledger commit.
+- **Gates:** relevant tests only: 291 passed (`test_picture_cases.py`,
+  `test_local_task_lab_bench_2.py`, `test_lab_bench_2_rows.py`, `test_benchmark_fingerprints.py`,
+  `test_published_revisions.py`, `test_local_task_enigmaeval.py`,
+  `test_judge_reads_the_sample_input.py`, `test_inspect_task_replay_benchmarks.py`,
+  `test_parked_result_review_fixes.py`, `test_picture_case_limits_fit_the_gateway.py`) + 14 passed
+  (MMMU, MathVista, MacBench, ZeroBench picture capture suites); ruff + pyright clean on the
+  touched files; append-only check green with the approval. Outside checks: the header reader
+  equals Pillow's size on all 5,837 sealed pictures of the 12 published picture Benchmarks
+  (674 JPEG, 5,143 PNG, 16 WebP, 4 GIF; 0 mismatches, 0 unreadable). Re-seal on linux/amd64:
+  case_digest e0bd1dbc…, case_set_digest 060e620b…; only Cases 4 and 82 differ from the
+  2026-11-04 seal.
+- **Deviations:** (1) The old PR 1 (labbench2 revision) is folded in, and its published revision
+  holds instead of moving (owner, 2026-11-26). (2) Lossless WebP instead of the plan's "Pillow
+  optimize=True, then downscale": `optimize` saved 0.3%, a 5% downscale made the PNG bigger; WebP
+  keeps every pixel and fits. (3) A pixel-count limit (30,720,000, GPT's 30,000 patches) joins
+  the planned bytes and side limits, from the 6 Nov HLE run errors. (4) A header the reader
+  cannot parse is not refused: the seal never decoded pictures, and the prior tests seal 16-byte
+  stand-ins. (5) The HLE picture over 8000 px is fixed in its own PR 1, which must merge first.
