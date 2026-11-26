@@ -3,12 +3,16 @@
   "branch": "OME-1970-pr2-picture-floor-check",
   "approver": "owner (OME-1970 Plan, PR 2: 'Edit (manifest) the tests in test_picture_cases.py whose single pictures now exceed the floor'; directed the folded PR 2026-11-26)",
   "date": "2026-11-26",
-  "scope": "test_picture_cases.py: test_one_big_picture_inside_the_case_limit_is_saved now seals TableQA's real 5,207,804-byte picture (under the floor) instead of a 5,300,000-byte one (over it); test_a_case_at_its_limit_is_saved_and_one_over_it_is_refused reaches the Case limit with two pictures, since one picture alone now stops at the per-picture floor. test_benchmark_fingerprints.py: the two lab_bench_2 fingerprint literals, as the test's own message directs (published ids unchanged). No test removed, no assertion weakened.",
-  "reason": "OME-1970 adds a per-picture limit (5,242,880 bytes of base64, Bedrock's measured floor); two prior tests used a single picture larger than it, and the lab_bench_2 package source changed.",
+  "scope": "PR 2 (stacked on PR 1, which is merged in): test_picture_cases.py: test_one_big_picture_inside_the_case_limit_is_saved now seals TableQA's real 5,207,804-byte picture (under the floor) instead of a 5,300,000-byte one (over it); test_a_case_at_its_limit_is_saved_and_one_over_it_is_refused reaches the Case limit with two pictures, since one picture alone now stops at the per-picture floor. test_benchmark_fingerprints.py: the two lab_bench_2 fingerprint literals, as the test's own message directs (published ids unchanged). No test removed, no assertion weakened. Carried from PR 1: test_benchmark_fingerprints.py: the hle and hle_diamond literals move to the fingerprints their reshrunk Cases compute (published ids unchanged, pending the owner's hold-vs-move decision). replayed_cases_helpers.py: replay_in_process_over_rows gains a keyword-only shrink_named_pictures flag, off by default, so the existing hle and hle_diamond stand-in replays (whose rows are not the Hub's) run as before; test_shrunk_pictures.py turns it on. No assertion is weakened.",
+  "reason": "OME-1970 adds a per-picture limit (5,242,880 bytes of base64, Bedrock's measured floor); two prior tests used a single picture larger than it, and the lab_bench_2 package source changed. PR 1: OME-1970 PR 1 of 9: hle Case 250 / hle_diamond Case 35's 14950x2780 px picture is shrunk to 8000x1488 at Case Preparation, a Named Deviation (shrunk_picture_sample_ids), so every Claude and GPT-pro Candidate can read it; the Case Digests and fingerprints move.",
   "files": {
+    "apps/screamingface-engine/tests/unit/inspect/replayed_cases_helpers.py": {
+      "base_blob": "19e1d50e256e872ed15345aa0e6b2eb1ce985cf2",
+      "approved_blob": "045ca3cfe8454602e1a476a3710379c1020a18b6"
+    },
     "apps/screamingface-engine/tests/unit/inspect/test_benchmark_fingerprints.py": {
       "base_blob": "25c31d8d3fc59e9672ebc6c3b720abe5fcb750dd",
-      "approved_blob": "0eabdf5d92edc44c2c6fa6ce7780a16b4d37288e"
+      "approved_blob": "7407d83886ee70e07ff8745dc34409504d3b315f"
     },
     "apps/screamingface-engine/tests/unit/inspect/test_picture_cases.py": {
       "base_blob": "85a82d24eb0bc0a48a8006fece042bcfc696f16f",

@@ -86,9 +86,13 @@ _FINGERPRINTS: dict[str, str] = {
     # still writes its grade; every Case kept, published ids HELD (owner decision 2026-11-17,
     # a re-grade and revision bump follow in their own PR).
     # hle: published id d30effc2a0698079 (fingerprint was the same).
-    "hle": "6bf010527abe2411",
+    # OME-1970: the one 14950 px picture (hle Case 250, hle_diamond Case 35) is shrunk to
+    # 8000×1488, a Named Deviation, so the Case Digests and fingerprints moved again
+    # (hle 6bf010527abe2411, hle_diamond 7261715107987e29 after OME-1939). OWNER DECISION
+    # PENDING (OME-1970): hold vs move — see ledger; the published ids are held meanwhile.
+    "hle": "0c3d712629ad9515",
     # hle_diamond: published id 9640c5c7e59fc61e (fingerprint was the same).
-    "hle_diamond": "7261715107987e29",
+    "hle_diamond": "02f3cbc9fce746be",
     # FutureX-Past Judge bug (2026-11-19): the Judge no longer pins temperature 0, which no
     # OpenRouter endpoint for gpt-5.4 accepts, so every level-3/4 Judge call failed. Same Cases,
     # a grading fix: published id HELD at 200cf4f72481ffb0 (owner decision 2026-11-19; the
