@@ -23,7 +23,12 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from typing import Any, Final, NoReturn
 
-from .content_parts import UnsupportedContentPart, parse_data_uri, remote_url_scheme
+from .content_parts import (
+    UnsupportedContentPart,
+    parse_blob_reference,
+    parse_data_uri,
+    remote_url_scheme,
+)
 
 __all__ = ["refuse_remote_media"]
 
@@ -73,6 +78,11 @@ def refuse_remote_media(
 def _check_part(part: Mapping[str, Any], provider: str, allow_remote_image_urls: bool) -> None:
     part_type = part.get("type")
     if part_type in _TEXT_TYPES:
+        return
+    # FEATURE (OME-1970): a blob reference names a file the caller uploaded to the gateway's own
+    # memory. It is not a URL and nothing ever fetches it; its closed shape (checked here, a 422
+    # when malformed) leaves no other key that could carry one.
+    if parse_blob_reference(part, provider=provider) is not None:
         return
     if part_type == "image_url":
         _check_image(part.get("image_url"), provider, allow_remote_image_urls)

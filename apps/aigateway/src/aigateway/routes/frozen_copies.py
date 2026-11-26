@@ -24,6 +24,7 @@ from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 from ..call_context import current_call_id, current_trace_id
 from ..core.auth.copy_claim import require_copy_claimer
 from ..core.auth.middleware import CurrentAccount
+from ..core.blob_refs import BlobUnknown, RunFiles, checked_run_files, key_form
 from ..core.frozen_copy.headers import STORED_HEADERS_FIELD, MalformedCallKey, parse_call_key
 from ..core.frozen_copy.models import (
     STATUS_ABANDONED,
@@ -39,6 +40,7 @@ from ..core.frozen_copy.store import (
 )
 from ..core.frozen_copy.times import as_utc
 from ..core.request_cache.canonical import CanonicalizationError
+from ..core.request_cache.reference_digest import UnknownBlobReference
 from ..core.request_hardening import chat_body_shape_error, prepare_ingress_body
 from ..plugins.taxonomy import new_gateway_call_id
 from ..plugins.taxonomy.entry_metadata import cache_reference_from_captured_aigw
@@ -48,6 +50,7 @@ from ..plugins.taxonomy.render import (
     merged_error_detail,
     render_aigw_metadata,
 )
+from .blobs import RUN_TOKEN_HEADER
 
 router = APIRouter()
 
@@ -214,15 +217,29 @@ async def replay_chat_completions(
     if shape_error is not None:
         raise HTTPException(status_code=400, detail=shape_error)
     body, controls = prepare_ingress_body(body)
+    # FEATURE (OME-1970): a request carrying Case files by blob reference digests as the inline
+    # request (decision 2), so the replaying run must hold each file, as on the live route.
+    model: str = str(body.get("model", ""))
+    files: RunFiles | None = checked_run_files(
+        body["messages"],
+        store=request.app.state.media_store,
+        caller=current.id,
+        token=request.headers.get(RUN_TOKEN_HEADER),
+        provider=model.split("/", 1)[0] or "unresolved",
+        streaming=False,
+    )
     try:
         entry = await frozen_copy_store_for(request.app).find(
             copy,
             "chat",
-            body,
+            body if files is None else key_form(body),
             attempt=controls.attempt,
             case_key=case_key,
             occurrence=occurrence,
+            files=None if files is None else files.lookup,
         )
+    except UnknownBlobReference as unknown:
+        raise BlobUnknown(unknown.sha256) from None
     except (CanonicalizationError, UnicodeError):
         # A request that cannot be digested was never captured (the capture would have failed).
         entry = None

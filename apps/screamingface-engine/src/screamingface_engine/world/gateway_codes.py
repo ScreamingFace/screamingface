@@ -32,6 +32,7 @@ _WRITTEN = frozenset(
         "bad_request",
         "blob_digest_mismatch",
         "blob_too_large",
+        "blob_unknown",
         "blob_unsupported_media_type",
         "cache_job_not_found",
         "cache_load_in_progress",
