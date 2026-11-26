@@ -8,6 +8,8 @@ from urllib.parse import urlsplit
 from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
+from .core.blob_upload import MAX_BLOB_UPLOAD_BYTES, base64_length
+
 AuthMode = Literal["jwt", "cloudflare_headers", "disabled"]
 
 # FEATURE (OME-1756): the room one frozen-copy entry keeps for the recorded response, on top of the
@@ -197,6 +199,27 @@ class Settings(BaseSettings):
     # envelope; 12,582,912 leaves 1,916,244 bytes for them. Lower it only with url4's cap.
     max_request_bytes: int = Field(
         default=12 * 1024 * 1024, gt=0, validation_alias="AIGW_MAX_REQUEST_BYTES"
+    )
+
+    # FEATURE (OME-1970, PR 4): the in-memory store of uploaded Case files (`core/media_store.py`),
+    # the most base64 bytes it holds across every run, least recently used dropped first.
+    # WHY 40,000,000, and PROVISIONAL: two of the largest files the upload route takes
+    # (15,000,000 bytes on disk = 20,000,000 of base64). The real value is set with the byte
+    # budget (OME-1970 PR 6) from a measurement of a Linux gateway pod's idle memory; the only
+    # number so far is ~259 MiB idle on macOS, against a 512 Mi pod limit in prod.
+    # INVARIANT: at least one largest file in base64 (refused below otherwise), or the largest
+    # legal upload could never be stored.
+    blob_store_max_bytes: int = Field(
+        default=40_000_000, gt=0, validation_alias="AIGW_BLOB_STORE_MAX_BYTES"
+    )
+    # FEATURE (OME-1970, PR 4): how long the files of one run stay usable after the run's first
+    # upload. The gateway knows no run deadline, so it takes its own.
+    # WHY 58,800 s (16 h + 1 h): the Engine ends every run 16 h after it starts
+    # (`job_deadline_s=57600` in the Engine's config), and its run capability lives 16 h + 1 h
+    # (`capability_lifetime_s=58_800`) to cover the time a run waits in the queue; a file is kept
+    # exactly as long as the run that uploaded it could still be calling.
+    blob_scope_ttl_seconds: int = Field(
+        default=58_800, gt=0, validation_alias="AIGW_BLOB_SCOPE_TTL_SECONDS"
     )
 
     # FEATURE: OME-1307 — one frozen-copy entry (request plus response JSON) is at most this many
@@ -389,6 +412,18 @@ class Settings(BaseSettings):
         if not isinstance(value, str):
             return value
         return frozenset(entry.lower() for part in value.split(",") if (entry := part.strip()))
+
+    @model_validator(mode="after")
+    def _validate_blob_store_fits_one_file(self) -> Settings:
+        """Refuse a file store too small to hold the largest file the upload route accepts."""
+        smallest: int = base64_length(MAX_BLOB_UPLOAD_BYTES)
+        if self.blob_store_max_bytes < smallest:
+            raise ValueError(
+                f"AIGW_BLOB_STORE_MAX_BYTES ({self.blob_store_max_bytes}) is below {smallest}, the "
+                f"base64 size of the largest upload ({MAX_BLOB_UPLOAD_BYTES} bytes); the store "
+                "could never hold such a file"
+            )
+        return self
 
     @model_validator(mode="after")
     def _validate_request_cache_ttls(self) -> Settings:
