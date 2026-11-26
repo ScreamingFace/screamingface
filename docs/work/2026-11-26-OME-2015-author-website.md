@@ -1,7 +1,7 @@
 ---
 ticket: OME-2015
 stack: scoreboard
-status: in_progress
+status: in_review
 started: 2026-11-26
 finished:
 ---
