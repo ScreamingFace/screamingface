@@ -67,6 +67,7 @@ from .global_eligibility import (
     collect_request_facts,
     is_text,
 )
+from .reference_digest import ReferencedFileLookup, canonical_digest_with_references
 
 __all__ = [
     "ABSENT",
@@ -97,6 +98,7 @@ __all__ = [
     "build_attempt_cache_key",
     "build_global_cache_key",
     "build_global_cache_key_dto",
+    "build_reference_cache_key",
     "canonical_key_material",
 ]
 
@@ -324,11 +326,62 @@ def build_attempt_cache_key(
     return _key_result(replace(dto, attempt=attempt))
 
 
-def _key_result(dto: GlobalChatCacheKey) -> GlobalCacheKeyResult | CacheBypass:
-    """Hash one closed key DTO into what the route may hold, or bypass if it cannot."""
+def build_reference_cache_key(
+    *,
+    provider: str,
+    body: Mapping[str, Any],
+    rules: Iterable[ParameterProjectionRule],
+    projection: GlobalCacheProjection,
+    provider_auth_modes: Iterable[str],
+    files: ReferencedFileLookup,
+    attempt: int | None = None,
+) -> GlobalCacheKeyResult | CacheBypass:
+    """The global key of a call that carries Case files by blob reference: today's inline key.
 
+    FEATURE (OME-1970): the Engine uploads a Case file once and then sends a **blob
+    reference** (the file's SHA-256) in its place; in ``body`` each one is a `BlobReference`
+    standing where the file's ``data:`` URI string stood. The key is hashed with each reference
+    read back as its stored file, so it equals the key the same call gets inline (decision 2:
+    no ``KEY_REVISION`` bump, no cached answer lost). ``attempt`` is as in
+    `build_attempt_cache_key`.
+
+    WHY a sibling builder rather than a parameter on `build_global_cache_key`: that builder's
+    parameter set is pinned to carry no identity. ``files`` is not identity either: it is a
+    lookup of stored files, and two callers sending the same file reach the same hash. But a
+    lookup scoped to one caller's run (decision 3) decides whether there IS a key, so it gets
+    its own reviewed signature instead of widening the pinned one.
+
+    INVARIANT: `UnknownBlobReference` is the one exception that escapes, when ``files`` holds
+    no file for a reference. A bypass would be wrong there: the call cannot be dispatched
+    without its file either, so the caller must hear "unknown file" and upload it again.
+    """
+    dto = build_global_cache_key_dto(
+        provider=provider,
+        body=body,
+        rules=rules,
+        projection=projection,
+        provider_auth_modes=provider_auth_modes,
+    )
+    if isinstance(dto, CacheBypass):
+        return dto
+    return _key_result(dto if attempt is None else replace(dto, attempt=attempt), files)
+
+
+def _key_result(
+    dto: GlobalChatCacheKey, files: ReferencedFileLookup | None = None
+) -> GlobalCacheKeyResult | CacheBypass:
+    """Hash one closed key DTO into what the route may hold, or bypass if it cannot.
+
+    With ``files`` (OME-1970), blob references in the DTO hash as their stored files.
+    """
+
+    mapping: dict[str, Any] = _canonical_mapping(dto)
     try:
-        key_hash = canonical_digest(_canonical_mapping(dto))
+        key_hash: str = (
+            canonical_digest(mapping)
+            if files is None
+            else canonical_digest_with_references(mapping, files)
+        )
     except (CanonicalizationError, TypeError, ValueError):
         return CacheBypass(BYPASS_CANONICALIZATION)
     return GlobalCacheKeyResult(
