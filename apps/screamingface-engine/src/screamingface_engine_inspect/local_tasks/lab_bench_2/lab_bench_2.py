@@ -35,6 +35,8 @@ References:
 from __future__ import annotations
 
 import ast
+import base64
+import io
 from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any, Final
@@ -55,6 +57,7 @@ from screamingface_engine_inspect.local_tasks.lab_bench_2.vendor.labbench2 impor
     STRUCTURED_EVALUATION_PROMPT_EXACT_MATCH,
     file_mode_question,
 )
+from screamingface_engine_inspect.picture_input import MAX_PICTURE_BASE64_BYTES
 
 # ── pins ───────────────────────────────────────────────────────────────────────────────────
 DATASET: Final[str] = "EdisonScientific/labbench2"
@@ -75,6 +78,28 @@ JUDGE_MODEL: Final[str] = "screamingface/openrouter/anthropic/claude-sonnet-4.5"
 #: The score of each verdict, the authors' ``LLMJudgeEvaluator``: only correct earns the mark.
 CORRECT_SCORE: Final[float] = 1.0
 NOT_CORRECT_SCORE: Final[float] = 0.0
+
+# NAMED DEVIATION (OME-1970, owner 2026-11-26): two FigQA2 image figures re-sent as lossless WebP.
+#: The Cases whose figure is over the hosts' picture floor (5,242,880 bytes of base64, which
+#: Bedrock counts; OpenRouter can pick Bedrock for any Claude call), by Case number, each with
+#: the dataset's own id so a re-ordered dataset cannot shrink the wrong figure. Measured
+#: 25 Nov 2026: Case 4 is 4184 × 4834 px, 4,147,650 bytes of PNG, 5,530,200 of base64; Case 82
+#: is 3156 × 3119 px, 4,109,792 bytes of PNG, 5,479,724 of base64. Re-saved as lossless WebP
+#: they take 3,578,520 and 4,031,124 bytes of base64 with every pixel kept, so the only change
+#: the Candidate sees is the file format (HLE and MathVista already send WebP). WHY not shrink
+#: the pixels: a smaller PNG is not smaller here (5% fewer pixels gave 10.4 MB, noisier to
+#: compress), and lossless keeps the authors' exam. The published revision holds (owner,
+#: 2026-11-26: no stored runs on this Benchmark yet).
+FITTED_TO_THE_PICTURE_FLOOR: Final[Mapping[str, Mapping[int, str]]] = {
+    "figqa2-img": {
+        4: "882b5ff3-83b4-4e64-a7d3-88af1476cfa0-img",
+        82: "13ad1153-33c0-48c3-8e5c-d47688280aaa-img",
+    }
+}
+#: libwebp's slowest, tightest lossless effort; WHY fixed: the bytes are sealed in the Case
+#: Digest, so the encoder settings must never drift with a default.
+_WEBP_LOSSLESS_METHOD: Final[int] = 6
+_WEBP_LOSSLESS_QUALITY: Final[int] = 100
 
 
 class LabBench2RowError(ValueError):
@@ -107,6 +132,7 @@ def record_to_sample(
     row: Mapping[str, Any],
     case_id: int,
     fetch: Callable[[str], list[Path]] = fetch_question_files,
+    fitted: Mapping[int, str] | None = None,
 ) -> Sample:
     """One dataset row → the authors' file-mode message: the question text, then its picture.
 
@@ -125,10 +151,13 @@ def record_to_sample(
         row: one dataset row.
         case_id: the Case's 1-based position in the config.
         fetch: files prefix → local files (the tests pass a fake; the build fetches).
+        fitted: Case number → dataset id of the Cases whose figure is re-sent as lossless
+            WebP to fit the hosts' picture floor (:data:`FITTED_TO_THE_PICTURE_FLOOR`).
 
     Raises:
         LabBench2RowError: the row lacks a question, an ideal answer or a files prefix, is not
-            served in file mode, or its prefix holds a file that is not a picture.
+            served in file mode, or its prefix holds a file that is not a picture; or a fitted
+            Case's row has another dataset id, or its figure fits already or cannot fit.
     """
 
     question: str = _required_text(row, "question", case_id)
@@ -149,13 +178,24 @@ def record_to_sample(
             f"{sorted(path.name for path in files)}"
         )
     text: str = file_mode_question(question, [path.name for path in files], suffix)
+    images: list[str] = [str(path) for path in pictures]
+    expected_id: str | None = (fitted or {}).get(case_id)
+    if expected_id is not None:
+        dataset_id: str = _required_text(row, "id", case_id)
+        # INVARIANT: shrink only the figure the deviation names, by number AND dataset id.
+        if dataset_id != expected_id:
+            raise LabBench2RowError(
+                f"case {case_id}: listed to fit the picture floor as {expected_id!r}, but the "
+                f"row is {dataset_id!r}"
+            )
+        images = [_fitted_picture(path, case_id) for path in pictures]
     return Sample(
         id=case_id,
         input=[
             ChatMessageUser(
                 content=[
                     ContentText(text=text),
-                    *(ContentImage(image=str(path)) for path in pictures),
+                    *(ContentImage(image=image) for image in images),
                 ]
             )
         ],
@@ -170,6 +210,55 @@ def record_to_sample(
 
 #: The picture file types the authors' harness attaches as images (``evals/utils.py``).
 _PICTURE_SUFFIXES: Final[frozenset[str]] = frozenset({".png", ".jpg", ".jpeg"})
+
+
+def _fitted_picture(path: Path, case_id: int) -> str:
+    """One figure over the hosts' picture floor, re-sent as lossless WebP: same pixels, smaller.
+
+    Think of it as re-zipping a file with a better zip: every pixel comes back identical, only
+    the container changes. Stages, in execution order:
+
+    1. Measure the figure as the Case would carry it: its base64 text. If that already fits
+       :data:`MAX_PICTURE_BASE64_BYTES`, the deviation is stale and the build fails.
+    2. Re-encode with libwebp's lossless coder at fixed settings (they are sealed in the Case
+       Digest through the bytes they produce).
+    3. If the WebP's base64 still does not fit, the build fails: shrinking pixels would be a
+       new deviation for the owner to decide, never a silent fallback.
+
+    Worked example, Case 4: PNG 4,147,650 bytes → 5,530,200 of base64, over 5,242,880 →
+    WebP 2,683,890 bytes → 3,578,520 of base64, which fits → ``data:image/webp;base64,…``.
+    """
+
+    # WHY import here: Pillow comes with the `inspect` extra, not the extra-less install the
+    # typecheck gate reads this module in.
+    from PIL import Image
+
+    # Stage 1 — over the floor as sent?
+    original: bytes = path.read_bytes()
+    original_size: int = len(base64.b64encode(original))
+    if original_size <= MAX_PICTURE_BASE64_BYTES:
+        raise LabBench2RowError(
+            f"case {case_id}: the figure already fits the picture floor ({original_size:,} bytes "
+            f"as base64, at most {MAX_PICTURE_BASE64_BYTES:,}); drop it from the fitted list"
+        )
+    # Stage 2 — lossless WebP at fixed settings.
+    buffer: io.BytesIO = io.BytesIO()
+    with Image.open(path) as picture:
+        picture.save(
+            buffer,
+            format="WEBP",
+            lossless=True,
+            quality=_WEBP_LOSSLESS_QUALITY,
+            method=_WEBP_LOSSLESS_METHOD,
+        )
+    encoded: str = base64.b64encode(buffer.getvalue()).decode("ascii")
+    # Stage 3 — it must now fit.
+    if len(encoded) > MAX_PICTURE_BASE64_BYTES:
+        raise LabBench2RowError(
+            f"case {case_id}: lossless WebP is {len(encoded):,} bytes as base64, still over "
+            f"the picture floor of {MAX_PICTURE_BASE64_BYTES:,}"
+        )
+    return f"data:image/webp;base64,{encoded}"
 
 
 def _required_text(row: Mapping[str, Any], field: str, case_id: int) -> str:
@@ -286,8 +375,10 @@ def lab_bench_2_exact_match(judge_model: str = JUDGE_MODEL) -> Scorer:
 def _task(tag: str) -> Task:
     """One picture config as a Task: its rows in file order, one generate, the judge."""
 
+    fitted: Mapping[int, str] = FITTED_TO_THE_PICTURE_FLOOR.get(tag, {})
     samples: list[Sample] = [
-        record_to_sample(row, case_id) for case_id, row in enumerate(load_rows(tag), start=1)
+        record_to_sample(row, case_id, fitted=fitted)
+        for case_id, row in enumerate(load_rows(tag), start=1)
     ]
     return Task(
         dataset=MemoryDataset(samples=samples, name=f"lab_bench_2_{tag.replace('-', '_')}"),

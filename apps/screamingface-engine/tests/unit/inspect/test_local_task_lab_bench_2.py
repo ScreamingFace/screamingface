@@ -49,6 +49,7 @@ from inspect_ai.model import (  # noqa: E402
 )
 from inspect_ai.scorer import Score, Target  # noqa: E402
 from inspect_ai.solver import TaskState  # noqa: E402
+from PIL import Image  # noqa: E402
 
 from screamingface_engine_inspect.judge_redraw import JudgeReplyUnparseable  # noqa: E402
 from screamingface_engine_inspect.local_tasks.lab_bench_2 import (  # noqa: E402
@@ -424,6 +425,115 @@ def test_the_loader_pins_the_revision_and_refuses_a_wrong_size(
         (DATASET, "tableqa2-img"),
         {"split": "train", "revision": DATASET_REVISION},
     )
+
+
+# ── the two figures fitted to the hosts' picture floor (OME-1970) ───────────────────────────
+# STORY: Bedrock refuses a picture over 5,242,880 bytes of base64; FigQA2 image Cases 4 and 82
+# are 5,530,200 and 5,479,724. Re-saved as lossless WebP, every pixel is kept and each fits.
+
+
+def _gradient_png(path: Path) -> Path:
+    """A smooth 256 × 256 RGB picture as PNG: WebP's lossless coder packs it far tighter."""
+
+    picture = Image.new("RGB", (256, 256))
+    picture.putdata([(x, y, (x + y) % 256) for y in range(256) for x in range(256)])
+    picture.save(path, format="PNG")
+    return path
+
+
+def _b64_size(path: Path) -> int:
+    """The bytes a file takes as base64 text, the size Bedrock counts."""
+
+    return len(base64.b64encode(path.read_bytes()))
+
+
+def test_the_fitted_cases_are_figqa2s_cases_4_and_82_by_dataset_id() -> None:
+    # INVARIANT: the deviation names each Case twice, by number and by the dataset's own id,
+    # so a re-ordered dataset cannot shrink the wrong figure. TableQA2 has none.
+    assert lab_bench_2.FITTED_TO_THE_PICTURE_FLOOR == {
+        "figqa2-img": {
+            4: "882b5ff3-83b4-4e64-a7d3-88af1476cfa0-img",
+            82: "13ad1153-33c0-48c3-8e5c-d47688280aaa-img",
+        }
+    }
+
+
+def test_a_listed_figure_is_resent_as_lossless_webp_with_every_pixel_kept(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    png: Path = _gradient_png(tmp_path / "figure.png")
+    # WHY patch the floor: the real figures are 4 MB; a 256-px stand-in over a lowered floor
+    # takes the same path. One byte under the PNG's base64 size makes the PNG "over".
+    monkeypatch.setattr(lab_bench_2, "MAX_PICTURE_BASE64_BYTES", _b64_size(png) - 1)
+
+    sample = record_to_sample(
+        _row(id="fitted-row"),
+        case_id=4,
+        fetch=lambda prefix: [png],
+        fitted={4: "fitted-row"},
+    )
+
+    assert isinstance(sample.input, list)
+    message = sample.input[0]
+    assert isinstance(message.content, list)
+    text, picture = message.content
+    assert isinstance(text, ContentText) and isinstance(picture, ContentImage)
+    # The Candidate still reads the authors' text, naming the file as they do.
+    assert "Attached files:\n- figure.png" in text.text
+    header, _, payload = picture.image.partition(",")
+    assert header == "data:image/webp;base64"
+    assert len(payload) <= lab_bench_2.MAX_PICTURE_BASE64_BYTES
+    with Image.open(io.BytesIO(base64.b64decode(payload))) as fitted, Image.open(png) as source:
+        assert fitted.size == source.size
+        assert fitted.convert("RGB").tobytes() == source.convert("RGB").tobytes()
+
+
+def test_an_unlisted_figure_keeps_its_file(tmp_path: Path) -> None:
+    sample = record_to_sample(
+        _row(), case_id=5, fetch=_fetch_into(tmp_path), fitted={4: "fitted-row"}
+    )
+
+    assert isinstance(sample.input, list)
+    message = sample.input[0]
+    assert isinstance(message.content, list)
+    assert message.content[1] == ContentImage(image=str(tmp_path / "figure.png"))
+
+
+def test_a_listed_case_with_another_dataset_id_fails_the_build(tmp_path: Path) -> None:
+    # INVARIANT: the dataset moved under the pin (or the list is wrong); never shrink a figure
+    # the deviation did not name.
+    with pytest.raises(LabBench2RowError, match="case 4: listed to fit the picture floor as"):
+        record_to_sample(
+            _row(id="another-row"),
+            case_id=4,
+            fetch=_fetch_into(tmp_path),
+            fitted={4: "fitted-row"},
+        )
+
+
+def test_a_listed_figure_already_under_the_floor_fails_the_build(tmp_path: Path) -> None:
+    # INVARIANT: a deviation that no longer changes anything is stale; the build says so
+    # rather than re-encoding a figure that fits as it is.
+    png: Path = _gradient_png(tmp_path / "figure.png")
+
+    with pytest.raises(LabBench2RowError, match="case 4: the figure already fits"):
+        record_to_sample(
+            _row(id="fitted-row"), case_id=4, fetch=lambda prefix: [png], fitted={4: "fitted-row"}
+        )
+
+
+def test_a_figure_lossless_webp_cannot_fit_fails_the_build(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # WHY refuse and not downscale: shrinking pixels is a new deviation for the owner to
+    # decide, never a silent fallback.
+    png: Path = _gradient_png(tmp_path / "figure.png")
+    monkeypatch.setattr(lab_bench_2, "MAX_PICTURE_BASE64_BYTES", 100)
+
+    with pytest.raises(LabBench2RowError, match="case 4: lossless WebP is .* still over"):
+        record_to_sample(
+            _row(id="fitted-row"), case_id=4, fetch=lambda prefix: [png], fitted={4: "fitted-row"}
+        )
 
 
 # ── the judge ───────────────────────────────────────────────────────────────────────────────
