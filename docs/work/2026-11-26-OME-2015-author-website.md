@@ -98,6 +98,6 @@ Filip himself, before the commit that includes them.
   - `apps/scoreboard/tests/unit/scores/test_credit_metadata.py` — new `website` validation + masking cases (pure additions).
   - `apps/scoreboard/tests/unit/test_multiple_authors.py` — 3 owner-approved edits + 1 new end-to-end test (pure addition).
   - `apps/scoreboard/tests/unit/test_credit_metadata_review_round2.py` — 1 proposed edit (pending confirmation alongside the three).
-- **Commits:** none yet — held pending `.claude/test-change-approvals/OME-2015.json`.
+- **Commits:** `5f7e16a90` feat(scoreboard): let authors link a personal website on the leaderboard
 - **Gates:** `pytest --cov=scoreboard --cov-fail-under=80`: 2385 passed, 145 skipped, 92.80% coverage. `ruff check` / `ruff format --check`: clean. `pyright`: 0 errors. Full portal `node --test` gate line (incl. `format-authors.test.js`): 276 passed. All other portal test files individually green.
 - **Deviations:** none from the approved plan beyond the 4th test-edit discovery and the fragment→span redesign, both recorded above.
