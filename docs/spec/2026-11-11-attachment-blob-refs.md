@@ -105,8 +105,32 @@ An attachment is one content part, in the same position F2 puts inline parts tod
 - `x_size` is the decoded size. The gateway uses it for admission (5.5) before resolving, and
   refuses the request if the stored file's size differs (amended 2026-11-26: the gateway reads
   the file from its own store, 5.4, not from a fetch).
-- Names prefixed `x_` are a placeholder for the builder to settle with the gateway's part
-  parser; the fields themselves are the contract.
+
+(Built 2026-11-26, OME-1970 PR 5; this replaces "names prefixed `x_` are a placeholder".) The
+shape above is the contract, field names included:
+
+- A part is a reference when its `image_url.url` or `file.file_data` is a string starting
+  `blob:`. Everything else about the part grammar is the inline part's, so every admission check
+  that judges an inline part (the data:-only guard, each provider's role and file policy, the
+  modality backstop by part type) judges a reference part the same way.
+- The shape is closed: exactly 64 lowercase hex characters; `x_media_type` `image/*` on an
+  `image_url` part and `application/pdf` on a `file` part, as an inline part's MIME must be;
+  `x_size` a positive integer; no key beyond those shown (`image_url` holds only `url` and
+  `detail`, `file` only `file_data` and `filename`). Anything else is the 422
+  `unsupported_content_part`. WHY closed: any other key would ride to the provider beside the
+  file, and change the cache key away from the inline request's (5.7).
+- `x_media_type` must equal the type the upload read from the file's leading bytes, and
+  `x_size` its decoded size; a difference is the 422 `unsupported_content_part`
+  (`blob_reference_mismatch`). The cache key and the provider request use the stored type, so
+  `data:image/png;base64,` in the key is the spelling the Engine's own seal writes inline (both
+  sides name the type from the same leading-byte signatures).
+- A streaming request with a reference is refused with the 422 `unsupported_content_part`
+  (`blob_reference_streaming`): a stream has no cache entry or frozen copy to share.
+- Inside the upstream slot, before the first attempt, each reference part becomes the inline
+  part: the same part without `x_media_type` and `x_size`, with
+  `data:<stored type>;base64,<stored base64>` where the reference stood. The provider and every
+  adapter see exactly today's inline request; an adapter that meets a reference refuses it
+  (`unresolved_blob_reference`).
 
 ### 5.3 The upload (engine to gateway)
 
@@ -208,19 +232,26 @@ gateway on port 9105, so an upload needs no new network rule, no grant and no ne
 - The gateway hashes the whole file again on every call that references it, about 45 ms for an
   18 MB PDF (extrapolated from 18.7 ms for 8 MB, not measured), off the event loop. Accepted so
   that no cached answer is lost.
-- A frozen-copy entry stores the request in reference form, with no token. Replay is served from
-  the copy and never resolves the reference, so a dropped file does not break replay.
+- A frozen-copy entry stores the request in reference form (each part as its inline shape with
+  `blob:sha256/<hex>` where the file stood, no `x_` fields), with no token, so a row stays a few
+  KB. Its digest is the inline request's. (Amended 2026-11-26, OME-1970 PR 5.) Replay of a
+  reference request computes that digest from the file too, so the replaying run must hold each
+  file under its own token, as a live call must; a missing one is `blob_unknown`, and the
+  engine uploads it again. A replay never calls a provider.
+- The scope check (5.4) runs before both lookups. The key is computed in a worker thread, which
+  reads the file store under its lock.
 
 ### 5.8 Errors
 
 | Code | Where | Permanent | When |
 | --- | --- | --- | --- |
-| `unsupported_content_part` (existing, 422) | gateway | yes | reference part malformed |
+| `unsupported_content_part` (existing, 422) | gateway | yes | reference part malformed, its type or size differs from the stored file, or sent on a stream (5.2) |
 | `invalid_request` (existing, 400) | gateway upload | yes | malformed digest in the path, or no usable run token |
 | `blob_digest_mismatch` (new, 422) | gateway upload | yes | uploaded bytes do not hash to the digest in the path |
 | `blob_too_large` (new, 413) | gateway upload | yes | file over 15,000,000 bytes |
 | `blob_unsupported_media_type` (new, 415) | gateway upload | yes | leading bytes are none of png, jpeg, gif, webp, pdf |
-| `x.blob_unknown` (new, engine) | engine, from the gateway's "unknown file" answer (its gateway code is named with the reference parts, OME-1970 PR 5) | no | the gateway does not hold the file for this run's scope; the engine uploads again (OME-1970 PR 8) |
+| `blob_unknown` (new, 503) | gateway chat and frozen-copy replay | no | the gateway does not hold the file for this run's scope (another run's token, no token, never uploaded, dropped, a restart); answered before the cache lookup, or inside the upstream slot, never after upstream spend; never captured into a frozen copy |
+| `x.blob_unknown` (new, engine) | engine, from the gateway's `blob_unknown` | no | the engine uploads again and repeats the call once (OME-1970 PR 8) |
 | `request_too_large` (existing, 413) | gateway | yes | resolved attachments larger than the whole byte budget |
 
 (Amended 2026-11-26.) The grant codes are gone with the grant. The gateway spells its codes as
