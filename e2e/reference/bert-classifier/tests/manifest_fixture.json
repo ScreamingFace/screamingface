@@ -1,0 +1,28 @@
+{
+  "schema": "screamingface.bert-reference-artifacts.v1",
+  "model": "distilbert/distilbert-base-uncased-finetuned-sst-2-english",
+  "revision": "714eb0fa89d2f80546fda750413ed43d93601a13",
+  "license": "Apache-2.0",
+  "files": [
+    {
+      "path": "config.json",
+      "size_bytes": 2,
+      "sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+    },
+    {
+      "path": "model.safetensors",
+      "size_bytes": 4,
+      "sha256": "9f2e6d33a3717ee826353a404ba4618d1aeeb6879ad7936bce8ed5f46814924d"
+    },
+    {
+      "path": "tokenizer_config.json",
+      "size_bytes": 2,
+      "sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+    },
+    {
+      "path": "vocab.txt",
+      "size_bytes": 3,
+      "sha256": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+    }
+  ]
+}
