@@ -459,23 +459,51 @@ They are recorded, never added.
 
 | Side | Change |
 |---|---|
-| Gateway store | `EntryKind` adds `"classify"` (`core/frozen_copy/store.py:42`); `kind` is `max_length=8` (`core/frozen_copy/models.py:67`), so no migration |
-| Gateway digest | `canonical_digest({"kind": "classify", "request": {model, input}, "binding": b[, "attempt": a]})`; as for chat, Attempt 1 adds no `attempt` key (`core/frozen_copy/store.py:55-65`) |
+| Gateway store | `EntryKind` adds `"classify"` (`core/frozen_copy/store.py:44`); `FrozenCopyEntry.kind` is `max_length=8` (`core/frozen_copy/models.py:81`), so no migration |
+| Gateway digest | `canonical_digest({"kind": "classify", "request": {model, input}, "binding": b[, "attempt": a]})`; as for chat, Attempt 1 adds no `attempt` key (`request_digest`, `core/frozen_copy/store.py:65-75`) |
 | Headers | Existing `X-AIGW-Frozen-Copy`, `X-AIGW-Case-Key`, `X-AIGW-Call-Occurrence`; new `X-AIGW-Call-Binding` (`router_N`) and `X-AIGW-Call-Attempt` (an integer from 2, absent for Attempt 1), accepted only on capture and replay classify calls |
-| Capture | Stores the request `{model, input}` as received, the response JSON as returned or the error status and body, and the available usage and cost (`null` today: classification has no usage accounting). Never a credential. The capture run's own attempt counts live in its stored C5, not in the entry |
-| Replay | `POST /v1/frozen-copies/{id}/classifications`, sealed copy only, no plugin or credential, same caller auth and lookup as chat replay (`routes/frozen_copies.py:136-141`, `_sealed_copy` at `:94`); returns the recorded body and status with `X-AIGW-Upstream-Attempts: 0` |
+| Capture | Same copy-write authority as chat. Stores the pre-credential `{model, input}`, recorded status and response JSON or error, and only Gateway-authored accounting when available. The capture run's attempt counts live in its C5, not the entry |
+| Replay | `POST /v1/frozen-copies/{id}/classifications`, sealed copy only, same caller auth and resolver as chat replay; no plugin, Connection, credential or live fallback. Keep recorded status and body fields and use the replay-only `_aigw` sibling below. The existing C7 middleware supplies `X-AIGW-Upstream-Attempts: 0` |
 | Engine lane | `Lane` adds `"classify"` (`capture_outcomes.py:24`); `digest` is the same canonical `{kind, request, binding[, attempt]}` preimage as the Gateway digest, and the occurrence key is `(case_key, "classify", digest)` |
 
 The entry is keyed by kind, case key, Router binding, occurrence, attempt and request digest, exactly
 as `engine/router-execution.md:371-378` lists. Neither the definition revision nor the policy is a
 per-call field (`:383-385`). LLMClassifier and RegexClassifier evidence and every branch call replay
 through their ordinary chat entries (`:371-372`); a call the copy does not hold misses as today
-(`frozen_copy_miss`, `routes/frozen_copies.py:84-91`). Identical classifier requests in different
-occurrences or attempts stay distinct. A replayed classification is free; an unknown captured price
-stays unknown, so a budgeted Router takes the same decisions live and replayed. A captured cost, when
-one exists, returns on replay as `cache.reference` through the mapping chat replay uses
-(`routes/frozen_copies.py:113-133`); Unit 6 pins the classification response carrier here before code.
-Today the captured cost is `null`.
+(`frozen_copy_miss` from `_miss`, `routes/frozen_copies.py:151-158`). Identical requests in different
+occurrences or attempts stay distinct. Assign a zero-based slot at first send; resends of the same
+logical call reuse it. Validate the call key at ingress before dispatch; build the digest before
+credentials are injected. No revision, cost, media lookup or auth material enters the key.
+
+On a replay hit or recorded error, retain the classification fields or error `detail` and add a
+Gateway-authored top-level `_aigw` sibling using `_replay_metadata` (`routes/frozen_copies.py:180-200`). It marks
+`frozen_copy_replay=true`, `usage_accounting.cache.status="hit"`,
+`request_economics.direct_cost_status="not_applicable"`, `usage_accounting.observed_attempts=0`
+and `request_economics.observed_new_attempts=0`, as in `render_aigw_metadata`
+(`plugins/taxonomy/render.py:216-249`). The Engine's `_usd_from_direct_cost_status`
+(`world/accounting.py:292-303`) reads the economics status with the cache hit and recognizes zero
+direct spend.
+
+Replay of a recorded error uses `_replay_metadata()` without captured metadata, as chat does
+(`replay_chat_completions`, `routes/frozen_copies.py:231-244`):
+`_aigw.usage_accounting.cache.reference` is explicitly `null`. Preserve supported recorded error
+headers, such as `Retry-After`. Misses and availability, auth or key-validation refusals are not
+recorded errors. For a successful recorded result, project any price only through
+`cache_reference_from_captured_aigw` (`plugins/taxonomy/entry_metadata.py:362-379`), which takes
+validated Gateway-authored accounting from a captured hit or a successful attempt. Neither provider
+response fields nor a new estimate can supply it. An absent or malformed price is unknown (`null`
+in Engine evidence), distinct from a measured zero. Current classification has no measured usage
+or price, so its reference is `null` today. The Router transport reads metadata separately from
+score/error projection. The public scalar response remains unchanged.
+
+**Gateway integration hold:** before implementing capture/replay, reconcile the final shared
+sealed-copy resolver with #1921 and store/digest changes with #2068/#2069 on one reviewed base.
+Honor the final chat resolver's unavailability and expiry behavior for provenance and classify;
+do not assume the open expiry PR's 410 is on main. C9 adds no retention clock, migration or cache
+revision and has no independent sweep. Keep the compatible replay reader for the lifetime of
+retained Router copies even after capability withdrawal. Deploy the classify lookup and replay
+reader and strict Engine decoder before enabling capture insertion. Preserve chat/tool keys and
+retention.
 
 Classification capture reuses chat capture's lost-reply completeness rule: the same probe marks a
 possibly sent request whose reply was lost as an `ambiguous` `CaptureOutcome` in lane `classify`.
@@ -508,7 +536,7 @@ cannot share an occurrence stream when their classifier bodies are equal.
   the intent, a prepared `D` through the Router-input reader (C14), which reads, verifies and decodes
   the source once. It recomputes each revision from that `D` (C3) and binds the frozen set
   `{router_N: (revision, D)}` for the run, as `run_expression_scope` binds the run's own expression
-  (`benchmarks/picture_admission.py:147`, entered at `runner/executor.py:1174`). This is the "read,
+  (`benchmarks/picture_admission.py:158`, entered at `runner/executor.py:1281`). This is the "read,
   verify and freeze" step of `engine/routing-inputs.md:35`, done once per run: ADMIT takes a prepared
   `D` from the set and never reads the source, so a source changed after the run starts cannot reach
   it. The step refuses the run before `url4_run`, with no Router record, when a prepared source cannot
@@ -521,14 +549,14 @@ cannot share an occurrence stream when their classifier bodies are equal.
   from the declared `revision`, so a prepared source that changed since capture gives a different
   manifest even when the expression still declares the captured revision. The same function runs at
   capture and at replay.
-- **Capture.** `seal_frozen_copy` (`world/connector.py:697-713`) sends
+- **Capture.** `seal_frozen_copy` (`world/connector.py:477-500`) sends
   `{"provenance": {"engine_version": v, "routers": <manifest>}}`; `routers` only when the manifest is
   non-empty.
-- **Gateway reader, deployed first.** `Provenance` (`routes/frozen_copies.py:56-61`, `extra="forbid"`)
+- **Gateway reader, deployed first.** `Provenance` (`routes/frozen_copies.py:79-91`, `extra="forbid"`)
   gains optional `routers`: 1-256 strict `{binding, revision}` entries, `binding` matching
   `router_[0-9]+`, `revision` matching `sha256:[0-9a-f]{64}`. `FrozenCopyStore.seal` widens its
-  `provenance` type from `dict[str, str]` (`core/frozen_copy/store.py:119-142`); the column is a JSON
-  field, so no migration (`core/frozen_copy/models.py:42-43`). A new read route
+  `provenance` type from `dict[str, str]` (`core/frozen_copy/store.py:129-152`); the column is a JSON
+  field, so no migration (`core/frozen_copy/models.py:49-51`). A new read route
   `GET /v1/frozen-copies/{copy_id}/provenance` returns `{"engine_version": str | null, "routers": [...]}`
   (`[]` when the seal sent none), for a sealed copy only through `_sealed_copy`, with the chat replay
   route's caller auth. The route publishes that strict response schema as a closed record
@@ -540,7 +568,7 @@ cannot share an occurrence stream when their classifier bodies are equal.
   the writer waits for the reader (C12).
 - **Check.** In a replay run with a non-empty manifest, the executor reads that provenance after
   resolving the run definition set and before `url4_run`, beside the capture branch of
-  `_evaluate_in_copy` (`runner/executor.py:1138-1160`), and compares the lists exactly. Unequal
+  `_evaluate_in_copy` (`runner/executor.py:1241-1264`), and compares the lists exactly. Unequal
   lists, or a copy sealed without `routers`, fail the run `frozen_copy_miss` before any replayed or
   live operation; an unknown or open copy fails `frozen_copy_unavailable`. Both are
   existing Engine codes (`error_text.py:64`). A replay run with an empty manifest sends no extra

@@ -36,8 +36,10 @@ inline entry is therefore one Engine adapter shaped like Candidate Invocation
   refusal re-raised unchanged by ADMIT (C4); an adapter contract error; a published record missing;
   deadline, cancellation and other control-plane endings. Their code/message projection and preserved
   permanence continue through `_sanitized_error`; the blind-route refusal keeps public `intent_error`.
-- Unit 6 pins the adapter's case key and occurrence numbering for capture and replay here before code,
-  within the existing Gateway call-key rules (`core/frozen_copy/headers.py:45-57`).
+- An inline invocation has no Benchmark Case: use `case_key=""` and omit `X-AIGW-Case-Key`
+  in capture and replay, including for a prepared question. Number logical calls from zero in
+  the run-local tally per `(case_key, lane, digest)` at first send (C9); a resend keeps its slot.
+  Do not derive a key from a run ID, question or input reference. Benchmark keys are unchanged.
 
 ### Envelope `router-answer.v1`
 
@@ -57,6 +59,10 @@ inline entry is therefore one Engine adapter shaped like Candidate Invocation
 | `failed` | `null` | `null` | `decision.failure` plus `may_have_billed` |
 
 - `status` always equals `decision.status`; every other combination is a decode error.
+- Dispatch the decoder from the selected Client overload, then check the exact closed
+  `contract="router-answer.v1"` and its `status` variant. Reject duplicate keys or a projection
+  inconsistent with C5, including a failed envelope not matching `decision.failure`. An answered
+  empty string is not an abstention. Deploy this reader before enabling the new writer.
 - On failed `input` and `admit` envelopes, `decision.revision`, `decision.revision_scheme` and
   `decision.policy` are all null (C5). Other envelopes retain the admitted identity.
 - `failure.code` is the failing operation's bounded code (a Router code, `aigateway_http_<status>`,
@@ -80,6 +86,8 @@ Python signature keeps the pilot's parameter names (`profile`, `input`, pilot `c
 `classify(model, input)` (`client.py:543`) already does for `classifier_id, text`, so pilot keyword
 calls keep working. `router=` and `question=` are not keywords and raise `TypeError`. A `str` keeps
 the pilot mount and `RoutedAnswer` unchanged.
+These signatures cover inline text. The C14 input leaf alone widens the Router overload to accept
+`str | PreparedRouterQuestion`, subject to that leaf's approval and capability gate.
 
 `sf.RouterAnswer` is the strict decoding of an `answered` or `abstained` envelope, and of nothing
 else: every field comes from the envelope, which carries the selected Model IDs in its C5 record, so
@@ -99,17 +107,18 @@ the decoder needs neither the authored Router nor a stored definition.
 | `revision`, `revision_scheme` | `str` | `decision` |
 | `run_id` | `str` | run lifecycle |
 
-Failure mapping; Unit 6 names the classes inside the existing SDK error hierarchy:
+Failure mapping inside the existing SDK error hierarchy:
 
 | Case | Result | `may_have_billed` |
 |---|---|---|
-| Capability, shape, size or catalog refusal before `POST /runs` | Planning-time error, no run | `False` |
-| Envelope `failed` | Router execution error with `phase`, `code`, `run_id` | envelope value |
-| Terminal run failure without an envelope | Existing run error with the `_sanitized_error` code and `permanent` | `True` |
+| Capability, shape, size or catalog refusal before `POST /runs` | `PlanningError` or its `EngineCapabilityError` subtype, no run | `False` |
+| Envelope `failed` | `RouterExecutionError(ExecutionError)` with `phase`, `code`, `run_id`, `may_have_billed` | envelope value |
+| Terminal run failure without an envelope | Existing `ExecutionError` with the `_sanitized_error` code and `permanent` | `True` |
 | Lost start acknowledgment or interrupted stream | Same-run recovery where supported, else the run error | `True` |
-| Completed result fetch failure, or an envelope that fails strict decoding | Result decode error; no rerun | `True` |
+| Completed result fetch failure, or an envelope that fails strict decoding | `RouterResultError(ExecutionError)` with `run_id`, a stable fetch/decode code and `may_have_billed`; no rerun | `True` |
 
-The direct mount's status and retry table is not reused.
+The direct mount's status and retry table is not reused. Approve the exact SDK exports and
+fetch/decode diagnostic code transitions with the public-surface snapshot before the SDK writer.
 
 ## C17 — Engine classifier catalog `GET /v1/classifiers` (Unit 5.2)
 

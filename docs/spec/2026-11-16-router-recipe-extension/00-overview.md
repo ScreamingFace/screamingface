@@ -219,11 +219,11 @@ not C18 placement.
 |---|---|---|
 | Epic | OME-1306 | Open |
 | Pilot Engine and SDK | OME-1822, OME-1823 | Open; landing needs separate authorization |
-| E4c capability advertised by the Engine | OME-1921 (parent OME-1291) | Backlog, assigned outside this work |
-| SDK refusal before the first paid call on an Engine without E4c | OME-1922 (parent OME-1291) | Backlog, `blocked` |
+| E4c capability advertised by the Engine | OME-1921 (parent OME-1291) | Closed without a discovery landing |
+| SDK refusal before the first paid call on an Engine without E4c | OME-1922 (parent OME-1291) | Closed without a reader landing |
 
-OME-1921 and OME-1922 define the capability path C12 extends. Unit 6 SDK writers cannot emit Router
-IR before that path exists; coordinate with their owner before Unit 6. New leaves are filed at
+Unit 6 delivers the C12 fallback capability path. Unit 6 SDK writers wait for the deployed readers
+and capability activation defined there. New leaves are filed at
 PR-open, one per landing (`app/aigateway`, `app/screamingface-engine`, `pkg/client-sf`, and
 `pkg/url4-sdk` for the url4 leaf), under OME-1306, after user confirmation. This spec files nothing.
 
@@ -237,27 +237,30 @@ the changed fragment: Unit 5.1 amends C7 (`contracts-replay.md`), the url4 leaf 
 decision appears before code that neither this spec nor the plan covers, or when a Unit 6, 7 or 8
 storage, API, IR or serving decision cannot be stated unambiguously here.
 
-- Unit 5.1: pinned in C7, the question ID `choice`, the common Laya and Jev request, the native
-  response checks, the target config keys for `limits` and the refusal code `classifier_limit_exceeded`.
-- Unit 5.2 (**amendment pending owner approval**): C2/C3 pin dynamic-profile configuration and
+- Unit 5.1: C7 pins the question ID `choice`, the common Laya and Jev request, the native response
+  checks, the target config keys for `limits` and the refusal code `classifier_limit_exceeded`.
+  The packaged SDK runtime attempt proof landed in #2077 (`1cb41a12e`).
+- Unit 5.2 (contract landed in #2079, `4efb34bc6`): C2/C3 pin dynamic-profile configuration and
   revision identity; C4/C6 pin the shared Engine boundary and the shipped fixed-profile error
   split; C4/C5 pin JOIN's input, the strict draft and early-failure identity; C8 pins direct-entry
   attempt observation; C16/C17 pin classifier discovery freshness, membership and read bounds.
-  Approve these clauses and complete the Unit 5.1 SDK runtime proof before implementing Unit 5.2.
-- Unit 6: url4 text of the panel body; the inline adapter's case key and occurrence numbering;
-  inline error class names; the measured root GET limit and question bound; the prepared-input API,
-  storage, retention, cleanup, multi-definition layout and reader codecs; the capability endpoint if
-  OME-1921 has settled a different one.
+  The Engine runtime implementation is a separate leaf.
+- Unit 6 (**amendment pending owner approval**): C9 pins the replay accounting carrier; C12 pins
+  dormant discovery, readiness and withdrawal; C13 pins inline identity and decoding; C10/C15 and
+  the test plan pin reader transitions. C4's exact rendered panel waits on goldens against the
+  landed Unit 5.2 reader. The C9/C12 integration bases, C14 storage/lifetime decision and C16
+  measured target limit must be resolved before the affected code. Keep C12 dormant until its
+  separately qualified activation.
 - url4 leaf: pinned in C19, the `url4.src` keyword `at_most_one=` and the two-plus failure code
   `x.expansion_too_many`.
 - Unit 7: placement refusal messages; the forms C18 leaves open (the member read, its route and the
   marked member slot, the Pipeline gate, a Router as a panel Gate's decision call in the IR, the
   report view of that Gate).
-- Unit 8A (**amendment pending owner approval**): the checkpoint, artifact and serving boundary,
+- Unit 8A (contract landed in #2082, `99072d273`): the checkpoint, artifact and serving boundary,
   native scalar wire, labels, token budget and refusal are pinned in the
   [C7 fixed-label reference](contracts-replay.md#fixed-label-reference-unit-8a). The isolated
-  lock and consumed-file inventory are verified before implementation against the selected runtime.
-  Checkpoint provisioning and real model qualification require separate approval.
+  implementation and its runtime/lock checks are a separate leaf. Checkpoint provisioning and
+  real model qualification require separate approval.
 - Unit 9: the hosted window, intermediary URL limits and mixed App/worker characterization.
 
 ## 10. Documents
