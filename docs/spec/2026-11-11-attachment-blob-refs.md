@@ -4,6 +4,13 @@ Status: draft, 2026-11-11. Owner: Sergey Bershadsky. Evidence: the research doc
 "Attachment memory cost: proof and storage options"
 (https://claude.ai/artifact/USXsTTKz3VuEdjpGoyZr6k), measured on 2026-11-11.
 
+**Amended 2026-11-26 ([OME-1970](https://linear.app/openmined/issue/OME-1970/check-every-case-against-the-hosts-size-floor-when-it-is-sealed-and),
+decisions 2, 3, 4 and 10).** The gateway cannot reach the engine App (8 below), so the grant and
+the gateway's fetch (old 5.3 and 5.4) are replaced by an upload: the engine sends each file to
+the gateway once per run, and the gateway keeps it in memory under the caller and the run's token.
+Benchmark Case files now go by reference too, and the cache key stays today's (5.7). The amended
+sections say so where they changed.
+
 **Baseline.** This builds on the OME-1529 image-input stack, which is not on `main` yet: url4 run
 attachments and caps (OME-1543, #1587), the engine's attachment parts (OME-1545, #1588) and run
 file admission (OME-1809). File paths below are as they stand on that stack. No unit of this spec
@@ -46,9 +53,6 @@ it, per HupBaHa's review of 2026-11-13.)
 - Provider file uploads (Anthropic Files API, OpenAI Files, Gemini Files). The 20 MB target fits
   every provider's inline request limit, so they are not needed yet.
 - Zero-copy inside url4. url4 may keep holding each attachment once for the run (G1 allows it).
-- Benchmark Case pictures. They travel as base64 inside the Case's message envelope (OME-1678),
-  not in url4's `attachments[]`, and stay inline (owner, 2026-11-11). The importer bounds them at
-  8,000,000 bytes per Case.
 - Changing how SDK users or other callers send pictures to the gateway directly. Inline `data:`
   URIs stay supported, unchanged.
 - Streaming the gateway's upstream request body. LiteLLM and the provider plugins build their
@@ -58,10 +62,10 @@ it, per HupBaHa's review of 2026-11-13.)
 
 - The gateway can be made to dial an address a caller chooses. `media_intake.py`'s invariant
   stands: a caller never picks what the gateway fetches.
-- A blob grant, a log line or an error carries the run id (it is the run's bearer capability),
-  the tenant's email, or file bytes.
+- A log line or an error carries the run id (it is the run's bearer capability), the run token
+  (5.4), the tenant's email, or file bytes.
 - A digest alone authorizes a read. A digest is guessable whenever the content is.
-- A grant minted for one run reads another run's blob.
+- A file uploaded by one run is used by another run.
 - The inline path regresses for callers that do not use references.
 
 ## 5. Design
@@ -73,13 +77,15 @@ it, per HupBaHa's review of 2026-11-13.)
    `https://` attachment sources are written through as they are fetched (new).
 2. The engine sends each attachment to the gateway as a blob reference part, never as base64,
    when the gateway is configured to accept references (5.6).
-3. The engine attaches a short-lived grant to each request. The grant lets the gateway read
-   exactly the referenced blobs of this run.
-4. The gateway checks the request shape, runs the cache lookup on the reference form, and waits
-   for its upstream slot holding only the small JSON.
-5. Inside the slot, just before dispatch, the gateway resolves each reference. It fetches the
-   blob once from its one configured blob source, verifies the digest, encodes base64 once per
-   process and reuses it across requests. Then it builds the provider body as today.
+3. (Amended 2026-11-26.) Before the run's first model call, the engine uploads each file the run
+   references to the gateway, once, with the run's token (5.3, 5.4). Every request of the run
+   carries the same token.
+4. The gateway checks the request shape and the token's scope, runs the cache lookup (5.7), and
+   waits for its upstream slot holding only the small JSON.
+5. Inside the slot, just before dispatch, the gateway resolves each reference from its own
+   memory, fetching nothing, and builds the provider body as today. A file it no longer holds is
+   answered "unknown file" before any upstream spend; the engine uploads it again and repeats
+   the call.
 
 ### 5.2 The reference part (wire format, engine to gateway)
 
@@ -96,45 +102,55 @@ An attachment is one content part, in the same position F2 puts inline parts tod
   treats it as one.
 - `x_media_type` is required. The gateway's modality backstop (OME-1807) and per-type policy
   read it, since they can no longer read it off a `data:` header.
-- `x_size` is the decoded size. The gateway uses it for admission (5.5) before any fetch, and
-  refuses the request if the fetched bytes differ.
+- `x_size` is the decoded size. The gateway uses it for admission (5.5) before resolving, and
+  refuses the request if the stored file's size differs (amended 2026-11-26: the gateway reads
+  the file from its own store, 5.4, not from a fetch).
 - Names prefixed `x_` are a placeholder for the builder to settle with the gateway's part
   parser; the fields themselves are the contract.
 
-### 5.3 The grant (engine to gateway to engine)
+### 5.3 The upload (engine to gateway)
 
-- Sent once per request in a header, `X-SF-Blob-Grant`. It covers every reference in that
-  request.
-- It binds: the blob scope (tenant and run), the set of digests the request references, and an
-  expiry. The process that runs the connector mints it: the App in local and in-process modes,
-  the worker pod under `runner="queue"`. The key is a new engine secret, separate from the
-  artifact signing key, delivered to the worker through the job env the way
-  `URL4_CLOUD_ARTIFACT_SIGNING_KEY` already is (author's call). The construction follows
-  `artifacts/signing.py` (HMAC, domain-separated) under a new prefix.
-- The scope must not be readable by the gateway. The grant is encrypted and authenticated (an
-  AEAD) or is an opaque handle the App resolves; the builder picks. Logs on both sides record a
-  grant fingerprint, never the grant.
-- Expiry: long enough to cover the request's upstream retries and queueing. The builder sets it
-  from the connector's deadline (`_current_deadline`), with a floor of 5 minutes.
-- The gateway treats the grant as opaque. It passes it back to the engine with each blob read.
-  It never stores it: not in the request cache, not in a frozen-copy entry, not in logs.
+(Amended 2026-11-26, replacing the grant. The gateway's namespace allows egress only to DNS, its
+database, model providers and tracing, and the engine App accepts calls only from its own
+platform callers, so the gateway can never read from the App. The engine already calls the
+gateway on port 9105, so an upload needs no new network rule, no grant and no new secret.)
 
-### 5.4 Blob reads (gateway to engine App)
+- `PUT /v1/blobs/sha256/<64 lowercase hex>` on the gateway, the body the file's raw bytes, with
+  the run's token in `X-AIGW-Run-Token` (5.4). The path spells the file the way the reference
+  does (`blob:sha256/<hex>`). The answer is 201 with the reference, the type and the size, which
+  the engine copies into the reference part's `x_media_type` and `x_size` (5.2).
+- The route is outside the gateway's 12 MiB body cap and has its own: 15,000,000 bytes per file,
+  the PDF floor (Bedrock refuses a PDF over about 20,000,000 bytes of base64, measured on 24 and
+  26 Nov 2026; OME-1970 decision 4). A declared length over it is refused before reading; a body
+  that crosses it is refused on the crossing chunk, which is never kept.
+- The gateway reads the body as a stream, computing SHA-256 and size as it reads, and refuses a
+  digest mismatch. It stores only png, jpeg, gif, webp and pdf, recognised by the file's leading
+  bytes, with the same signatures as the engine's run blob store.
+- Uploading a file the run already stored is accepted and replaces it, so the engine's retry
+  after "unknown file" never fails on a file still held.
+- The engine uploads each file once per run, keeping the set of digests it has sent, and hashes
+  each file once when the Case is loaded, not per call.
 
-- The gateway has one configured blob source, `AIGW_BLOB_SOURCE_URL` (origin only, refused at
-  startup otherwise, like `S3ObjectStoreConfig`). With it unset, the gateway refuses reference
-  parts with a typed 422, and the engine falls back to inline (5.6).
-- Read: `GET <source>/blob/sha256/<hex>` with the grant as the credential. The App accepts a
-  grant as an alternative to `URL4-Capability` on this route only, checks that the digest is in
-  the grant, and reads under the grant's scope. Any mismatch is the same 404 a missing blob
-  gives.
-- The App streams the body, so serving a 20 MB blob does not hold it whole. This is new work:
-  today `get_blob` reads the whole blob and verifies it before answering. The streamed read keeps
-  verify-on-read by hashing while it streams and aborting the response on a mismatch (author's call;
-  the client also verifies, below).
-- The gateway reads with a byte bound of `x_size`, verifies SHA-256 while reading, and refuses a
-  short, long or mismatched body as permanent, before any upstream spend. The gateway gains the
-  `x.blob_digest_mismatch` code, spelled as the engine and url4 spell it.
+### 5.4 The run token and the file store (gateway)
+
+(Amended 2026-11-26, replacing the blob reads.)
+
+- The gateway believes `X-User-Email` from every pod that can reach port 9105, and the Runner,
+  which executes a Benchmark's scorer code, is one of them. So a caller identity is not enough:
+  the engine mints a random **run token** per run (`secrets.token_urlsafe(32)`), sends it with
+  each upload and each model call, and never logs it.
+- The gateway stores each file under its **scope**, the caller's account id plus the SHA-256 of
+  the token, and the file's digest. A lookup with another run's token, another caller's identity
+  or no token finds nothing; the request then gets "unknown file", cached answer or not. The
+  scope check runs before the cache lookup.
+- The store holds each file's base64 text once per scope, in memory only, never on disk. It is
+  bounded in bytes (`AIGW_BLOB_STORE_MAX_BYTES`, 40,000,000 by default, provisional until a Linux
+  gateway pod's idle memory is measured) and drops the least recently used file first.
+- A scope lives `AIGW_BLOB_SCOPE_TTL_SECONDS` after its first upload (58,800 s by default: the
+  engine's 16 h run deadline plus the hour its run capability allows for queueing), then every
+  file under it is dropped.
+- A restart, a file dropped for room, or a second gateway pod that never got the file all read
+  as "unknown file"; the engine uploads again (one extra upload per pod).
 
 ### 5.5 Gateway memory model
 
@@ -178,57 +194,67 @@ An attachment is one content part, in the same position F2 puts inline parts tod
 
 ### 5.7 Cache and frozen copies
 
-- The global cache key and the frozen-copy request digest are computed on the request as sent,
-  so a reference request keys on the digest, not on the base64. This is cheaper than today
-  (the research measured the key digest at 18.7 ms for an 8 MB inline body).
-- A reference request and the inline request for the same file share one key (owner,
-  2026-11-11; first decided on the PR #1450 request-key thread, 2026-10-23, and listed unfiled on
-  `OME-1681`). Key material replaces each media part, inline or reference, with its media type
-  and the SHA-256 of its decoded bytes. Hashing an inline payload's decoded bytes is cheaper than
-  hashing it inside the canonical JSON today.
-- This is a `KEY_REVISION` bump. It abandons every stored cache entry whose request has a media
-  part, and frozen copies of picture runs captured before it stop replaying (accepted, owner,
-  2026-11-11). Text-only entries keep their keys only if the builder can keep their key material
-  byte-identical; otherwise the bump abandons them too, and the unit says so.
-- A frozen-copy entry stores the request in reference form, with no grant. Replay is served from
-  the copy and never resolves the reference, so a swept blob does not break replay.
+(Amended 2026-11-26, OME-1970 decision 2: the key stays today's.)
+
+- Both stores key a request by the SHA-256 of its canonical JSON with the file's base64 inside:
+  the gateway's response cache and the frozen copy a published run is replayed from. Changing
+  what goes into that JSON would stop every stored picture entry from matching, so the response
+  cache would pay again and a pinned replay would be refused.
+- So the key stays today's. For a request carrying a reference, the gateway hashes the same bytes
+  an inline request carries: the JSON before the file, then the stored file as its `data:` URI,
+  then the JSON after, streamed into the hash without building the whole string. A reference
+  request and the inline request for the same file share one key, and there is no `KEY_REVISION`
+  bump; no stored entry or frozen copy is abandoned.
+- The gateway hashes the whole file again on every call that references it, about 45 ms for an
+  18 MB PDF (extrapolated from 18.7 ms for 8 MB, not measured), off the event loop. Accepted so
+  that no cached answer is lost.
+- A frozen-copy entry stores the request in reference form, with no token. Replay is served from
+  the copy and never resolves the reference, so a dropped file does not break replay.
 
 ### 5.8 Errors
 
 | Code | Where | Permanent | When |
 | --- | --- | --- | --- |
-| `unsupported_content_part` (existing, 422) | gateway | yes | reference part with no blob source configured, or malformed |
-| `x.blob_grant_invalid` (new, 403) | engine App, reported by gateway | yes | grant expired, forged, or does not cover the digest |
-| `source_not_found` (existing) | engine App | yes | blob not in the grant's scope, or swept |
-| `x.blob_digest_mismatch` (existing in engine and url4, new in gateway) | gateway | yes | fetched bytes do not match the digest or `x_size` |
+| `unsupported_content_part` (existing, 422) | gateway | yes | reference part malformed |
+| `invalid_request` (existing, 400) | gateway upload | yes | malformed digest in the path, or no usable run token |
+| `blob_digest_mismatch` (new, 422) | gateway upload | yes | uploaded bytes do not hash to the digest in the path |
+| `blob_too_large` (new, 413) | gateway upload | yes | file over 15,000,000 bytes |
+| `blob_unsupported_media_type` (new, 415) | gateway upload | yes | leading bytes are none of png, jpeg, gif, webp, pdf |
+| `x.blob_unknown` (new, engine) | engine, from the gateway's "unknown file" answer (its gateway code is named with the reference parts, OME-1970 PR 5) | no | the gateway does not hold the file for this run's scope; the engine uploads again (OME-1970 PR 8) |
 | `request_too_large` (existing, 413) | gateway | yes | resolved attachments larger than the whole byte budget |
-| `blob_source_unavailable` (new, 503) | gateway | no | blob source unreachable; retried like other transient upstream failures |
 
-No error or log carries file bytes, the grant, the run id or the tenant's email.
+(Amended 2026-11-26.) The grant codes are gone with the grant. The gateway spells its codes as
+plain identifiers, `blob_digest_mismatch` rather than url4's `x.blob_digest_mismatch`, because
+every code it writes is declared in its code list, which admits only `[a-z][a-z0-9_]*` (gateway
+code provenance, `docs/spec/2026-11-23-gateway-code-provenance.md`); the engine maps them.
+
+No error or log carries file bytes, the run token, the run id or the tenant's email.
 
 ## 6. Decided
 
 - Scope: engine and gateway (owner, 2026-11-11).
 - Target: about 20 MB per run, inline to providers; no provider uploads (owner, 2026-11-11).
-- The gateway gets bytes by fetching from the engine with a grant, not by reading the bucket
-  (owner, 2026-11-11). Tenant and run authorization stays in the engine.
+- The gateway gets bytes by an upload from the engine, once per run, stored under the caller
+  and the run's token (owner, 2026-11-26, OME-1970 decisions 3 and 4; replaces the grant and the
+  fetch of 2026-11-11, because the gateway cannot reach the App).
 - The url4 cap first drops to about 6,000,000 bytes in a separate fix (owner, 2026-11-11;
   superseded 2026-11-15 — the gateway cap rose to 12 MiB instead and url4 stays at 8,000,000).
-- Benchmark Case pictures stay inline; only url4 attachments go by reference.
+- Benchmark Case files go by reference too (owner, 2026-11-25, OME-1970; replaces "Case
+  pictures stay inline").
 - The cap follows the path: 20 MB by reference, 8,000,000 bytes inline.
-- Inline and reference media share one cache key; the `KEY_REVISION` bump and the loss of old
-  picture frozen copies are accepted.
+- Inline and reference media share one cache key, and it is today's key: no `KEY_REVISION`
+  bump, no stored entry or frozen copy lost (owner, 2026-11-26, OME-1970 decision 2).
 
 ## 7. Left to the builder
 
-- Grant construction (AEAD token or opaque handle), within 5.3's constraints.
 - The exact field names of the reference part (5.2).
-- The base64 cache's size and eviction details, and the byte budget's value with its pod limit
-  (5.5).
+- The byte budget's value with its pod limit, and the file store's final size, both from a Linux
+  measurement of the gateway pod's idle memory (5.4, 5.5).
 - How the S3 backend writes large blobs (single PUT or multipart).
 - How the work splits into units. Suggested: (a) blob store chunked read/write and write-through;
-  (b) App grant credential and streamed GET; (c) gateway reference parts, resolution, byte
-  budget and the media cache key; (d) engine reference parts, grant minting and inline fallback;
+  (b) the gateway upload route and file store (amended 2026-11-26); (c) gateway reference parts,
+  resolution, byte budget and today's cache key over a reference; (d) engine uploads, reference
+  parts, the run token and inline fallback;
   (e) the cap that follows the path. Each lands alone;
   (e) lands last.
 
@@ -238,6 +264,9 @@ No error or log carries file bytes, the grant, the run id or the tenant's email.
   only the engine calls the gateway. The gateway unit (c) starts by checking the charts and the
   cluster layout; if the gateway cannot reach the App, that unit stops and comes back to the
   owner before any code (owner, 2026-11-11).
+- Checked 2026-11-26 (OME-1970): it cannot. The gateway's network rules allow egress only to
+  DNS, its database, model providers and tracing, and the App accepts calls only from its own
+  platform callers. Hence the upload design in 5.3 and 5.4.
 
 ## 9. Acceptance
 
@@ -246,7 +275,7 @@ No error or log carries file bytes, the grant, the run id or the tenant's email.
 - Gateway, same load: memory for waiting requests independent of file size; peak within the
   byte budget plus process baseline.
 - A run with 20,000,000 bytes of attachments completes against a deployed gateway.
-- Tests: a forged, expired or wrong-scope grant reads nothing; a digest not in the grant reads
-  nothing; a grant never appears in a stored cache entry, frozen copy or log line; a reference
-  never makes the gateway dial anything but its configured source; the inline path is
-  byte-identical to today for callers that send `data:` URIs.
+- Tests: another run's token, another caller or no token reads nothing; an expired scope reads
+  nothing; a run token never appears in a stored cache entry, frozen copy or log line; a
+  reference never makes the gateway dial anything; an uploaded file is never written to disk;
+  the inline path is byte-identical to today for callers that send `data:` URIs.
