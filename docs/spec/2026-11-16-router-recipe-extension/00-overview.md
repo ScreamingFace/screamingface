@@ -238,9 +238,11 @@ storage, API, IR or serving decision cannot be stated unambiguously here.
 
 - Unit 5.1: pinned in C7, the question ID `choice`, the common Laya and Jev request, the native
   response checks, the target config keys for `limits` and the refusal code `classifier_limit_exceeded`.
-- Unit 5.2: the profile config keys for dynamic choice; the module layout of the pure core; the
-  strict shape of the decision draft; whether `GET /v1/classifiers` caches per caller and whether the
-  Engine world bounds its list.
+- Unit 5.2 (**amendment pending owner approval**): C2/C3 pin dynamic-profile configuration and
+  revision identity; C4/C6 pin the shared Engine boundary and the shipped fixed-profile error
+  split; C4/C5 pin JOIN's input, the strict draft and early-failure identity; C8 pins direct-entry
+  attempt observation; C16/C17 pin classifier discovery freshness, membership and read bounds.
+  Approve these clauses and complete the Unit 5.1 SDK runtime proof before implementing Unit 5.2.
 - Unit 6: url4 text of the panel body; the inline adapter's case key and occurrence numbering;
   inline error class names; the measured root GET limit and question bound; the prepared-input API,
   storage, retention, cleanup, multi-definition layout and reader codecs; the capability endpoint if
