@@ -187,7 +187,7 @@ max_instructions_chars = 4096
 bound is enforced inside the target, where the tokenizer is: the target refuses text whose token
 count, special tokens included, exceeds its limit and never truncates it
 (`classification-capabilities.md:70-72`), and that refusal reaches the Engine as a classifier failure
-with a bounded code, never as a score vector. Unit 8 pins this for the BERT reference server. A
+with a bounded code, never as a score vector. The fixed-label reference below pins its server rule. A
 SystemOne target gets no token or length control from the Gateway, so its state and option budgets
 are the server's own (Laya 0.4.21: `LAYA_MAX_TOKEN_BUDGET` and its `max_len` and `head_max_len`
 defaults). Its size refusal and any reported truncation or colliding options reach the Engine as
@@ -196,6 +196,129 @@ on `limits` the operator sets during qualification so that the largest admitted 
 (`classification-capabilities.md:170-173`). If a target ever advertises token limits, they arrive as a
 new `limits.contract` value: a strict C17 reader treats an unknown contract as an unusable row, so
 the readers that accept it deploy before any Gateway writes it.
+
+### Fixed-label reference (Unit 8A)
+
+**Checkpoint.** Use `distilbert/distilbert-base-uncased-finetuned-sst-2-english`, Hub revision
+`714eb0fa89d2f80546fda750413ed43d93601a13`, a ready-to-serve `DistilBertForSequenceClassification`
+sentiment head. Record Apache-2.0 provenance from its pinned [model card][reference-card] and
+[registry record][reference-registry]. The pinned [model config][reference-config] declares
+`id2label` in index order: `0 = NEGATIVE`, `1 = POSITIVE`, and `max_position_embeddings = 512`.
+Use the tokenizer from that same revision with its [pinned settings][reference-tokenizer], including
+`do_lower_case = true` and `model_max_length = 512`. The HTTP adapter preserves input exactly;
+normalization intrinsic to the pinned tokenizer remains part of model behavior.
+
+**Native HTTP.** `POST /classify` takes one UTF-8 JSON object with exactly `{"inputs": <string>}`.
+Reject duplicate or unknown keys, arrays (including batches), missing keys, non-strings and invalid
+Unicode. Pass the decoded string to the tokenizer unchanged, including whitespace, case, and Unicode.
+Encode one example with special tokens enabled and truncation disabled. Count the actual unpadded
+IDs and pass that same encoding to the head. A length of 512 is allowed; a length above 512 is
+refused before the head runs. Character counts and body limits do not substitute for that check.
+
+A successful response is HTTP 200 `application/json`, a flat array of exactly two closed
+`{label, score}` rows: `NEGATIVE` and then `POSITIVE`. Require exactly two finite logits from the
+head, in index order. Apply numerically stable softmax across both logits in the reference adapter
+and return both finite, non-Boolean scores in `[0, 1]`. Preserve ties and order. No threshold, top-one
+projection, relabeling or Gateway-side transform. For example, equal logits produce:
+
+```json
+[{"label":"NEGATIVE","score":0.5},{"label":"POSITIVE","score":0.5}]
+```
+
+For a request reaching the reference handler, check header occurrences before reading its body.
+Exactly one `Content-Type` is required: `application/json` alone or with the sole parameter
+`charset=utf-8` (the value `"utf-8"` is also accepted). Header names and those ASCII tokens are
+case-insensitive. Allow spaces and horizontal tabs around the field value and semicolon, not around
+`=`. Reject missing or repeated `Content-Type`, comma lists, `+json` media types, and all other
+parameters and charset values. `Content-Encoding` may be absent or one `identity` token (same case
+and surrounding whitespace rules); reject empty values, duplicate fields, lists and any other coding.
+
+Use the first applicable row in the table, in order. The size check counts actual message-body
+bytes after HTTP transfer framing and before decoding JSON; stop on the chunk crossing the cap.
+Header and size refusals never tokenize; invalid JSON or shape never tokenize; only a valid
+in-bound encoding reaches the head. Both success and reference errors are uncompressed UTF-8
+`application/json`, without `Content-Encoding`. The error body is exactly `{"error":{"code": <string>}}`;
+expose no caller input, tokenizer output, credentials, model files or exception text. Failures at the
+outer HTTP parser before the handler are outside this response contract.
+
+| Condition | Status | Code |
+|---|---|---|
+| Refused `Content-Type` or `Content-Encoding` | 415 | `unsupported_media_type` |
+| Body above 65,536 wire bytes (including fragmented delivery) | 413 | `request_too_large` |
+| Invalid JSON, Unicode or request shape | 400 | `invalid_request` |
+| Encoded text above 512 tokens, including specials | 422 | `input_token_limit_exceeded` |
+| Local tokenizer/head failure or invalid head output | 500 | `classifier_failed` |
+
+**Gateway and readiness.** Use the existing Remote Endpoint Provider and a non-secret target
+descriptor: `task = "text-classification"`, `contract = "hf-text-classification-v1"`,
+`request_path = "/classify"`, `response_envelope = "flat"` and `score_semantics = "bounded-score"`.
+Grants, Connections, scalar listing and details remain the existing paths. Readiness uses the
+scalar probe `{"inputs":"ping"}` and the same native route, tokenizer, head and score decoder as
+dispatch; startup and catalog reads perform no inference. The Gateway returns the usual
+`classification-scores-v1` with unchanged order and values; legacy top-k scalar results on other
+targets remain valid. Native 422 maps to the existing sanitized 502 `provider_error` with no
+upstream error body and no overload retry; the native code is not a new Gateway wire value.
+An earlier C7 character-limit refusal remains distinct (`classifier_limit_exceeded`). The existing
+direct encoded 8 KiB mount bound is unchanged. Optional vocabulary metadata is deferred; 8B proves
+Router candidate-label parity under C2/C6/C17 and supplies valid C7 text limits for its target.
+The local reference binds only to `127.0.0.1` in the isolated test environment. The Gateway is the
+test's caller authority; the native handler does not treat the forwarded synthetic Bearer header
+as authority and must not log or echo it. The fixture does not establish deployment authentication.
+
+**Serving and provisioning.** The standalone `e2e/reference/bert-classifier/` project owns its
+serving adapter, `pyproject.toml`, `uv.lock`, build configuration, README and non-secret descriptor,
+artifact manifest and tests. The reference build and serving platform is Linux x86_64 CPU with
+CPython 3.12. Pin and inspect the exact serving libraries, tokenizer implementation and wheel
+hashes in that isolated lock before source implementation. Other development environments can run
+fixture tests without qualifying the reference platform. Serving-only dependencies stay out of the
+SDK base/runtime, Engine, Gateway, url4 and root manifests and locks. The reference adds no separate
+Gateway plugin, public Recipe or credential path.
+
+Provision the checkpoint only in a separately authorized step. Start with the pinned revision's
+`model.safetensors`, `config.json`, `tokenizer_config.json` and `vocab.txt`; the isolated runtime
+qualification must identify the complete consumed set. Do not load pickle weights, mutable
+revision aliases, unlisted files or Hub-provided code.
+
+**Artifact manifest.** The operator supplies an absolute artifact directory in
+`SF_BERT_REFERENCE_ARTIFACT_ROOT`. The producer places `manifest.json` at that directory's root.
+It is a single UTF-8 JSON object without a BOM. Reject duplicate keys, unknown or missing keys,
+and non-JSON values. The exact top-level keys are:
+
+| Key | Value |
+|---|---|
+| `schema` | `"screamingface.bert-reference-artifacts.v1"` |
+| `model` | `"distilbert/distilbert-base-uncased-finetuned-sst-2-english"` |
+| `revision` | `"714eb0fa89d2f80546fda750413ed43d93601a13"` |
+| `license` | `"Apache-2.0"` |
+| `files` | Nonempty array of closed `{path, size_bytes, sha256}` objects, in strictly increasing ASCII `path` order |
+
+Each `path` is one case-sensitive relative filename matching `[a-z0-9][a-z0-9._-]{0,127}` in
+full, other than the reserved `manifest.json`. There are no path separators, nested directories,
+absolute names, `.` or `..` components, Unicode aliases, or normalized/decoded alternatives.
+`size_bytes` is an integer in `0..9223372036854775807` (no Booleans, fractions or exponent form);
+`sha256` is a string of exactly 64 lowercase ASCII hexadecimal digits. The manifest is inside the
+root but does not list itself. The directory contains exactly the manifest and the listed files;
+reject any other entry, including a hidden file or subdirectory. The root must be a real directory
+reached without symlinks, and the manifest and each listed file must be regular files opened
+without following symlinks, even links pointing back inside the root.
+
+The release/operator configuration supplies `SF_BERT_REFERENCE_MANIFEST_SHA256` independently of
+the artifact tree, as exactly 64 lowercase ASCII hexadecimal digits. Missing or invalid configuration
+fails startup; there is no default, in-tree digest file or fallback. Before parsing the manifest,
+compare the digest of its exact bytes (including whitespace and any final newline) to the supplied
+value. Do not reserialize it for hashing. Validate the closed schema and complete directory inventory,
+then verify each file's length and SHA-256 before any tokenizer/head load. Provision and load the same
+immutable, read-only snapshot: verifying one tree and opening another later is not allowed. Failures
+prevent readiness. Serving has no Internet egress or implicit download, including on cache miss. The
+code/build artifact or release archive may contain the manifest and provenance; fetched checkpoint
+and tokenizer files, Hub caches and weights stay out of Git, images, wheels and release archives.
+Use fake local artifacts and deny external network in deterministic checks. Real endpoint,
+Connection, checkpoint download and live qualification require separate authorization in Unit 9.
+
+[reference-card]: https://huggingface.co/distilbert/distilbert-base-uncased-finetuned-sst-2-english/blob/714eb0fa89d2f80546fda750413ed43d93601a13/README.md
+[reference-registry]: https://huggingface.co/api/models/distilbert/distilbert-base-uncased-finetuned-sst-2-english/revision/714eb0fa89d2f80546fda750413ed43d93601a13
+[reference-config]: https://huggingface.co/distilbert/distilbert-base-uncased-finetuned-sst-2-english/blob/714eb0fa89d2f80546fda750413ed43d93601a13/config.json
+[reference-tokenizer]: https://huggingface.co/distilbert/distilbert-base-uncased-finetuned-sst-2-english/blob/714eb0fa89d2f80546fda750413ed43d93601a13/tokenizer_config.json
 
 ### Upstream attempts
 
