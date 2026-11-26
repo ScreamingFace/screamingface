@@ -78,6 +78,14 @@ Statuses are against the installed reference, [inspect_evals v0.20.0](https://gi
 - **Why.** On about 1.5% of Cases the judge spent all 32,768 tokens reasoning and wrote no `GRADE:` line after 3 attempts, so the Case counted 0 whatever the Candidate answered (D1's accounting).
 - **Severity / bound.** `possibly-score-changing`. Bound: only Cases whose judge needed more than 32,768 tokens can change, about 1.5% of a run; every other Case gets the same judge reply. Pinned by `tests/unit/inspect/test_judge_settings_the_wire_carries.py` (`test_a_run_binds_hles_judge_role_with_the_rows_raised_cap`).
 
+### D7 — one picture is shrunk from 14950×2780 px to 8000×1488 px
+
+- **Declared.** `# NAMED DEVIATION (OME-1970)` on the row's `TaskReplayCasesSpec` (`apps/screamingface-engine/src/screamingface_engine_inspect/prepare.py`, `shrunk_picture_sample_ids=HLE_OVERSIZED_PICTURE_SAMPLE_IDS`). Added 2026-11-26, after this audit; not re-audited.
+- **What differs.** Case 250 (Hub row `66f1b940f8bb4425f74e4299`, Sample id `hle_350ce3fb`) carries its picture at 8000×1488 px: Pillow LANCZOS to a long side of 8000, aspect kept, lossless PNG re-encode, RGBA kept (991,800 → 671,068 base64 bytes). inspect_evals and the CAIS harness send the original 14950×2780 px. The question, the answer key and the other 2,499 Cases are byte-identical: main's and the branch's Cases compared by Case id on linux/amd64 differ only in Case 250's picture. Case Digest `7fb32218…` → `127e1592…`.
+- **Why.** On the 6 Nov 2026 prod HLE runs no Claude Candidate could read the original (400 "The upstream provider rejected the request."; Claude takes at most 8000 px per side), nor gpt-6-astra-pro or gpt-6.1-terra-pro ("requires 40716 patches after processing, exceeding the limit of 30000"), so the Case counted 0 for them whatever they knew. It is the only picture over 8000 px in the dataset at the pinned revision (a scan of every row, 2026-11-26).
+- **Severity / bound.** `possibly-score-changing`, bound `0.0004`: one Case of 2,500. A model that read the original reads a smaller copy of the same picture; a model that refused it can now answer.
+- **Pinned by** `tests/unit/inspect/test_shrunk_pictures.py` (the shrink, its refusals when stale, and the real Task serving the row at 8000 px).
+
 ## Checks run
 
 - [x] **Read-only on the checkout.** `git status --porcelain` empty at the start (Checks 1). At the end it listed three untracked files, none created by this audit (`apps/screamingface-engine/docs/benchmarks-fidelity/frames_oracle.md`, `…/musique.md`, `docs/work/2026-11-09-fidelity-sweep.md`: the calling session writes records into this worktree concurrently, as the brief says); HEAD unchanged `43d3942f6` (Checks 15). Every file this audit created lived under `$SCRATCH=/private/tmp/claude-501/…/scratchpad/audit-inspect-hle-6TnR`, deleted at the end.

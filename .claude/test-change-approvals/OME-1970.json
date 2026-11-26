@@ -1,0 +1,18 @@
+{
+  "issue": "OME-1970",
+  "branch": "OME-1970-pr1-hle-oversized-picture",
+  "approver": "Khoa Nguyen (owner), to confirm on the PR",
+  "date": "2026-11-26",
+  "scope": "test_benchmark_fingerprints.py: the hle and hle_diamond literals move to the fingerprints their reshrunk Cases compute (published ids unchanged, pending the owner's hold-vs-move decision). replayed_cases_helpers.py: replay_in_process_over_rows gains a keyword-only shrink_named_pictures flag, off by default, so the existing hle and hle_diamond stand-in replays (whose rows are not the Hub's) run as before; test_shrunk_pictures.py turns it on. No assertion is weakened.",
+  "reason": "OME-1970 PR 1 of 9: hle Case 250 / hle_diamond Case 35's 14950x2780 px picture is shrunk to 8000x1488 at Case Preparation, a Named Deviation (shrunk_picture_sample_ids), so every Claude and GPT-pro Candidate can read it; the Case Digests and fingerprints move.",
+  "files": {
+    "apps/screamingface-engine/tests/unit/inspect/replayed_cases_helpers.py": {
+      "base_blob": "19e1d50e256e872ed15345aa0e6b2eb1ce985cf2",
+      "approved_blob": "045ca3cfe8454602e1a476a3710379c1020a18b6"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_benchmark_fingerprints.py": {
+      "base_blob": "25c31d8d3fc59e9672ebc6c3b720abe5fcb750dd",
+      "approved_blob": "b07f43be5a7d3172e27d249e7ce6c44729545494"
+    }
+  }
+}
