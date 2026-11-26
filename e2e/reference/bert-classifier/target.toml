@@ -1,0 +1,7 @@
+# Target stanza only. The Gateway operator supplies the origin and caller grants separately.
+alias = "distilbert-sst2"
+task = "text-classification"
+contract = "hf-text-classification-v1"
+request_path = "/classify"
+response_envelope = "flat"
+score_semantics = "bounded-score"
