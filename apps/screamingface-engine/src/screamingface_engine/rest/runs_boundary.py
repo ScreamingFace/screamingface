@@ -217,13 +217,19 @@ def request_registry(request: Request) -> RunRegistry:
     return registry
 
 
+def requires_identity(app: Any) -> bool:
+    """True when the App asks each request for a verified identity (hosted mode)."""
+    # WHY default True: an App assembled without `install_runs` has no flag and fails closed.
+    return bool(getattr(app.state, "runs_require_identity", True))
+
+
 def request_email(connection: HTTPConnection) -> str | None:
     """The caller's verified email, or None in local mode (single-user) or with no identity.
 
     INVARIANT (E5 P2 spec D8): personal data, kept on the Run for its driver only; never logged
     and never returned.
     """
-    if not getattr(connection.app.state, "runs_require_identity", True):
+    if not requires_identity(connection.app):
         return None
     return job_env.identity_from_headers(connection.headers).get(_OWNER_HEADER)
 
@@ -231,7 +237,7 @@ def request_email(connection: HTTPConnection) -> str | None:
 def request_caller(connection: HTTPConnection) -> OwnerKey | None:
     """The caller's owner key (spec D6), or None when a hosted request carries no identity.
     Also asked of a WebSocket (`rest.runs_events`)."""
-    if not getattr(connection.app.state, "runs_require_identity", True):
+    if not requires_identity(connection.app):
         return owner_key(_LOCAL_OWNER)
     email = request_email(connection)
     return None if email is None else owner_key(email)
@@ -313,4 +319,5 @@ __all__ = [
     "PRIVATE_HEADERS",
     "PRIVATE_HEADERS_DOC",
     "RunsRoute",
+    "requires_identity",
 ]

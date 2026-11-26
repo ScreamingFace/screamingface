@@ -1986,12 +1986,17 @@ for label, extra in (("default", ()), ("prod", SCOREBOARD_PROD_ARGS)):
     # no claim (an empty URL turns the claims off in the app).
     claim_keys = (
         "SCOREBOARD_GATEWAY_URL",
-        "SCOREBOARD_GATEWAY_ACTOR",
         "SCOREBOARD_GATEWAY_TIMEOUT_S",
     )
     check(
         all(key in scoreboard_config for key in claim_keys),
-        f"scoreboard ({label} values): the ConfigMap sets the three frozen copy claim keys",
+        f"scoreboard ({label} values): the ConfigMap sets the two frozen copy claim keys",
+    )
+    # WHY: the claim has no identity header (owner decision 2026-11-25). The gateway trusts the
+    # peer address, so the chart must not send a fixed actor address.
+    check(
+        "SCOREBOARD_GATEWAY_ACTOR" not in scoreboard_config,
+        f"scoreboard ({label} values): the ConfigMap sets no SCOREBOARD_GATEWAY_ACTOR",
     )
     if label == "default":
         check(

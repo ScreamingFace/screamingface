@@ -278,6 +278,108 @@ caller's identity and aigateway decides, including whether an absent identity is
   without contacting aigateway, so the listing and the detail cannot disagree.
 - Cache behaviour is observable at `/metrics` (`screamingface_engine_catalog_*`).
 
+## OpenAI-compatible chat — `POST /v1/chat/completions`
+
+This route is compatible with the OpenAI chat-completions API. The Engine runs an ensemble as one
+model. Tools that speak the OpenAI API (the OpenAI SDKs, opencode, pi) can call it. The route is
+next to `GET /v1/models`, and that route does not change.
+Tool calls are turned off for now: a request with `tools` or `functions`, a `tool` message or an
+assistant message with `tool_calls` gets 400 `tools_not_available` before a run. The check is
+fixed (`rest/chat_body.py::_tool_use`); the tool code behind it stays.
+User guide: <https://docs.screamingface.ai/sf-client/guides/openai-api>.
+Design: `docs/spec/2026-11-17-engine-openai-chat-endpoint/` (path from the repo root).
+
+```sh
+curl http://localhost:9108/v1/chat/completions -H 'Content-Type: application/json' \
+  -d '{"model": "<model id from GET /v1/models>", "messages": [{"role": "user", "content": "Hi"}]}'
+```
+
+- **Two forms of `model`.** The route removes the white space at the start of the value. When
+  the value then starts with `(`, it is a Candidate URL4, and the run evaluates it as built. The
+  route checks the recipe first and refuses a form that it cannot run. Each other value is a
+  gateway model id. The route checks the id through the model-parameters lookup. It keeps a
+  positive answer for 60 s for each caller and id, and it never keeps a "not known" answer. The
+  id runs as a one-model recipe on its model route (plan D4). An id in the route form with `~`
+  (as `GET /v1/models` lists it) and an id with `:` are both accepted. The value has a limit of
+  32,000 characters.
+- **Identity is the same as for runs.** Deployed, the route uses the verified `X-User-Email`
+  that the edge injects, and a request with no identity gets `401 identity_required`. Locally,
+  no identity is necessary.
+- **The CHAT_INPUT record.** Schema `screamingface.chat-input.v1`, media type
+  `application/vnd.screamingface.chat-input+json`, canonical JSON in UTF-8 (sorted keys, no
+  extra white space). It holds the validated `messages` and, when the request has some, the
+  validated function `tools`. It holds no sampling field. The request body and the encoded
+  record each have a limit of 8,000,000 bytes (`413 request_too_large`). The App writes the
+  record to the **chat-input store** before it schedules the run. This store is a second
+  `BlobStore` on the run blob objects. Its policy admits only the chat-input media type and
+  parses each body against the schema. The App and the Runner build it with one shared function,
+  `artifacts.chat_inputs.chat_input_store`. The App calls it on the objects of its blob store.
+  The Runner calls it through `artifacts.wiring.chat_input_store_from_values`. The public
+  `PUT /blob` route does not accept this media type. The App deletes the record when the request ends. The TTL sweep of the
+  blob store removes a record that a delete did not remove. Logs show the digest and the size of
+  a record, never its content.
+- **The run.** A chat request schedules one run with `URL4_CLOUD_RUN_SHAPE=chat` and
+  `URL4_CLOUD_CHAT_INPUT` (a blob ref, `blob:sha256/<hex>`). A chat run makes no Run registry
+  row, and it has no capture and no replay. It shares the in-flight limit of each user with the
+  evaluation runs (`429 overloaded` at the limit).
+- **The CHAT_RESULT record.** Schema `screamingface.chat-result.v1`, media type
+  `application/vnd.screamingface.chat-result+json`. The run ends with one record: `status`
+  (`answered`, `abstained` or `refused`), `content`, `tool_calls`, `finish_reason`,
+  `refusal`, `abstain_reason` and `final_step` (`binding`, `model`, `usage`, and `cached`
+  on a gateway cache hit). The record holds
+  no usage sum and no cost. The App reads them from the root cost-usage frame of the run, and it
+  changes the record into the OpenAI response. A failed run has no record, and the App answers
+  with an HTTP error.
+- **A blob store is necessary.** With no blob store (`URL4_CLOUD_BLOB_STORE` unset), the route
+  answers `503 chat_unavailable`. `serve --local` sets a filesystem blob store when none is
+  configured (`blobs_dir`, else the default blobs directory), and it gives the same store to the
+  runs.
+- **`chat_max_wait_s`** (`URL4_CLOUD_CHAT_MAX_WAIT_S`, default `600`) is the time limit of one
+  request. The run deadline is `int(chat_max_wait_s) + 5`. Past the limit, the App stops the
+  run, and the client gets `504 timeout`.
+- **`chat_keepalive_s`** (`URL4_CLOUD_CHAT_KEEPALIVE_S`, default `15`, must be more than 0) is
+  the interval of the `: keep-alive` comment lines of a streamed answer (`"stream": true`). The
+  stream is buffered: the answer comes after the run ends. The ScreamingFace SDK reads each
+  byte with a 60 s limit, so a value above 60 is not supported with it.
+- **Errors** use the OpenAI error envelope (`{"error": {"message", "type", "param", "code"}}`)
+  with fixed messages. The header `x-should-retry` tells the client if a retry is safe. The full
+  status table is in `prd/chat-completion.md` §3.2 of the spec directory.
+- **App shutdown.** The CLI starts uvicorn through `cli._run_server`. On the stop signal, that
+  server requests the chat drain before the normal shutdown of uvicorn. Each waiting chat request
+  then stops its run, deletes its input record, and answers `503 server_restarting` (a stream
+  gets the error event). uvicorn calls the shutdown hook of the App only after each open request
+  has ended, so a hook is too late for this.
+- **Ignored fields.** The reply names each top-level request field that the Engine ignored (its
+  value is not null, and it is not one of `model`, `messages`, `tools`, `functions`,
+  `stream`, `stream_options`, `n`, `logprobs`, `modalities`, `audio`) in
+  `screamingface.ignored_parameters`: sorted, at most 32 names, and a name longer than 64
+  characters is left out. The key is absent when no field was ignored. The JSON answer and the
+  stream chunk with the `screamingface` object both have it. The names are request data: no log
+  line, metric label, span attribute or `RequestFacts` field holds them
+  (`rest/chat_ignored.py`).
+- **`n`.** `n` below 1 gets `400 invalid_request` (param `n`). `n` above 1 stays
+  `400 unsupported_parameter`.
+- **A cache hit of the final step.** The counts of `final_step.usage` are 0 and
+  `final_step.cached` is `true`, the same rule as the top-level `usage`. The key is absent on a
+  miss. A client keeps its last known context size on a hit.
+- **Result size.** A result above 8 MiB (8,388,608 bytes, `CHAT_RESULT_MAX_BYTES`) answers
+  `502 result_too_large` with `x-should-retry: false`.
+- **Input store outage.** A short outage of the input store answers `503 chat_input_unavailable`
+  with `x-should-retry: true` and `Retry-After: 5` (no model call was made). An absent input
+  record stays `500 chat_input_unavailable` with `x-should-retry: false`.
+- **Body read time.** Each body must arrive in full within 30 s of its start, for each size
+  (`BODY_READ_TIMEOUT_S`); else `408 request_timeout`. When a body above 1,000,000 bytes gets
+  its parse place, the limit changes: the rest of the body must arrive within 30 s from that time.
+- **Stream errors.** An error after a stream started is one event
+  `data: {"error": {"message", "type", "code", "should_retry", "retry_after"?}}`; `should_retry` and
+  `retry_after` are the values of the `x-should-retry` and `Retry-After` headers of a plain answer
+  for the same failure.
+- **Shared cache.** A chat run uses the shared cache as other runs do. `Cache-Control: no-store`
+  on the request keeps it out (owner decision of 2026-11-18, spec ledger Q33).
+- **Deploy order: workers first, then the App.** An old worker refuses an unknown run shape,
+  because `run_shape_from_env` raises. Thus the App must not schedule `chat` runs before each
+  worker knows the shape (spec P19, erd §2.2).
+
 ## Fair scheduling of concurrent runs
 
 The gateway admits only `AIGW_PROVIDER_MAX_CONCURRENCY` calls per provider at once (default 4,

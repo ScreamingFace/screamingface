@@ -220,6 +220,12 @@ class Settings(BaseSettings):
     capability_lifetime_s: int = 58_800
     # WHY: sync-hold cap; a run outliving it degrades to 202 async (spec §5).
     sync_max_wait_s: float = 30.0
+    # FEATURE: POST /v1/chat/completions (prd/chat-completion.md §4): how long a chat request
+    # waits for its run; the run deadline is int(limit) + 5.
+    chat_max_wait_s: float = Field(default=600.0, gt=0.0)
+    # FEATURE: POST /v1/chat/completions with stream true (prd/streaming.md §4): the interval of the
+    # ": keep-alive" comment lines while a streamed request waits for its run.
+    chat_keepalive_s: float = Field(default=15.0, gt=0.0)
     # WHY: idle interval between WS HeartbeatEvents for liveness (spec §6).
     ws_heartbeat_s: float = 15.0
     # INVARIANT: k8s Job activeDeadlineSeconds ceiling = 16h (spec §3). The run deadline is

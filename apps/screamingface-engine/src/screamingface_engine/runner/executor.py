@@ -45,6 +45,7 @@ from screamingface_engine.benchmarks.picture_admission import run_expression_sco
 from screamingface_engine.benchmarks.registry import served_routes
 from screamingface_engine.candidate_record import RUN_SUMMARY_INVALID, bound_refusal
 from screamingface_engine.capture_outcomes import CaptureTally, capture_outcomes
+from screamingface_engine.chat.result import CHAT_RESULT_MEDIA_TYPE
 from screamingface_engine.job_env import RunShape
 from screamingface_engine.observations import bridge_loss_attributes
 from screamingface_engine.request_scope import (
@@ -57,6 +58,8 @@ from screamingface_engine.runner.cache_counters import RunCacheCounters, SavedCo
 from screamingface_engine.runner.summary import RunOutcome, RunSummary
 from screamingface_engine.trace_scope import bind_node_span, run_trace_scope
 from screamingface_engine.world.accounting import PRICING_VERSION, UNPRICED, accumulate
+from screamingface_engine.world.attachment_parts import BlobReader
+from screamingface_engine.world.chat_turn import dispatch_chat_turn
 from screamingface_engine.world.connector import (
     key_refusal_as_url4_error,
     open_frozen_copy,
@@ -1017,6 +1020,8 @@ class Url4Executor(Executor):
         io_concurrency: int | None = None,
         run_shape: RunShape = "expression",
         result_sink: ResultSink | None = None,
+        chat_input: str | None = None,
+        chat_input_reader: Callable[[], BlobReader] | None = None,
     ) -> None:
         self._io = io
         # E5 P2 spec R5: a driver-started run's result also goes to the run-results store,
@@ -1024,8 +1029,12 @@ class Url4Executor(Executor):
         self._result_sink = result_sink
         # FEATURE (uniform executor PRD 04): a `direct` run is a MOUNT CALL — its "expression"
         # is `<mount path>?<raw query>` and it runs ONE registered handler of the world node via
-        # `url4.peer.dispatch_direct`, never a DAG (D1). Same lifecycle, same frames.
+        # `url4.peer.dispatch_direct`, never a DAG (D1). Same lifecycle, same frames. A `chat`
+        # run dispatches the internal turn route `/ensemble/chat/v1/turn` as one observed node
+        # (chat-run PRD).
         self._run_shape = run_shape
+        self._chat_input = chat_input
+        self._chat_input_reader = chat_input_reader
         # The world NODE a direct call dispatches on (`self._node`) is set ONLY by
         # `_resolve_world` — from `self._io` before any wrap is applied, since a wrapper is
         # not a node (a direct run is one call; there is nothing to fan out or bound).
@@ -1152,7 +1161,7 @@ class Url4Executor(Executor):
 
         async def _drive() -> _EvalResult:
             # FEATURE (OME-1119): the run's trace is bound HERE, inside the driving task, so the
-            # world's outbound aigateway calls carry it (`world.connector._headers`).
+            # world's outbound aigateway calls carry it (`world.gateway_transport._headers`).
             #
             # WHY not around `execute`'s own `async for ... yield`: `execute` is an ASYNC
             # GENERATOR, and consecutive steps of one can be driven from different contexts —
@@ -1258,6 +1267,8 @@ class Url4Executor(Executor):
     ) -> _EvalResult:
         """Run the run's work on this task: a DAG for an expression, one handler for a direct
         run (PRD 04). Either way the observation events reach `bridge`."""
+        if self._run_shape == "chat":
+            return await self._dispatch_chat(url4, trace, bridge)
         if self._run_shape == "direct":
             return await self._dispatch_direct(url4, trace, bridge)
         # FEATURE (OME-1548): a picture Benchmark's Cases route reads the linked Candidate from
@@ -1284,6 +1295,23 @@ class Url4Executor(Executor):
                     url4_run(url4, self._io, observer=bridge, **self._run_kwargs)
                 )
         return _EvalResult(body)
+
+    async def _dispatch_chat(
+        self, recipe: str, trace: TraceContext | None, bridge: _Bridge
+    ) -> _EvalResult:
+        """A chat run: the turn route as ONE observed node, the result typed as a CHAT_RESULT."""
+        body = await dispatch_chat_turn(
+            self._node,
+            recipe,
+            chat_input=self._chat_input,
+            reader=self._chat_input_reader,
+            observer=bridge,
+            trace_id=trace.trace_id if trace is not None else None,
+            root_span_id=trace.root_span_id if trace is not None else None,
+        )
+        # WHY: an endpoint result carries no media type (url4 DirectResult), so the run states it
+        # (chat-run CR-S1).
+        return _EvalResult(body, CHAT_RESULT_MEDIA_TYPE)
 
     async def _dispatch_direct(
         self, target: str, trace: TraceContext | None, bridge: _Bridge

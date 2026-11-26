@@ -18,5 +18,4 @@ data:
   SCOREBOARD_DB_POOL_MINSIZE: {{ .Values.config.dbPoolMinsize | quote }}
   SCOREBOARD_DB_POOL_MAXSIZE: {{ .Values.config.dbPoolMaxsize | quote }}
   SCOREBOARD_GATEWAY_URL: {{ .Values.config.gatewayUrl | quote }}
-  SCOREBOARD_GATEWAY_ACTOR: {{ .Values.config.gatewayActor | quote }}
   SCOREBOARD_GATEWAY_TIMEOUT_S: {{ .Values.config.gatewayTimeoutS | quote }}

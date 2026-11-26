@@ -81,11 +81,12 @@ else:
 
 Warning
 └── UserWarning
-    └── EvaluationWarning
-        ├── CascadeSeedWarning
-        ├── DuplicateMembersWarning
-        ├── FixedSeedSittingWarning
-        └── JudgeWriterWarning"
+    ├── EvaluationWarning
+    │   ├── CascadeSeedWarning
+    │   ├── DuplicateMembersWarning
+    │   ├── FixedSeedSittingWarning
+    │   └── JudgeWriterWarning
+    └── IgnoredParameterWarning"
       language="text"
     />
 
@@ -309,9 +310,10 @@ Warning
     <p>
       A warning usually accompanies a completed run whose quality needs attention. Replay can also
       warn when every case misses an unsubmitted capture, or when an unacknowledged run could not be
-      stopped. <code>EvaluationWarning</code> is the one the Client emits, and it subclasses
-      <code>UserWarning</code>, so it appears in normal warning output and
-      <code>warnings.simplefilter</code> controls it.
+      stopped. The Client emits <code>EvaluationWarning</code> for runs, and
+      a chat call emits <code>IgnoredParameterWarning</code> for a chat
+      parameter that it does not send. Both subclass <code>UserWarning</code>, so they appear in
+      normal warning output and <code>warnings.simplefilter</code> controls them.
     </p>
 
     <table>
@@ -367,6 +369,14 @@ Warning
               'openrouter/google/gemini-3.5-flash-lite' for its judge and its writer</code
             >. Give the judge or the writer another model to clear it. A judge on another model
             emits nothing.
+          </td>
+        </tr>
+        <tr>
+          <td><code>IgnoredParameterWarning</code></td>
+          <td>
+            A known OpenAI chat parameter that the Engine does not use is given to a chat call
+            (<code>recipe.chat</code>, <code>client.chat</code> or <code>sf.chat</code>). The SDK does not send it. Set model parameters on the
+            recipe with <code>sf.Model(..., params=...)</code>.
           </td>
         </tr>
       </tbody>

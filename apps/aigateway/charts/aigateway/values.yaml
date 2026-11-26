@@ -89,10 +89,6 @@ config:
   # Matched case-insensitively (the app lowercases both sides), so an entry cannot fail to match a
   # caller by case alone.
   adminEmails: []
-  # The callers that may claim a frozen copy (OME-1947): the actor address of the scoreboard
-  # (`SCOREBOARD_GATEWAY_ACTOR`). It is a separate list from `adminEmails`. EMPTY = the claim
-  # route answers 503 in `cloudflare_headers` mode. Matched case-insensitively.
-  frozenCopyClaimEmails: []
   # The address range of the scoreboard pods (OME-1947), as CIDR networks. A peer on this list may
   # call the claim route and NO OTHER route. Do not put the scoreboard on `allowedNetworks`: a peer
   # there may name any user in X-User-Email on every route. Empty = only `allowedNetworks` may

@@ -1,7 +1,8 @@
 """The AI Gateway adapter of the `CopyClaims` port (OME-1947).
 
-It sends `POST /v1/frozen-copies/{copy_id}/claim` with no body and with the header
-`X-User-Email: <actor>` (contracts.md K4). It sends the copy id only.
+It sends `POST /v1/frozen-copies/{copy_id}/claim` with no body and with no identity header
+(contracts.md K4). It sends the copy id only. The gateway trusts the peer address of the
+scoreboard pod, not a header (owner decision 2026-11-25).
 
 INVARIANT (erd.md I5): the mapping fails closed. Only the exact answers in `_RESULTS` give a
 result. Each other answer, a timeout and a connection error give UNAVAILABLE. A 200 never counts
@@ -13,7 +14,6 @@ from __future__ import annotations
 import httpx
 
 from scoreboard.config import Settings
-from scoreboard.core.auth.cloudflare_identity import HEADER_USER_EMAIL
 from scoreboard.core.copy_claims import ClaimResult, CopyClaims
 
 _RESULTS: dict[tuple[int, str], ClaimResult] = {
@@ -65,20 +65,16 @@ class GatewayCopyClaims:
         self,
         *,
         base_url: str,
-        actor: str,
         timeout_s: float,
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
-        self._actor = actor
         self._client = httpx.AsyncClient(base_url=base_url, timeout=timeout_s, transport=transport)
 
     async def claim(self, copy_id: str) -> ClaimResult:
         # WHY no retry: the SDK sends the submit again after a 503 (contracts.md K5).
         # INVARIANT: catch only these two types. A CancelledError must go up to the caller.
         try:
-            response = await self._client.post(
-                f"/v1/frozen-copies/{copy_id}/claim", headers={HEADER_USER_EMAIL: self._actor}
-            )
+            response = await self._client.post(f"/v1/frozen-copies/{copy_id}/claim")
             key = _answer_key(response.status_code, response.json(), copy_id)
         except (httpx.HTTPError, ValueError):
             key = None
@@ -96,6 +92,5 @@ def build_copy_claims(settings: Settings) -> CopyClaims | None:
         return None
     return GatewayCopyClaims(
         base_url=settings.gateway_url,
-        actor=settings.gateway_actor,
         timeout_s=settings.gateway_timeout_s,
     )

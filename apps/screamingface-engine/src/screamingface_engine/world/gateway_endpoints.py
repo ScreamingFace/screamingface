@@ -15,8 +15,9 @@ from collections.abc import Awaitable, Callable, Mapping
 
 from screamingface_engine.world.classification import CLASSIFY_ROUTE, ClassificationEndpoint
 from screamingface_engine.world.config import WorldConfigError
-from screamingface_engine.world.connector import AigatewayConfig, AigatewayWorld, _GatewayRefusal
+from screamingface_engine.world.connector import AigatewayConfig, AigatewayWorld
 from screamingface_engine.world.errors import RunnerRequestError
+from screamingface_engine.world.gateway_transport import _GatewayRefusal
 from screamingface_engine.world.routing import ROUTE_ANSWER_ROUTE, RoutedAnswerEndpoint, not_found
 from screamingface_engine.world.routing_config import RoutingBranch, RoutingProfile
 from url4.core.errors import ErrorCode, ResolutionError

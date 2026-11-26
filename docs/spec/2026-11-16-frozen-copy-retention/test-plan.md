@@ -119,9 +119,8 @@ After the release:
 ### 5.2 Stack B (claims)
 
 1. Before the scoreboard gets its gateway URL: from a scoreboard pod, send a claim for a random
-   UUID to that URL with the actor header. The answer must be 404 with
-   `detail.code = frozen_copy_not_found`. This proves the URL, the NetworkPolicy and the claim
-   list.
+   UUID to that URL, with no identity header (Q34). The answer must be 404 with
+   `detail.code = frozen_copy_not_found`. This proves the URL and the NetworkPolicy.
 2. The release of the scoreboard (B2, B3) is complete on all pods.
 3. The log of each scoreboard pod has the INFO record of a complete claim pass
    (`prd/score-claim.md` C21). Run this count in the scoreboard database two times: before the

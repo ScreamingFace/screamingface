@@ -35,7 +35,6 @@ def _header_mode(client, peer: str) -> TestClient:
     settings.auth_mode = "cloudflare_headers"
     settings.allowed_networks = (MESH_NETWORK,)
     settings.frozen_copy_claim_networks = (SCOREBOARD_NETWORK,)
-    settings.frozen_copy_claim_emails = frozenset({CLAIMER})
     settings.admin_emails = frozenset()
     return TestClient(client.app, client=(peer, 50000))
 
@@ -70,6 +69,30 @@ def test_a_peer_on_the_claim_networks_may_claim(authenticated_client: TestClient
     assert resp.status_code == 200
     assert resp.json()["already"] is False
     assert _read_copy(authenticated_client, copy_id).claimed_at is not None
+
+
+def test_a_peer_on_the_claim_networks_may_claim_with_no_identity_header(
+    authenticated_client: TestClient,
+) -> None:
+    copy_id = _new_copy(authenticated_client)
+    scoreboard = _header_mode(authenticated_client, SCOREBOARD_PEER)
+
+    resp = scoreboard.post(_claim_path(copy_id))
+
+    assert resp.status_code == 200
+    assert _read_copy(authenticated_client, copy_id).claimed_at is not None
+
+
+def test_a_peer_on_neither_list_may_not_claim_with_no_identity_header(
+    authenticated_client: TestClient,
+) -> None:
+    copy_id = _new_copy(authenticated_client)
+    outsider = _header_mode(authenticated_client, UNTRUSTED_PEER)
+
+    resp = outsider.post(_claim_path(copy_id))
+
+    assert resp.status_code == 403
+    assert _read_copy(authenticated_client, copy_id).claimed_at is None
 
 
 def test_a_peer_on_the_claim_networks_is_not_trusted_on_other_routes(

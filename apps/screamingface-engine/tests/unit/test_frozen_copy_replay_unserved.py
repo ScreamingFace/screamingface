@@ -25,15 +25,15 @@ from frozen_copy_support import (
 )
 
 from screamingface_engine.capture_outcomes import CALL_OCCURRENCE_HEADER
-from screamingface_engine.world import connector
+from screamingface_engine.world import gateway_transport
 
 _UNAVAILABLE = "frozen_copy_unavailable"
 
 
 @pytest.fixture(autouse=True)
 def _no_backoff(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(connector, "_TRANSPORT_BACKOFF_BASE_S", 0.0)
-    monkeypatch.setattr(connector, "_TRANSPORT_BACKOFF_JITTER_S", 0.0)
+    monkeypatch.setattr(gateway_transport, "_TRANSPORT_BACKOFF_BASE_S", 0.0)
+    monkeypatch.setattr(gateway_transport, "_TRANSPORT_BACKOFF_JITTER_S", 0.0)
 
 
 def _occurrences(gateway: Gateway, path: str) -> set[str]:
@@ -51,7 +51,7 @@ async def test_a_chat_call_whose_every_transport_attempt_failed_fails_unserved()
     assert failure.code == _UNAVAILABLE
     assert failure.permanent is True
     # One POST per transport attempt, all for ONE occurrence: no second occurrence is sent.
-    assert len(gateway.calls(REPLAY_CHAT)) == connector._TRANSPORT_RETRIES + 1
+    assert len(gateway.calls(REPLAY_CHAT)) == gateway_transport._TRANSPORT_RETRIES + 1
     assert _occurrences(gateway, REPLAY_CHAT) == {"0"}
 
 

@@ -35,7 +35,7 @@ from screamingface_engine.capture_outcomes import (
     capture_outcomes,
     current_capture_tally,
 )
-from screamingface_engine.world import connector
+from screamingface_engine.world import gateway_transport
 from screamingface_engine.world.connector import AigatewayConfig
 from screamingface_engine.world.web_tools import (
     FrozenToolResults,
@@ -50,8 +50,8 @@ _HIT = {"X-AIGW-Cache": "hit", **stored()}
 
 @pytest.fixture(autouse=True)
 def _no_backoff(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(connector, "_TRANSPORT_BACKOFF_BASE_S", 0.0)
-    monkeypatch.setattr(connector, "_TRANSPORT_BACKOFF_JITTER_S", 0.0)
+    monkeypatch.setattr(gateway_transport, "_TRANSPORT_BACKOFF_BASE_S", 0.0)
+    monkeypatch.setattr(gateway_transport, "_TRANSPORT_BACKOFF_JITTER_S", 0.0)
 
 
 @pytest.mark.asyncio
@@ -283,7 +283,7 @@ async def test_a_call_whose_every_attempt_lost_its_reply_is_ambiguous_and_never_
     # Every attempt of the first call lost its reply, so the call failed. The gateway may still
     # have stored those answers AHEAD of the one the next call stored and the model used.
     lost: list[httpx.Response | BaseException] = [
-        httpx.ReadError("lost") for _ in range(connector._TRANSPORT_RETRIES + 1)
+        httpx.ReadError("lost") for _ in range(gateway_transport._TRANSPORT_RETRIES + 1)
     ]
     gateway = Gateway([*lost, chat("consumed-answer", stored())])
 

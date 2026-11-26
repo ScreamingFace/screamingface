@@ -26,7 +26,7 @@ import pytest
 from frozen_copy_support import capture_scope, replay_scope
 
 from screamingface_engine.request_scope import RequestScope, request_scope
-from screamingface_engine.world import connector
+from screamingface_engine.world import gateway_transport
 from screamingface_engine.world.classification import (
     CLASSIFICATION_UNSUPPORTED,
     CLASSIFICATIONS_PATH,
@@ -427,7 +427,7 @@ async def test_429_and_5xx_stay_retryable_and_other_refusals_permanent(
 async def test_a_transport_failure_is_retried_once_then_reported(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(connector, "_TRANSPORT_BACKOFF_BASE_S", 0.0)
+    monkeypatch.setattr(gateway_transport, "_TRANSPORT_BACKOFF_BASE_S", 0.0)
     recovered = _Gateway(httpx.ConnectError("refused"), _ok())
     failing = _Gateway(httpx.ConnectError("refused"))
 
@@ -454,7 +454,7 @@ def usage(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
     def sink(**fields: Any) -> None:
         records.append(fields)
 
-    monkeypatch.setattr(connector, "current_usage_sink", lambda: sink)
+    monkeypatch.setattr(gateway_transport, "current_usage_sink", lambda: sink)
     return records
 
 
@@ -503,7 +503,7 @@ async def test_a_dispatch_that_fails_still_reports_one_unpriced_call(
 async def test_a_transport_failure_after_dispatch_reports_one_unpriced_call(
     monkeypatch: pytest.MonkeyPatch, usage: list[dict[str, Any]]
 ) -> None:
-    monkeypatch.setattr(connector, "_TRANSPORT_BACKOFF_BASE_S", 0.0)
+    monkeypatch.setattr(gateway_transport, "_TRANSPORT_BACKOFF_BASE_S", 0.0)
 
     await _refusal(_Gateway(httpx.ReadError("lost")))
 

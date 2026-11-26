@@ -26,7 +26,6 @@ def rows(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str
     url, seeded = seed_database_file(tmp_path / "scoreboard.sqlite3")
     monkeypatch.setenv("SCOREBOARD_DATABASE_URL", url)
     monkeypatch.setenv("SCOREBOARD_GATEWAY_URL", "http://gateway.test")
-    monkeypatch.setenv("SCOREBOARD_GATEWAY_ACTOR", "claims@example.test")
     return seeded
 
 

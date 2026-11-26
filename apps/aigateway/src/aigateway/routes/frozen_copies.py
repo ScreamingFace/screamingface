@@ -8,7 +8,7 @@ is the digest the capture took.
 
 Replay is open to any authenticated account that holds the copy id and sends the exact request
 (design Q16). No route here lists or reads back a stored request (design F2). The claim route is
-open only to a caller on the claim list (OME-1947, contracts K4): it sets `claimed_at` of a sealed
+open only to a peer on a trusted network (OME-1947, contracts K4): it sets `claimed_at` of a sealed
 copy, so that the expiry rule keeps the copy.
 """
 

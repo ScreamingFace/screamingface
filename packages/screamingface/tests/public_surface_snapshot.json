@@ -4,6 +4,7 @@
       "Answer",
       "ArgMax",
       "ArgMin",
+      "AsyncChatStream",
       "AsyncClient",
       "AsyncOAuthFlow",
       "AuthenticationError",
@@ -16,6 +17,17 @@
       "CaseGrade",
       "CaseMedia",
       "CaseResult",
+      "ChatChoice",
+      "ChatChunkChoice",
+      "ChatCompletion",
+      "ChatCompletionChunk",
+      "ChatDelta",
+      "ChatDeltaToolCall",
+      "ChatFunctionCall",
+      "ChatMessage",
+      "ChatStream",
+      "ChatToolCall",
+      "ChatUsage",
       "Check",
       "Classification",
       "Client",
@@ -42,10 +54,14 @@
       "FetchedMedia",
       "FieldRule",
       "Filter",
+      "FinalStep",
       "First",
       "FixedSeedSittingWarning",
       "Fusion",
       "Gate",
+      "IgnoredParameterWarning",
+      "InferenceEndpoint",
+      "InferenceInfo",
       "Judge",
       "JudgePick",
       "JudgeWriterWarning",
@@ -105,6 +121,7 @@
       "benchmarks",
       "budget",
       "cache",
+      "chat",
       "classify",
       "close",
       "configure",
@@ -161,10 +178,17 @@
           "output": "field"
         }
       },
+      "AsyncChatStream": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, chunks: 'AsyncIterator[ChatCompletionChunk]', aclose: 'Callable[[], Awaitable[None]]') -> 'None'",
+          "aclose": "method (self) -> 'None'"
+        }
+      },
       "AsyncClient": {
         "kind": "class",
         "members": {
-          "__init__": "method (self, *, engine_url: 'str' = 'https://fusion.screamingface.ai', scoreboard_url: 'str' = 'https://leaderboard.screamingface.ai', http_transport: 'httpx.AsyncBaseTransport | None' = None, scoreboard_transport: 'httpx.AsyncBaseTransport | None' = None, run_transport: 'AsyncRunTransport | None' = None, save_results: 'bool' = True) -> 'None'",
+          "__init__": "method (self, *, engine_url: 'str' = 'https://fusion.screamingface.ai', scoreboard_url: 'str' = 'https://leaderboard.screamingface.ai', http_transport: 'httpx.AsyncBaseTransport | None' = None, scoreboard_transport: 'httpx.AsyncBaseTransport | None' = None, run_transport: 'AsyncRunTransport | None' = None, save_results: 'bool' = True, base_url: 'str | httpx.URL | None' = None, api_key: 'object' = None, timeout: 'float | httpx.Timeout | None' = None, max_retries: 'int' = 0, **openai_options: 'Any') -> 'None'",
           "aclose": "method (self) -> 'None'",
           "authenticated": "property",
           "authenticating": "property",
@@ -348,6 +372,174 @@
           "trace": "method (self) -> 'tuple[TraceEntry, ...]'"
         }
       },
+      "ChatChoice": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, *, index: 'int', message: 'ChatMessage', finish_reason: 'str') -> None",
+          "finish_reason": "field",
+          "index": "field",
+          "logprobs": "attribute",
+          "message": "field",
+          "model_dump": "method (self, *, exclude_none: 'bool' = False) -> 'dict[str, object]'",
+          "model_dump_json": "method (self, *, indent: 'int | None' = None, exclude_none: 'bool' = False) -> 'str'",
+          "to_dict": "method (self) -> 'dict[str, object]'",
+          "to_json": "method (self, *, indent: 'int | None' = 2) -> 'str'"
+        }
+      },
+      "ChatChunkChoice": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, *, index: 'int', delta: 'ChatDelta', finish_reason: 'str | None') -> None",
+          "delta": "field",
+          "finish_reason": "field",
+          "index": "field",
+          "logprobs": "attribute",
+          "model_dump": "method (self, *, exclude_none: 'bool' = False) -> 'dict[str, object]'",
+          "model_dump_json": "method (self, *, indent: 'int | None' = None, exclude_none: 'bool' = False) -> 'str'",
+          "to_dict": "method (self) -> 'dict[str, object]'",
+          "to_json": "method (self, *, indent: 'int | None' = 2) -> 'str'"
+        }
+      },
+      "ChatCompletion": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, *, id: 'str', object: 'str', created: 'int', model: 'str', choices: 'tuple[ChatChoice, ...]', usage: 'ChatUsage', screamingface: 'InferenceInfo') -> None",
+          "choices": "field",
+          "cost_usd": "property",
+          "created": "field",
+          "id": "field",
+          "model": "field",
+          "model_dump": "method (self, *, exclude_none: 'bool' = False) -> 'dict[str, object]'",
+          "model_dump_json": "method (self, *, indent: 'int | None' = None, exclude_none: 'bool' = False) -> 'str'",
+          "moderation": "attribute",
+          "object": "field",
+          "screamingface": "field",
+          "service_tier": "attribute",
+          "system_fingerprint": "attribute",
+          "text": "property",
+          "to_dict": "method (self) -> 'dict[str, object]'",
+          "to_json": "method (self, *, indent: 'int | None' = 2) -> 'str'",
+          "tool_calls": "property",
+          "trace_id": "property",
+          "usage": "field"
+        }
+      },
+      "ChatCompletionChunk": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, *, id: 'str', object: 'str', created: 'int', model: 'str', choices: 'tuple[ChatChunkChoice, ...]', usage: 'ChatUsage | None', screamingface: 'InferenceInfo | None') -> None",
+          "choices": "field",
+          "created": "field",
+          "id": "field",
+          "model": "field",
+          "model_dump": "method (self, *, exclude_none: 'bool' = False) -> 'dict[str, object]'",
+          "model_dump_json": "method (self, *, indent: 'int | None' = None, exclude_none: 'bool' = False) -> 'str'",
+          "moderation": "attribute",
+          "object": "field",
+          "screamingface": "field",
+          "service_tier": "attribute",
+          "system_fingerprint": "attribute",
+          "text": "property",
+          "to_dict": "method (self) -> 'dict[str, object]'",
+          "to_json": "method (self, *, indent: 'int | None' = 2) -> 'str'",
+          "usage": "field"
+        }
+      },
+      "ChatDelta": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, *, role: 'str | None', content: 'str | None', tool_calls: 'tuple[ChatDeltaToolCall, ...] | None', refusal: 'str | None') -> None",
+          "content": "field",
+          "function_call": "attribute",
+          "model_dump": "method (self, *, exclude_none: 'bool' = False) -> 'dict[str, object]'",
+          "model_dump_json": "method (self, *, indent: 'int | None' = None, exclude_none: 'bool' = False) -> 'str'",
+          "refusal": "field",
+          "role": "field",
+          "to_dict": "method (self) -> 'dict[str, object]'",
+          "to_json": "method (self, *, indent: 'int | None' = 2) -> 'str'",
+          "tool_calls": "field"
+        }
+      },
+      "ChatDeltaToolCall": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, *, index: 'int', id: 'str', type: 'str', function: 'ChatFunctionCall') -> None",
+          "function": "field",
+          "id": "field",
+          "index": "field",
+          "model_dump": "method (self, *, exclude_none: 'bool' = False) -> 'dict[str, object]'",
+          "model_dump_json": "method (self, *, indent: 'int | None' = None, exclude_none: 'bool' = False) -> 'str'",
+          "to_dict": "method (self) -> 'dict[str, object]'",
+          "to_json": "method (self, *, indent: 'int | None' = 2) -> 'str'",
+          "type": "field"
+        }
+      },
+      "ChatFunctionCall": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, *, name: 'str', arguments: 'str') -> None",
+          "arguments": "field",
+          "model_dump": "method (self, *, exclude_none: 'bool' = False) -> 'dict[str, object]'",
+          "model_dump_json": "method (self, *, indent: 'int | None' = None, exclude_none: 'bool' = False) -> 'str'",
+          "name": "field",
+          "to_dict": "method (self) -> 'dict[str, object]'",
+          "to_json": "method (self, *, indent: 'int | None' = 2) -> 'str'"
+        }
+      },
+      "ChatMessage": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, *, role: 'str', content: 'str | None', tool_calls: 'tuple[ChatToolCall, ...] | None', refusal: 'str | None') -> None",
+          "annotations": "attribute",
+          "audio": "attribute",
+          "content": "field",
+          "function_call": "attribute",
+          "model_dump": "method (self, *, exclude_none: 'bool' = False) -> 'dict[str, object]'",
+          "model_dump_json": "method (self, *, indent: 'int | None' = None, exclude_none: 'bool' = False) -> 'str'",
+          "refusal": "field",
+          "role": "field",
+          "to_dict": "method (self) -> 'dict[str, object]'",
+          "to_json": "method (self, *, indent: 'int | None' = 2) -> 'str'",
+          "tool_calls": "field"
+        }
+      },
+      "ChatStream": {
+        "kind": "class",
+        "members": {
+          "__enter__": "method (self) -> 'Self'",
+          "__exit__": "method (self, exc_type: 'type[BaseException] | None', exc: 'BaseException | None', traceback: 'TracebackType | None') -> 'None'",
+          "__init__": "method (self, chunks: 'Iterator[ChatCompletionChunk]', close: 'Callable[[], None]') -> 'None'",
+          "close": "method (self) -> 'None'"
+        }
+      },
+      "ChatToolCall": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, *, id: 'str', type: 'str', function: 'ChatFunctionCall') -> None",
+          "function": "field",
+          "id": "field",
+          "model_dump": "method (self, *, exclude_none: 'bool' = False) -> 'dict[str, object]'",
+          "model_dump_json": "method (self, *, indent: 'int | None' = None, exclude_none: 'bool' = False) -> 'str'",
+          "to_dict": "method (self) -> 'dict[str, object]'",
+          "to_json": "method (self, *, indent: 'int | None' = 2) -> 'str'",
+          "type": "field"
+        }
+      },
+      "ChatUsage": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, *, prompt_tokens: 'int', completion_tokens: 'int', total_tokens: 'int') -> None",
+          "completion_tokens": "field",
+          "completion_tokens_details": "attribute",
+          "model_dump": "method (self, *, exclude_none: 'bool' = False) -> 'dict[str, object]'",
+          "model_dump_json": "method (self, *, indent: 'int | None' = None, exclude_none: 'bool' = False) -> 'str'",
+          "prompt_tokens": "field",
+          "prompt_tokens_details": "attribute",
+          "to_dict": "method (self) -> 'dict[str, object]'",
+          "to_json": "method (self, *, indent: 'int | None' = 2) -> 'str'",
+          "total_tokens": "field"
+        }
+      },
       "Check": {
         "kind": "class",
         "members": {
@@ -373,7 +565,7 @@
         "members": {
           "__enter__": "method (self) -> 'Client'",
           "__exit__": "method (self, exc_type: 'type[BaseException] | None', exc: 'BaseException | None', traceback: 'TracebackType | None') -> 'None'",
-          "__init__": "method (self, *, engine_url: 'str' = 'https://fusion.screamingface.ai', scoreboard_url: 'str' = 'https://leaderboard.screamingface.ai', http_transport: 'httpx.BaseTransport | None' = None, scoreboard_transport: 'httpx.BaseTransport | None' = None, run_transport: 'SyncRunTransport | None' = None, save_results: 'bool' = True) -> 'None'",
+          "__init__": "method (self, *, engine_url: 'str' = 'https://fusion.screamingface.ai', scoreboard_url: 'str' = 'https://leaderboard.screamingface.ai', http_transport: 'httpx.BaseTransport | None' = None, scoreboard_transport: 'httpx.BaseTransport | None' = None, run_transport: 'SyncRunTransport | None' = None, save_results: 'bool' = True, base_url: 'str | httpx.URL | None' = None, api_key: 'object' = None, timeout: 'float | httpx.Timeout | None' = None, max_retries: 'int' = 0, **openai_options: 'Any') -> 'None'",
           "authenticated": "property",
           "authenticating": "property",
           "classify": "method (self, model: 'str', input: 'str') -> 'Classification'",
@@ -442,6 +634,7 @@
         "kind": "class",
         "members": {
           "__init__": "method (self, members: 'Sequence[str | Recipe]', *, judge: 'str | Recipe', max_rounds: 'int' = 3, name: 'str | None' = None) -> 'None'",
+          "chat": "property",
           "judge": "field",
           "max_rounds": "field",
           "members": "field",
@@ -642,6 +835,20 @@
           "where": "field"
         }
       },
+      "FinalStep": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, *, binding: 'str', model: 'str', usage: 'ChatUsage | None', cached: 'bool' = False) -> None",
+          "binding": "field",
+          "cached": "field",
+          "model": "field",
+          "model_dump": "method (self, *, exclude_none: 'bool' = False) -> 'dict[str, object]'",
+          "model_dump_json": "method (self, *, indent: 'int | None' = None, exclude_none: 'bool' = False) -> 'str'",
+          "to_dict": "method (self) -> 'dict[str, object]'",
+          "to_json": "method (self, *, indent: 'int | None' = 2) -> 'str'",
+          "usage": "field"
+        }
+      },
       "First": {
         "kind": "class",
         "members": {
@@ -669,12 +876,46 @@
         "members": {
           "__init__": "method (self, *, when: 'Condition', then: 'Branch', otherwise: 'Branch | None' = None, abstain_if: 'GateBand | None' = None) -> 'None'",
           "abstain_if": "field",
+          "chat": "property",
           "estimates": "field",
           "name": "property",
           "optional": "property",
           "otherwise": "field",
           "then": "field",
           "when": "field"
+        }
+      },
+      "IgnoredParameterWarning": {
+        "catches_as": [
+          "UserWarning",
+          "Warning",
+          "Exception"
+        ],
+        "kind": "class",
+        "members": {}
+      },
+      "InferenceEndpoint": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, *, base_url: 'str', model: 'str', headers: 'Mapping[str, str]') -> None",
+          "base_url": "field",
+          "headers": "field",
+          "model": "field"
+        }
+      },
+      "InferenceInfo": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, *, status: 'str', abstain_reason: 'str | None', cost_usd: 'Decimal | None', trace_id: 'str | None', final_step: 'FinalStep | None') -> None",
+          "abstain_reason": "field",
+          "cost_usd": "field",
+          "final_step": "field",
+          "model_dump": "method (self, *, exclude_none: 'bool' = False) -> 'dict[str, object]'",
+          "model_dump_json": "method (self, *, indent: 'int | None' = None, exclude_none: 'bool' = False) -> 'str'",
+          "status": "field",
+          "to_dict": "method (self) -> 'dict[str, object]'",
+          "to_json": "method (self, *, indent: 'int | None' = 2) -> 'str'",
+          "trace_id": "field"
         }
       },
       "Judge": {
@@ -893,6 +1134,7 @@
         "kind": "class",
         "members": {
           "__init__": "method (self, model: 'str', *, name: 'str | None' = None, prompt: 'str | None' = None, params: 'Mapping[str, str | int | float | bool] | None' = None, optional: 'bool' = False) -> 'None'",
+          "chat": "property",
           "model": "field",
           "name": "field",
           "optional": "field",
@@ -1026,6 +1268,7 @@
         "kind": "class",
         "members": {
           "__init__": "method (self, steps: 'Sequence[str | Recipe | Step]', *, name: 'str | None' = None, optional: 'bool' = False) -> 'None'",
+          "chat": "property",
           "name": "field",
           "optional": "field",
           "steps": "field"
@@ -1066,7 +1309,9 @@
       },
       "Recipe": {
         "kind": "class",
-        "members": {}
+        "members": {
+          "chat": "property"
+        }
       },
       "RegexClassifier": {
         "kind": "class",
@@ -1196,6 +1441,7 @@
         "kind": "class",
         "members": {
           "__init__": "method (self, model: 'str | Recipe', *, max_rounds: 'int' = 3, name: 'str | None' = None) -> 'None'",
+          "chat": "property",
           "max_rounds": "field",
           "member": "field",
           "name": "field"
@@ -1260,6 +1506,7 @@
         "members": {
           "__init__": "method (self, recipe: 'str | Recipe', *, budget_usd: 'float | None' = None, max_tokens: 'int | None' = None) -> 'None'",
           "budget_usd": "field",
+          "chat": "property",
           "max_tokens": "field",
           "name": "property",
           "optional": "property",
@@ -1298,6 +1545,10 @@
       "cache": {
         "kind": "module",
         "module": "screamingface.cache"
+      },
+      "chat": {
+        "kind": "module",
+        "module": "screamingface.chat"
       },
       "classify": {
         "kind": "function",
