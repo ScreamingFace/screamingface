@@ -11,9 +11,10 @@ as recommended). Ledger: `docs/work/2026-11-19-colab-analytics-status.md`. One u
 ## Steps (TDD, new tests only)
 
 1. **D3, lost reply is a timeout.** New test: a fake `google.colab.output` module whose
-   `eval_js` returns `None` makes `colab.exchange()` raise `TimeoutError`; through
+   `eval_js` returns `None` makes `colab.exchange()` return the timeout marker
+   (`{"choice": "unknown", "unavailable": True, "reason": "timeout"}`); through
    `prompt.before_evaluation()` status shows `setup_timeout` at stage `state`. Then in
-   `exchange()`: raise `TimeoutError` when `eval_js` returns `None`.
+   `exchange()`: return that marker when `eval_js` returns `None`.
 2. **D1, setup settles at the sync entry points.** New `prompt.offer_and_settle()`:
    `offer()` then `wait_for_setup()` (already bounded to `BRIDGE_TIMEOUT`, already safe).
    Call it from the import hook (`screamingface/__init__.py`) and the two `connect()` panel

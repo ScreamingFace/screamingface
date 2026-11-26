@@ -79,6 +79,12 @@ def _settle(record: tuple[Coordinator, Operation] | None, outcome: str | None) -
         from screamingface._analytics.colab import bridge
 
         bridge().flush()
+    except KeyboardInterrupt:
+        # INVARIANT: the product call already finished, so Ctrl-C here only ends the optional
+        # wait; the caller still returns the result or re-raises the real error (owner
+        # decision on PR #1952, 2026-11-26). The async path lets CancelledError propagate:
+        # swallowing it breaks asyncio.timeout() and TaskGroup cancellation.
+        _LOG.debug("Analytics delivery wait interrupted")
     except Exception:
         # INVARIANT: optional analytics can never fail or block product work past the bound.
         _LOG.debug("Analytics delivery wait skipped")

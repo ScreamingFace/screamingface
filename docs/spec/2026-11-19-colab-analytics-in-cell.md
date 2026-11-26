@@ -25,8 +25,9 @@ unacknowledged upload is an uncertain consent period). Users see `enabled: False
 
 ## Behaviour after the change
 
-1. **A lost reply is a timeout.** When `eval_js` returns `None`, `exchange()` raises
-   `TimeoutError`. Status shows `setup_timeout` / `delivery_timeout` at the stage that was
+1. **A lost reply is a timeout.** When `eval_js` returns `None`, `exchange()` returns the
+   same marker the browser script uses for its own timeout
+   (`{"choice": "unknown", "unavailable": True, "reason": "timeout"}`). Status shows `setup_timeout` / `delivery_timeout` at the stage that was
    waiting. Replies that do arrive but are malformed are still `invalid_response`.
 2. **Colab setup finishes inside the triggering cell.** `sf.connect()` / `Client.connect()`
    wait for the setup they started, at most `BRIDGE_TIMEOUT` (5 s). `import screamingface`
@@ -40,6 +41,12 @@ unacknowledged upload is an uncertain consent period). Users see `enabled: False
    most `BRIDGE_TIMEOUT`. A cancelled operation (`KeyboardInterrupt`, `CancelledError`) does not
    wait; its terminal event is best-effort, and if it is lost the existing invariant applies
    (consent unknown until the next evaluation re-runs setup inside its cell).
+   **An interrupt during the wait** (the product call has already finished): in sync code,
+   Ctrl-C only ends the wait, and the call still returns its result or raises its real error.
+   In async code, `CancelledError` propagates as with any other `await`; swallowing it would
+   break `asyncio.timeout()` and `TaskGroup` cancellation. The finished result is then lost to
+   the caller, and on the error path the real error is the `CancelledError`'s `__context__`
+   (owner decision on PR #1952, 2026-11-26).
 4. **Unchanged:** explicit opt-outs (`DO_NOT_TRACK`, `disable()`, saved decline) skip setup and
    both waits; a late reply from an expired attempt can never enable tracking; an
    unacknowledged upload still resets consent; no event replay; no service change; non-Colab

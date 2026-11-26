@@ -387,3 +387,50 @@ terminal delivery. Out of scope for this round.
 
 - **Commit**: `_settle`/`_settle_async` guard fix + two new regressions + this ledger entry,
   on `OME-1974-colab-analytics-status`.
+
+### Round 7 (2026-11-26): owner decision on interrupts during the post-result wait, plus cheap low items
+
+Status: DONE.
+
+**Owner decision (Filip, 2026-11-26), HupBaHa's Medium item:** contain sync, document async.
+
+- Sync: a `KeyboardInterrupt` during the bounded post-result wait (`_settle` → `bridge().flush()`)
+  only ends the wait. The wrapper still returns the finished result, or re-raises the original
+  domain error. Optional analytics never replaces a product outcome.
+- Async: `CancelledError` during `_settle_async` still propagates. Swallowing it would break
+  `asyncio.timeout()` / `TaskGroup` cancellation. The spec records this as accepted; in the
+  error branch the domain error stays reachable as the `CancelledError`'s `__context__`.
+
+**Planned changes**
+- `tracking.py`: `_settle` catches `KeyboardInterrupt` around the flush (WHY anchor).
+- Spec Behaviour 1 / 3 and plan step 1: `exchange()` returns the timeout marker on a `None`
+  reply (it does not raise `TimeoutError`); spec Behaviour 3 gains the interrupt contract.
+
+**Test plan (new tests only, `test_analytics_colab_in_cell.py`)**
+- Sync success + Ctrl-C during the wait → result returned.
+- Sync domain error + Ctrl-C during the wait → original domain error raised.
+- Async success cancelled during the wait → `CancelledError`.
+- Async domain error cancelled during the wait → `CancelledError` whose `__context__` is the
+  domain error.
+- Sync `@tracked` success with `ok=True` → `evaluation_finished` delivered (review low item).
+- `ColabBridge.clear()` drops a queued event behind an in-flight one → `flush()` returns
+  soon after the in-flight one, not at `BRIDGE_TIMEOUT` (pins `_done()` in `clear()`).
+
+**Deferred to a follow-up ticket (filed only after Filip confirms):** `offer_at_import()`
+duplicate setup attempt; one shared deadline for staggered settles.
+
+**Acceptance:** new tests fail before the change where they pin new behaviour, all pass after;
+`run_gates.py screamingface` green.
+
+**Outcome (round 7)**
+- Files: `tracking.py` (`_settle` catches `KeyboardInterrupt` around `flush()`), new
+  `tests/test_analytics_colab_interrupts.py` (6 tests; a new file because
+  `test_analytics_colab_in_cell.py` is at 400 lines and the card caps files at 450), spec
+  Behaviour 1 and 3, plan step 1. No prior test changed.
+- RED: the sync Ctrl-C tests failed with the `KeyboardInterrupt` escaping the wrapper. The
+  async cancel tests and the sync success test passed at RED: they pin existing behaviour.
+- Mutation check: removing `self._done()` from `ColabBridge.clear()` makes
+  `test_clear_releases_flush_for_the_events_it_drops` fail (flush waited 5.0 s).
+- Gates: `run_gates.py screamingface --base $(git merge-base origin/main HEAD)` ALL GREEN.
+  **Deviation:** `--base origin/main` fails the append-only gate only because the branch is
+  20 commits behind main, so tests main added show as deleted. The merge-base is the right base.
