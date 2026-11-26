@@ -239,6 +239,42 @@ Status: DONE. Each change below was first a failing test.
 - Removing DECIDE's claim alone is not observable: DECIDE has no effect before its recorded
   draft, which refuses a second write with the same error.
 
+## Fix: RE2 loads only for a regex selector (2026-11-26)
+
+Status: DONE. Each change below was first a failing test.
+
+- **Cause.** The SDK runtime CLI reads the world file through `world.config.load_config` before
+  it starts an Engine, in an install without the Engine's `google-re2` dependency (the SDK's
+  `runtime` extra carries it; its test lane installs only `notebook`). `parse_config` imports
+  `world.routing_config`, which imported `world.router_spec`, whose module-level `compile_regex`
+  import loaded `combine.operators.extract` and so `re2`. Twelve unchanged SDK runtime tests
+  failed on Python 3.12 and 3.13 with `ModuleNotFoundError: No module named 're2'`.
+- **Fix.** `router_spec.RegexRule` imports `compile_regex` inside its validator, and
+  `router_keywords` imports `re2_head` and `compile_regex` inside `keyword_labels` and the cached
+  `_compiled`. Reading a world file, its routing profiles included, and importing or running the
+  Router steps for a fixed, scoring or llm selector no longer load RE2. The Engine server still
+  imports RE2 at startup through the combine operators, as on `main`.
+- **Fail closed.** Without RE2, a regex rule's validator raises `ModuleNotFoundError`, which
+  pydantic does not turn into a validation error, so the definition is neither admitted nor
+  refused as invalid. ADMIT raises before its preflight read: no Gateway request, no provider
+  call and no C5 record. With RE2 installed, C2 still compiles every rule, and KEYWORDS keeps its
+  RE2 semantics, its first 65,536-character window, its declared rule order (the first match
+  unless `multi`) and its per-pattern cache.
+- **Tests.** `test_router_optional_re2.py`. A fresh interpreter with `re2` blocked reads a world
+  file with a fixed and a dynamic profile (the same revisions as with RE2), reads fixed, scoring
+  and llm envelopes, imports every Router step module without loading `extract`, and does not
+  admit a regex envelope. In process with `re2` blocked, ADMIT of a regex Router raises before any
+  read, a regex block on the url4 executor calls nothing and records nothing, and fixed, scoring
+  and llm blocks still answer with one record. With RE2, a lookahead, backreference or lookbehind
+  rule (each compiles under Python `re`) is refused at C2, `$` and `\d` match as RE2 does, and the
+  window, the order and the compile-once cache hold.
+
+### Risks added by the RE2 fix
+
+- Without RE2, a regex Router fails as an Engine fault (the missing module), not as a C4
+  refusal. The Engine declares `google-re2` and its server imports it at startup, so only a
+  process that never starts the Engine server can reach this.
+
 ## Outcome (fill at the end — required before COMMIT)
 
 - **Actual files** (all under `apps/screamingface-engine/`):
@@ -267,7 +303,8 @@ Status: DONE. Each change below was first a failing test.
     `test_router_runtime.py`, `test_router_spec.py`, `test_routing_core_targets.py`,
     `test_routing_dynamic_config.py`, `test_routing_dynamic_endpoint.py`,
     `test_routing_policy.py`. No prior test changed (append-only check green).
-- **Commits:** none yet; the candidate is uncommitted.
+- **Commits:** `341cd384b` (`feat(screamingface-engine): add shared routing core`); the RE2
+  fix is uncommitted on top of it.
 - **Gates (2026-11-26, worktree on `4efb34bc6`):**
   - Python 3.13: `run_gates.py screamingface-engine` ALL GATES GREEN (append-only, ruff check,
     ruff format, pyright, layering, full suite with coverage >= 80%).
@@ -314,6 +351,22 @@ Status: DONE. Each change below was first a failing test.
     `world/router_provenance.py`, `world/router_admit.py`, `world/router_join.py`,
     `world/parameter_contract.py`, `tests/unit/test_operation_provenance.py`,
     `tests/unit/test_parameter_contract.py`.
+- **RE2 fix gates (2026-11-26, on `341cd384b`; `origin/main` is still `35efe84ac`):**
+  - SDK, installed as its test lane installs it (`uv sync --frozen --extra notebook`, no RE2),
+    Python 3.13.11 and 3.12.9: the twelve failing runtime tests pass, and so does the full SDK
+    suite (its typing tests read the package's own `.venv`, so that path named the same
+    environment for them).
+  - Python 3.13, in an environment synced from the lock without extras: `run_gates.py
+    screamingface-engine` ALL GATES GREEN; full suite 13029 passed / 576 skipped.
+  - Python 3.12.9: ruff check, ruff format, pyright 0 errors, layering OK, full suite
+    13028 passed / 577 skipped, coverage 96.52%.
+  - `run_gates.py repo`: ALL GATES GREEN.
+  - Mutation controls, each restored byte-exact, 10/10 killed: a module-level RE2 import in
+    `router_spec` and in `router_keywords`, a missing RE2 admitted, a missing RE2 refused as an
+    invalid definition, C2 without the RE2 compile, KEYWORDS without its cache, with Python `re`,
+    without its window, with the last match, and in reversed rule order.
+  - Changed: `world/router_spec.py`, `world/router_keywords.py`; new
+    `tests/unit/test_router_optional_re2.py`.
 - **Deviations:** the runtime is five `router_*` modules plus `install_router_runtime`, not one
   `world/router_runtime.py`; C17 lives in `catalog/classifiers.py` served by `rest/catalog.py`,
   not a new `rest/classifiers.py`; the C5 codec is the leaf `router_decision.py`.

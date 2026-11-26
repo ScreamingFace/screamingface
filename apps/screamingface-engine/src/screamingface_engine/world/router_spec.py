@@ -31,7 +31,6 @@ from pydantic import (
     model_validator,
 )
 
-from screamingface_engine.combine.operators.extract import compile_regex
 from screamingface_engine.combine.ports import CombineError, utf8_exceeds
 from screamingface_engine.router_vocabulary import (
     MAX_LABEL_BYTES,
@@ -157,6 +156,12 @@ class RegexRule(_Strict):
 
     @model_validator(mode="after")
     def _runs(self) -> RegexRule:
+        # WHY imported here: `extract` imports RE2 (google-re2), an Engine dependency that a
+        # world-file reader such as the SDK runtime may lack; only a regex rule needs it.
+        # INVARIANT: without RE2 this raises ModuleNotFoundError, which pydantic does not turn
+        # into a refusal, so a regex selector is never admitted (fail closed, before any read).
+        from screamingface_engine.combine.operators.extract import compile_regex
+
         try:
             compile_regex({"pattern": self.pattern, "ignore_case": self.ignore_case})
         except CombineError as exc:
