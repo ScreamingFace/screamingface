@@ -33,11 +33,8 @@ from screamingface_engine.world.accounting import (
 )
 from screamingface_engine.world.cache_readback import CacheOutcome, CacheStatus
 from screamingface_engine.world.config import ModelSpec
-from screamingface_engine.world.connector import (
-    AigatewayConfig,
-    _CaptureProbe,
-    build_aigateway_world,
-)
+from screamingface_engine.world.connector import AigatewayConfig, build_aigateway_world
+from screamingface_engine.world.gateway_transport import _CaptureProbe
 from url4.core.errors import ResolutionError
 from url4.dag import run as url4_run
 from url4.observe import ModelResponse, NodeStarted, ObservationEvent, Usage
@@ -137,7 +134,7 @@ def _body(aigw: dict[str, Any]) -> dict[str, Any]:
 
 def _no_backoff() -> Any:
     return mock.patch.multiple(
-        "screamingface_engine.world.connector",
+        "screamingface_engine.world.gateway_transport",
         _TRANSPORT_BACKOFF_BASE_S=0.0,
         _TRANSPORT_BACKOFF_JITTER_S=0.0,
     )

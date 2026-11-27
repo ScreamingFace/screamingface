@@ -617,6 +617,9 @@ resources:
 # Graceful shutdown, sized against the App's own behavior (see the Deployment's WHY): preStop
 # covers endpoint propagation, and the grace period must exceed preStop + the worst-case
 # `config.syncMaxWaitS` hold (30s) so a rollout never SIGKILLs mid-request.
+# POST /v1/chat/completions fits this too: the read of a request body above 1 MB takes at most
+# 35 s (5 s for a parse place, then 30 s for the body), and a chat request that waits for its run
+# ends at the stop signal (the chat drain).
 preStopSleepSeconds: 5
 terminationGracePeriodSeconds: 45
 

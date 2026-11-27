@@ -1,0 +1,38 @@
+{
+  "issue": "OME-2018",
+  "branch": "OME-2018-medxpert-commit-letter-only",
+  "approver": "The owner, by direct instruction in the working session; edits to be reviewed on the PR",
+  "date": "2026-11-25",
+  "scope": "Pins and assertions that follow from the owner-approved MedXpertQA protocol change, no weakened check. (1) Revision pins 952ea002b0f5e3b0 -> 5f6e01e4fa673215 in the migration golden, the fingerprint test, the benchmark-bump test and the early-grade fixture. (2) The canonical url4 hash in test_benchmark_protocol is re-pinned: the expression is the same and the revision in every route moved. (3) test_medxpert_commit_recipe and test_medxpert_commit_turn_bytes: the commit turn's last message is the reply rule, a blank line and the trigger where it was the bare trigger, and the recipe test's gateway stand-in recognises a commit by how the last message ends, not by how it starts. (4) test_medxpert_commit_turn_bytes: the asserts that the v1 and v2 protocol constants compute their published ids now pass an empty reply rule, because the rule's text became a hashed input and those exams sent none; the ids asserted are unchanged.",
+  "reason": "OME-2018 adds one instruction line before the trigger on MedXpertQA's commit turn and moves the published revision. Every listed edit is the old protocol's expected value replaced by the new one; the new behaviour is covered by new tests in test_medxpert_commit_recipe.py, test_medxpert_commit_turn_bytes.py and test_medxpert_answering.py. The owner approved the instruction as a declared deviation and the revision move on 2026-11-25.",
+  "files": {
+    "apps/screamingface-engine/tests/fixtures/early_grade_compatibility.json": {
+      "base_blob": "45b8e42748f77ab82af269a5d7093437d6ea6339",
+      "approved_blob": "63a2b2c1f8562f9937e838eeea8a57bb69dc1b63"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_benchmark_bump.py": {
+      "base_blob": "6142ad48f1a6148b3e587ad0ed35f5840a493835",
+      "approved_blob": "29414a2e10d62607431185e1ceafc8a75ca7dc55"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_benchmark_fingerprints.py": {
+      "base_blob": "a3fa4d3e508428b45395f3298690fe00e850cca8",
+      "approved_blob": "5ccc4230f88b126493464a031cb382d698ad903a"
+    },
+    "apps/screamingface-engine/tests/unit/test_benchmark_protocol.py": {
+      "base_blob": "293b56d4651a224b9c84d4c747552adb9120f0c8",
+      "approved_blob": "203f3d16dfbe152f44d495bec037c6f4cb25dfb4"
+    },
+    "apps/screamingface-engine/tests/unit/test_medxpert_migration_golden.py": {
+      "base_blob": "16cfa9c35fc9b12f27a4626f2fda1d8878c5af22",
+      "approved_blob": "c7fb9f44dc896d671dd3d4608de87b3aa2e27492"
+    },
+    "apps/screamingface-engine/tests/unit/test_medxpert_commit_recipe.py": {
+      "base_blob": "c1b26620924ec16d6274f50b7a904938dd6507ba",
+      "approved_blob": "71b97a91c6024431b9ab53fd87bfa1ea989b81b8"
+    },
+    "apps/screamingface-engine/tests/unit/test_medxpert_commit_turn_bytes.py": {
+      "base_blob": "14ab125647ecd0f6f9debc08126469814069404f",
+      "approved_blob": "d9e4122c8edd339166943f115a40b0f9c4085c20"
+    }
+  }
+}

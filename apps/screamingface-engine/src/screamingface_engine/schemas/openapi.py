@@ -8,6 +8,8 @@ from fastapi import FastAPI
 from fastapi.openapi.utils import get_openapi
 
 from screamingface_engine.auth import Problem
+from screamingface_engine.rest.chat_openapi import set_chat_security
+from screamingface_engine.rest.runs_boundary import requires_identity
 from screamingface_engine.schemas.protocol_schemas import protocol_component_schemas
 
 API_DESCRIPTION = """\
@@ -33,6 +35,10 @@ Both dialects stay, deliberately (OQ-3.1). A `url4` client can point at this eng
 `url4 serve` node and get the same contract; translating to RFC 9457 would break that for no
 gain. The split is by path: **mount paths speak `url4`, everything else speaks RFC 9457.** See
 `contracts.md` C1 and the engine README.
+
+The OpenAI-compatible chat path `POST /v1/chat/completions` is the second exception: it speaks
+the OpenAI `{"error": {"message", "type", "param", "code"}}` envelope, so an OpenAI client reads
+its errors.
 
 ## Execution flows
 
@@ -136,6 +142,16 @@ TAGS: list[dict[str, str]] = [
         ),
     },
     {
+        "name": "Chat",
+        "description": (
+            "Create a chat completion with an OpenAI client: `model` is a Candidate URL4 or a "
+            "model id of `GET /v1/models`. This path does not use RFC 9457: its errors use the "
+            'OpenAI `{"error": {"message", "type", "param", "code"}}` envelope, with '
+            "`x-should-retry`. The other engine paths speak RFC 9457, and the sync mount surface "
+            "(`GET /<mount>?q=`) speaks the url4 envelope."
+        ),
+    },
+    {
         "name": "Community cache",
         "description": (
             "Page through the community request cache (OME-1311): AI Gateway's NDJSON pages, "
@@ -185,6 +201,9 @@ def customize_openapi(app: FastAPI) -> None:
             operation = schema.get("paths", {}).get("/", {}).get(method)
             if operation is not None:
                 operation["security"] = [{"URL4Capability": []}]
+        # WHY the shared rule: the chat operation names the Access header when the App asks for a
+        # verified identity (rest/runs_boundary.requires_identity).
+        set_chat_security(schema, hosted=requires_identity(app))
         app.openapi_schema = schema
         return schema
 

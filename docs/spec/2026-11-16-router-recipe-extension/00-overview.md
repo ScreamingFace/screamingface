@@ -81,7 +81,8 @@ and any live, paid or production call while writing this spec.
 | 6 Router Recipe | Readers first; `sf.Router` kind; standalone evaluation; inline entry and `route_answer`; classify capture/replay, the run definition set and the run manifest; prepared inputs and their retained snapshot | 5.2; capability path (C12) |
 | url4 leaf | The `expand.at_most_one=true` package extension in `packages/url4`: parser validation, lowering, both panels, code binding, builder and renderer, and the cross-version test on the `455166b0d` reader (C19) | Fresh main only |
 | 7 Router in Fusion | One-Router and three-Router Fusion; Model-equivalent placements with each position's outcome (C18); `router-placement-v1` (C12) | 6; url4 leaf |
-| 8 BERT reference | Fixed-label serving bundle and qualification through the scalar contract | 6 (model-free conformance can start earlier) |
+| 8A fixed-label reference | Isolated DistilBERT serving bundle and model-free conformance through the existing scalar contract | Existing scalar path; approval of the C7 reference fragment |
+| 8B fixed-label Router | Standalone Router integration with the 8A fixture | 6 and 8A |
 | 9 Qualification | Integrated, live and hosted evidence on Linux/NATS/JetStream | 5-8 and an owner-approved window |
 
 Readers ship before writers in every Unit: `no_selection`, Router IR and decision readers,
@@ -218,11 +219,11 @@ not C18 placement.
 |---|---|---|
 | Epic | OME-1306 | Open |
 | Pilot Engine and SDK | OME-1822, OME-1823 | Open; landing needs separate authorization |
-| E4c capability advertised by the Engine | OME-1921 (parent OME-1291) | Backlog, assigned outside this work |
-| SDK refusal before the first paid call on an Engine without E4c | OME-1922 (parent OME-1291) | Backlog, `blocked` |
+| E4c capability advertised by the Engine | OME-1921 (parent OME-1291) | Closed without a discovery landing |
+| SDK refusal before the first paid call on an Engine without E4c | OME-1922 (parent OME-1291) | Closed without a reader landing |
 
-OME-1921 and OME-1922 define the capability path C12 extends. Unit 6 SDK writers cannot emit Router
-IR before that path exists; coordinate with their owner before Unit 6. New leaves are filed at
+Unit 6 delivers the C12 fallback capability path. Unit 6 SDK writers wait for the deployed readers
+and capability activation defined there. New leaves are filed at
 PR-open, one per landing (`app/aigateway`, `app/screamingface-engine`, `pkg/client-sf`, and
 `pkg/url4-sdk` for the url4 leaf), under OME-1306, after user confirmation. This spec files nothing.
 
@@ -236,22 +237,30 @@ the changed fragment: Unit 5.1 amends C7 (`contracts-replay.md`), the url4 leaf 
 decision appears before code that neither this spec nor the plan covers, or when a Unit 6, 7 or 8
 storage, API, IR or serving decision cannot be stated unambiguously here.
 
-- Unit 5.1: pinned in C7, the question ID `choice`, the common Laya and Jev request, the native
-  response checks, the target config keys for `limits` and the refusal code `classifier_limit_exceeded`.
-- Unit 5.2: the profile config keys for dynamic choice; the module layout of the pure core; the
-  strict shape of the decision draft; whether `GET /v1/classifiers` caches per caller and whether the
-  Engine world bounds its list.
-- Unit 6: url4 text of the panel body; the inline adapter's case key and occurrence numbering;
-  inline error class names; the measured root GET limit and question bound; the prepared-input API,
-  storage, retention, cleanup, multi-definition layout and reader codecs; the capability endpoint if
-  OME-1921 has settled a different one.
+- Unit 5.1: C7 pins the question ID `choice`, the common Laya and Jev request, the native response
+  checks, the target config keys for `limits` and the refusal code `classifier_limit_exceeded`.
+  The packaged SDK runtime attempt proof landed in #2077 (`1cb41a12e`).
+- Unit 5.2 (contract landed in #2079, `4efb34bc6`): C2/C3 pin dynamic-profile configuration and
+  revision identity; C4/C6 pin the shared Engine boundary and the shipped fixed-profile error
+  split; C4/C5 pin JOIN's input, the strict draft and early-failure identity; C8 pins direct-entry
+  attempt observation; C16/C17 pin classifier discovery freshness, membership and read bounds.
+  The Engine runtime implementation is a separate leaf.
+- Unit 6 (**amendment pending owner approval**): C9 pins the replay accounting carrier; C12 pins
+  dormant discovery, readiness and withdrawal; C13 pins inline identity and decoding; C10/C15 and
+  the test plan pin reader transitions. C4's exact rendered panel waits on goldens against the
+  landed Unit 5.2 reader. The C9/C12 integration bases, C14 storage/lifetime decision and C16
+  measured target limit must be resolved before the affected code. Keep C12 dormant until its
+  separately qualified activation.
 - url4 leaf: pinned in C19, the `url4.src` keyword `at_most_one=` and the two-plus failure code
   `x.expansion_too_many`.
 - Unit 7: placement refusal messages; the forms C18 leaves open (the member read, its route and the
   marked member slot, the Pipeline gate, a Router as a panel Gate's decision call in the IR, the
   report view of that Gate).
-- Unit 8: the BERT checkpoint, revision, runtime and label mapping; the reference server's
-  token-aware input check (special tokens counted, no truncation) and its refusal status and code.
+- Unit 8A (contract landed in #2082, `99072d273`): the checkpoint, artifact and serving boundary,
+  native scalar wire, labels, token budget and refusal are pinned in the
+  [C7 fixed-label reference](contracts-replay.md#fixed-label-reference-unit-8a). The isolated
+  implementation and its runtime/lock checks are a separate leaf. Checkpoint provisioning and
+  real model qualification require separate approval.
 - Unit 9: the hosted window, intermediary URL limits and mixed App/worker characterization.
 
 ## 10. Documents

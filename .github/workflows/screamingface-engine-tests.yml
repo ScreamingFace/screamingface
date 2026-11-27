@@ -18,6 +18,46 @@ on:
       - "apps/aigateway/src/aigateway/config.py"
       # the SDK flow operator fixture that tests/unit/test_sdk_flow_catalog_fixture.py binds
       - "packages/screamingface/tests/_combine_flow_fixtures.py"
+      # the SDK surface files that tests/unit/test_chat_recipe_check.py and _chat_corpus.py read
+      - "packages/screamingface/tests/data/surface_parity.json"
+      - "packages/screamingface/src/screamingface/_operation_bindings.py"
+      # the chat docs page and its snippets that tests/unit/test_chat_docs_page.py and the docs example tests read
+      - "public-docs/src/pages/sf-client/guides/OpenAiApiPage.vue"
+      # the chat API page that tests/unit/test_chat_docs_review2.py reads
+      - "public-docs/src/pages/sf-client/api/ChatPage.vue"
+      - "public-docs/src/snippets/openai-chat/**"
+      # the gateway relay fixtures that tests/unit/test_gateway_error_relay_contract.py reads
+      - "apps/aigateway/tests/fixtures/provider_error_relay/**"
+      # the gateway data-URI parser that tests/unit/test_data_uri_matches_aigateway.py mirrors
+      - "apps/aigateway/src/aigateway/core/content_parts.py"
+      # the provider slug lists that tests/unit/test_declared_models_match_aigateway.py reads
+      - "apps/aigateway/src/aigateway/plugins/*/settings.py"
+      - "apps/aigateway/src/aigateway/plugins/*/models.py"
+      # the OpenRouter judge parameters that tests/unit/test_judge_params_match_aigateway.py reads
+      - "apps/aigateway/src/aigateway/plugins/openrouter_provider/parameters.py"
+      # the tortoise-orm and inspect-ai pins that the pin conformance tests compare
+      - "apps/aigateway/pyproject.toml"
+      - "apps/aigateway/uv.lock"
+      - "packages/screamingface/pyproject.toml"
+      - "packages/screamingface/uv.lock"
+      # the Scoreboard score schema that the provenance and vocabulary twins read
+      - "apps/scoreboard/src/scoreboard/scores/schemas.py"
+      # the SDK package: three tests run it in a subprocess, and the contract twins read its source
+      - "packages/screamingface/src/**"
+      # the SDK notebooks that tests/unit/inspect/test_benchmark_provenance_conformance.py reads
+      - "packages/screamingface/examples/*.ipynb"
+      # the layering script that the layering tests load and the `test` job runs
+      - ".claude/scripts/check_layering.py"
+      # the repo-root marker that tests/unit/test_credit_contract.py finds the repo by
+      - ".claude/sdlc.local.md"
+      # what both images copy from their repo-root build context
+      - ".dockerignore"
+      # every workflow, deploy script and justfile that tests/unit/test_benchmark_deployment.py
+      # checks for a benchmark image build
+      - ".github/workflows/*.yml"
+      - "apps/*/deploy/**/*.sh"
+      - "apps/*/scripts/**/*.sh"
+      - "*/*/justfile"
       - ".github/workflows/screamingface-engine-tests.yml"
   pull_request:
     paths:
@@ -37,6 +77,46 @@ on:
       - "apps/aigateway/src/aigateway/config.py"
       # the SDK flow operator fixture that tests/unit/test_sdk_flow_catalog_fixture.py binds
       - "packages/screamingface/tests/_combine_flow_fixtures.py"
+      # the SDK surface files that tests/unit/test_chat_recipe_check.py and _chat_corpus.py read
+      - "packages/screamingface/tests/data/surface_parity.json"
+      - "packages/screamingface/src/screamingface/_operation_bindings.py"
+      # the chat docs page and its snippets that tests/unit/test_chat_docs_page.py and the docs example tests read
+      - "public-docs/src/pages/sf-client/guides/OpenAiApiPage.vue"
+      # the chat API page that tests/unit/test_chat_docs_review2.py reads
+      - "public-docs/src/pages/sf-client/api/ChatPage.vue"
+      - "public-docs/src/snippets/openai-chat/**"
+      # the gateway relay fixtures that tests/unit/test_gateway_error_relay_contract.py reads
+      - "apps/aigateway/tests/fixtures/provider_error_relay/**"
+      # the gateway data-URI parser that tests/unit/test_data_uri_matches_aigateway.py mirrors
+      - "apps/aigateway/src/aigateway/core/content_parts.py"
+      # the provider slug lists that tests/unit/test_declared_models_match_aigateway.py reads
+      - "apps/aigateway/src/aigateway/plugins/*/settings.py"
+      - "apps/aigateway/src/aigateway/plugins/*/models.py"
+      # the OpenRouter judge parameters that tests/unit/test_judge_params_match_aigateway.py reads
+      - "apps/aigateway/src/aigateway/plugins/openrouter_provider/parameters.py"
+      # the tortoise-orm and inspect-ai pins that the pin conformance tests compare
+      - "apps/aigateway/pyproject.toml"
+      - "apps/aigateway/uv.lock"
+      - "packages/screamingface/pyproject.toml"
+      - "packages/screamingface/uv.lock"
+      # the Scoreboard score schema that the provenance and vocabulary twins read
+      - "apps/scoreboard/src/scoreboard/scores/schemas.py"
+      # the SDK package: three tests run it in a subprocess, and the contract twins read its source
+      - "packages/screamingface/src/**"
+      # the SDK notebooks that tests/unit/inspect/test_benchmark_provenance_conformance.py reads
+      - "packages/screamingface/examples/*.ipynb"
+      # the layering script that the layering tests load and the `test` job runs
+      - ".claude/scripts/check_layering.py"
+      # the repo-root marker that tests/unit/test_credit_contract.py finds the repo by
+      - ".claude/sdlc.local.md"
+      # what both images copy from their repo-root build context
+      - ".dockerignore"
+      # every workflow, deploy script and justfile that tests/unit/test_benchmark_deployment.py
+      # checks for a benchmark image build
+      - ".github/workflows/*.yml"
+      - "apps/*/deploy/**/*.sh"
+      - "apps/*/scripts/**/*.sh"
+      - "*/*/justfile"
       - ".github/workflows/screamingface-engine-tests.yml"
   workflow_dispatch:
 
@@ -55,6 +135,55 @@ env:
   DO_NOT_TRACK: "1"
 
 jobs:
+  # WHY: a change outside the Engine reaches this workflow only through a file its unit tests
+  # read (the `paths:` filters above, pinned by tests/unit/test_engine_ci_path_filters.py), and
+  # `test` runs those contract twins. The images build only from the Engine, url4 and the
+  # root `.dockerignore`, so `image`, `conformance` and `chart` run only when they or this
+  # workflow changed (tests/unit/test_engine_ci_heavy_jobs.py).
+  changes:
+    name: Classify the change
+    runs-on: ubuntu-latest
+    outputs:
+      engine: ${{ steps.classify.outputs.engine }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: classify
+        name: Did the Engine, url4 or this workflow change
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          ENGINE_PATHS: '^(apps/screamingface-engine/|packages/url4/|\.dockerignore$|\.github/workflows/screamingface-engine-tests\.yml$)'
+        # INVARIANT: only a clean, non-empty diff that names none of them skips the heavy jobs.
+        # A manual run or a base git cannot find runs them. An empty diff would too, though a
+        # path-filtered event never has one. A new branch's first push has an all-zero base,
+        # so it is compared with where it left the default branch.
+        # WHY two ranges: GitHub filters a pull request by what its branch changed since it
+        # left the base (`base...head`), and a push by its two trees (`before..after`). A
+        # force-push that drops an Engine commit changes the Engine only in the second.
+        run: |
+          engine=true
+          paths="$RUNNER_TEMP/changed-paths"
+          if [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
+            BASE=$(git merge-base "origin/$DEFAULT_BRANCH" "$HEAD" 2>/dev/null) || true
+          fi
+          range="$BASE...$HEAD"
+          if [ "$EVENT" = "push" ]; then
+            range="$BASE..$HEAD"
+          fi
+          if [ "$EVENT" != "workflow_dispatch" ] \
+            && [ -n "$BASE" ] \
+            && git diff --name-only --no-renames "$range" > "$paths" \
+            && [ -s "$paths" ] \
+            && ! grep -qE "$ENGINE_PATHS" "$paths"; then
+            engine=false
+          fi
+          echo "engine=$engine" >> "$GITHUB_OUTPUT"
+
   test:
     runs-on: ubuntu-latest
     strategy:
@@ -151,6 +280,8 @@ jobs:
   # are invisible against the in-memory double by construction.
   conformance:
     name: EventStream conformance (real NATS)
+    needs: [changes]
+    if: needs.changes.outputs.engine == 'true'
     runs-on: ubuntu-latest
     services:
       nats:
@@ -215,6 +346,8 @@ jobs:
 
   image:
     name: Build the deployable images
+    needs: [changes]
+    if: needs.changes.outputs.engine == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -261,6 +394,8 @@ jobs:
 
   chart:
     name: Render the Helm chart
+    needs: [changes]
+    if: needs.changes.outputs.engine == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7

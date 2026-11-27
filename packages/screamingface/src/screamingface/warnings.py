@@ -1,4 +1,4 @@
-"""Public warning categories for completed Evaluations with degraded quality."""
+"""Public warning categories of the SDK."""
 
 
 class EvaluationWarning(UserWarning):
@@ -18,6 +18,11 @@ class FixedSeedSittingWarning(EvaluationWarning):
     """A run seed is set, but calls with their own seed send the same request in every sitting."""
 
 
+class IgnoredParameterWarning(UserWarning):
+    """A chat parameter that the SF Engine does not use: a chat call accepts it, does not
+    send it, and gives this warning (contracts C1.2, ans:Q3)."""
+
+
 class JudgeWriterWarning(EvaluationWarning):
     """A Pipeline stage writes with the model that judged the stage before it (the writer
     scores)."""
@@ -28,5 +33,6 @@ __all__ = [
     "DuplicateMembersWarning",
     "EvaluationWarning",
     "FixedSeedSittingWarning",
+    "IgnoredParameterWarning",
     "JudgeWriterWarning",
 ]

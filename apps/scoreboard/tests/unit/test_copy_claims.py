@@ -1,6 +1,6 @@
 """The frozen copy claim port and its gateway adapter (OME-1947).
 
-Covers K-8 (the mapping fails closed), K-17 (the pair of gateway settings), and the layering of the
+Covers K-8 (the mapping fails closed), K-17 (the gateway settings), and the layering of the
 port (prd/score-claim.md, contracts.md K4 and K10).
 """
 
@@ -21,7 +21,6 @@ from scoreboard.gateway_copy_claims import GatewayCopyClaims, build_copy_claims
 
 COPY = "0192a1b2-c3d4-4e5f-8a9b-0c1d2e3f4a5b"
 OTHER = "ffeeddcc-bbaa-4998-8776-655443322110"
-ACTOR = "claims@example.test"
 BASE = "http://gateway.test"
 
 
@@ -29,7 +28,6 @@ BASE = "http://gateway.test"
 def _no_gateway_env(monkeypatch: pytest.MonkeyPatch) -> None:
     for name in (
         "SCOREBOARD_GATEWAY_URL",
-        "SCOREBOARD_GATEWAY_ACTOR",
         "SCOREBOARD_GATEWAY_TIMEOUT_S",
     ):
         monkeypatch.delenv(name, raising=False)
@@ -53,7 +51,6 @@ def _coded(code: str, **extra: str) -> dict[str, object]:
 async def _claim_with(handler: Callable[[httpx.Request], httpx.Response]) -> ClaimResult:
     claims = GatewayCopyClaims(
         base_url=BASE,
-        actor=ACTOR,
         timeout_s=5.0,
         transport=httpx.MockTransport(handler),
     )
@@ -153,7 +150,9 @@ async def test_a_timeout_and_a_connection_error_are_unavailable(
 
 
 @pytest.mark.asyncio
-async def test_the_request_names_the_copy_and_the_actor_and_has_no_body() -> None:
+async def test_the_request_names_the_copy_and_has_no_identity_header_and_no_body() -> None:
+    # WHY no identity header: the gateway trusts the peer address only (OME-1947, owner decision
+    # 2026-11-25). A fixed address in a header proves nothing, because each pod can send it.
     requests: list[httpx.Request] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -162,7 +161,6 @@ async def test_the_request_names_the_copy_and_the_actor_and_has_no_body() -> Non
 
     claims = GatewayCopyClaims(
         base_url=BASE,
-        actor=ACTOR,
         timeout_s=2.5,
         transport=httpx.MockTransport(handler),
     )
@@ -175,7 +173,7 @@ async def test_the_request_names_the_copy_and_the_actor_and_has_no_body() -> Non
     request = requests[0]
     assert request.method == "POST"
     assert str(request.url) == f"{BASE}/v1/frozen-copies/{COPY}/claim"
-    assert request.headers["X-User-Email"] == ACTOR
+    assert "X-User-Email" not in request.headers
     assert request.content == b""
     assert request.extensions["timeout"]["read"] == 2.5
 
@@ -214,18 +212,27 @@ def test_the_port_imports_no_adapter_model_or_route() -> None:
         assert not name.startswith(forbidden), name
 
 
-@pytest.mark.parametrize("actor", ["", "   "])
-def test_a_gateway_url_with_no_actor_stops_the_start(actor: str) -> None:
-    with pytest.raises(ValidationError, match="SCOREBOARD_GATEWAY_ACTOR"):
-        Settings.model_validate({"gateway_url": BASE, "gateway_actor": actor})
-
-
-def test_a_gateway_url_with_an_actor_is_accepted() -> None:
-    settings = Settings.model_validate({"gateway_url": BASE + "/", "gateway_actor": ACTOR})
+def test_a_gateway_url_alone_is_accepted() -> None:
+    settings = Settings.model_validate({"gateway_url": BASE + "/"})
 
     assert settings.gateway_url == BASE
-    assert settings.gateway_actor == ACTOR
     assert settings.gateway_timeout_s == 5.0
+
+
+def test_the_settings_have_no_actor() -> None:
+    assert "gateway_actor" not in Settings.model_fields
+
+
+def test_an_old_actor_variable_does_not_stop_the_start(monkeypatch: pytest.MonkeyPatch) -> None:
+    # WHY: a ConfigMap of an older release can still set the variable during a rollout. The
+    # service ignores it and starts.
+    monkeypatch.setenv("SCOREBOARD_GATEWAY_URL", BASE)
+    monkeypatch.setenv("SCOREBOARD_GATEWAY_ACTOR", "")
+
+    settings = Settings()
+
+    assert settings.gateway_url == BASE
+    assert not hasattr(settings, "gateway_actor")
 
 
 def test_a_blank_gateway_url_is_no_url_and_a_padded_one_is_trimmed() -> None:
@@ -233,9 +240,7 @@ def test_a_blank_gateway_url_is_no_url_and_a_padded_one_is_trimmed() -> None:
 
     assert blank.gateway_url == ""
 
-    padded = Settings.model_validate(
-        {"gateway_url": " http://gateway.test/ ", "gateway_actor": ACTOR}
-    )
+    padded = Settings.model_validate({"gateway_url": " http://gateway.test/ "})
 
     assert padded.gateway_url == BASE
 
@@ -244,19 +249,16 @@ def test_no_gateway_url_is_the_default_and_builds_no_client() -> None:
     settings = Settings.model_validate({})
 
     assert settings.gateway_url == ""
-    assert settings.gateway_actor == ""
     assert build_copy_claims(settings) is None
 
 
 def test_the_settings_are_read_from_the_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("SCOREBOARD_GATEWAY_URL", BASE)
-    monkeypatch.setenv("SCOREBOARD_GATEWAY_ACTOR", ACTOR)
     monkeypatch.setenv("SCOREBOARD_GATEWAY_TIMEOUT_S", "2.5")
 
     settings = Settings()
 
     assert settings.gateway_url == BASE
-    assert settings.gateway_actor == ACTOR
     assert settings.gateway_timeout_s == 2.5
 
 
@@ -267,7 +269,7 @@ def test_a_timeout_of_zero_is_refused() -> None:
 
 @pytest.mark.asyncio
 async def test_a_gateway_url_builds_the_gateway_client() -> None:
-    settings = Settings.model_validate({"gateway_url": BASE, "gateway_actor": ACTOR})
+    settings = Settings.model_validate({"gateway_url": BASE})
 
     claims = build_copy_claims(settings)
 

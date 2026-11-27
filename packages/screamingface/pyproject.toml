@@ -163,6 +163,7 @@ dev = [
     "jupyterlab>=4.6.3",
     "nbclient>=0.10",
     "nbformat>=5.11.0",
+    "openai==2.54.0",
     "pydantic>=2.9",
     "pyright>=1.1.409",
     "pytest>=9.0.3",

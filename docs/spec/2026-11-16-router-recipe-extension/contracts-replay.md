@@ -187,7 +187,7 @@ max_instructions_chars = 4096
 bound is enforced inside the target, where the tokenizer is: the target refuses text whose token
 count, special tokens included, exceeds its limit and never truncates it
 (`classification-capabilities.md:70-72`), and that refusal reaches the Engine as a classifier failure
-with a bounded code, never as a score vector. Unit 8 pins this for the BERT reference server. A
+with a bounded code, never as a score vector. The fixed-label reference below pins its server rule. A
 SystemOne target gets no token or length control from the Gateway, so its state and option budgets
 are the server's own (Laya 0.4.21: `LAYA_MAX_TOKEN_BUDGET` and its `max_len` and `head_max_len`
 defaults). Its size refusal and any reported truncation or colliding options reach the Engine as
@@ -196,6 +196,129 @@ on `limits` the operator sets during qualification so that the largest admitted 
 (`classification-capabilities.md:170-173`). If a target ever advertises token limits, they arrive as a
 new `limits.contract` value: a strict C17 reader treats an unknown contract as an unusable row, so
 the readers that accept it deploy before any Gateway writes it.
+
+### Fixed-label reference (Unit 8A)
+
+**Checkpoint.** Use `distilbert/distilbert-base-uncased-finetuned-sst-2-english`, Hub revision
+`714eb0fa89d2f80546fda750413ed43d93601a13`, a ready-to-serve `DistilBertForSequenceClassification`
+sentiment head. Record Apache-2.0 provenance from its pinned [model card][reference-card] and
+[registry record][reference-registry]. The pinned [model config][reference-config] declares
+`id2label` in index order: `0 = NEGATIVE`, `1 = POSITIVE`, and `max_position_embeddings = 512`.
+Use the tokenizer from that same revision with its [pinned settings][reference-tokenizer], including
+`do_lower_case = true` and `model_max_length = 512`. The HTTP adapter preserves input exactly;
+normalization intrinsic to the pinned tokenizer remains part of model behavior.
+
+**Native HTTP.** `POST /classify` takes one UTF-8 JSON object with exactly `{"inputs": <string>}`.
+Reject duplicate or unknown keys, arrays (including batches), missing keys, non-strings and invalid
+Unicode. Pass the decoded string to the tokenizer unchanged, including whitespace, case, and Unicode.
+Encode one example with special tokens enabled and truncation disabled. Count the actual unpadded
+IDs and pass that same encoding to the head. A length of 512 is allowed; a length above 512 is
+refused before the head runs. Character counts and body limits do not substitute for that check.
+
+A successful response is HTTP 200 `application/json`, a flat array of exactly two closed
+`{label, score}` rows: `NEGATIVE` and then `POSITIVE`. Require exactly two finite logits from the
+head, in index order. Apply numerically stable softmax across both logits in the reference adapter
+and return both finite, non-Boolean scores in `[0, 1]`. Preserve ties and order. No threshold, top-one
+projection, relabeling or Gateway-side transform. For example, equal logits produce:
+
+```json
+[{"label":"NEGATIVE","score":0.5},{"label":"POSITIVE","score":0.5}]
+```
+
+For a request reaching the reference handler, check header occurrences before reading its body.
+Exactly one `Content-Type` is required: `application/json` alone or with the sole parameter
+`charset=utf-8` (the value `"utf-8"` is also accepted). Header names and those ASCII tokens are
+case-insensitive. Allow spaces and horizontal tabs around the field value and semicolon, not around
+`=`. Reject missing or repeated `Content-Type`, comma lists, `+json` media types, and all other
+parameters and charset values. `Content-Encoding` may be absent or one `identity` token (same case
+and surrounding whitespace rules); reject empty values, duplicate fields, lists and any other coding.
+
+Use the first applicable row in the table, in order. The size check counts actual message-body
+bytes after HTTP transfer framing and before decoding JSON; stop on the chunk crossing the cap.
+Header and size refusals never tokenize; invalid JSON or shape never tokenize; only a valid
+in-bound encoding reaches the head. Both success and reference errors are uncompressed UTF-8
+`application/json`, without `Content-Encoding`. The error body is exactly `{"error":{"code": <string>}}`;
+expose no caller input, tokenizer output, credentials, model files or exception text. Failures at the
+outer HTTP parser before the handler are outside this response contract.
+
+| Condition | Status | Code |
+|---|---|---|
+| Refused `Content-Type` or `Content-Encoding` | 415 | `unsupported_media_type` |
+| Body above 65,536 wire bytes (including fragmented delivery) | 413 | `request_too_large` |
+| Invalid JSON, Unicode or request shape | 400 | `invalid_request` |
+| Encoded text above 512 tokens, including specials | 422 | `input_token_limit_exceeded` |
+| Local tokenizer/head failure or invalid head output | 500 | `classifier_failed` |
+
+**Gateway and readiness.** Use the existing Remote Endpoint Provider and a non-secret target
+descriptor: `task = "text-classification"`, `contract = "hf-text-classification-v1"`,
+`request_path = "/classify"`, `response_envelope = "flat"` and `score_semantics = "bounded-score"`.
+Grants, Connections, scalar listing and details remain the existing paths. Readiness uses the
+scalar probe `{"inputs":"ping"}` and the same native route, tokenizer, head and score decoder as
+dispatch; startup and catalog reads perform no inference. The Gateway returns the usual
+`classification-scores-v1` with unchanged order and values; legacy top-k scalar results on other
+targets remain valid. Native 422 maps to the existing sanitized 502 `provider_error` with no
+upstream error body and no overload retry; the native code is not a new Gateway wire value.
+An earlier C7 character-limit refusal remains distinct (`classifier_limit_exceeded`). The existing
+direct encoded 8 KiB mount bound is unchanged. Optional vocabulary metadata is deferred; 8B proves
+Router candidate-label parity under C2/C6/C17 and supplies valid C7 text limits for its target.
+The local reference binds only to `127.0.0.1` in the isolated test environment. The Gateway is the
+test's caller authority; the native handler does not treat the forwarded synthetic Bearer header
+as authority and must not log or echo it. The fixture does not establish deployment authentication.
+
+**Serving and provisioning.** The standalone `e2e/reference/bert-classifier/` project owns its
+serving adapter, `pyproject.toml`, `uv.lock`, build configuration, README and non-secret descriptor,
+artifact manifest and tests. The reference build and serving platform is Linux x86_64 CPU with
+CPython 3.12. Pin and inspect the exact serving libraries, tokenizer implementation and wheel
+hashes in that isolated lock before source implementation. Other development environments can run
+fixture tests without qualifying the reference platform. Serving-only dependencies stay out of the
+SDK base/runtime, Engine, Gateway, url4 and root manifests and locks. The reference adds no separate
+Gateway plugin, public Recipe or credential path.
+
+Provision the checkpoint only in a separately authorized step. Start with the pinned revision's
+`model.safetensors`, `config.json`, `tokenizer_config.json` and `vocab.txt`; the isolated runtime
+qualification must identify the complete consumed set. Do not load pickle weights, mutable
+revision aliases, unlisted files or Hub-provided code.
+
+**Artifact manifest.** The operator supplies an absolute artifact directory in
+`SF_BERT_REFERENCE_ARTIFACT_ROOT`. The producer places `manifest.json` at that directory's root.
+It is a single UTF-8 JSON object without a BOM. Reject duplicate keys, unknown or missing keys,
+and non-JSON values. The exact top-level keys are:
+
+| Key | Value |
+|---|---|
+| `schema` | `"screamingface.bert-reference-artifacts.v1"` |
+| `model` | `"distilbert/distilbert-base-uncased-finetuned-sst-2-english"` |
+| `revision` | `"714eb0fa89d2f80546fda750413ed43d93601a13"` |
+| `license` | `"Apache-2.0"` |
+| `files` | Nonempty array of closed `{path, size_bytes, sha256}` objects, in strictly increasing ASCII `path` order |
+
+Each `path` is one case-sensitive relative filename matching `[a-z0-9][a-z0-9._-]{0,127}` in
+full, other than the reserved `manifest.json`. There are no path separators, nested directories,
+absolute names, `.` or `..` components, Unicode aliases, or normalized/decoded alternatives.
+`size_bytes` is an integer in `0..9223372036854775807` (no Booleans, fractions or exponent form);
+`sha256` is a string of exactly 64 lowercase ASCII hexadecimal digits. The manifest is inside the
+root but does not list itself. The directory contains exactly the manifest and the listed files;
+reject any other entry, including a hidden file or subdirectory. The root must be a real directory
+reached without symlinks, and the manifest and each listed file must be regular files opened
+without following symlinks, even links pointing back inside the root.
+
+The release/operator configuration supplies `SF_BERT_REFERENCE_MANIFEST_SHA256` independently of
+the artifact tree, as exactly 64 lowercase ASCII hexadecimal digits. Missing or invalid configuration
+fails startup; there is no default, in-tree digest file or fallback. Before parsing the manifest,
+compare the digest of its exact bytes (including whitespace and any final newline) to the supplied
+value. Do not reserialize it for hashing. Validate the closed schema and complete directory inventory,
+then verify each file's length and SHA-256 before any tokenizer/head load. Provision and load the same
+immutable, read-only snapshot: verifying one tree and opening another later is not allowed. Failures
+prevent readiness. Serving has no Internet egress or implicit download, including on cache miss. The
+code/build artifact or release archive may contain the manifest and provenance; fetched checkpoint
+and tokenizer files, Hub caches and weights stay out of Git, images, wheels and release archives.
+Use fake local artifacts and deny external network in deterministic checks. Real endpoint,
+Connection, checkpoint download and live qualification require separate authorization in Unit 9.
+
+[reference-card]: https://huggingface.co/distilbert/distilbert-base-uncased-finetuned-sst-2-english/blob/714eb0fa89d2f80546fda750413ed43d93601a13/README.md
+[reference-registry]: https://huggingface.co/api/models/distilbert/distilbert-base-uncased-finetuned-sst-2-english/revision/714eb0fa89d2f80546fda750413ed43d93601a13
+[reference-config]: https://huggingface.co/distilbert/distilbert-base-uncased-finetuned-sst-2-english/blob/714eb0fa89d2f80546fda750413ed43d93601a13/config.json
+[reference-tokenizer]: https://huggingface.co/distilbert/distilbert-base-uncased-finetuned-sst-2-english/blob/714eb0fa89d2f80546fda750413ed43d93601a13/tokenizer_config.json
 
 ### Upstream attempts
 
@@ -301,10 +424,29 @@ The facts go to the active recorder scopes on their own channel beside the opera
 so `OperationCall` and every existing projection stay unchanged. JOIN (C4) reads the latest fact per
 binding, as `_recorded` reads the latest call (`world/branch.py:800-808`).
 
+The direct `/route-answer` adapter opens a private attempt scope for one invocation. Its slots are
+`classifier` and `branch`; each keeps only the latest bounded fact for that logical role. The scope
+is available to nested model dispatch but not to concurrent invocations. Preflight reads are not
+attempts; a refusal before dispatch leaves both slots empty. The adapter closes the scope on
+success, failure and cancellation, with no late writes. Tests read the scoped facts through an
+internal sink. The adapter does not create a Candidate recorder or a C5 record, add public fields,
+change the fixed-profile revision or retry rules, or record request bodies, credentials or raw
+response data. The direct `/classify` contract is unchanged.
+
+Use one optional keyword-only attempt observer at the Engine HTTP transport seam. It is separate
+from the capture probe and the existing `_post_completion` return remains
+`tuple[httpx.Response, bool]` with the same meaning. Observe each initiated HTTP request (including
+a connect failure), each returned attempt header and the existing classification of queue refusal,
+definite no-send, or possibly sent without a reply. Record counters/status only, not a copy of every
+response. Carry the same observer through the existing `_post_answered` retry loop for that logical
+call. Calls without an observer keep the current behavior. Finalize once on a success or failure at
+the call boundary, including when the last transport attempt raises. Deadline and cancellation
+propagate; observation does not change whether a retry runs.
+
 | Field | Definition |
 |---|---|
-| `engine_attempts` | Every HTTP request the Engine sent for the logical call: the transport retry (`_TRANSPORT_RETRIES = 1`, `world/connector.py:165`, `:993-1040`) and, for Candidate chat calls, the OME-1872 answered-call retries (`world/candidate_call_retry.py`, `_post_answered`, `world/connector.py:1293-1332`). Unit 5.2 makes `_post_completion` return the count beside the possibly-billed mark it returns today |
-| `upstream_attempts` | The sum of the C7 header over the Engine attempts. `null` when any Engine attempt got no response or a response without the header: unknown, never zero. `0` for a replayed or cached call (C7). On a chat success with complete accounting and no omitted attempts, disagreement with `sum(1 + redirect_hop_count)` is `null`; partial or bounded/omitted accounting supplies no independent mismatch check |
+| `engine_attempts` | Every attempt initiated at the HTTP boundary for the logical call, including the bounded transport/queue retries and any existing OME-1872 Candidate chat retry. Read the count from the optional observer; do not count local refusals or change the return shape. |
+| `upstream_attempts` | The sum of the C7 header over the Engine attempts. `null` when any Engine attempt got no response or a response without the header: unknown, never zero. A replay or cache hit contributes `0`; a final zero header does not replace earlier counts or unknowns. On a chat success with complete accounting and no omitted attempts, disagreement with `sum(1 + redirect_hop_count)` is `null`; partial or bounded/omitted accounting supplies no independent mismatch check. |
 | `possibly_billed` | `true` when `upstream_attempts` is above `0`, or is `null` while the connector's existing mark (`world/connector.py:1031`) says an Engine attempt may have been sent; `false` only when every Engine attempt is known to have reached no provider |
 
 Retries below the policy stay as on main: the Engine transport retry shared by classify and chat,
@@ -317,23 +459,51 @@ They are recorded, never added.
 
 | Side | Change |
 |---|---|
-| Gateway store | `EntryKind` adds `"classify"` (`core/frozen_copy/store.py:42`); `kind` is `max_length=8` (`core/frozen_copy/models.py:67`), so no migration |
-| Gateway digest | `canonical_digest({"kind": "classify", "request": {model, input}, "binding": b[, "attempt": a]})`; as for chat, Attempt 1 adds no `attempt` key (`core/frozen_copy/store.py:55-65`) |
+| Gateway store | `EntryKind` adds `"classify"` (`core/frozen_copy/store.py:44`); `FrozenCopyEntry.kind` is `max_length=8` (`core/frozen_copy/models.py:81`), so no migration |
+| Gateway digest | `canonical_digest({"kind": "classify", "request": {model, input}, "binding": b[, "attempt": a]})`; as for chat, Attempt 1 adds no `attempt` key (`request_digest`, `core/frozen_copy/store.py:65-75`) |
 | Headers | Existing `X-AIGW-Frozen-Copy`, `X-AIGW-Case-Key`, `X-AIGW-Call-Occurrence`; new `X-AIGW-Call-Binding` (`router_N`) and `X-AIGW-Call-Attempt` (an integer from 2, absent for Attempt 1), accepted only on capture and replay classify calls |
-| Capture | Stores the request `{model, input}` as received, the response JSON as returned or the error status and body, and the available usage and cost (`null` today: classification has no usage accounting). Never a credential. The capture run's own attempt counts live in its stored C5, not in the entry |
-| Replay | `POST /v1/frozen-copies/{id}/classifications`, sealed copy only, no plugin or credential, same caller auth and lookup as chat replay (`routes/frozen_copies.py:136-141`, `_sealed_copy` at `:94`); returns the recorded body and status with `X-AIGW-Upstream-Attempts: 0` |
+| Capture | Same copy-write authority as chat. Stores the pre-credential `{model, input}`, recorded status and response JSON or error, and only Gateway-authored accounting when available. The capture run's attempt counts live in its C5, not the entry |
+| Replay | `POST /v1/frozen-copies/{id}/classifications`, sealed copy only, same caller auth and resolver as chat replay; no plugin, Connection, credential or live fallback. Keep recorded status and body fields and use the replay-only `_aigw` sibling below. The existing C7 middleware supplies `X-AIGW-Upstream-Attempts: 0` |
 | Engine lane | `Lane` adds `"classify"` (`capture_outcomes.py:24`); `digest` is the same canonical `{kind, request, binding[, attempt]}` preimage as the Gateway digest, and the occurrence key is `(case_key, "classify", digest)` |
 
 The entry is keyed by kind, case key, Router binding, occurrence, attempt and request digest, exactly
 as `engine/router-execution.md:371-378` lists. Neither the definition revision nor the policy is a
 per-call field (`:383-385`). LLMClassifier and RegexClassifier evidence and every branch call replay
 through their ordinary chat entries (`:371-372`); a call the copy does not hold misses as today
-(`frozen_copy_miss`, `routes/frozen_copies.py:84-91`). Identical classifier requests in different
-occurrences or attempts stay distinct. A replayed classification is free; an unknown captured price
-stays unknown, so a budgeted Router takes the same decisions live and replayed. A captured cost, when
-one exists, returns on replay as `cache.reference` through the mapping chat replay uses
-(`routes/frozen_copies.py:113-133`); Unit 6 pins the classification response carrier here before code.
-Today the captured cost is `null`.
+(`frozen_copy_miss` from `_miss`, `routes/frozen_copies.py:151-158`). Identical requests in different
+occurrences or attempts stay distinct. Assign a zero-based slot at first send; resends of the same
+logical call reuse it. Validate the call key at ingress before dispatch; build the digest before
+credentials are injected. No revision, cost, media lookup or auth material enters the key.
+
+On a replay hit or recorded error, retain the classification fields or error `detail` and add a
+Gateway-authored top-level `_aigw` sibling using `_replay_metadata` (`routes/frozen_copies.py:180-200`). It marks
+`frozen_copy_replay=true`, `usage_accounting.cache.status="hit"`,
+`request_economics.direct_cost_status="not_applicable"`, `usage_accounting.observed_attempts=0`
+and `request_economics.observed_new_attempts=0`, as in `render_aigw_metadata`
+(`plugins/taxonomy/render.py:216-249`). The Engine's `_usd_from_direct_cost_status`
+(`world/accounting.py:292-303`) reads the economics status with the cache hit and recognizes zero
+direct spend.
+
+Replay of a recorded error uses `_replay_metadata()` without captured metadata, as chat does
+(`replay_chat_completions`, `routes/frozen_copies.py:231-244`):
+`_aigw.usage_accounting.cache.reference` is explicitly `null`. Preserve supported recorded error
+headers, such as `Retry-After`. Misses and availability, auth or key-validation refusals are not
+recorded errors. For a successful recorded result, project any price only through
+`cache_reference_from_captured_aigw` (`plugins/taxonomy/entry_metadata.py:362-379`), which takes
+validated Gateway-authored accounting from a captured hit or a successful attempt. Neither provider
+response fields nor a new estimate can supply it. An absent or malformed price is unknown (`null`
+in Engine evidence), distinct from a measured zero. Current classification has no measured usage
+or price, so its reference is `null` today. The Router transport reads metadata separately from
+score/error projection. The public scalar response remains unchanged.
+
+**Gateway integration hold:** before implementing capture/replay, reconcile the final shared
+sealed-copy resolver with #1921 and store/digest changes with #2068/#2069 on one reviewed base.
+Honor the final chat resolver's unavailability and expiry behavior for provenance and classify;
+do not assume the open expiry PR's 410 is on main. C9 adds no retention clock, migration or cache
+revision and has no independent sweep. Keep the compatible replay reader for the lifetime of
+retained Router copies even after capability withdrawal. Deploy the classify lookup and replay
+reader and strict Engine decoder before enabling capture insertion. Preserve chat/tool keys and
+retention.
 
 Classification capture reuses chat capture's lost-reply completeness rule: the same probe marks a
 possibly sent request whose reply was lost as an `ambiguous` `CaptureOutcome` in lane `classify`.
@@ -366,7 +536,7 @@ cannot share an occurrence stream when their classifier bodies are equal.
   the intent, a prepared `D` through the Router-input reader (C14), which reads, verifies and decodes
   the source once. It recomputes each revision from that `D` (C3) and binds the frozen set
   `{router_N: (revision, D)}` for the run, as `run_expression_scope` binds the run's own expression
-  (`benchmarks/picture_admission.py:147`, entered at `runner/executor.py:1174`). This is the "read,
+  (`benchmarks/picture_admission.py:158`, entered at `runner/executor.py:1281`). This is the "read,
   verify and freeze" step of `engine/routing-inputs.md:35`, done once per run: ADMIT takes a prepared
   `D` from the set and never reads the source, so a source changed after the run starts cannot reach
   it. The step refuses the run before `url4_run`, with no Router record, when a prepared source cannot
@@ -379,14 +549,14 @@ cannot share an occurrence stream when their classifier bodies are equal.
   from the declared `revision`, so a prepared source that changed since capture gives a different
   manifest even when the expression still declares the captured revision. The same function runs at
   capture and at replay.
-- **Capture.** `seal_frozen_copy` (`world/connector.py:697-713`) sends
+- **Capture.** `seal_frozen_copy` (`world/connector.py:477-500`) sends
   `{"provenance": {"engine_version": v, "routers": <manifest>}}`; `routers` only when the manifest is
   non-empty.
-- **Gateway reader, deployed first.** `Provenance` (`routes/frozen_copies.py:56-61`, `extra="forbid"`)
+- **Gateway reader, deployed first.** `Provenance` (`routes/frozen_copies.py:79-91`, `extra="forbid"`)
   gains optional `routers`: 1-256 strict `{binding, revision}` entries, `binding` matching
   `router_[0-9]+`, `revision` matching `sha256:[0-9a-f]{64}`. `FrozenCopyStore.seal` widens its
-  `provenance` type from `dict[str, str]` (`core/frozen_copy/store.py:119-142`); the column is a JSON
-  field, so no migration (`core/frozen_copy/models.py:42-43`). A new read route
+  `provenance` type from `dict[str, str]` (`core/frozen_copy/store.py:129-152`); the column is a JSON
+  field, so no migration (`core/frozen_copy/models.py:49-51`). A new read route
   `GET /v1/frozen-copies/{copy_id}/provenance` returns `{"engine_version": str | null, "routers": [...]}`
   (`[]` when the seal sent none), for a sealed copy only through `_sealed_copy`, with the chat replay
   route's caller auth. The route publishes that strict response schema as a closed record
@@ -398,7 +568,7 @@ cannot share an occurrence stream when their classifier bodies are equal.
   the writer waits for the reader (C12).
 - **Check.** In a replay run with a non-empty manifest, the executor reads that provenance after
   resolving the run definition set and before `url4_run`, beside the capture branch of
-  `_evaluate_in_copy` (`runner/executor.py:1138-1160`), and compares the lists exactly. Unequal
+  `_evaluate_in_copy` (`runner/executor.py:1241-1264`), and compares the lists exactly. Unequal
   lists, or a copy sealed without `routers`, fail the run `frozen_copy_miss` before any replayed or
   live operation; an unknown or open copy fails `frozen_copy_unavailable`. Both are
   existing Engine codes (`error_text.py:64`). A replay run with an empty manifest sends no extra

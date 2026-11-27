@@ -7,6 +7,11 @@ recorders stay independently scoped.
 
 Combine steps (OME-1289 E4a) are recorded too, by :func:`record_combine_call`: not a provider
 round trip, but one per-operation record that carries its :class:`CombineEvidence`.
+
+FEATURE: Router Recipe extension (Unit 5.2, contracts C4, C8). A bound call's attempt fact and
+outcome, and a Router step's document, ride the provenance channel (`operation_provenance`),
+opened and closed with these records, so `OperationCall` and every projection of it stay
+unchanged.
 """
 
 from __future__ import annotations
@@ -14,7 +19,8 @@ from __future__ import annotations
 import contextvars
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 from screamingface_engine.combine.decision import GateDecision
 from screamingface_engine.combine.evidence import CombineEvidence, GateRecord, PendingCombine
@@ -23,7 +29,20 @@ from screamingface_engine.operation_accounting import (
     ReplyLogprobs,
     SignalAccounting,
 )
+from screamingface_engine.operation_provenance import (
+    AttemptFact,
+    current_attempt_facts,
+    latest_attempt_fact,
+    live_scopes,
+    open_provenance,
+    record_attempt_fact,
+)
 from screamingface_engine.request_identity import ModelRequestKey, model_request_key
+
+if TYPE_CHECKING:
+    # WHY a type only: this leaf carries the completed Router record JOIN hands it and never
+    # reads one, so importing it never loads the C5 codec.
+    from screamingface_engine.router_decision import RouterDecision
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,6 +69,9 @@ class OperationCall:
     reads, and its ``kept`` is the majority answer JOIN copies when the Budget refuses the fallback
     branch (budget BU-18).
 
+    ``router`` is set only by :func:`record_router_call` (Unit 5.2): a Router's completed C5 record,
+    published by its JOIN.
+
     ``params`` is the request's parameter set sorted by name — the half of the
     OME-843 attribution fingerprint that distinguishes two members on the same
     model route (e.g. different temperatures).
@@ -65,11 +87,18 @@ class OperationCall:
     reply_logprobs: ReplyLogprobs | None = None
     decision: GateDecision | None = None
     pending: PendingCombine | None = None
+    router: RouterDecision | None = None
 
     @property
     def is_provider(self) -> bool:
-        """True for a provider round trip, not a combine step, a Gate record or a pending call."""
-        return self.combine is None and self.decision is None and self.pending is None
+        """True for a provider round trip: not a combine step, a Gate or Router record or a
+        pending call."""
+        return (
+            self.combine is None
+            and self.decision is None
+            and self.pending is None
+            and self.router is None
+        )
 
     @property
     def gate_record(self) -> GateRecord | None:
@@ -97,7 +126,14 @@ class _OperationCallIdentity:
 type OperationCallRecorder = list[OperationCall]
 type RequestAccountingRecorder = list[RequestAccounting]
 
-_recorders: contextvars.ContextVar[tuple[OperationCallRecorder, ...]] = contextvars.ContextVar(
+
+@dataclass(slots=True)
+class _CallScope:
+    calls: OperationCallRecorder = field(default_factory=list[OperationCall])
+    ended: bool = False
+
+
+_recorders: contextvars.ContextVar[tuple[_CallScope, ...]] = contextvars.ContextVar(
     "screamingface_engine_operation_call_recorders", default=()
 )
 _identity: contextvars.ContextVar[_OperationCallIdentity | None] = contextvars.ContextVar(
@@ -110,14 +146,20 @@ _accounting_recorders: contextvars.ContextVar[tuple[RequestAccountingRecorder, .
 
 @contextmanager
 def capture_operation_calls(*, isolated: bool = False) -> Iterator[OperationCallRecorder]:
-    """Capture terminal calls in this scope; nesting mirrors `capture_model_outcomes`."""
+    """Capture terminal calls in this scope; nesting mirrors `capture_model_outcomes`.
 
-    recorder: OperationCallRecorder = []
+    INVARIANT (C4, C8): the recorder and the provenance channel end with this scope; a task that
+    outlives it reads and publishes no call there or in any enclosing scope (`live_scopes`).
+    """
+
+    scope = _CallScope()
     active = () if isolated else _recorders.get()
-    token = _recorders.set((*active, recorder))
+    token = _recorders.set((*active, scope))
     try:
-        yield recorder
+        with open_provenance(isolated=isolated):
+            yield scope.calls
     finally:
+        scope.ended = True
         _recorders.reset(token)
 
 
@@ -196,7 +238,7 @@ def record_operation_call(
     # WHY two record shapes: Candidate projection needs the terminal output, while the run-wide
     # grading join must remain payload-free. One publication point feeds each active scope without
     # retaining prompts or judge outputs for the lifetime of the run.
-    if _recorders.get():
+    if _live():
         call = OperationCall(
             path=identity.path,
             params=identity.params,
@@ -221,10 +263,11 @@ def _publish_internal(
     combine: CombineEvidence | None = None,
     decision: GateDecision | None = None,
     pending: PendingCombine | None = None,
+    router: RouterDecision | None = None,
 ) -> None:
     """Publish one call with no provider accounting, and the fields that set its kind."""
 
-    if not _recorders.get():
+    if not _live():
         return
     _publish(
         OperationCall(
@@ -236,6 +279,7 @@ def _publish_internal(
             combine=combine,
             decision=decision,
             pending=pending,
+            router=router,
         )
     )
 
@@ -271,6 +315,14 @@ def record_gate_call(
     _publish_internal(path, params, output, decision=decision)
 
 
+def record_router_call(
+    path: str, params: Mapping[str, str], output: str, record: RouterDecision
+) -> None:
+    """Publish a Router's completed C5 record to every active capture scope (C4: JOIN only)."""
+
+    _publish_internal(path, params, output, router=record)
+
+
 def record_pending_combine_call(
     path: str,
     params: Mapping[str, str],
@@ -301,8 +353,12 @@ def provider_calls_by_fingerprint(
     return index
 
 
+def _live() -> tuple[OperationCallRecorder, ...]:
+    return tuple(scope.calls for scope in live_scopes(_recorders.get()))
+
+
 def _publish(call: OperationCall) -> None:
-    for recorder in _recorders.get():
+    for recorder in _live():
         recorder.append(call)
 
 
@@ -322,7 +378,7 @@ def current_request_accounting() -> RequestAccountingRecorder | None:
 def current_operation_calls() -> tuple[OperationCall, ...] | None:
     """A snapshot of the INNERMOST active capture scope's calls, or None outside every scope."""
 
-    active = _recorders.get()
+    active = _live()
     return tuple(active[-1]) if active else None
 
 
@@ -332,26 +388,31 @@ def latest_operation_call(predicate: Callable[[OperationCall], bool]) -> Operati
     WHY no snapshot: the search reads the recorder in place and copies no call list.
     """
 
-    active = _recorders.get()
+    active = _live()
     if not active:
         return None
     return next((call for call in reversed(active[-1]) if predicate(call)), None)
 
 
 __all__ = [
+    "AttemptFact",
     "OperationCall",
     "RequestAccounting",
     "capture_operation_calls",
     "capture_request_accounting",
+    "current_attempt_facts",
     "current_operation_calls",
     "current_request_accounting",
     "current_model_request_key",
+    "latest_attempt_fact",
     "latest_operation_call",
     "operation_call_identity",
     "provider_calls_by_fingerprint",
+    "record_attempt_fact",
     "record_combine_call",
     "record_gate_call",
     "record_operation_call",
     "record_pending_combine_call",
+    "record_router_call",
     "suspend_request_accounting",
 ]

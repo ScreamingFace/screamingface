@@ -25,16 +25,52 @@ image's ``CMD ["screamingface-engine"]`` and the chart's
 """
 
 import argparse
+import sys
+from types import FrameType
 
 from screamingface_engine.logs import configure as configure_logging
 
 _PORT = 9108
 
 
+def _run_server(app: str, *, factory: bool, host: str, port: int) -> None:
+    """Run one App under uvicorn, with the chat drain started by the stop signal.
+
+    FEATURE: POST /v1/chat/completions (prd/chat-completion.md CC-S37).
+
+    WHY a server subclass and not a shutdown hook of the App: uvicorn calls the lifespan shutdown
+    only after each open request has ended, and a waiting chat request ends only when its run
+    ends. So the drain must start at the stop signal itself. The arguments are those of
+    `uvicorn.run`, and each other setting keeps the uvicorn default (the WS ping defaults are
+    load-bearing: see `_serve`).
+    """
+    import uvicorn  # WHY: lazy — cold-start discipline, and unit tests never reach a real server
+    from uvicorn.config import STARTUP_FAILURE
+
+    from screamingface_engine.rest.chat_drain import request_all_drains
+
+    class _DrainingServer(uvicorn.Server):
+        def handle_exit(self, sig: int, frame: FrameType | None) -> None:
+            # INVARIANT: the drain is requested first, then uvicorn does its normal shutdown. This
+            # runs as a signal handler, not on the event loop; `ChatDrain.request` is safe there.
+            # An error of the drain must not stop the shutdown, so uvicorn's handler always runs.
+            try:
+                request_all_drains()
+            finally:
+                super().handle_exit(sig, frame)
+
+    server = _DrainingServer(uvicorn.Config(app, factory=factory, host=host, port=port))
+    try:
+        server.run()
+    except KeyboardInterrupt:
+        pass
+    # WHY: the same exit code as `uvicorn.run` for a server that did not start.
+    if not server.started:
+        sys.exit(STARTUP_FAILURE)
+
+
 def _serve() -> None:
     """Serve the env-wired control plane with uvicorn."""
-    import uvicorn  # WHY: lazy — cold-start discipline, and unit tests never reach a real server
-
     # INVARIANT: the deployed entrypoint serves the ENV-WIRED factory. The bare `create_app` is
     # the dependency-injected one tests use — calling it here would build
     # stream=None/job_runner=None and skip `_require_prod_secret`, i.e. an App that cannot stream,
@@ -51,7 +87,7 @@ def _serve() -> None:
     # arms the orphan reaper. Disable or lengthen them and a dead client's run is detected only by
     # TCP retransmission timeout (~15-30 min), which silently reopens most of the spend the
     # reaper closed. Measured on uvicorn 0.52.1; re-check on a major bump.
-    uvicorn.run(
+    _run_server(
         "screamingface_engine.app:create_app_from_env", factory=True, host="0.0.0.0", port=_PORT
     )
 
@@ -69,14 +105,12 @@ def _serve_local(port: int = _PORT) -> None:
     the Engine's own environment and owns the stack's port plan, so it must be able to say
     which port this server binds. The default keeps a plain `serve --local` on 9108.
     """
-    import uvicorn  # WHY: lazy — same cold-start discipline as `_serve`
-
     # INVARIANT: loopback only — see `local.LOCAL_HOST`. Local mode accepts the insecure default
     # JWT secret, so the bind address is the only thing keeping it unreachable.
     from screamingface_engine.local import LOCAL_HOST
 
     # INVARIANT: the WS ping defaults matter here too — see the note in `_serve` (OME-890).
-    uvicorn.run(
+    _run_server(
         "screamingface_engine.local:create_local_app", factory=True, host=LOCAL_HOST, port=port
     )
 

@@ -70,7 +70,11 @@ def prepare_with_stand_in_hub(
 
 
 def replay_in_process_over_rows(
-    benchmark_key: str, rows: list[dict[str, Any]], cache_root: Path
+    benchmark_key: str,
+    rows: list[dict[str, Any]],
+    cache_root: Path,
+    *,
+    shrink_named_pictures: bool = False,
 ) -> list[PreparedCase]:
     """Replay the Benchmark's real task in this process, with the real enforcer installed,
     over ``rows`` served as the Hub dataset; return the prepared Cases.
@@ -78,8 +82,13 @@ def replay_in_process_over_rows(
     Unlike :func:`prepare_with_stand_in_hub`, inspect's own ``hf_dataset`` runs, so the
     declaration's forced seeds reach inspect's shuffles; only ``datasets.load_dataset`` is a
     stand-in. Use it to test what the enforcer does to a real eval's Cases.
+
+    ``shrink_named_pictures``: keep the row's ``shrunk_picture_sample_ids`` (OME-1970). Off by
+    default, because that deviation names a real Hub row and refuses a dataset without it;
+    a test whose stand-in rows carry that row turns it on.
     """
 
+    import dataclasses
     import functools
 
     import datasets
@@ -88,6 +97,8 @@ def replay_in_process_over_rows(
     from screamingface_engine_inspect.task_replay import fetch_pins_of
 
     spec: TaskReplayCasesSpec = TASK_REPLAY_CASES[benchmark_key]
+    if not shrink_named_pictures:
+        spec = dataclasses.replace(spec, shrunk_picture_sample_ids=None)
     module_name, _, attribute = spec.task.partition(":")
     module: Any = importlib.import_module(module_name)
     real_load_dataset: Any = datasets.load_dataset
@@ -143,4 +154,6 @@ STAND_IN_METADATA: dict[str, dict[str, object]] = {
     # so the stand-in lane grades it with no judge.
     "futurex_past": {"level": 1, "ground_truth": ["A"]},
     "futurex_past_study": {"level": 1, "ground_truth": ["A"]},
+    # BTF-3: the scorer reads the resolution (1 = Yes) from the metadata, not the target.
+    "btf3": {"outcome": 1},
 }

@@ -17,13 +17,18 @@ tried and no step is retried here.
 
 INVARIANT: no refusal names a model ID, an origin or a path. Unknown and ungranted profiles
 answer one message.
+
+FEATURE: Router Recipe extension, Unit 5.2 (contracts C2, C4, C6). This is the named-profile
+adapter over the shared routing core: the metadata preflight is `routing_core.preflight`, the
+selection is the pure C6 `unique-argmax-v1` policy, and a dynamic-choice profile sends the C7
+choice input with its options in branch order. The wire, codes and messages stay this module's.
 """
 
 from __future__ import annotations
 
 import json
 from collections.abc import Awaitable, Callable, Mapping
-from typing import Any
+from typing import Any, NoReturn
 
 import httpx
 
@@ -32,24 +37,37 @@ from screamingface_engine.benchmarks.candidate_input import (
     parse_candidate_input,
 )
 from screamingface_engine.request_scope import RequestScope, current_scope
+from screamingface_engine.world.attempt_facts import direct_attempts, direct_role
 from screamingface_engine.world.classification import (
     CLASSIFIER_NOT_FOUND,
-    CLASSIFY_INTENT,
     MALFORMED_SOURCE,
     ClassificationEndpoint,
     _unique_pairs,
 )
-from screamingface_engine.world.connector import AigatewayConfig, _headers
+from screamingface_engine.world.classifier_limits import ChoiceRequest, choice_input
+from screamingface_engine.world.connector import AigatewayConfig
 from screamingface_engine.world.errors import RunnerRequestError
 from screamingface_engine.world.fusion_context import fusion_picture_messages
+from screamingface_engine.world.gateway_transport import _headers
 from screamingface_engine.world.models.registry import decode_route_id
 from screamingface_engine.world.routing_config import RoutingBranch, RoutingProfile
+from screamingface_engine.world.routing_core import (
+    ClassifierTarget,
+    ModelTarget,
+    PreflightRefusal,
+    preflight,
+)
+from screamingface_engine.world.routing_policy import (
+    ROUTING_AMBIGUOUS,
+    ROUTING_INVALID_SCORES,
+    PolicyRule,
+    ScoringEvidence,
+    decide,
+)
 
 ROUTE_ANSWER_ROUTE = "/route-answer"
 ROUTE_ANSWER_INTENT = "route-answer"
 RESULT_CONTRACT = "routed-answer-v1"
-CLASSIFIER_DETAILS_PATH = "/v1/classifiers/details"
-MODEL_PARAMETERS_PATH = "/v1/model-parameters"
 
 ROUTING_UNSUPPORTED = "routing_unsupported"
 ROUTING_PROFILE_NOT_FOUND = "routing_profile_not_found"
@@ -57,8 +75,6 @@ ROUTING_CONNECTION_MISSING = "routing_connection_missing"
 ROUTING_PREFLIGHT_UNAVAILABLE = "routing_preflight_unavailable"
 ROUTING_PREFLIGHT_FAILED = "routing_preflight_failed"
 ROUTING_PROFILE_MISMATCH = "routing_profile_mismatch"
-ROUTING_INVALID_SCORES = "routing_invalid_scores"
-ROUTING_AMBIGUOUS = "routing_ambiguous"
 
 ROUTING_STATUS: dict[str, int] = {
     ROUTING_UNSUPPORTED: 400,
@@ -79,14 +95,13 @@ ROUTED_MALFORMED_MESSAGE = (
     "and no parameters; the input is a plain prompt, not a message envelope"
 )
 _NOT_FOUND_MESSAGE = "no routing profile with this ID is available to the caller"
+_UNIQUE_ARGMAX = PolicyRule(kind="unique-argmax-v1")
 
-# WHY `auth_required` alone among 401s: it is the Gateway's answer for a visible target whose
-# Connection must sign in again; any other 401 says the request itself was not accepted.
-_REAUTH_CODE = "auth_required"
-
-# (usable, fits) of a visible target whose Connection cannot run: its contract is unread, so it
-# is not held against the profile.
-_NOT_CONNECTED = (False, True)
+# The profile's message for each policy refusal (spec 3.5), unchanged by the shared policy.
+_POLICY_MESSAGES = {
+    ROUTING_INVALID_SCORES: "the classifier's labels are not the labels this routing profile binds",
+    ROUTING_AMBIGUOUS: "more than one label holds the highest score, so no branch was asked",
+}
 
 Branch = Callable[[RoutingBranch, str], Awaitable[str]]
 """Ask one branch's chat route the question; supplied by `world.factory`."""
@@ -129,11 +144,15 @@ class RoutedAnswerEndpoint:
         profile = self._profiles.get(profile_id)
         if profile is None:
             raise not_found()
-        await _preflight(self._http_client, _headers(scope), profile)
+        # FEATURE (C8): this invocation's private attempt scope, closed however it ends.
+        with direct_attempts():
+            return await self._route(profile, text, scope)
+
+    async def _route(self, profile: RoutingProfile, text: str, scope: RequestScope) -> str:
+        await _preflight(self._http_client, _headers(scope), profile, text)
         try:
-            result = await self._classify(
-                json.dumps({"model": profile.classifier, "input": text}), CLASSIFY_INTENT, {}
-            )
+            with direct_role("classifier"):
+                result = await self._classify.classify(profile.classifier, _input(profile, text))
         except RunnerRequestError as exc:
             if exc.code != CLASSIFIER_NOT_FOUND:
                 raise
@@ -141,7 +160,8 @@ class RoutedAnswerEndpoint:
             # which target of the profile it lost.
             raise not_found() from None
         scores, choice = _select(profile, json.loads(result)["scores"])
-        answer = await self._branch(choice, text)
+        with direct_role("branch"):
+            answer = await self._branch(choice, text)
         return json.dumps(
             {
                 "object": "routed_answer",
@@ -209,157 +229,82 @@ def _plain_prompt(text: str) -> bool:
 
 
 async def _preflight(
-    client: httpx.AsyncClient, headers: dict[str, str], profile: RoutingProfile
+    client: httpx.AsyncClient, headers: dict[str, str], profile: RoutingProfile, text: str
 ) -> None:
     """Read the classifier's details and each branch's parameters; no inference (step 4)."""
-    details = await _read(client, headers, CLASSIFIER_DETAILS_PATH, profile.classifier)
-    findings = [_NOT_CONNECTED if details is None else _classifier_findings(details, profile)]
-    for branch in profile.branches:
-        model = decode_route_id(branch.model)
-        document = await _read(client, headers, MODEL_PARAMETERS_PATH, model)
-        findings.append(
-            _NOT_CONNECTED
-            if document is None
-            else _branch_findings(document, model, branch.max_tokens)
+    choice = _choice(profile, text) if profile.dynamic else None
+    try:
+        await preflight(
+            client,
+            headers,
+            ClassifierTarget(profile.classifier, profile.classifier_contract, choice),
+            [ModelTarget(decode_route_id(b.model), b.max_tokens) for b in profile.branches],
         )
-    # INVARIANT: decided only now, once every target was visible, so a caller who cannot see one
-    # target learns nothing about the others; a missing Connection is named first.
-    if not all(usable for usable, _ in findings):
-        raise _routing_error(
+    except PreflightRefusal as refusal:
+        _refuse(refusal)
+
+
+def _refuse(refusal: PreflightRefusal) -> NoReturn:
+    """The profile's presentation of a shared preflight refusal (spec 3.5)."""
+    if refusal.kind == "not_found":
+        raise not_found() from None
+    if refusal.kind == "unavailable":
+        raise _unavailable() from None
+    errors = {
+        "connection_missing": (
             "a model this routing profile uses has no usable Connection for the caller",
             ROUTING_CONNECTION_MISSING,
-        )
-    if not all(fits for _, fits in findings):
-        raise _routing_error(
+        ),
+        "mismatch": (
             "this routing profile does not fit the published contract of a model it uses; "
             "nothing was sent to a model",
             ROUTING_PROFILE_MISMATCH,
-        )
+        ),
+    }
+    if refusal.kind in errors:
+        raise _routing_error(*errors[refusal.kind]) from None
+    raise _failed() from None
 
 
-def _classifier_findings(details: dict[str, Any], profile: RoutingProfile) -> tuple[bool, bool]:
-    """(usable, fits) of the classifier's details document."""
-    if details.get("id") != profile.classifier:
-        raise _failed()
-    access, contract = details.get("execution_access"), details.get("result_contract")
-    if not (isinstance(access, str) and isinstance(contract, str)):
-        raise _failed()
-    return access == "configured", contract == profile.classifier_contract
-
-
-def _branch_findings(document: dict[str, Any], model: str, max_tokens: int) -> tuple[bool, bool]:
-    """(usable, fits) of one branch's parameter document."""
-    identity, context, parameters = (
-        document.get("model"),
-        document.get("context"),
-        document.get("parameters"),
-    )
-    if not (
-        isinstance(identity, dict)
-        and identity.get("id") == model
-        and isinstance(context, dict)
-        and isinstance(context.get("execution_access"), str)
-        and isinstance(parameters, dict)
-    ):
-        raise _failed()
-    usable = context["execution_access"] == "configured"
-    return usable, _admits(parameters.get("max_tokens"), max_tokens)
-
-
-async def _read(
-    client: httpx.AsyncClient, headers: dict[str, str], path: str, model: str
-) -> dict[str, Any] | None:
-    """One metadata document, or ``None`` for a visible target whose Connection cannot run."""
-    try:
-        response = await client.get(path, params={"model": model}, headers=headers)
-    except httpx.TransportError:
-        raise _unavailable() from None
-    except httpx.HTTPError:
-        raise _failed() from None
-    return _document(response)
-
-
-def _document(response: httpx.Response) -> dict[str, Any] | None:
-    status = response.status_code
-    if status == 429 or 500 <= status < 600:
-        raise _unavailable()
-    if status in (400, 404):
-        # WHY one code: the Gateway answers both for a target the caller may not see.
-        raise not_found()
-    if status == 409 or (status == 401 and _detail_code(response) == _REAUTH_CODE):
-        return None
-    if status != 200:
-        raise _failed()
-    try:
-        document = response.json()
-    except (ValueError, RecursionError):
-        # WHY `RecursionError`: a body nested past the reader's depth limit is unreadable too,
-        # and it is not a `ValueError`; uncaught, it ends the run as the Engine's own fault.
-        raise _failed() from None
-    if not isinstance(document, dict):
-        raise _failed()
-    return document
-
-
-def _detail_code(response: httpx.Response) -> object:
-    try:
-        payload = response.json()
-    except (ValueError, RecursionError):
-        return None
-    detail = payload.get("detail") if isinstance(payload, dict) else None
-    return detail.get("code") if isinstance(detail, dict) else None
-
-
-def _admits(rule: object, value: int) -> bool:
-    """Whether a published `max_tokens` rule accepts ``value``: enabled, integer, in bounds."""
-    if not isinstance(rule, dict):
-        return False
-    gateway, schema = rule.get("gateway"), rule.get("schema")
-    return (
-        isinstance(gateway, dict)
-        and gateway.get("status") == "enabled"
-        and isinstance(schema, dict)
-        and _schema_admits(schema, value)
+def _choice(profile: RoutingProfile, text: str) -> ChoiceRequest:
+    """The counts and lengths of the dynamic profile's C7 choice input, in branch order."""
+    return ChoiceRequest(
+        labels=tuple(branch.label for branch in profile.branches),
+        descriptions=tuple(branch.description or "" for branch in profile.branches),
+        instructions=profile.instructions or "",
+        text=text,
     )
 
 
-def _schema_admits(schema: dict[str, Any], value: int) -> bool:
-    kinds = schema.get("type")
-    if not (kinds == "integer" or (isinstance(kinds, list) and "integer" in kinds)):
-        return False
-    low, high = schema.get("minimum"), schema.get("maximum")
-    return (low is None or (_number(low) and low <= value)) and (
-        high is None or (_number(high) and value <= high)
-    )
+def _input(profile: RoutingProfile, text: str) -> str | dict[str, object]:
+    """What the classifier reads: the text for a fixed profile, the C7 choice input otherwise.
 
-
-def _number(value: object) -> bool:
-    return not isinstance(value, bool) and isinstance(value, int | float)
+    INVARIANT (C2): the options follow branch (table) order, the order the revision hashed.
+    """
+    if not profile.dynamic:
+        return text
+    return choice_input(_choice(profile, text))
 
 
 def _select(
     profile: RoutingProfile, scores: list[dict[str, Any]]
 ) -> tuple[list[dict[str, Any]], RoutingBranch]:
-    """The scores as decoded and the branch of the unique highest label (steps 6 and 7).
+    """The scores as decoded and the branch the shared C6 `unique-argmax-v1` policy selects.
 
-    WHY only the label set here: Unit 3 already refused a result for another model or contract,
-    duplicate labels, booleans and scores outside `[0, 1]`.
+    WHY the policy still sees Unit 3's checked scores: Unit 3 refused a result for another
+    model or contract, duplicate labels, booleans and scores outside `[0, 1]`; the policy adds
+    the label-set and tie rules (steps 6 and 7) and never reorders.
     """
-    labels = sorted(item["label"] for item in scores)
-    if labels != sorted(branch.label for branch in profile.branches):
-        raise _routing_error(
-            "the classifier's labels are not the labels this routing profile binds",
-            ROUTING_INVALID_SCORES,
-        )
-    top = max(item["score"] for item in scores)
-    leaders = [item["label"] for item in scores if item["score"] == top]
-    if len(leaders) != 1:
-        raise _routing_error(
-            "more than one label holds the highest score, so no branch was asked",
-            ROUTING_AMBIGUOUS,
-        )
-    choice = next(branch for branch in profile.branches if branch.label == leaders[0])
-    return scores, choice
+    evidence = ScoringEvidence(
+        model=profile.classifier,
+        contract=profile.classifier_contract,
+        scores=[(item["label"], item["score"]) for item in scores],
+    )
+    labels = [branch.label for branch in profile.branches]
+    result = decide(_UNIQUE_ARGMAX, evidence, labels=labels, has_default=False)
+    if result.failure is not None:
+        raise _routing_error(_POLICY_MESSAGES[result.failure.code], result.failure.code)
+    return scores, profile.branches[result.selected[0]]
 
 
 def not_found() -> RunnerRequestError:

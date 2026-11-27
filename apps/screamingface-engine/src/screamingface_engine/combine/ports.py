@@ -691,6 +691,17 @@ _SELECTOR_TOKENS = re.compile(r"[\s,;]+")
 _SELECTOR_TRIM = " \t\r\n.,;:!?\"'`()[]{}<>*"
 
 
+def selector_tokens(reply: str) -> list[str]:
+    """A selector reply's trimmed, non-empty tokens in reply order; none for a reply over the cap.
+
+    WHY public: the Router's llm reply parser (C5) keeps this tokenization and bound exactly.
+    """
+    if utf8_exceeds(reply, MAX_JUDGE_REPLY_BYTES):
+        return []
+    tokens = (token.strip(_SELECTOR_TRIM) for token in _SELECTOR_TOKENS.split(reply))
+    return [token for token in tokens if token]
+
+
 def parse_selector_reply(
     reply: str, labels: Sequence[str], *, multi: bool
 ) -> tuple[list[str], SelectorParse, str | None]:
@@ -701,10 +712,7 @@ def parse_selector_reply(
     each once. A single selector reads the first token only. ``raw`` is the first token that is
     not a declared label, cut at 64 characters; it is never the whole reply. Never raises.
     """
-    if utf8_exceeds(reply, MAX_JUDGE_REPLY_BYTES):
-        return [], "unparsed", None
-    tokens = [token.strip(_SELECTOR_TRIM) for token in _SELECTOR_TOKENS.split(reply)]
-    tokens = [token for token in tokens if token]
+    tokens = selector_tokens(reply)
     if not tokens:
         return [], "unparsed", None
     named = tokens if multi else tokens[:1]
@@ -883,6 +891,7 @@ __all__ = [
     "MAX_SELECTOR_RAW_CHARS",
     "SelectorParse",
     "parse_selector_reply",
+    "selector_tokens",
     "ABSTAIN_REASONS",
     "ACCOUNTING_SIGNALS",
     "DECIMAL_CONTEXT",

@@ -136,6 +136,29 @@ It is part of the complete Candidate Recipe and remains distinct from a Benchmar
 Judge.
 _Avoid_: Fusion member, grading Judge
 
+**Chat Request**:
+One OpenAI-style chat completion request to the Engine (`POST /v1/chat/completions`). Its `model`
+is a Candidate URL4 or a gateway model id. The Engine answers it with one Chat Run.
+_Avoid_: Session or conversation (one Chat Request carries the whole conversation and keeps no state)
+
+**Chat Run**:
+The Engine run of shape `chat` that executes one Chat Request. It reads the stored chat input, runs
+the Candidate once over the Text View and ends with one chat result. It has no Benchmark and no
+Grading, and it is not an Evaluation.
+_Avoid_: Chat job, chat session
+
+**Final Step**:
+The model step whose answer is the answer of the Candidate in a Chat Run. When the Chat Request has
+client tools, only the Final Step gets the native messages and the tool list, and it decides on a
+tool call. The Engine runs no tool.
+_Avoid_: Last call, Judge, synthesizer when the final position is not a Fusion Synthesizer
+
+**Text View**:
+The conversation and the tool list of a Chat Request, written as one candidate-input envelope: each
+client message keeps its role, and each tool call, tool result and tool becomes a line of text.
+Each step of a Chat Run reads it, except a Final Step when the request has tools.
+_Avoid_: Prompt, transcript
+
 **Cost Estimate**:
 A versioned, conservative pre-spend projection of an Evaluation's USD cost. Dynamic control flow
 may require a range or maximum rather than one exact amount.

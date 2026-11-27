@@ -199,7 +199,7 @@ async def test_unexpected_reply_logprobs_failure_does_not_fail_a_successful_answ
     def fail(*_args: object) -> None:
         raise ValueError("private logprob payload")
 
-    monkeypatch.setattr("screamingface_engine.world.connector.reply_logprobs", fail)
+    monkeypatch.setattr("screamingface_engine.world.gateway_transport.reply_logprobs", fail)
     world, client = await _world([("miss", _with_logprobs(_miss_body(), -0.5))])
     try:
         with caplog.at_level(logging.WARNING):

@@ -108,12 +108,11 @@ The scoreboard calls the frozen copy claim route (OME-1947). It is in a differen
 `clientPodNames` cannot admit it: that list is for one namespace only. Add one element to
 `networkPolicy.allowFrom` that has the namespace selector and the pod selector together. Two
 separate elements admit each pod of the scoreboard namespace, or
-each pod with the label in the gateway namespace. Also set `config.frozenCopyClaimEmails` to the
-actor address of the scoreboard, and set `config.frozenCopyClaimNetworks` to the address range of
-the scoreboard pods. Do not add that range to `config.allowedNetworks`: a peer on that list may
-name any user in `X-User-Email` on every route, and a peer on `frozenCopyClaimNetworks` may call
-the claim route only. With an empty claim list, the claim route answers 503 in
-`cloudflare_headers` mode.
+each pod with the label in the gateway namespace. Also set `config.frozenCopyClaimNetworks` to the
+address range of the scoreboard pods. Do not add that range to `config.allowedNetworks`: a peer on
+that list may name any user in `X-User-Email` on every route, and a peer on
+`frozenCopyClaimNetworks` may call the claim route only. The claim route reads no identity header
+and has no address list: it accepts each peer on one of the two network lists.
 
 ```yaml
 networkPolicy:

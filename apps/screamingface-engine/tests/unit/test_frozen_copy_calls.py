@@ -40,13 +40,13 @@ from screamingface_engine.capture_outcomes import (
     case_key_for,
     current_capture_tally,
 )
-from screamingface_engine.world import connector
+from screamingface_engine.world import gateway_transport
 
 
 @pytest.fixture(autouse=True)
 def _no_backoff(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(connector, "_TRANSPORT_BACKOFF_BASE_S", 0.0)
-    monkeypatch.setattr(connector, "_TRANSPORT_BACKOFF_JITTER_S", 0.0)
+    monkeypatch.setattr(gateway_transport, "_TRANSPORT_BACKOFF_BASE_S", 0.0)
+    monkeypatch.setattr(gateway_transport, "_TRANSPORT_BACKOFF_JITTER_S", 0.0)
 
 
 # ── TDD 1: replay never reaches a provider or Tavily ───────────────────────────────────────

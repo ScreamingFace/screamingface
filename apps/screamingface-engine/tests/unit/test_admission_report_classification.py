@@ -4,7 +4,7 @@ import pytest
 from screamingface_engine.benchmarks.aggregation import SelectedCase, grading_failure_case_result
 from screamingface_engine.benchmarks.contract import encode_candidate_invocation
 from screamingface_engine.benchmarks.grading_endpoints import candidate_answer
-from screamingface_engine.world import connector as c
+from screamingface_engine.world import gateway_transport
 from url4.core.errors import ResolutionError
 
 
@@ -19,10 +19,10 @@ from url4.core.errors import ResolutionError
 )
 def test_phase_classification_survives_evaluation_report(status, code):
     if status is None:
-        error = c._deadline_exceeded(None)
+        error = gateway_transport._deadline_exceeded(None)
     else:
         with pytest.raises(ResolutionError) as caught:
-            c._raise_for_status(
+            gateway_transport._raise_for_status(
                 httpx.Response(
                     status, json={"detail": {"code": code, "message": "Safe timeout message"}}
                 )

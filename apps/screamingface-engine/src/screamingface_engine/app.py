@@ -31,6 +31,7 @@ from screamingface_engine.artifacts import (
     S3ArtifactStore,
 )
 from screamingface_engine.artifacts.blobs import BlobPolicy, BlobStore
+from screamingface_engine.artifacts.chat_inputs import chat_input_store
 from screamingface_engine.artifacts.wiring import (
     BlobStoreNotConfigured,
     blob_objects_from_values,
@@ -42,7 +43,7 @@ from screamingface_engine.benchmarks.builtins import BUILTIN_BENCHMARKS
 from screamingface_engine.candidate_outcomes import CandidateOutcomeStream
 from screamingface_engine.catalog import build_executable_catalog_service
 from screamingface_engine.catalog.cache import CatalogService
-from screamingface_engine.catalog.port import ModelParameterSource
+from screamingface_engine.catalog.port import ClassifierSource, ModelParameterSource
 from screamingface_engine.combine.builtins import BUILTIN_OPERATORS
 from screamingface_engine.combine.registry import OperatorRegistry
 from screamingface_engine.config import INSECURE_DEFAULT_JWT_SECRET, Settings
@@ -74,6 +75,7 @@ from screamingface_engine.rest import (
     artifact_router,
     benchmark_router,
     blob_router,
+    capability_router,
     catalog_router,
     connection_router,
     credit_router,
@@ -81,6 +83,8 @@ from screamingface_engine.rest import (
 )
 from screamingface_engine.rest import router as rest_router
 from screamingface_engine.rest.cache_entries import router as cache_entries_router
+from screamingface_engine.rest.chat_completions import install_chat_state
+from screamingface_engine.rest.chat_completions import router as chat_router
 from screamingface_engine.rest.limits import router as limits_router
 from screamingface_engine.rest.mounts import install_mounts
 from screamingface_engine.rest.runs import router as runs_router
@@ -111,11 +115,13 @@ _ROUTERS = (
     blob_router,
     benchmark_router,
     operator_router,
+    capability_router,
     limits_router,
     catalog_router,
     connection_router,
     credit_router,
     cache_entries_router,
+    chat_router,
     runs_router,
     runs_objects_router,
     runs_events_router,
@@ -145,6 +151,7 @@ def create_app(
     interest: SubscriberGate | None = None,
     catalog: CatalogService | None = None,
     model_parameters: ModelParameterSource | None = None,
+    classifiers: ClassifierSource | None = None,
     connections: Connections | None = None,
     credits: Credits | None = None,
     community_cache: CommunityCache | None = None,
@@ -177,8 +184,7 @@ def create_app(
     app.state.settings = settings
     app.state.stream = stream
     app.state.job_runner = job_runner
-    app.state.catalog = catalog
-    app.state.model_parameters = model_parameters
+    _install_catalog_sources(app, catalog, model_parameters, classifiers)
     _install_gateway_adapters(app, connections, community_cache, credits)
     _install_discovery_registries(app, benchmarks, operators)
     app.state.metrics = build_metrics()
@@ -249,6 +255,21 @@ def _install_span_sink(app: FastAPI, sink: SpanSink | None) -> None:
     app.router.on_shutdown.append(_close)
 
 
+def _install_catalog_sources(
+    app: FastAPI,
+    catalog: CatalogService | None,
+    model_parameters: ModelParameterSource | None,
+    classifiers: ClassifierSource | None,
+) -> None:
+    """Hold the Gateway discovery sources the catalog routes read; ``None`` answers 503.
+
+    WHY a helper: `create_app` sits at the statement limit, and each source is one more DI seam.
+    """
+    app.state.catalog = catalog
+    app.state.model_parameters = model_parameters
+    app.state.classifiers = classifiers
+
+
 def _install_discovery_registries(
     app: FastAPI, benchmarks: BenchmarkRegistry, operators: OperatorRegistry
 ) -> None:
@@ -290,6 +311,9 @@ def _install_surfaces(app: FastAPI, span_sink: SpanSink | None = None) -> None:
     # FEATURE (OME-1218): the run-submission route's accept span. `None` (the default) keeps
     # the route exactly as it was: no span, the inbound traceparent forwarded verbatim.
     _install_span_sink(app, span_sink)
+    # FEATURE: POST /v1/chat/completions (prd/chat-completion.md): the drain, the parse gate and
+    # the model lookup cache of the chat route.
+    install_chat_state(app)
     install_problem_handlers(app)
     for api_router in _ROUTERS:
         app.include_router(api_router)
@@ -391,6 +415,12 @@ def _install_storage(app: FastAPI, settings: Settings) -> None:
     app.state.artifact_store = _build_artifact_reader(settings)
     # FEATURE: the run blob store (OME-1540) — on its own backend (#1603 review).
     app.state.blob_store = _build_blob_store(settings)
+    # FEATURE: the chat-input store of POST /v1/chat/completions (erd §1.1), a second BlobStore
+    # on the same objects; none without a blob store, and the chat route then answers 503 (U4).
+    blob_store: BlobStore | None = app.state.blob_store
+    app.state.chat_input_store = (
+        None if blob_store is None else chat_input_store(blob_store.objects)
+    )
     # WHY startup + periodic: fetching never deletes (OME-892 review — content addressing means
     # one object backs many tickets, and a Range request must leave the rest fetchable), so TTL
     # is the ONLY cleanup and every redeemed parcel also waits for it. The boot sweep clears the
@@ -448,8 +478,11 @@ def _build_blob_store(settings: Settings) -> BlobStore | None:
     return BlobStore(objects, policy)
 
 
-def _blob_values(settings: Settings) -> dict[str, str]:
-    """`Settings` rendered into the env-named shape the shared wiring reads."""
+def blob_store_values(settings: Settings) -> dict[str, str]:
+    """The blob-store `Settings` as `job_env.BLOB_*` names and values (an empty value = unset).
+
+    The local App mirrors these into its run env, so both halves name the same store.
+    """
     return {
         job_env.BLOB_STORE: settings.blob_store or "",
         job_env.BLOBS_DIR: settings.blobs_dir,
@@ -458,6 +491,13 @@ def _blob_values(settings: Settings) -> dict[str, str]:
         job_env.BLOB_S3_REGION: settings.blob_s3_region,
         job_env.BLOB_S3_ACCESS_KEY: settings.blob_s3_access_key,
         job_env.BLOB_S3_SECRET_KEY: settings.blob_s3_secret_key,
+    }
+
+
+def _blob_values(settings: Settings) -> dict[str, str]:
+    """`Settings` rendered into the env-named shape the shared wiring reads."""
+    return {
+        **blob_store_values(settings),
         job_env.ARTIFACT_STORE: settings.artifact_store,
         job_env.ARTIFACTS_DIR: settings.artifacts_dir,
         job_env.ARTIFACT_S3_ENDPOINT_URL: settings.artifact_s3_endpoint_url,
@@ -964,6 +1004,7 @@ def create_app_from_env() -> FastAPI:  # pragma: no cover - env/NATS wiring (INF
         job_runner=job_runner,
         catalog=catalog,
         model_parameters=catalog.model_parameter_source if catalog is not None else None,
+        classifiers=catalog.classifier_source if catalog is not None else None,
         connections=connections,
         community_cache=community_cache,
         benchmarks=BUILTIN_BENCHMARKS,

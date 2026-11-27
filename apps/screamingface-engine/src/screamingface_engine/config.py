@@ -1,11 +1,12 @@
 """Typed settings for the screamingface-engine App, loaded from `URL4_CLOUD_*`
 environment variables."""
 
+import json
 from collections.abc import Mapping
-from typing import Any, Literal, Self
+from typing import Annotated, Any, Literal, Self
 
 from pydantic import Field, PrivateAttr, SecretStr, field_validator, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 from screamingface_engine import job_env, runner_queue, subjects
 from screamingface_engine.artifacts.blobs import ATTACHMENT_MEDIA_TYPES, DEFAULT_BLOB_MAX_BYTES
@@ -92,6 +93,15 @@ class Settings(BaseSettings):
     # FEATURE (OME-1308): browser origins granted CORS on the REST surface. The env var
     # (`URL4_CLOUD_CORS_ALLOWED_ORIGINS`, a JSON list) REPLACES the default; `[]` grants none.
     cors_allowed_origins: list[str] = Field(default_factory=lambda: list(STUDIO_CORS_ORIGINS))
+    # FEATURE (C12, Unit 6): the capability IDs `GET /v1/capabilities` advertises, one JSON string
+    # array in `URL4_CLOUD_ADVERTISED_CAPABILITIES`, default `[]`.
+    #
+    # INVARIANT: an ID states what the whole fleet can run (every App replica, every worker that
+    # can take current or queued work, and the Gateway), and configuration alone never proves it.
+    # This release advertises no capability, so anything but `[]` refuses startup.
+    # WHY `NoDecode`: the env source reads JSON `null` as unset and falls back to the default; the
+    # validator below decodes the text itself, so `null` is refused like any other non-array.
+    advertised_capabilities: Annotated[list[str], NoDecode] = Field(default_factory=list)
     # FEATURE: over-cap results survive the Runner Job on a multi-pod deployment (OME-929).
     #
     # INVARIANT: every field below reads the env var `job_env` declares for it, by construction —
@@ -220,6 +230,12 @@ class Settings(BaseSettings):
     capability_lifetime_s: int = 58_800
     # WHY: sync-hold cap; a run outliving it degrades to 202 async (spec §5).
     sync_max_wait_s: float = 30.0
+    # FEATURE: POST /v1/chat/completions (prd/chat-completion.md §4): how long a chat request
+    # waits for its run; the run deadline is int(limit) + 5.
+    chat_max_wait_s: float = Field(default=600.0, gt=0.0)
+    # FEATURE: POST /v1/chat/completions with stream true (prd/streaming.md §4): the interval of the
+    # ": keep-alive" comment lines while a streamed request waits for its run.
+    chat_keepalive_s: float = Field(default=15.0, gt=0.0)
     # WHY: idle interval between WS HeartbeatEvents for liveness (spec §6).
     ws_heartbeat_s: float = 15.0
     # INVARIANT: k8s Job activeDeadlineSeconds ceiling = 16h (spec §3). The run deadline is
@@ -514,6 +530,31 @@ class Settings(BaseSettings):
     def _empty_blob_store_is_unset(cls, value: object) -> object:
         # WHY: an env var rendered empty means "not set", not an invalid backend name.
         return None if isinstance(value, str) and not value.strip() else value
+
+    @field_validator("advertised_capabilities", mode="before")
+    @classmethod
+    def _capabilities_are_one_json_array(cls, value: object) -> object:
+        """The env text decoded as JSON; the list type then refuses all but strings in a list.
+
+        WHY no catch: `json.JSONDecodeError` is a `ValueError`, which pydantic already reports as
+        this field's validation error, so malformed text refuses startup like any other value.
+        """
+        return json.loads(value) if isinstance(value, str) else value
+
+    @field_validator("advertised_capabilities")
+    @classmethod
+    def _this_release_advertises_no_capability(cls, value: list[str]) -> list[str]:
+        """INVARIANT (C12): the dormant release can prove no ID, ``router-v1`` included.
+
+        A later release that can advertise an ID admits it here, together with the unique and
+        known-ID checks that only then can tell one refusal from another.
+        """
+        if value:
+            raise ValueError(
+                f"advertised_capabilities={value!r}: this release advertises no capability, "
+                f"so the only accepted value is []"
+            )
+        return value
 
     @field_validator("blob_media_types")
     @classmethod

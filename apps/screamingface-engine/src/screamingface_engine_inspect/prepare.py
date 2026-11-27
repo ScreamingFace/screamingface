@@ -127,6 +127,12 @@ class TaskReplayCasesSpec:
     #: refuses; ``case_count`` is the count kept. The row says why beside the ids, and they
     #: ride Benchmark identity when set (spec R18).
     excluded_sample_ids: tuple[str, ...] | None = None
+    #: A NAMED DEVIATION: inspect_evals Sample ids (``str(Sample.id)``) whose pictures over
+    #: 8000 px on a side are shrunk to that long side, aspect kept, after the exclusions and
+    #: before capture (``shrunk_pictures.py``; OME-1970, hle's 14950 px picture). Every id must
+    #: still be there with a picture over the limit, or Case Preparation refuses. They ride
+    #: Benchmark identity when set, as the excluded ids do; the Case Digest seals the new bytes.
+    shrunk_picture_sample_ids: tuple[str, ...] | None = None
     #: The dataset license, from the Hugging Face card when the one Case Source has one and
     #: it is on the cleared list, otherwise the owner's decision replacing LICENSE_TODO in
     #: the diff (spec R6, R7).
@@ -207,6 +213,16 @@ ENIGMAEVAL_HELD_OUT_OVER_CASE_CAP: tuple[str, ...] = (
     "69f3aee766ce8458f2f20eb0",
     "69f3aee766ce8458f2f20fa8",
 )
+
+#: The HLE Samples whose picture is shrunk to 8000 px on its long side (OME-1970), by inspect_evals
+#: Sample id: ``hle_350ce3fb`` is ``create_stable_id("66f1b940f8bb4425f74e4299", prefix="hle")``,
+#: the cais/hle row that is also in cais/hle-diamond (``hle`` Case 250, ``hle_diamond`` Case 35).
+#: WHY: its 14950×2780 px PNG (991,800 base64 bytes) was refused on the 6 Nov 2026 prod runs by
+#: every Claude Candidate ("The upstream provider rejected the request.", Claude takes 8000 px per
+#: side) and by gpt-6-astra-pro and gpt-6.1-terra-pro ("requires 40716 patches after processing,
+#: exceeding the limit of 30000"). Shrunk, it is 8000×1488. It is the only picture over 8000 px
+#: in either dataset at the pinned revisions (scan of all 2,500 and 1,000 rows, 2026-11-26).
+HLE_OVERSIZED_PICTURE_SAMPLE_IDS: tuple[str, ...] = ("hle_350ce3fb",)
 
 #: Every Imported Benchmark's Case Preparation, keyed by Benchmark key. Importing another
 #: eval = one more entry, written by the importer above the anchor at the end.
@@ -2163,6 +2179,11 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
     ),
     # hle — imported by Task replay on 2026-11-02 from
     #   inspect_evals.hle.hle:hle.
+    # NAMED DEVIATION (OME-1970): Case 250's picture (Hub row 66f1b940f8bb4425f74e4299) is
+    #   shrunk from 14950×2780 px to 8000×1488 px (Pillow LANCZOS, lossless PNG re-encode), the
+    #   longest side every model host we serve accepts; see HLE_OVERSIZED_PICTURE_SAMPLE_IDS. No
+    #   other Case changes. Sealed on linux/amd64 inside the Engine image, as the image build
+    #   replays it: Pillow's PNG bytes differ by platform for the same pixels.
     # Case Sources, as recorded at import (review them; the Case Digest pins them):
     #   hugging-face cais/hle
     #     pin revision 5a81a4c7271a2a2a312b9a690f0c2fde837e4c29
@@ -2180,13 +2201,14 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
             }
         },
         case_count=2500,
-        case_digest="7fb3221865f11a884c67725c198409271730424a692c4c8a0c34ec86282d135f",
-        case_set_digest="a6439340e64d020489c9a7678d24245c63c6cc834dc7d47244225991be3bf57a",
+        case_digest="127e1592ce3a73e218a92e43359597b38c44c91fb09295b60d724b3c1b6c78e5",
+        case_set_digest="8c7dd171a5394aad7fb2394461164402156d9f2b0561f41f41c294251544856e",
         keep_sample_metadata=True,
         keep_sample_input=True,
         source_pins={
             "cais/hle": "5a81a4c7271a2a2a312b9a690f0c2fde837e4c29",
         },
+        shrunk_picture_sample_ids=HLE_OVERSIZED_PICTURE_SAMPLE_IDS,
         needs_hf_token=True,
         license="mit",
     ),
@@ -2324,6 +2346,9 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
     ),
     # hle_diamond — imported by Task replay on 2026-11-16 from
     #   screamingface_engine_inspect.local_tasks.hle_diamond.hle_diamond:hle_diamond.
+    # NAMED DEVIATION (OME-1970): Case 35's picture (Hub row 66f1b940f8bb4425f74e4299, hle's
+    #   Case 250) is shrunk from 14950×2780 px to 8000×1488 px, as on the hle row; see
+    #   HLE_OVERSIZED_PICTURE_SAMPLE_IDS. No other Case changes. Sealed on linux/amd64.
     # Case Sources, as recorded at import (review them; the Case Digest pins them):
     #   hugging-face cais/hle-diamond
     #     pin revision 04eeb7efa7e3e4f83a00cbd5ce436a38fd5dda23
@@ -2341,13 +2366,14 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
             }
         },
         case_count=1000,
-        case_digest="ba7f9bc0bd5b23a0635a2b1082aa0035f7bb43ad51662a87274ea38f1bc5aa3b",
-        case_set_digest="18047330f8c25fd5347051c7c0ef8c63c22c5f65e72bd38ba30a880a713fc505",
+        case_digest="822e55319b959a4d4e9c3e6d62a9298cb45fa44ac3c440a318f1b9fcadc6e2f3",
+        case_set_digest="d8c4c7ba0a5dafd9f225f6541765cf91f38e744ef3b5ca0067660bd5403d4847",
         keep_sample_metadata=True,
         keep_sample_input=True,
         source_pins={
             "cais/hle-diamond": "04eeb7efa7e3e4f83a00cbd5ce436a38fd5dda23",
         },
+        shrunk_picture_sample_ids=HLE_OVERSIZED_PICTURE_SAMPLE_IDS,
         needs_hf_token=True,
         license="mit",
     ),
@@ -2383,6 +2409,24 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
             "futurex-ai/Futurex-Past": "3c2e39690de35eb1fcc621251f56343c72bae8c4",
         },
         license="apache-2.0",
+    ),
+    # btf3 — imported by Task replay on 2026-11-17 from
+    #   screamingface_engine_inspect.local_tasks.btf3.btf3:btf3.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   hugging-face futuresearch-ai/BTF-3/btf3_binary_questions_and_forecasts.parquet
+    #     pin revision ad5a2165eea26a8a43592ba36ff15765199ddc71
+    "btf3": TaskReplayCasesSpec(
+        task="screamingface_engine_inspect.local_tasks.btf3.btf3:btf3",
+        case_count=1515,
+        case_digest="3381b20d572a01ef74f6b41cbc9289300058932bff643d89161af042e08f5767",
+        case_set_digest="06ad754d3008ea8a9f6ccc5dadea02e4d91553f1dace1422abaa8c13a01ef71b",
+        keep_sample_metadata=True,
+        source_pins={
+            "futuresearch-ai/BTF-3": "ad5a2165eea26a8a43592ba36ff15765199ddc71",
+        },
+        # License: CC-BY-NC-4.0 (futuresearch-ai/BTF-3 card); non-commercial use only. Owner
+        #  decision on OME-1938 (2026-11-17), as for worldsense (2026-10-01).
+        license="cc-by-nc-4.0",
     ),
     # --- importer: generated TaskReplayCasesSpec rows land above this line ---
 }

@@ -110,7 +110,7 @@ class CacheOutcome:
     retried: bool = False
     """Whether a transport retry preceded this round trip after a failure that may have reached
     the gateway — so a lost attempt may have been billed (OME-1220). A connect-phase failure,
-    which proves nothing was sent, does not set it (`connector._NEVER_SENT`).
+    which proves nothing was sent, does not set it (`gateway_transport._NEVER_SENT`).
 
     AIDEV-NOTE (OME-1687): a recorded fact only — no price reads it. The price of a call is the
     successful request's (cost of intelligence), so a retry before it changes nothing. OME-1220

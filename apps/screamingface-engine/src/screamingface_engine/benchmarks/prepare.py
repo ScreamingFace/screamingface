@@ -55,14 +55,26 @@ def main(argv: Sequence[str] | None = None) -> int:
         action="store_true",
         help="print every bundle id, one per line, and download nothing",
     )
+    parser.add_argument(
+        "--for-benchmarks",
+        metavar="IDS",
+        default="",
+        help=(
+            "with --list-bundles: print only the bundles these Benchmarks read "
+            "(comma-separated Benchmark ids, e.g. 'medxpert,inspect-gsm8k'); blank means "
+            "every bundle. A run of one Benchmark then prepares one dataset, not all of them"
+        ),
+    )
     args = parser.parse_args(argv)
+
+    named: tuple[str, ...] = _named_benchmarks(args.for_benchmarks)
+    if named and not args.list_bundles:
+        parser.error("--for-benchmarks only narrows --list-bundles; name bundles with --bundle")
 
     if args.list_bundles:
         # WHY before anything else: a caller deciding WHICH bundles are still missing must be
         # able to ask without touching the asset tree.
-        for bundle_id in sorted(BUILTIN_DEPLOYMENT.asset_bundle_ids):
-            print(bundle_id)
-        return 0
+        return _list_bundles(named)
 
     only: tuple[str, ...] | None = tuple(args.bundles) if args.bundles else None
     if only is not None:
@@ -76,6 +88,50 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"no such asset bundle(s): {', '.join(unknown)}", file=sys.stderr)
             return 1
     return _prepare(args.root, only)
+
+
+def _named_benchmarks(raw: str) -> tuple[str, ...]:
+    """Split a comma-separated list of Benchmark ids; blank means none were named.
+
+    Worked example: " medxpert, inspect-gsm8k ,medxpert" → ("medxpert", "inspect-gsm8k"). The
+    same rule as the paid smoke's own `benchmarks` field, so both read one value the same way.
+    """
+
+    pieces: list[str] = [piece.strip() for piece in raw.split(",")]
+    return tuple(dict.fromkeys(piece for piece in pieces if piece))
+
+
+def _list_bundles(named: tuple[str, ...]) -> int:
+    """Print the bundle ids, one per line: every bundle, or only the named Benchmarks' own."""
+
+    bundle_ids: tuple[str, ...] | None = (
+        _bundles_for(named) if named else BUILTIN_DEPLOYMENT.asset_bundle_ids
+    )
+    if bundle_ids is None:
+        return 1
+    for bundle_id in sorted(bundle_ids):
+        print(bundle_id)
+    return 0
+
+
+def _bundles_for(named: tuple[str, ...]) -> tuple[str, ...] | None:
+    """The bundles the named Benchmarks read, each once; None (and a message) for an unknown id.
+
+    WHY through the registrations, not "the bundle is called like its Benchmark": several
+    Benchmarks may share one bundle, and then the two names differ.
+    WHY refuse an unknown id: a typo would otherwise list nothing, the caller would prepare
+    nothing, and the run would start on an empty asset tree.
+    """
+
+    bundle_of: dict[str, str] = {
+        registration.benchmark.id: registration.asset_bundle.id
+        for registration in BUILTIN_DEPLOYMENT.registrations
+    }
+    unknown: list[str] = sorted(set(named) - set(bundle_of))
+    if unknown:
+        print(f"no such Benchmark(s): {', '.join(unknown)}", file=sys.stderr)
+        return None
+    return tuple(dict.fromkeys(bundle_of[benchmark_id] for benchmark_id in named))
 
 
 def _prepare(root: Path, only: tuple[str, ...] | None) -> int:

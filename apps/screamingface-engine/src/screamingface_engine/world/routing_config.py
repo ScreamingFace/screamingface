@@ -14,6 +14,12 @@ the endpoint's preflight, per caller.
 
 INVARIANT: a refusal names the profile and the key, never a value. The file can be a mounted
 Secret, and a branch model is a private route (`public_schema = false`).
+
+FEATURE: Router Recipe extension, Unit 5.2 (contracts C2, C3, C16). A dynamic-choice profile adds
+exactly `revision_scheme = "router-definition-v1"` and `instructions`, and each branch exactly
+`description`; its labels are any C16 labels, in table order. It normalizes to a `ChoiceScoring`
+router definition `D` whose C3 revision is the profile's revision. A fixed profile keeps exactly
+its keys, its three labels and its legacy revision bytes.
 """
 
 from __future__ import annotations
@@ -24,7 +30,18 @@ import re
 from collections.abc import Collection, Mapping
 from dataclasses import dataclass
 
+from pydantic import ValidationError
+
 from screamingface_engine.world.config import AigatewaySection, WorldConfigError
+from screamingface_engine.world.models.registry import decode_route_id
+from screamingface_engine.world.router_spec import (
+    MAX_DEFINITION_BYTES,
+    REVISION_SCHEME,
+    Definition,
+    canonical,
+    definition_revision,
+    field_rule,
+)
 
 CLASSIFIER_CONTRACT = "classification-scores-v1"
 UNIQUE_ARGMAX = "unique-argmax-v1"
@@ -43,6 +60,8 @@ _PROFILE_KEYS = frozenset({"classifier", "classifier_contract", "policy", "branc
 # WHY no other generation parameter (R7): `openai-chat-basic-v1` carries `max_tokens` and drops
 # every other field, so a bound `temperature` would be accepted here and never reach the model.
 _BRANCH_KEYS = frozenset({"model", "max_tokens"})
+_DYNAMIC_KEYS = _PROFILE_KEYS | {"revision_scheme", "instructions"}
+_DYNAMIC_BRANCH_KEYS = _BRANCH_KEYS | {"description"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,6 +71,17 @@ class RoutingBranch:
     label: str
     model: str
     max_tokens: int
+    description: str | None = None
+    """The choice description of a dynamic profile's branch; ``None`` in a fixed profile."""
+
+    def params(self) -> tuple[tuple[str, str], ...]:
+        """The explicit parameters of this branch's chat call, in call order.
+
+        INVARIANT: the one source of both the parameters the branch call sends
+        (`gateway_endpoints`) and the ones a dynamic profile's revision hashes (C2), so the
+        revision always covers what is sent.
+        """
+        return (("max_tokens", str(self.max_tokens)), ("web_search", "false"))
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,6 +98,14 @@ class RoutingProfile:
     policy: str
     branches: tuple[RoutingBranch, ...]
     revision: str
+    revision_scheme: str | None = None
+    """`router-definition-v1` for a dynamic profile; ``None`` keeps the legacy revision."""
+    instructions: str | None = None
+    """The choice instructions of a dynamic profile; ``None`` in a fixed profile."""
+
+    @property
+    def dynamic(self) -> bool:
+        return self.revision_scheme is not None
 
 
 def parse_routing(raw: object, section: AigatewaySection | None) -> Mapping[str, RoutingProfile]:
@@ -101,14 +139,19 @@ def _profile(profile_id: str, raw: object, routes: Collection[str]) -> RoutingPr
             f"routing profile ID {profile_id!r} must match {_PROFILE_ID.pattern!r}"
         )
     where = f"[routing.profiles.{profile_id}]"
-    table = _require_table(where, raw, _PROFILE_KEYS)
+    # WHY `revision_scheme` decides the form: it is the one key only a dynamic profile has, so
+    # every other key is then checked against that form's exact set and a mix fails, named.
+    dynamic = isinstance(raw, Mapping) and "revision_scheme" in raw
+    table = _require_table(where, raw, _DYNAMIC_KEYS if dynamic else _PROFILE_KEYS)
     classifier = table["classifier"]
     provider, _, alias = str(classifier).partition("/")
     if not (isinstance(classifier, str) and provider and alias):
         raise WorldConfigError(f'{where} classifier must be a "<provider>/<alias>" model ID')
     _require_value(where, table, "classifier_contract", CLASSIFIER_CONTRACT)
     _require_value(where, table, "policy", UNIQUE_ARGMAX)
-    branches = _branches(profile_id, table["branches"], routes)
+    branches = _branches(profile_id, table["branches"], routes, dynamic=dynamic)
+    if dynamic:
+        return _dynamic_profile(profile_id, table, classifier, branches)
     return RoutingProfile(
         id=profile_id,
         classifier=classifier,
@@ -119,25 +162,37 @@ def _profile(profile_id: str, raw: object, routes: Collection[str]) -> RoutingPr
     )
 
 
-def _branches(profile_id: str, table: object, routes: Collection[str]) -> tuple[RoutingBranch, ...]:
+def _branches(
+    profile_id: str, table: object, routes: Collection[str], *, dynamic: bool
+) -> tuple[RoutingBranch, ...]:
     where = f"[routing.profiles.{profile_id}.branches]"
     if not isinstance(table, Mapping):
         raise WorldConfigError(f"{where} must be a table")
     labels = set(map(str, table))
-    if labels != set(ROUTING_LABELS):
+    # WHY only the fixed form pins its labels: a dynamic profile's labels are checked as C16
+    # labels with its normalized definition (`_dynamic_profile`).
+    if not dynamic and labels != set(ROUTING_LABELS):
         raise WorldConfigError(
             f"{where} must bind exactly the labels {list(ROUTING_LABELS)}; "
             f"missing {sorted(set(ROUTING_LABELS) - labels)}, "
             f"unknown {sorted(labels - set(ROUTING_LABELS))}"
         )
     return tuple(
-        _branch(f"[routing.profiles.{profile_id}.branches.{label}]", str(label), entry, routes)
+        _branch(
+            f"[routing.profiles.{profile_id}.branches.{label}]",
+            str(label),
+            entry,
+            routes,
+            dynamic=dynamic,
+        )
         for label, entry in table.items()
     )
 
 
-def _branch(where: str, label: str, raw: object, routes: Collection[str]) -> RoutingBranch:
-    table = _require_table(where, raw, _BRANCH_KEYS)
+def _branch(
+    where: str, label: str, raw: object, routes: Collection[str], *, dynamic: bool
+) -> RoutingBranch:
+    table = _require_table(where, raw, _DYNAMIC_BRANCH_KEYS if dynamic else _BRANCH_KEYS)
     model = table["model"]
     # WHY a route of this world: the branch is called as the ordinary chat route `/<model>`, and
     # a model ID without a provider prefix names no Gateway target a profile could bind.
@@ -152,7 +207,79 @@ def _branch(where: str, label: str, raw: object, routes: Collection[str]) -> Rou
         or not 1 <= max_tokens <= MAX_TOKENS_LIMIT
     ):
         raise WorldConfigError(f"{where} max_tokens must be an integer in [1, {MAX_TOKENS_LIMIT}]")
-    return RoutingBranch(label=label, model=model, max_tokens=max_tokens)
+    description = _text(where, table, "description") if dynamic else None
+    return RoutingBranch(label=label, model=model, max_tokens=max_tokens, description=description)
+
+
+def _dynamic_profile(
+    profile_id: str,
+    table: Mapping[str, object],
+    classifier: str,
+    branches: tuple[RoutingBranch, ...],
+) -> RoutingProfile:
+    """The dynamic form: its C2 normalization, checked against C16, and its C3 revision."""
+    where = f"[routing.profiles.{profile_id}]"
+    _require_value(where, table, "revision_scheme", REVISION_SCHEME)
+    instructions = _text(where, table, "instructions")
+    definition = normalized_definition(classifier, instructions, branches)
+    encoded = canonical(definition)
+    if len(encoded) > MAX_DEFINITION_BYTES:
+        raise WorldConfigError(
+            f"{where} normalizes to more than {MAX_DEFINITION_BYTES} bytes of canonical JSON (C16)"
+        )
+    try:
+        Definition.model_validate_json(encoded)
+    except ValidationError as exc:
+        # WHY translated: the operator wrote branches and instructions, not the normalized `D`;
+        # the rule names a branch by its position, never by a value.
+        rule = field_rule(exc).replace("classifier.choice.", "", 1)
+        rule = rule.replace("candidates", "branches", 1)
+        raise WorldConfigError(f"{where} breaks a router definition rule at {rule}") from None
+    return RoutingProfile(
+        id=profile_id,
+        classifier=classifier,
+        classifier_contract=CLASSIFIER_CONTRACT,
+        policy=UNIQUE_ARGMAX,
+        branches=branches,
+        revision=definition_revision(definition),
+        revision_scheme=REVISION_SCHEME,
+        instructions=instructions,
+    )
+
+
+def normalized_definition(
+    classifier: str, instructions: str, branches: tuple[RoutingBranch, ...]
+) -> dict[str, object]:
+    """The C2 `ChoiceScoring` definition `D` of a dynamic profile, candidates in table order.
+
+    INVARIANT: each Model is the canonical Gateway ID with `prompt: null` and exactly the
+    parameters its branch call sends, so the revision covers the call (C2, C3).
+    """
+    return {
+        "classifier": {
+            "source": "scoring",
+            "model": classifier,
+            "contract": CLASSIFIER_CONTRACT,
+            "input": "choice",
+            "instructions": instructions,
+        },
+        "policy": {"type": UNIQUE_ARGMAX},
+        "candidates": [
+            {
+                "label": branch.label,
+                "description": branch.description,
+                "model": {
+                    "model": decode_route_id(branch.model),
+                    "prompt": None,
+                    "params": dict(branch.params()),
+                },
+            }
+            for branch in branches
+        ],
+        "default": None,
+        "synthesizer": None,
+        "quorum": None,
+    }
 
 
 def _require_table(where: str, table: object, keys: frozenset[str]) -> Mapping[str, object]:
@@ -165,6 +292,14 @@ def _require_table(where: str, table: object, keys: frozenset[str]) -> Mapping[s
             f"missing {sorted(keys - present)}, unknown {sorted(present - keys)}"
         )
     return table
+
+
+def _text(where: str, table: Mapping[str, object], key: str) -> str:
+    """A string value; its C16 bounds are checked with the normalized definition."""
+    value = table[key]
+    if not isinstance(value, str):
+        raise WorldConfigError(f"{where} {key} must be a string")
+    return value
 
 
 def _require_value(where: str, table: Mapping[str, object], key: str, expected: str) -> None:
@@ -194,5 +329,6 @@ __all__ = [
     "UNIQUE_ARGMAX",
     "RoutingBranch",
     "RoutingProfile",
+    "normalized_definition",
     "parse_routing",
 ]

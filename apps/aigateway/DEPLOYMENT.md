@@ -999,14 +999,14 @@ is `docs/spec/2026-11-16-frozen-copy-retention/prd/score-claim.md` and `contract
 
 | Environment variable | Chart key | Default | Meaning |
 | --- | --- | --- | --- |
-| `AIGW_FROZEN_COPY_CLAIM_EMAILS` | `config.frozenCopyClaimEmails` | empty | The addresses that may claim, separated by commas. Set it to the actor address of the scoreboard (`SCOREBOARD_GATEWAY_ACTOR`). |
 | `AIGW_FROZEN_COPY_CLAIM_NETWORKS` | `config.frozenCopyClaimNetworks` | empty | The address range of the scoreboard pods, as CIDR networks separated by commas. A peer in this list may call the claim route and no other route. |
 
-- This list is not the admin list (`AIGATEWAY_ADMIN_EMAILS`). An address on the admin list
-  cannot claim. An address on the claim list cannot use `/v1/admin`.
-- The comparison ignores upper case and lower case.
-- A claim makes no account row for the caller.
-- With an empty list, the claim route answers `503` in `cloudflare_headers` mode.
+- In `cloudflare_headers` mode, the claim route accepts each peer in `AIGW_ALLOWED_NETWORKS` or in
+  `AIGW_FROZEN_COPY_CLAIM_NETWORKS`. It has no address list (owner decision 2026-11-25): only the
+  services in the cluster reach the gateway, and the NetworkPolicy is the boundary.
+- The claim reads no identity. It does not read `X-User-Email`, and the header does not change
+  the answer.
+- A claim makes no account row.
 
 The answers of the route:
 
@@ -1017,11 +1017,9 @@ The answers of the route:
 | `open` copy | `409`, `detail.code` is `frozen_copy_not_sealed` |
 | `abandoned` or `expired` copy | `410`, `detail.code` is `frozen_copy_expired`, `detail.state` is the status |
 | unknown or malformed copy id | `404`, `detail.code` is `frozen_copy_not_found` |
-| `cloudflare_headers` mode, empty claim list | `503` |
-| `cloudflare_headers` mode, peer in neither `AIGW_ALLOWED_NETWORKS` nor `AIGW_FROZEN_COPY_CLAIM_NETWORKS`, or address not in the list | `403` |
-| `cloudflare_headers` mode, no `X-User-Email` header | `401` |
+| `cloudflare_headers` mode, peer in neither `AIGW_ALLOWED_NETWORKS` nor `AIGW_FROZEN_COPY_CLAIM_NETWORKS` | `403` |
 | `jwt` mode | `503` |
-| `disabled` mode (loopback only) | the call is accepted with no list |
+| `disabled` mode (loopback only) | the call is accepted |
 
 You can send a claim again at any time. A claim changes no copy that is not `sealed`. The first
 claim of a copy writes one INFO record:
@@ -1051,17 +1049,16 @@ networkPolicy:
 
 **Check before the scoreboard gets its gateway URL** (step 1 of
 `docs/spec/2026-11-16-frozen-copy-retention/test-plan.md` section 5.2). From a scoreboard pod,
-send a claim for a random UUID to the gateway URL, with the actor address in the header
-`X-User-Email`:
+send a claim for a random UUID to the gateway URL. The request has no `X-User-Email` header:
 
 ```bash
 kubectl exec -n <scoreboard namespace> deploy/<scoreboard deployment> -- python -c \
-  "import httpx, uuid; r = httpx.post('<gateway URL>/v1/frozen-copies/' + str(uuid.uuid4()) + '/claim', headers={'X-User-Email': '<actor address>'}); print(r.status_code, r.text)"
+  "import httpx, uuid; r = httpx.post('<gateway URL>/v1/frozen-copies/' + str(uuid.uuid4()) + '/claim'); print(r.status_code, r.text)"
 ```
 
 The answer must be `404` with `detail.code` `frozen_copy_not_found`. This shows that the URL, the
-NetworkPolicy and the claim list are correct. A `403`, a `503` or a connect timeout shows a fault
-in one of them.
+NetworkPolicy and the network lists are correct. A `403`, a `503` or a connect timeout shows a
+fault in one of them.
 
 ### After an event that can remove claims
 

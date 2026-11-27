@@ -143,6 +143,17 @@ def register_model_sight(node: Url4Node, reader: ModelSightReader) -> None:
     _READERS[node] = reader
 
 
+def node_model_routes(node: Url4Node) -> frozenset[str]:
+    """Every route on ``node`` that calls a model; empty when no gateway world registered one.
+
+    FEATURE (OME-1980): MedXpertQA's commit turn asks whether a recipe step is ONE model call.
+    The node's other routes (combine, corrective loop, Benchmark routes) never are.
+    """
+
+    reader: ModelSightReader | None = _READERS.get(node)
+    return frozenset() if reader is None else frozenset(reader.model_routes())
+
+
 @contextmanager
 def run_expression_scope(url4: str) -> Iterator[None]:
     """Bind the run's own url4 while it runs, so its Cases route can read the Candidate."""
@@ -514,6 +525,7 @@ __all__ = [
     "cases_need_modalities",
     "cases_need_pictures",
     "models_lacking",
+    "node_model_routes",
     "refuse_blind_candidate",
     "refuse_blind_models",
     "register_model_sight",

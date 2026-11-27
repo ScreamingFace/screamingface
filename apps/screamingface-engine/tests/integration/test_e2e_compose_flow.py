@@ -57,6 +57,7 @@ class MockRunnerJobRunner(IdentityAwareJobRunner):
         answer_seed: int | None = None,
         client_version: str | None = None,
         shape: RunShape = "expression",
+        chat_input: str | None = None,
         capture: bool = False,
         replay_frozen_copy: str | None = None,
         enqueued_at: Any = None,

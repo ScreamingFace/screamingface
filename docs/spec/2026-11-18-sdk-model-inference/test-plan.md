@@ -1,0 +1,88 @@
+# SDK model inference — test plan
+
+## 1. Strategy
+
+- **Most tests are unit tests of the SDK** with `httpx.MockTransport`. The mock Engine is a
+  hand-written handler that plays stream frames, as the classify tests do
+  `[existing packages/screamingface/tests/test_classify.py:59]`.
+- **The frame reader is pure** (bytes in, chunks or one reply out). It has table tests with no
+  transport.
+- **Typing is a test.** A file with `assert_type` pins the six result types of `create`, the
+  typed results of the four surfaces and the two results of `endpoint`. The pyright gate (basic mode) reads it
+  `[existing packages/screamingface/pyrightconfig.json:6]`.
+- **One integration test** uses the e2e harness of the SDK (a real local Engine and the fake
+  gateway of the harness) `[existing packages/screamingface/tests/e2e/harness/fake_gateway.py]`.
+  It makes no paid call.
+- **The Engine change** has unit tests in `apps/screamingface-engine`, with the stream tests of
+  PR #1937 as the pattern.
+- **No paid call** is part of the gates. A paid check through OpenRouter is a stop point for the
+  owner, as in PR #1937.
+
+## 2. Order (risk first)
+
+1. MI-1 (typing), MI-2 and MI-3 (the resend rule on the new POST seam). These three decide the
+   design; a failure there changes the plan before other code exists.
+2. SE-1 … SE-7 (the Engine event, the reply equality, the null content). The SDK reader depends
+   on them.
+3. MI-4, MI-5 (the frame reader).
+4. MI-6 … MI-19 (the sync call: request, compile, errors, retry, parameters).
+5. MI-20 … MI-24 (streams, async, concurrency).
+6. EB-1 … EB-7 (`endpoint()`), EB-1 first.
+7. MI-25 … MI-27 and MI-29 … MI-31 (privacy, reply types, public surface, default client,
+   evaluation URL4, an Engine with no flag).
+8. MI-28 (integration), then the docs tests.
+
+## 3. Test count
+
+| PRD | Scenarios | TDD cases |
+|---|---|---|
+| `prd/model-inference.md` | 23 | 31 |
+| `prd/endpoint-bridge.md` | 8 | 7 |
+| `prd/stream-error-retry-flag.md` | 7 | 7 |
+
+## 4. Constraints of the owner, each pinned by a test
+
+| Constraint | Tests |
+|---|---|
+| `recipe.chat.completions.create(...)` and `client.chat.completions.create(model=...)` (ans:Q1, Q2) | MI-6, MI-7, MI-27 |
+| OpenAI field names on the reply (ans:Q2) | MI-4, MI-26 |
+| Sync, async and streaming (ans:Q2) | MI-6, MI-20, MI-22 |
+| A sampling parameter: accept, warn, ignore (ans:Q3) | MI-16 |
+| No retry by default (ans:Q4) | MI-15, MI-2, MI-31 |
+| Always streamed on the wire (ans:Q5) | MI-6, MI-4, SE-5 |
+| One method name; the mode follows the client (ans:Q7) | MI-1, MI-22, EB-5 |
+| The OpenAI path `client.chat.completions.create(model=..., ...)`; `model` is a required keyword (D11, D13; team review 2026-11-23, owner change 2026-11-23) | MI-32 (the path), MI-33 (the model of each call, sync and async), MI-34 (no model: `TypeError` before a request), MI-35 (`client.chat.endpoint(model)`) — `tests/test_model_inference_openai_shape.py` |
+| No new class: `chat` on each recipe, on each client and as the module `sf.chat` (D13 to D17; owner change 2026-11-23). MI-32 to MI-35 are rewritten for these surfaces | MI-36 (`recipe.chat`: each recipe type has it; the access sends no request; a call sends the compiled URL4 through the default client and follows `sf.configure`; stream; `endpoint()`; the warning names the line of the caller; a corrective loop is refused by `create`; a lone step has no `chat`), MI-37 (`client.chat` and `aclient.chat`: `model` is a required keyword; the model rules at each call), MI-38 (`sf.chat` goes to the default client), MI-39 (`sf.InferenceClient` is not a name; the snapshot has `chat` on the clients and on each recipe class) — `tests/test_model_inference_recipe_chat.py`, `tests/test_model_inference_openai_shape.py`, `tests/test_model_inference_module_chat.py`, `tests/test_model_inference_public_surface.py` |
+| The one-line change from the OpenAI SDK (D18 to D25; team feedback 2026-11-24, ans:Q8 to Q11) | MI-40 (one program — a tool loop that appends the reply message, sampling parameters, a stream — gives the same result with `openai.OpenAI` and `sf.Client`, and with the async twins; the second request has the same messages on the wire), MI-41 (the constructor: `base_url` forms and errors; `api_key` is in no request, attribute, warning or `repr`; the ignored options; the defaults `timeout` and `max_retries`; each public parameter of the OpenAI constructor is accepted), MI-42 (`messages` with a `ChatMessage` item; iterables), MI-43 (the `None` attributes; `model_dump`, `model_dump_json`, `to_json`; each field of the OpenAI reply objects is an attribute), MI-44 (each parameter of the OpenAI `create` is accepted; the new names warn and are not sent; `functions` and `function_call` are refused; `timeout=httpx.Timeout`), MI-45 (the docs snippet `openai_one_line.py` runs; the API page shows it and lists the limits), MI-46 (the snapshot has the new members) — `tests/test_model_inference_openai_dropin.py`, `tests/test_model_inference_openai_dropin_limits.py`, `tests/test_model_inference_openai_dropin_reply.py`, `tests/test_model_inference_params.py`, `tests/test_model_inference_docs_snippets.py`, `tests/test_model_inference_docs_pages.py` |
+| Tool calls are turned off (D26 to D30; team feedback 2026-11-24, ans:Q12 to Q14) | MI-47 (`tools` with an item is refused on each surface, sync and async, before a request, a default client and a warning), MI-48 (a tool turn in `messages` is refused, also a `ChatMessage` with tool calls; `param` names the place), MI-49 (`tools=[]`, `None` and an empty iterable are accepted; `functions` with an item is refused; `tool_choice` and `function_call` only warn; the Engine answer with the same code is a `PlanningError`; a tool call in a reply is still read), MI-50 (no docs snippet declares a tool; the API page and the README name the error) — `tests/test_model_inference_tools_off.py`, `tests/test_model_inference_docs_snippets.py`, `tests/test_model_inference_docs_pages.py`, `tests/test_model_inference_readme.py`. Engine: TC-23 — `apps/screamingface-engine/tests/unit/test_chat_completions_tools_off.py` |
+
+## 5. Existing tests
+
+- `packages/screamingface/tests/public_surface_snapshot.json` changes (new names). This file is
+  made to change with the surface; the test asks for a changelog entry
+  `[existing packages/screamingface/tests/test_public_surface.py]`.
+- No other test of `main` must change. If the seam of risk R1 needs an edit to a current test,
+  the work stops and the owner decides.
+- `apps/screamingface-engine/tests/unit/test_chat_docs_page.py` (a test of PR #1937, not of
+  `main`) gets entries for the new docs text.
+
+## 6. Docs tests
+
+- The Python examples of the new API page are files in
+  `public-docs/src/snippets/chat/`. An SDK test runs each file against the mock
+  Engine. The SDK test workflow gets those paths in its filter (risk R6).
+- The guide page of PR #1937 keeps its Engine tests.
+- `public-docs/CLAUDE.md` names the new snippet directory, the new page, its route and its
+  navigation entry. The SDK test workflow has two path blocks; both get the snippet path
+  `[existing .github/workflows/screamingface-tests.yml:5]`.
+
+## 7. Gates
+
+- SDK: `run_gates.py screamingface --base <base>` (ruff, format, pyright, pytest with 95 %
+  coverage, the node test, the notebook check) `[existing .claude/sdlc.local.md:85]`.
+- Engine: `run_gates.py screamingface-engine --base <base>`.
+- Repo: `run_gates.py repo --base <base>`. `public-docs`: lint and build.
+- The base for the append-only check is `origin/main`. Until PR #1937 is merged, the approval
+  record of that PR covers its 40 test files only on its own branch name, so the gates of the
+  variant branch run with `--skip-append-only` for the Engine stack, and with no skip for the
+  SDK stack. The plan states this as a stop point.

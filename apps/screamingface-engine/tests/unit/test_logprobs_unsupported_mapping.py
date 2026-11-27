@@ -25,11 +25,8 @@ from logprobs_support import (
 )
 
 from screamingface_engine.world.config import ModelSpec
-from screamingface_engine.world.connector import (
-    AigatewayConfig,
-    _raise_for_status,
-    build_aigateway_world,
-)
+from screamingface_engine.world.connector import AigatewayConfig, build_aigateway_world
+from screamingface_engine.world.gateway_transport import _raise_for_status
 from url4 import RelExpr, expr, render, src, text
 from url4.core.errors import ResolutionError
 

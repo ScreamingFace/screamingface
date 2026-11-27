@@ -1710,6 +1710,126 @@ NATS and scheduled workers. Engine execution is selected through `engine_url`; p
 discovery is configured independently through `scoreboard_url`. Generic URL4 execution remains
 benchmark-agnostic; installed Engine definitions own Benchmark semantics.
 
+## Call an ensemble as a chat model
+
+Each recipe has `chat`. `recipe.chat.completions.create(...)` sends a chat conversation to the recipe. You do not make a new object. The reply has the field names of the OpenAI chat-completion object. The Engine runs the full recipe for each call.
+
+```python
+import screamingface as sf
+
+ensemble = sf.Fanout(["openrouter/a", "openrouter/b"]) >> sf.Synthesize("openrouter/c")
+
+reply = ensemble.chat.completions.create("What is the capital of France?")
+print(reply.text)  # the content of the first choice
+print(reply.choices[0].message.content)  # the OpenAI field names
+print(reply.usage.total_tokens, reply.cost_usd, reply.trace_id)
+```
+
+Each recipe has `chat`: `sf.Model`, a Fusion, a Pipeline, a Gate, a Cascade and `sf.WithBudget`. The access to `recipe.chat` sends no request. Each call uses the default client at that time, so `sf.configure()` and `sf.close()` apply. A recipe with a corrective loop raises `PlanningError` (`recipe_not_supported`) when you call `create`. A step that is not a recipe, for example `sf.Fanout([...])` alone, has no `chat`.
+
+### The OpenAI form: `client.chat` and `sf.chat`
+
+```python
+client = sf.Client()
+reply = client.chat.completions.create(
+    model="openrouter/a",
+    messages=[{"role": "user", "content": "Hello"}],
+)
+
+reply = sf.chat.completions.create("Hello", model=ensemble)  # the default client
+```
+
+`client.chat` has the call path of the OpenAI client, so code written for the OpenAI client needs a change only in the line that makes the client. `model` is a required keyword. It can be a recipe, a `sf.Url4`, URL4 text (a string that starts with `(`) or a gateway model id such as `"openrouter/a"`. An evaluation URL4, for example `report.candidates["name"].url4`, also works: the SDK sends its candidate. The module `sf.chat` is the same as `client.chat` with the default client.
+
+### Move from the OpenAI SDK
+
+```python
+# Before: client = openai.OpenAI(api_key="sk-...")
+client = sf.Client(api_key="sk-...")  # the key is accepted, not kept and not sent
+
+reply = client.chat.completions.create(
+    model="openrouter/a",
+    messages=[{"role": "user", "content": "Hello"}],
+    temperature=0.2,
+)
+print(reply.choices[0].message.content, reply.usage.total_tokens)
+```
+
+For code that uses chat completions, you change the line that makes the client: `openai.OpenAI(...)` becomes `sf.Client(...)`, and `openai.AsyncOpenAI(...)` becomes `sf.AsyncClient(...)`. The calls below that line keep their form. Only the parts in the last paragraph of this section need a change by hand. The two clients accept the arguments of the OpenAI client. `api_key` is accepted, but the client does not keep it and does not send it. `base_url` is the Engine URL, with or without `/v1`. `timeout` and `max_retries` are the defaults of the chat calls of that client. Each other OpenAI argument (`organization`, `project`, `default_headers`, `http_client` and so on) is accepted and not used. An argument that the client does not use gives an `IgnoredParameterWarning` when it has a value.
+
+A conversation keeps its form: you can append `reply.choices[0].message` to `messages`. A reply has `model_dump()`, `model_dump_json()` and `to_json()`. An OpenAI attribute that the Engine never sets, for example `usage.prompt_tokens_details`, is `None`. The other keywords of the OpenAI `create` (`extra_headers`, `extra_query`, `extra_body` and so on) are accepted and not sent.
+
+You change these parts by hand: the model name (`model="gpt-4o"` is not a gateway model id), the error classes (a failed call raises a ScreamingFace error, not an `openai` error), and tool calls (they are not available yet; see below). The client has only chat completions: it has no `client.responses` and no `client.embeddings`.
+
+### Messages
+
+Give a prompt or `messages`, not both. The SDK sends `messages` with no change.
+
+### Tools are not available yet
+
+```python
+try:
+    ensemble.chat.completions.create("What is the weather in Paris?", tools=[weather_tool])
+except sf.PlanningError as error:
+    print(error.code, error.details)  # tools_not_available {'param': 'tools'}
+```
+
+Tool calls are turned off for now. A call with `tools` or `functions` (at least one item), or with a tool turn in `messages` (a `tool` message, or an assistant message with `tool_calls`), raises `PlanningError` with the code `tools_not_available`. The error comes before a request and before a cost. `tools=[]` and `tools=None` are accepted. The Engine has the same check for each other OpenAI client.
+
+### Stream the reply
+
+```python
+with ensemble.chat.completions.create("Hello", stream=True) as stream:
+    for chunk in stream:
+        print(chunk.text, end="")
+```
+
+The stream is buffered: the first chunk comes when the run is complete. `stream_options={"include_usage": True}` adds one last chunk with the usage.
+
+### Async
+
+```python
+async def main() -> None:
+    async with sf.AsyncClient() as client:
+        reply = await client.chat.completions.create("Hello", model=ensemble)
+        print(reply.text)
+```
+
+`recipe.chat` and `sf.chat` are sync only. With an `AsyncClient`, use `client.chat`: `create` returns an awaitable. The method name does not change.
+
+### Use another OpenAI client
+
+```python
+from openai import OpenAI
+
+endpoint = ensemble.chat.endpoint()  # or client.chat.endpoint(ensemble)
+client = OpenAI(
+    base_url=endpoint.base_url,
+    api_key="not-used",
+    default_headers=dict(endpoint.headers),
+    max_retries=0,
+)
+client.chat.completions.create(
+    model=endpoint.model, messages=[{"role": "user", "content": "Hello"}]
+)
+```
+
+Set `max_retries=0` on the OpenAI client. After a lost connection, the OpenAI client sends the request two more times by default, and each try is a new paid run of the ensemble.
+
+`endpoint.model` is the Candidate URL4 text of the recipe. On an https Engine, `endpoint()` signs in first. With no usable token, it opens the browser sign-in and can wait up to 300 seconds. In a script with no browser, set `SCREAMINGFACE_ACCESS_TOKEN` or call `client.login()` first. The `headers` hold the access token. The token expires: call `endpoint()` again to get new headers. The text form of an endpoint does not show the header values. The SDK does not need the `openai` package.
+
+### Rules of the call
+
+- `n` above 1, `logprobs=True`, an `audio` value that is not `None`, and `modalities` that include `"audio"` raise `PlanningError` with the code `unsupported_parameter`.
+- Each other known parameter, for example `temperature` or `max_tokens`, gives an `IgnoredParameterWarning` and is not sent. Set it in the recipe with `sf.Model(params=...)`.
+- An unknown keyword raises `TypeError`.
+- The SDK does not send a call again by default. With `max_retries=N`, it sends the call again only when the Engine says that this is safe.
+- `timeout=`: The limit in seconds for the full call, all tries included. The time to read the model catalogue and to compile the recipe is part of the limit. When the limit ends before the request, the call raises the `client_timeout` error and sends no request. For a stream, the limit stops when the first chunk comes. The SDK checks the limit at each line from the Engine, so the error can come up to one keep-alive interval (15 s by default) late.
+- `use_cache=False` sends `Cache-Control: no-store`.
+- The SDK sends no analytics event for an inference call and writes no reply to disk.
+
+See https://docs.screamingface.ai/sf-client/api/chat for each parameter, each reply field and each error.
+
 ## Progress and Reports
 
 `evaluate` consumes the Engine's REST and WebSocket lifecycle internally. An optional callback

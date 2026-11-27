@@ -281,6 +281,10 @@ class S3ArtifactStore:
         except httpx.HTTPError as exc:
             raise S3StorageError(f"GET {key} could not reach object storage: {exc}") from exc
 
+    def delete_object(self, key: str) -> None:
+        """Remove the object under `key`. Absence is not an error (chat-run erd §1.1)."""
+        self._request("DELETE", key, allow_missing=True)
+
     # --- one signed request --------------------------------------------------------------
 
     def _url_path(self, key: str) -> str:
