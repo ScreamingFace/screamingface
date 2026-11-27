@@ -577,6 +577,7 @@ def create_local_app(
         job_runner=job_runner,
         catalog=catalog,
         model_parameters=catalog.model_parameter_source if catalog is not None else None,
+        classifiers=catalog.classifier_source if catalog is not None else None,
         connections=connections,
         benchmarks=benchmarks,
     )

@@ -31,6 +31,7 @@ import httpx
 
 from screamingface_engine.request_scope import RequestScope, current_scope
 from screamingface_engine.world import gateway_transport
+from screamingface_engine.world.attempt_facts import observed_call
 from screamingface_engine.world.connector import AigatewayConfig
 from screamingface_engine.world.errors import RunnerRequestError
 
@@ -89,6 +90,28 @@ class ClassificationEndpoint:
         # reaches the Gateway, whatever its envelope holds.
         _refuse_mode(scope)
         model, text = _envelope(context, intent, params)
+        return await self.classify(model, text)
+
+    async def classify(
+        self, model: str, value: str | Mapping[str, object], *, binding: str | None = None
+    ) -> str:
+        """Classify ``value``, the scalar text or a C7 choice input, with ``model``.
+
+        The classification port of the routing core (contracts C8): `/classify` reaches it
+        after its mode refusal and envelope, and a routing adapter after its own.
+
+        WHY the input is sent as given: the Gateway owns the C7 input rules and refuses a shape
+        or a contract its target does not take before any upstream I/O; the routing preflight
+        has already checked the published limits.
+
+        ``binding`` names a bound call (C8: a Router's `router_N`); its attempt fact is published
+        when the call ends, as is a direct routing role's. The body never carries it.
+
+        Raises:
+            RunnerRequestError: `classifier_not_found` or `aigateway_bad_response`.
+            ResolutionError: the connector's own transport and refusal codes, unchanged.
+        """
+        scope = current_scope()
         provider, _, alias = model.partition("/")
         if not (provider and alias):
             # WHY no Gateway call: an ID without a provider prefix or an alias can name no
@@ -99,25 +122,28 @@ class ClassificationEndpoint:
             **gateway_transport.timeout_headers(self._cfg.timeout_s, self._cfg.admission_timeout_s),
         }
         try:
-            # WHY the `possibly_billed` mark is dropped: it is recorded for a priced answer, and
-            # this call's cost is reported unknown whatever happened to it.
-            response, _ = await gateway_transport._post_completion(
-                self._http_client,
-                headers=headers,
-                body={"model": model, "input": text},
-                path=CLASSIFICATIONS_PATH,
-            )
-            try:
-                gateway_transport._raise_for_status(response)
-            except gateway_transport._GatewayRefusal as exc:
-                # INVARIANT (E6): an absent, ungranted or chat model ID is one answer with one
-                # message, so a caller cannot tell them apart; the Gateway's text is not relayed.
-                if exc.status == 400 and (
-                    exc.code == _INVALID_MODEL or exc.refuses_provider(provider)
-                ):
-                    raise _not_found() from None
-                raise
-            return _result(gateway_transport._json_or_raise(response), model)
+            with observed_call(binding) as observer:
+                # WHY the `possibly_billed` mark is dropped: it is recorded for a priced answer,
+                # and this call's cost is reported unknown whatever happened to it.
+                response, _ = await gateway_transport._post_completion(
+                    self._http_client,
+                    headers=headers,
+                    body={"model": model, "input": value},
+                    path=CLASSIFICATIONS_PATH,
+                    observer=observer,
+                )
+                try:
+                    gateway_transport._raise_for_status(response)
+                except gateway_transport._GatewayRefusal as exc:
+                    # INVARIANT (E6): an absent, ungranted or chat model ID is one answer with one
+                    # message, so a caller cannot tell them apart; the Gateway's text is not
+                    # relayed.
+                    if exc.status == 400 and (
+                        exc.code == _INVALID_MODEL or exc.refuses_provider(provider)
+                    ):
+                        raise _not_found() from None
+                    raise
+                return _result(gateway_transport._json_or_raise(response), model)
         finally:
             # INVARIANT (E8 as amended): once the request is handed over, the classifier may
             # have run and billed, whatever came back, so exactly one unknown-cost record is

@@ -43,7 +43,7 @@ from screamingface_engine.benchmarks.builtins import BUILTIN_BENCHMARKS
 from screamingface_engine.candidate_outcomes import CandidateOutcomeStream
 from screamingface_engine.catalog import build_executable_catalog_service
 from screamingface_engine.catalog.cache import CatalogService
-from screamingface_engine.catalog.port import ModelParameterSource
+from screamingface_engine.catalog.port import ClassifierSource, ModelParameterSource
 from screamingface_engine.combine.builtins import BUILTIN_OPERATORS
 from screamingface_engine.combine.registry import OperatorRegistry
 from screamingface_engine.config import INSECURE_DEFAULT_JWT_SECRET, Settings
@@ -149,6 +149,7 @@ def create_app(
     interest: SubscriberGate | None = None,
     catalog: CatalogService | None = None,
     model_parameters: ModelParameterSource | None = None,
+    classifiers: ClassifierSource | None = None,
     connections: Connections | None = None,
     credits: Credits | None = None,
     community_cache: CommunityCache | None = None,
@@ -181,8 +182,7 @@ def create_app(
     app.state.settings = settings
     app.state.stream = stream
     app.state.job_runner = job_runner
-    app.state.catalog = catalog
-    app.state.model_parameters = model_parameters
+    _install_catalog_sources(app, catalog, model_parameters, classifiers)
     _install_gateway_adapters(app, connections, community_cache, credits)
     _install_discovery_registries(app, benchmarks, operators)
     app.state.metrics = build_metrics()
@@ -251,6 +251,21 @@ def _install_span_sink(app: FastAPI, sink: SpanSink | None) -> None:
             _logger.warning("the span sink did not shut down cleanly", exc_info=True)
 
     app.router.on_shutdown.append(_close)
+
+
+def _install_catalog_sources(
+    app: FastAPI,
+    catalog: CatalogService | None,
+    model_parameters: ModelParameterSource | None,
+    classifiers: ClassifierSource | None,
+) -> None:
+    """Hold the Gateway discovery sources the catalog routes read; ``None`` answers 503.
+
+    WHY a helper: `create_app` sits at the statement limit, and each source is one more DI seam.
+    """
+    app.state.catalog = catalog
+    app.state.model_parameters = model_parameters
+    app.state.classifiers = classifiers
 
 
 def _install_discovery_registries(
@@ -987,6 +1002,7 @@ def create_app_from_env() -> FastAPI:  # pragma: no cover - env/NATS wiring (INF
         job_runner=job_runner,
         catalog=catalog,
         model_parameters=catalog.model_parameter_source if catalog is not None else None,
+        classifiers=catalog.classifier_source if catalog is not None else None,
         connections=connections,
         community_cache=community_cache,
         benchmarks=BUILTIN_BENCHMARKS,

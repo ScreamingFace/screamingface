@@ -46,6 +46,7 @@ from screamingface_engine.operation_accounting import (
     combine_signal_accounting,
 )
 from screamingface_engine.operation_calls import operation_call_identity, record_operation_call
+from screamingface_engine.operation_provenance import outcome_of
 from screamingface_engine.request_scope import RequestScope, current_scope
 from screamingface_engine.retrieval_policy import (
     RetrievalPolicy,
@@ -57,6 +58,7 @@ from screamingface_engine.world.attachment_parts import (
     attachment_parts,
     place_on_last_user_message,
 )
+from screamingface_engine.world.attempt_facts import AttemptObserver, observed_call
 from screamingface_engine.world.cache import attempt_body_field
 from screamingface_engine.world.config import ModelSpec, WorldConfigError, provider_of, routes_for
 from screamingface_engine.world.errors import RunnerRequestError
@@ -70,6 +72,7 @@ from screamingface_engine.world.refused_key_stop import (
     note_refusal,
 )
 from screamingface_engine.world.request_parameters import (
+    OPERATION_BINDING_PARAM,
     WEB_SEARCH_PARAM,
     apply_answer_seed,
     apply_retrieval_policy,
@@ -182,6 +185,36 @@ class AigatewayWorld:
             await self._tavily_client.aclose()
 
 
+async def admit_run_files(
+    http_client: httpx.AsyncClient,
+    cfg: AigatewayConfig,
+    routes: Mapping[str, ModelSpec],
+    attachments: Sequence[Attachment],
+) -> None:
+    """OME-1809: admit the run's files once for the whole run (``admit_run_attachments``).
+
+    Every model call awaits it before it is sent, and so does a Router's ADMIT (C4) before it
+    accepts, so a Router's classifier reaches no provider before the run's files are admitted. A
+    grading call keeps its own refusal (judges read text only, spec D6).
+
+    WHY a reader built here rather than held: `_GatewayModelSight` is stateless over the
+    world-level client and routes the caller already holds, and the run's one shared check (not
+    the reader) is what keeps the model list to one read per run. The model handler's slots stay
+    the world-level allowlist (`test_request_scope_hardening`).
+    """
+    if not attachments or current_grading_case() is not None:
+        return
+    sight = _GatewayModelSight(
+        http_client, {path: decode_route_id(spec.id) for path, spec in routes.items()}
+    )
+    await admit_run_attachments(
+        sight,
+        attachments,
+        default_route="/" + cfg.default_model,
+        private_routes=frozenset(path for path, spec in routes.items() if not spec.public_schema),
+    )
+
+
 class _ModelEndpoint:
     """The handler registered on every declared route.
 
@@ -221,28 +254,12 @@ class _ModelEndpoint:
         self._tavily_http = tavily_http
         self._tavily_api_key = tavily_api_key
 
-    async def _admit_run_files(self, attachments: Sequence[Attachment]) -> None:
-        """OME-1809: admit the run's files once for the whole run (``admit_run_attachments``).
-
-        WHY a reader built here rather than held: `_GatewayModelSight` is stateless over the
-        world-level client and routes this handler already holds, and the run's one shared check
-        (not the reader) is what keeps the model list to one read per run. The handler's slots
-        stay the world-level allowlist (`test_request_scope_hardening`).
-        """
-        sight = _GatewayModelSight(
-            self._http_client,
-            {path: decode_route_id(spec.id) for path, spec in self._routes.items()},
-        )
-        await admit_run_attachments(
-            sight,
-            attachments,
-            default_route="/" + self._cfg.default_model,
-            private_routes=frozenset(
-                path for path, spec in self._routes.items() if not spec.public_schema
-            ),
-        )
-
     async def __call__(self, request: Request) -> str:
+        # FEATURE (C8): a bound call's outcome, the reply or the error url4 rows, at its boundary.
+        binding = request.params.get(OPERATION_BINDING_PARAM)
+        return await outcome_of(binding, request.path, self._answer(request))
+
+    async def _answer(self, request: Request) -> str:
         # The route resolves to its whole spec, so the id and the capabilities it was declared
         # with travel together — the call can never run one route's model under another's flags.
         spec = self._routes[request.path]
@@ -288,19 +305,22 @@ class _ModelEndpoint:
             # FEATURE (OME-1809): a url4 run's files are admitted ONCE for the whole run before
             # any call is sent: one blind model fails the run by name, nothing paid. A grading
             # call keeps its own refusal below (judges read text only, spec D6).
-            if request.attachments and current_grading_case() is None:
-                await self._admit_run_files(request.attachments)
+            await admit_run_files(self._http_client, self._cfg, self._routes, request.attachments)
             # FEATURE (OME-1545, spec F2/F3): the run's url4 files, read and verified before the
             # request is formed; empty for a text-only call, which then stays byte-identical.
             parts = await _attachment_parts(request)
             # WHY: the identity is the REQUEST's path and params (pre-policy), because
             # OME-843 attribution matches them against the candidate expression's own
             # source text — the policy-applied set may differ from what was written.
-            with operation_call_identity(
-                request.path,
-                request.params,
-                context=request.context,
-                intent=request.intent,
+            with (
+                operation_call_identity(
+                    request.path,
+                    request.params,
+                    context=request.context,
+                    intent=request.intent,
+                ),
+                # FEATURE (C8): a bound call's attempt fact, published when the call ends.
+                observed_call(request.params.get(OPERATION_BINDING_PARAM)) as observer,
             ):
                 # OME-1989: tell the Case's refusal watch that this call answered.
                 return note_answer(
@@ -318,6 +338,7 @@ class _ModelEndpoint:
                         tavily_api_key=self._tavily_api_key,
                         retrieval_policy=retrieval_policy,
                         cache_attempt=egress.cache_attempt,
+                        observer=observer,
                     ),
                 )
         except gateway_transport._GatewayRefusal as exc:
@@ -573,6 +594,7 @@ async def _chat_completion_loop(
     tavily_api_key: str | None,
     retrieval_policy: RetrievalPolicy | None = None,
     cache_attempt: int | None = None,
+    observer: AttemptObserver | None = None,
 ) -> str:
     """Drive one `_ModelEndpoint` call: post to aigateway, execute any requested tool calls,
     and repeat until the model answers with content instead of another tool call.
@@ -637,6 +659,8 @@ async def _chat_completion_loop(
             replay_frozen_copy=scope.replay_frozen_copy,
             signal_accounting=signal_accounting,
             reply_logprobs=reply_rounds,
+            # WHY one observer for every round trip of the tool loop: they serve ONE logical call.
+            observer=observer,
         )
         content, tool_calls = choice.content, choice.tool_calls
         if not tool_calls:

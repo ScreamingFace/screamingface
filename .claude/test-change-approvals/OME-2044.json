@@ -1,0 +1,30 @@
+{
+  "issue": "OME-2044",
+  "branch": "OME-2044-engine-routing-core",
+  "approver": "Operator decision 2026-11-27; to confirm in PR review",
+  "date": "2026-11-27",
+  "scope": "Five Engine unit-test files, exact edits only. test_classifier_limits.py: in test_both_bounds_of_a_limit_read the choice max_labels goes from 2147483647 to 32, and in the over-limit table the labels case sets max_options=2 with max_labels=2. test_routing_core_targets.py: _choice_keys max_options goes from 4 to 3. test_router_optional_re2.py: KEYWORDS_WINDOW and keyword_labels are imported from world.router_decide, and the module docstring names router_decide. test_operation_provenance.py: KEYWORDS_WINDOW is imported from world.router_decide. test_router_spec.py: the definition_json assertion becomes an assertion that the typed definition's JSON dump equals the definition document. No other edit to these files.",
+  "reason": "The C7 classifier-limits contract bounds a choice row: max_options 1-32 and max_options <= max_labels <= 32. The Engine now enforces those bounds, so test rows that used max_labels above 32, or fewer labels than options, would no longer be usable rows. KEYWORDS moved into world.router_decide, its only production caller, and world.router_keywords was removed. RouterSpec no longer carries a separate definition_json copy; the frozen typed definition is the one source. Each assertion keeps its original intent.",
+  "files": {
+    "apps/screamingface-engine/tests/unit/test_classifier_limits.py": {
+      "base_blob": "db2df593e63930c1df511c0742418188f79e6a47",
+      "approved_blob": "e60b5ae60de54c5f0cdaa9466b2b1b9548b39a1c"
+    },
+    "apps/screamingface-engine/tests/unit/test_operation_provenance.py": {
+      "base_blob": "d6e88eb4d6ae6d7bde1899695a3899612b8330fa",
+      "approved_blob": "c77e19d6eea3a6226d066dd9ae36e3d5a405ae89"
+    },
+    "apps/screamingface-engine/tests/unit/test_router_optional_re2.py": {
+      "base_blob": "574e5bea84685c90dd6ede4e33a4d2320b8476ee",
+      "approved_blob": "aa7d24e6b2970ac4c2f5aa324728b1ab2c7b3b24"
+    },
+    "apps/screamingface-engine/tests/unit/test_router_spec.py": {
+      "base_blob": "e73dd6463ce483382f413cdccdd09a0adbfcfe54",
+      "approved_blob": "cf6813375f59a1ff0265fa2ba77af0ec379519e3"
+    },
+    "apps/screamingface-engine/tests/unit/test_routing_core_targets.py": {
+      "base_blob": "68bdebefe4fc7155400fc6b62f8eacd726039f3b",
+      "approved_blob": "1ada6095b14d3717ac3c65c6128858c0d9f7bfb5"
+    }
+  }
+}

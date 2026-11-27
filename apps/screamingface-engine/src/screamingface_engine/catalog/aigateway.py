@@ -1,8 +1,8 @@
-"""AI Gateway adapter for model-list and model-detail discovery.
+"""AI Gateway adapter for model-list, model-detail and classifier-list discovery.
 
-Implements both discovery ports in ``catalog/port.py`` with one HTTP client and one identity
-boundary. The model list is cached by its decorator; detailed parameter contracts deliberately
-pass through uncached.
+Implements the discovery ports in ``catalog/port.py`` with one HTTP client and one identity
+boundary. The model list is cached by its decorator; detailed parameter contracts and the
+classifier list (C17, ``catalog/classifiers.py``) deliberately pass through uncached.
 """
 
 from __future__ import annotations
@@ -14,6 +14,7 @@ import httpx
 
 from screamingface_engine import job_env
 from screamingface_engine.catalog.admission import AdmissionAnswer
+from screamingface_engine.catalog.classifiers import read_classifier_rows
 from screamingface_engine.catalog.port import (
     CatalogBadResponse,
     CatalogRejected,
@@ -107,6 +108,17 @@ class AigatewayCatalogSource:
             raise ModelParameterBadResponse(ModelParameterBadResponse.detail)
         _validate_model_parameters(body, model)
         return ModelParameterResponse(status=response.status_code, content=response.content)
+
+    async def fetch_classifiers(
+        self, credential: Credential, *, traceparent: str | None = None
+    ) -> list[dict[str, object]]:
+        """The caller's usable classifier rows (C17), read fresh for this one request.
+
+        ``traceparent`` is the inbound request's (OME-1134): this call is one-to-one with it.
+        """
+        return await read_classifier_rows(
+            self._client, _headers(credential, traceparent=traceparent)
+        )
 
     async def admit_model(
         self,

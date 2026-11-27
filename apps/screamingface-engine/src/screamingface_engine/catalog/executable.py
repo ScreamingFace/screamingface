@@ -18,6 +18,7 @@ from screamingface_engine.catalog.local_models import LocalModels
 from screamingface_engine.catalog.port import (
     CatalogBadResponse,
     CatalogError,
+    ClassifierSource,
     Credential,
     ModelCatalog,
     ModelNotInstalled,
@@ -159,6 +160,17 @@ class ExecutableCatalog:
         """The uncached Gateway detail source, guarded by this same executable route set."""
 
         return self._model_parameter_source
+
+    @property
+    def classifier_source(self) -> ClassifierSource | None:
+        """The Gateway's classifier list (C17), on the same client, and NOT bounded by routes.
+
+        WHY not bounded: a classifier is no chat route, and C17 forbids intersecting the list
+        with the Engine's routes, named profiles or admission overlay.
+        """
+
+        source = self._source.model_parameter_source
+        return source if isinstance(source, ClassifierSource) else None
 
 
 def _refusal_response(model: str, code: str | None, message: str | None) -> ModelParameterResponse:
