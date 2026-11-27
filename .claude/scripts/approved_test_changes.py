@@ -63,15 +63,17 @@ def _under_tests(path: str) -> bool:
 
 
 def approved_unsupported_change(root: pathlib.Path, base: str, path: str) -> str | None:
-    """Return an issue ID only for the *exact* owner-approved TS/TSX edit, or JS test, JSON or
-    url4 fixture edit under `tests/`.
+    """Return an issue ID only for the *exact* owner-approved TS/TSX edit, or JS/CJS test, JSON
+    or url4 fixture edit under `tests/`.
 
     Unlisted files, other branches, changed baseline and subsequent edits fail
     closed. This never exempts Python tests, deletes, renames or type changes.
     """
     suffix = pathlib.PurePosixPath(path).suffix
-    if suffix not in {".ts", ".tsx"} and not (suffix == ".js" and _under_tests(path)) and not (
-        suffix in _FIXTURE_SUFFIXES and _under_tests(path)
+    if (
+        suffix not in {".ts", ".tsx"}
+        and not (suffix in {".js", ".cjs"} and _under_tests(path))
+        and not (suffix in _FIXTURE_SUFFIXES and _under_tests(path))
     ):
         return None
     return _approved_blob_transition(root, base, path)

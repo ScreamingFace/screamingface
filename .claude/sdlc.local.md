@@ -98,6 +98,7 @@ stacks:
       # coverage before the floor is checked, so the floor means what it did serially (OME-1444).
       - uv run pytest -n auto --dist worksteal --cov=screamingface --cov-fail-under=95 -q
       - node --test tests/credit_refresh.test.mjs
+      - node --test tests/browser/analytics-colab.test.cjs
       - uv run --extra notebook python scripts/check_notebooks.py
       - uv build
       - uv run python scripts/check_distribution.py

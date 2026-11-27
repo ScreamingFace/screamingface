@@ -694,10 +694,10 @@ class Client:
         if provider is None:
             if api_key is not None or method is not None:
                 raise TypeError("provider is required when api_key or method is supplied")
-            from screamingface._analytics.prompt import offer
+            from screamingface._analytics.prompt import offer_and_settle
             from screamingface._ui.connections import ConnectionPanel
 
-            offer()
+            offer_and_settle()
             return ConnectionPanel(self)
         _require_secure_connection_origin(self._engine_url)
         return _connect_sync(self.connections, provider, api_key, method)

@@ -8,76 +8,8 @@ import time
 from dataclasses import replace
 from uuid import UUID
 
-from screamingface._analytics.endpoint import analytics_origin
+from screamingface._analytics.colab_transport import BRIDGE_TIMEOUT, exchange
 from screamingface._analytics.ports import Consent, Event
-
-BRIDGE_TIMEOUT = 5.0
-
-_SCRIPT = r"""(async () => {
-  const command = COMMAND, batch = BATCH;
-  const origin = new URL(ANALYTICS_ORIGIN).origin;
-  const frame = document.createElement('iframe');
-  frame.hidden = true;
-  frame.referrerPolicy = 'no-referrer';
-  let listener, timer, expired = false;
-  const work = async () => {
-    await new Promise((resolve, reject) => {
-      frame.onload = resolve;
-      frame.onerror = reject;
-      frame.src = origin + '/bridge/consent?parent_origin=' + encodeURIComponent(location.origin);
-      document.body.appendChild(frame);
-    });
-    async function request(command, batch) {
-      if (expired) throw Error('expired');
-      return await new Promise((resolve, reject) => {
-        const nonce = crypto.randomUUID();
-        listener = event => {
-          const data = event.data;
-          if (event.source !== frame.contentWindow || event.origin !== origin ||
-              !data || data.version !== 1 || data.nonce !== nonce ||
-              data.command !== command) return;
-          window.removeEventListener('message', listener);
-          listener = null;
-          if (data.error) reject(Error('unavailable')); else resolve(data.result);
-        };
-        window.addEventListener('message', listener);
-        frame.contentWindow.postMessage({version:1, nonce, command,
-          ...(command === 'events' ? {batch} : {})}, origin);
-      });
-    }
-    return await request(command, batch);
-  };
-  try {
-    return await Promise.race([work(), new Promise((_, reject) => {
-      timer = setTimeout(() => reject(Error('timeout')), TIMEOUT_MS);
-    })]);
-  } catch (error) {
-    return {choice:'unknown', unavailable:true,
-      reason:error?.message === 'timeout' ? 'timeout' : 'unavailable'};
-  }
-  finally {
-    expired = true;
-    clearTimeout(timer);
-    if (listener) window.removeEventListener('message', listener);
-    frame.remove();
-  }
-})()"""
-
-
-def exchange(
-    command: str, event: Event | None = None, *, timeout_sec: float = BRIDGE_TIMEOUT
-) -> dict:
-    from google.colab import output  # type: ignore[import-not-found]
-
-    batch = (
-        {"schema_version": 1, "consent_version": "1", "consent_granted": True, "events": [event]}
-        if event is not None
-        else None
-    )
-    script = _SCRIPT.replace("COMMAND", json.dumps(command)).replace("BATCH", json.dumps(batch))
-    script = script.replace("ANALYTICS_ORIGIN", json.dumps(analytics_origin()))
-    script = script.replace("TIMEOUT_MS", str(max(1, int(timeout_sec * 900))))
-    return output.eval_js(script, timeout_sec=timeout_sec)
 
 
 class _ExchangeFailure(Exception):
@@ -103,6 +35,8 @@ class ColabBridge:
         self._setup_attempts = 0
         self._last_error: str | None = None
         self._last_error_stage: str | None = None
+        # Commands queued or being dispatched; `flush` waits for this to reach zero.
+        self._outstanding = 0
 
     def read(self) -> Consent:
         with self._lock:
@@ -134,6 +68,8 @@ class ColabBridge:
                     break
                 if item[1] != "events":
                     kept.append(item)
+                else:
+                    self._done()
             for item in kept:
                 self._queue.put_nowait(item)
 
@@ -217,12 +153,25 @@ class ColabBridge:
                 self._enqueue("decline", None)
             self._changed.notify_all()
 
+    def flush(self, timeout: float = BRIDGE_TIMEOUT) -> None:
+        """Wait until every queued command has been dispatched, at most `timeout` seconds."""
+        # WHY: Colab answers a background eval_js only while its cell runs, so a tracked call
+        # waits here for its terminal event before the cell can end (2026-11-19 trace).
+        with self._changed:
+            self._changed.wait_for(lambda: self._outstanding == 0, timeout=timeout)
+
+    def _done(self) -> None:
+        with self._lock:
+            self._outstanding -= 1
+            self._changed.notify_all()
+
     def _drain(self) -> None:
         while True:
             try:
                 self._queue.get_nowait()
             except queue.Empty:
                 return
+            self._done()
 
     def emit(self, event: Event) -> None:
         with self._lock:
@@ -238,6 +187,7 @@ class ColabBridge:
         except queue.Full:
             self._record_error(self._generation, command, "queue_full", "queue")
             return
+        self._outstanding += 1
         if self._worker is None or not self._worker.is_alive():
             self._worker = threading.Thread(
                 target=self._run, daemon=True, name="sf-colab-analytics"
@@ -256,15 +206,21 @@ class ColabBridge:
     def _run(self) -> None:
         while True:
             generation, command, event = self._queue.get()
-            with self._lock:
-                if generation != self._generation:
-                    continue
-            state = self._dispatch(generation, command, event)
-            with self._lock:
-                if generation != self._generation:
-                    continue
-                self._apply(generation, command, state)
-                self._changed.notify_all()
+            try:
+                self._handle(generation, command, event)
+            finally:
+                self._done()
+
+    def _handle(self, generation: int, command: str, event: Event | None) -> None:
+        with self._lock:
+            if generation != self._generation:
+                return
+        state = self._dispatch(generation, command, event)
+        with self._lock:
+            if generation != self._generation:
+                return
+            self._apply(generation, command, state)
+            self._changed.notify_all()
 
     def _apply(self, generation: int, command: str, state: Consent | None) -> None:
         from screamingface import analytics

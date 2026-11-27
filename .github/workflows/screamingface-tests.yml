@@ -169,6 +169,9 @@ jobs:
       - name: Test notebook refresh lifecycle
         run: node --test tests/credit_refresh.test.mjs
 
+      - name: Test Colab analytics bridge script
+        run: node --test tests/browser/analytics-colab.test.cjs
+
       - name: Verify deterministic notebooks
         run: uv run --extra notebook python scripts/check_notebooks.py
 
