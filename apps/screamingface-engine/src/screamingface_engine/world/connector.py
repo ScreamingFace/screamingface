@@ -28,6 +28,7 @@ from screamingface_engine.benchmarks.case_context import (
 )
 from screamingface_engine.benchmarks.picture_admission import (
     admit_run_attachments,
+    register_inline_path,
     register_model_sight,
 )
 from screamingface_engine.candidate_scope import in_candidate_invocation
@@ -435,6 +436,10 @@ async def build_aigateway_world(
     for path in routes:
         node.endpoint(path)(call_model)
     _GATEWAY_CLIENTS[node] = http_client
+    # FEATURE (OME-1970 decision 8): an inline world refuses an oversize Case when its Cases are
+    # served, before any spend; a reference world sends a few-byte reference instead.
+    if not cfg.blob_refs:
+        register_inline_path(node)
     register_model_sight(
         node,
         _GatewayModelSight(

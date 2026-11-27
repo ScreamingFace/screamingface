@@ -12,15 +12,19 @@ answers like them (201 with the type read from the leading bytes, 404 when it ha
 
 from __future__ import annotations
 
+import ast
 import asyncio
 import base64
 import hashlib
 import json
+from pathlib import Path
 
 import httpx
 import pytest
 
 from screamingface_engine import job_env
+from screamingface_engine.benchmarks import picture_admission
+from screamingface_engine.benchmarks.case_selection import cases_handler
 from screamingface_engine.benchmarks.contract import CANDIDATE_INPUT_V2_SCHEMA
 from screamingface_engine.runner.main import build_executor
 from screamingface_engine.world.case_file_refs import run_case_files
@@ -35,6 +39,7 @@ from screamingface_engine.world.config import (
 from screamingface_engine.world.connector import (
     AigatewayConfig,
     _ModelEndpoint,
+    build_aigateway_world,
 )
 from screamingface_engine.world.factory import _aigateway_config
 from url4.core.errors import ResolutionError
@@ -267,6 +272,70 @@ async def test_a_refused_upload_fails_the_call_by_the_gateways_code_before_any_c
     assert refused.value.code == "blob_too_large"
     assert refused.value.permanent is True
     assert gateway.calls == []
+
+
+def _rows(*sizes: int) -> str:
+    """Case rows whose inputs are ``sizes`` bytes long (plain prompts, ids from 1)."""
+    return json.dumps([{"id": n, "input": "x" * size} for n, size in enumerate(sizes, start=1)])
+
+
+async def _serve(cfg: AigatewayConfig, rows: str, intent: str, gateway: _FakeGateway) -> str:
+    """Serve the Cases route of a world built from ``cfg``, as a run's Cases step does."""
+    async with gateway.client() as client:
+        world = await build_aigateway_world(cfg, client=client)
+        served: object = cases_handler(lambda: rows, node=world.node)(
+            Request(path="/benchmarks/demo/cases", context="", intent=intent, params={})
+        )
+        assert asyncio.iscoroutine(served)
+        return await served
+
+
+async def test_the_inline_path_refuses_an_oversize_case_before_any_model_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # STORY (decision 8): with references off, a Case over the inline cap would get a 413 on
+    # every call; the run is refused by name when its Cases are served, with nothing spent.
+    monkeypatch.setattr(picture_admission, "INLINE_CASE_LIMIT_BYTES", 100)
+    gateway = _FakeGateway()
+    with pytest.raises(ResolutionError) as refused:
+        await _serve(_config(), _rows(10, 101, 100), "3", gateway)
+
+    assert refused.value.code == "intent_error"
+    assert refused.value.permanent is True
+    assert "Case 2 is 101 bytes" in str(refused.value)
+    assert "Case 3" not in str(refused.value)
+    assert gateway.calls == [] and gateway.uploads == []
+
+
+async def test_the_inline_cap_reads_only_the_selected_cases_and_spares_the_reference_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(picture_admission, "INLINE_CASE_LIMIT_BYTES", 100)
+    rows: str = _rows(10, 101)
+    # Case 2 is not selected, so it can never be sent. (A count serves the whole booklet and
+    # url4 cuts it, so the served bytes still hold Case 2.)
+    assert await _serve(_config(), rows, "1", _FakeGateway()) == rows
+    # On the reference path a request carries a few-byte reference, so the inline cap is moot.
+    assert await _serve(_config(blob_refs=True), rows, "2", _FakeGateway()) == rows
+
+
+async def test_the_inline_cap_is_the_gateways_default_body_cap_less_the_request_headroom() -> None:
+    # WHY read from source: aigateway is a separate uv project, not installed here (the approach
+    # of test_picture_case_limits_fit_the_gateway.py). If the gateway's cap moves, this fails.
+    config: Path = Path(__file__).resolve().parents[4] / "apps/aigateway/src/aigateway/config.py"
+    (default,) = [
+        keyword.value
+        for node in ast.walk(ast.parse(config.read_text()))
+        if isinstance(node, ast.AnnAssign)
+        and isinstance(node.target, ast.Name)
+        and node.target.id == "max_request_bytes"
+        and isinstance(node.value, ast.Call)
+        for keyword in node.value.keywords
+        if keyword.arg == "default"
+    ]
+    assert ast.unparse(default) == "12 * 1024 * 1024"
+    assert picture_admission.GATEWAY_BODY_CAP_BYTES == 12 * 1024 * 1024
+    assert picture_admission.INLINE_CASE_LIMIT_BYTES == 12 * 1024 * 1024 - 256 * 1024
 
 
 async def test_the_flag_is_off_unless_url4_toml_or_the_chart_turns_it_on() -> None:
