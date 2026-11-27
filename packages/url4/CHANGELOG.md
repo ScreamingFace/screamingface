@@ -6,6 +6,7 @@
 ### ⚠ BREAKING CHANGES
 
 * **engine:** one executor for every engine request; remove the node tier ([#1085](https://github.com/ScreamingFace/screamingface/issues/1085))
+* **url4:** code-pointer intents and named jobs run as RDS calls; see [Migrating to 2.0](https://github.com/ScreamingFace/screamingface/blob/url4-v2.0.0/packages/url4/README.md#migrating-to-20) ([#1342](https://github.com/ScreamingFace/screamingface/issues/1342)) ([06d7e05](https://github.com/ScreamingFace/screamingface/commit/06d7e055dad0c814afe3db4876db40d0084e92c5))
 
 ### Features
 
