@@ -22,7 +22,7 @@ stack of 9 PRs.
 
 - 2026-11-26: PR 1 fits HLE's one picture over 8000 px (Case 250, HLE Diamond Case 35), which
   failed on every Claude Candidate and on GPT-6 Astra Pro and GPT-6.1 Terra Pro in the 6 Nov
-  runs. PR 2 adds the per-picture check at seal (bytes, side, pixel count) and re-sends
+  runs. PR 2 adds the per-picture check at seal (bytes, side, GPT's 32 px patch count) and re-sends
   `labbench2_figqa2_img` Cases 4 and 82 as lossless WebP (published id held, owner's call).
   PRs 3 and 4 build the gateway's cache key for a reference request and its upload route and
   file store.

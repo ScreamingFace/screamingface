@@ -41,10 +41,11 @@ from screamingface_engine_inspect.conversation_input import conversation_message
 from screamingface_engine_inspect.picture_input import (  # noqa: E402
     MAX_CASE_BYTES,
     MAX_PICTURE_BASE64_BYTES,
-    MAX_PICTURE_PIXELS,
+    MAX_PICTURE_PATCHES,
     MAX_PICTURE_SIDE_PX,
     MAX_PICTURES,
     PictureCaseError,
+    picture_patches,
 )
 from screamingface_engine_inspect.prepare import TaskReplayCasesSpec, case_digest  # noqa: E402
 from screamingface_engine_inspect.task_replay import replay_environment  # noqa: E402
@@ -505,17 +506,37 @@ def test_a_side_at_8000_px_is_saved_and_8001_is_refused(kind: str) -> None:
     assert "picture 1 is 10 × 8001 px" in tall
 
 
+def test_patches_are_counted_as_gpt_counts_them_each_side_rounded_up() -> None:
+    # STORY: GPT-6 Astra Pro and GPT-6.1 Terra Pro refused HLE's Case 250 (14950 × 2780 px) on
+    # 6 Nov: "requires 40716 patches after processing, exceeding the limit of 30000".
+    # INVARIANT: our count equals GPT's. ⌈14950/32⌉ × ⌈2780/32⌉ = 468 × 87 = 40,716, while plain
+    # pixels / 1024 gives 40,587 — so a pixel budget is the wrong measure.
+    assert picture_patches(14950, 2780) == 40_716
+    assert picture_patches(32, 32) == 1
+    assert picture_patches(33, 32) == 2
+
+
 def test_a_picture_over_the_patch_budget_is_refused_though_each_side_fits() -> None:
-    # STORY: GPT-6 Astra Pro and GPT-6.1 Terra Pro refused HLE's Case 250 on 6 Nov: "requires
-    # 40716 patches after processing, exceeding the limit of 30000" (32 × 32 px patches).
-    # 7000 × 4388 = 30,716,000 px fits the 30,720,000 budget; 7000 × 4389 does not.
-    _input(_figqa_sample(ContentImage(image=_data_uri("image/png", _png_header(7000, 4388)))))
+    # 8000 × 3840 is 250 × 120 = 30,000 patches, exactly GPT's limit; one more row of pixels
+    # starts a new row of patches, 250 × 121 = 30,250.
+    _input(_figqa_sample(ContentImage(image=_data_uri("image/png", _png_header(8000, 3840)))))
 
     message: str = _refusal(
-        _figqa_sample(ContentImage(image=_data_uri("image/png", _png_header(7000, 4389))))
+        _figqa_sample(ContentImage(image=_data_uri("image/png", _png_header(8000, 3841))))
     )
 
-    assert "picture 1 is 7000 × 4389 px" in message and f"{MAX_PICTURE_PIXELS:,}" in message
+    assert "picture 1 is 8000 × 3841 px, 30,250 patches" in message
+    assert f"{MAX_PICTURE_PATCHES:,}" in message
+
+
+def test_a_picture_under_30_720_000_pixels_but_over_30_000_patches_is_refused() -> None:
+    # WHY: 7985 × 3847 is 30,718,295 pixels, under a 30,000 × 32 × 32 pixel budget, yet
+    # 250 × 121 = 30,250 patches, which GPT refuses. A review sealed it under the old pixel rule.
+    message: str = _refusal(
+        _figqa_sample(ContentImage(image=_data_uri("image/png", _png_header(7985, 3847))))
+    )
+
+    assert "picture 1 is 7985 × 3847 px, 30,250 patches" in message
 
 
 def test_a_header_too_short_to_read_is_left_to_the_signature_check() -> None:

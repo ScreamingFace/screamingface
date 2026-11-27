@@ -38,7 +38,8 @@ this one and ruled the published revision HOLDS (26 Nov: no stored runs on this 
 - A picture at 5,242,880 base64 bytes is sealed; one base64 quantum over is refused, naming
   the picture and both sizes.
 - A picture whose header says 8000 px is sealed; 8001 px (each of PNG, JPEG, GIF, WebP) is
-  refused; a picture under both limits but over 30,720,000 pixels is refused.
+  refused; a picture under both limits but over 30,000 patches of 32 px (each side rounded
+  up) is refused.
 - A header the reader cannot parse is left to the signature check (prior fake-byte tests stay).
 - labbench2: a listed Case is re-encoded to lossless WebP with identical pixels and fits; a
   listed Case already under the floor, or with a different dataset id, makes the build refuse;
@@ -68,10 +69,18 @@ this one and ruled the published revision HOLDS (26 Nov: no stored runs on this 
   (674 JPEG, 5,143 PNG, 16 WebP, 4 GIF; 0 mismatches, 0 unreadable). Re-seal on linux/amd64:
   case_digest e0bd1dbc…, case_set_digest 060e620b…; only Cases 4 and 82 differ from the
   2026-11-04 seal.
+- **Review fixes (2026-11-27):** the third limit first counted pixels (30,720,000), which sealed
+  7985 × 3847 (30,250 patches, refused by GPT); it now counts GPT's patches, each side rounded
+  up, pinned by 14950 × 2780 → 40,716, GPT's own number. A patch rescan of the 5,837 sealed
+  pictures finds only HLE Case 250 (HLE Diamond Case 35) over, fixed by PR 1, and none the pixel
+  rule missed; the next largest is 24,920. The WebP fit now decodes its output and refuses a
+  pixel change (a recoloured transparent pixel) or a 16-bit figure; Cases 4 and 82 pass and
+  their WebP bytes are unchanged, so the digests hold. `shrunk_pictures.py` imports the 8000 px
+  side from `picture_input.py` instead of defining it twice.
 - **Deviations:** (1) The old PR 1 (labbench2 revision) is folded in, and its published revision
   holds instead of moving (owner, 2026-11-26). (2) Lossless WebP instead of the plan's "Pillow
   optimize=True, then downscale": `optimize` saved 0.3%, a 5% downscale made the PNG bigger; WebP
-  keeps every pixel and fits. (3) A pixel-count limit (30,720,000, GPT's 30,000 patches) joins
-  the planned bytes and side limits, from the 6 Nov HLE run errors. (4) A header the reader
+  keeps every pixel and fits. (3) A patch limit (GPT's 30,000 patches of 32 px, each side
+  rounded up) joins the planned bytes and side limits, from the 6 Nov HLE run errors. (4) A header the reader
   cannot parse is not refused: the seal never decoded pictures, and the prior tests seal 16-byte
   stand-ins. (5) The HLE picture over 8000 px is fixed in its own PR 1, which must merge first.

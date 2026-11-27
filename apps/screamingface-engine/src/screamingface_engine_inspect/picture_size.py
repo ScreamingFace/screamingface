@@ -1,9 +1,9 @@
 """A picture's width and height, read from its header bytes without decoding a pixel (OME-1970).
 
 FEATURE: the hosts' floor. The importer refuses a picture with a side over 8000 px or more than
-30,720,000 pixels (``picture_input.py``), so it needs each picture's size. Think of it as reading
-the label on a box instead of opening it: every format the Case envelope accepts states its
-size in the first few dozen bytes, at a fixed place or (JPEG) in the first frame header.
+30,000 patches of 32 px (``picture_input.py``), so it needs each picture's size. Think of it as
+reading the label on a box instead of opening it: every format the Case envelope accepts states
+its size in the first few dozen bytes, at a fixed place or (JPEG) in the first frame header.
 
 Where each format keeps it:
 

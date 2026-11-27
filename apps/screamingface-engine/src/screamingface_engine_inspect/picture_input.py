@@ -23,7 +23,7 @@ Stages, in execution order (``picture_case_text``):
               into this import's own cache, and its type is read from the bytes, not from
               the label.
     Stage 4 — the limits: at most 20 pictures; each picture under the hosts' floor (5 MiB
-              of base64, 8000 px a side, 30,720,000 pixels), read from its header without
+              of base64, 8000 px a side, 30,000 patches of 32 px), read from its header without
               decoding a pixel; and 8 MB for the whole Case with its pictures inline. WHY a
               limit per picture now: OpenRouter picks the host for each call, and the
               smallest host refuses a picture the Case limit lets through (OME-1970; this
@@ -84,9 +84,14 @@ MAX_PICTURE_BASE64_BYTES: int = 5 * 1024 * 1024
 #: (https://platform.claude.com/docs/en/build-with-claude/vision); HLE's Case 250, 14950 px wide,
 #: failed on every Claude Candidate on 6 Nov 2026 with a provider 400.
 MAX_PICTURE_SIDE_PX: int = 8000
-#: The most pixels one picture may have: GPT's 30,000 patches of 32 × 32 px. GPT-6 Astra Pro
-#: refused HLE's Case 250 on 6 Nov 2026: "requires 40716 patches ... exceeding the limit of 30000".
-MAX_PICTURE_PIXELS: int = 30_000 * 32 * 32
+#: The side of one GPT patch, the square GPT cuts a picture into before counting it.
+PICTURE_PATCH_SIDE_PX: int = 32
+#: The most patches one picture may take: GPT's limit. GPT-6 Astra Pro refused HLE's Case 250
+#: (14950 × 2780 px) on 6 Nov 2026: "requires 40716 patches ... exceeding the limit of 30000",
+#: and 40,716 is ⌈14950/32⌉ × ⌈2780/32⌉ = 468 × 87, so each side rounds up to a whole patch.
+#: WHY patches, not pixels: a pixel budget (30,000 × 32 × 32) lets 7985 × 3847 px through,
+#: 30,718,295 pixels but 250 × 121 = 30,250 patches, which GPT refuses.
+MAX_PICTURE_PATCHES: int = 30_000
 
 #: How system text joins the prompt, the same blank line a text Case folds it with.
 #: AIDEV-NOTE: twin of capture.py's ``_MESSAGE_SEPARATOR``; capture imports this module, so they
@@ -294,6 +299,18 @@ def _import_cache_root() -> Path | None:
     return Path(evals_cache).parent if evals_cache else None
 
 
+def picture_patches(width: int, height: int) -> int:
+    """How many 32 px patches GPT counts for a picture, each side rounded up to a whole patch.
+
+    e.g. HLE's knot picture, 14950 × 2780 px → 468 × 87 = 40,716 patches, the number GPT's
+    refusal quoted; 8000 × 3840 → 250 × 120 = 30,000, exactly the limit.
+    """
+
+    across: int = -(-width // PICTURE_PATCH_SIDE_PX)
+    down: int = -(-height // PICTURE_PATCH_SIDE_PX)
+    return across * down
+
+
 def _within_picture_floor(
     encoded: str, size: tuple[int, int] | None, case_id: int, number: int
 ) -> None:
@@ -319,11 +336,12 @@ def _within_picture_floor(
             case_id,
             f"picture {number} is {width} × {height} px; a side is at most {MAX_PICTURE_SIDE_PX}",
         )
-    if width * height > MAX_PICTURE_PIXELS:
+    patches: int = picture_patches(width, height)
+    if patches > MAX_PICTURE_PATCHES:
         _refuse(
             case_id,
-            f"picture {number} is {width} × {height} px; a picture has at most "
-            f"{MAX_PICTURE_PIXELS:,} pixels",
+            f"picture {number} is {width} × {height} px, {patches:,} patches of "
+            f"{PICTURE_PATCH_SIDE_PX} px; a picture takes at most {MAX_PICTURE_PATCHES:,}",
         )
 
 
@@ -348,8 +366,10 @@ __all__ = [
     "MAX_CASE_BYTES",
     "MAX_PICTURES",
     "MAX_PICTURE_BASE64_BYTES",
-    "MAX_PICTURE_PIXELS",
+    "MAX_PICTURE_PATCHES",
     "MAX_PICTURE_SIDE_PX",
+    "PICTURE_PATCH_SIDE_PX",
     "PictureCaseError",
+    "picture_patches",
     "picture_case_text",
 ]

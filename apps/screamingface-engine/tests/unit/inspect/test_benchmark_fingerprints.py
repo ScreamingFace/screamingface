@@ -131,8 +131,8 @@ _FINGERPRINTS: dict[str, str] = {
     # OME-1733: LABBench2 FigQA2 and TableQA2 image, a local Task judged by Sonnet 4.5.
     # OME-1970: FigQA2's Cases 4 and 82 re-sent as lossless WebP (published id held, owner
     # 2026-11-26: no stored runs); TableQA2 moved only because the package source is hashed.
-    "labbench2_figqa2_img": "116fa81617e07878",
-    "labbench2_tableqa2_img": "89e950a5c1a50df1",
+    "labbench2_figqa2_img": "28f06c588a90ac8f",
+    "labbench2_tableqa2_img": "270947b5d1e1bd7a",
     # OME-1855: ZeroBench's 100 main questions with their pictures, one-sample pass@1. Its seal
     # survived Pillow 13 (OME-1853): replayed inside the linux/amd64 image, the Case Digest
     # 7b1b680a… came back unchanged, so neither the Cases nor this fingerprint moved.

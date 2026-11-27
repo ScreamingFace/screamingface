@@ -100,6 +100,10 @@ FITTED_TO_THE_PICTURE_FLOOR: Final[Mapping[str, Mapping[int, str]]] = {
 #: Digest, so the encoder settings must never drift with a default.
 _WEBP_LOSSLESS_METHOD: Final[int] = 6
 _WEBP_LOSSLESS_QUALITY: Final[int] = 100
+#: Pillow modes whose pixels 8-bit RGBA holds exactly, so the WebP round trip can be compared
+#: in RGBA. WHY not 16-bit or float modes: converting them to RGBA clips, so a lossy WebP would
+#: compare equal.
+_EIGHT_BIT_MODES: Final[frozenset[str]] = frozenset({"1", "L", "LA", "P", "PA", "RGB", "RGBA"})
 
 
 class LabBench2RowError(ValueError):
@@ -221,8 +225,12 @@ def _fitted_picture(path: Path, case_id: int) -> str:
     1. Measure the figure as the Case would carry it: its base64 text. If that already fits
        :data:`MAX_PICTURE_BASE64_BYTES`, the deviation is stale and the build fails.
     2. Re-encode with libwebp's lossless coder at fixed settings (they are sealed in the Case
-       Digest through the bytes they produce).
-    3. If the WebP's base64 still does not fit, the build fails: shrinking pixels would be a
+       Digest through the bytes they produce). A figure whose pixels 8-bit RGBA cannot hold
+       (16-bit, say) fails the build first.
+    3. Decode the WebP and compare every pixel with the figure's: "lossless" is checked, not
+       assumed. WHY: with these settings libwebp drops the colour of a fully transparent pixel,
+       and Pillow saves a 16-bit picture as 8-bit, both without an error.
+    4. If the WebP's base64 still does not fit, the build fails: shrinking pixels would be a
        new deviation for the owner to decide, never a silent fallback.
 
     Worked example, Case 4: PNG 4,147,650 bytes → 5,530,200 of base64, over 5,242,880 →
@@ -241,9 +249,14 @@ def _fitted_picture(path: Path, case_id: int) -> str:
             f"case {case_id}: the figure already fits the picture floor ({original_size:,} bytes "
             f"as base64, at most {MAX_PICTURE_BASE64_BYTES:,}); drop it from the fitted list"
         )
-    # Stage 2 — lossless WebP at fixed settings.
+    # Stage 2 — lossless WebP at fixed settings, for a figure 8-bit RGBA can hold.
     buffer: io.BytesIO = io.BytesIO()
     with Image.open(path) as picture:
+        if picture.mode not in _EIGHT_BIT_MODES:
+            raise LabBench2RowError(
+                f"case {case_id}: the figure is {picture.mode}, which 8-bit WebP cannot hold "
+                f"pixel for pixel"
+            )
         picture.save(
             buffer,
             format="WEBP",
@@ -251,8 +264,18 @@ def _fitted_picture(path: Path, case_id: int) -> str:
             quality=_WEBP_LOSSLESS_QUALITY,
             method=_WEBP_LOSSLESS_METHOD,
         )
+        source_pixels: bytes = picture.convert("RGBA").tobytes()
+    # Stage 3 — every pixel came back.
+    # INVARIANT: the WebP decodes to the figure's exact pixels, so the deviation changes the
+    # container only.
+    with Image.open(io.BytesIO(buffer.getvalue())) as fitted:
+        if fitted.convert("RGBA").tobytes() != source_pixels:
+            raise LabBench2RowError(
+                f"case {case_id}: lossless WebP changed the figure's pixels; it cannot be sent "
+                f"as WebP unchanged"
+            )
     encoded: str = base64.b64encode(buffer.getvalue()).decode("ascii")
-    # Stage 3 — it must now fit.
+    # Stage 4 — it must now fit.
     if len(encoded) > MAX_PICTURE_BASE64_BYTES:
         raise LabBench2RowError(
             f"case {case_id}: lossless WebP is {len(encoded):,} bytes as base64, still over "

@@ -522,6 +522,41 @@ def test_a_listed_figure_already_under_the_floor_fails_the_build(tmp_path: Path)
         )
 
 
+def test_a_figure_whose_transparent_pixels_webp_would_recolour_fails_the_build(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # INVARIANT: "every pixel kept" is checked by decoding, not assumed. libwebp's lossless
+    # coder at these settings turns a fully transparent (200, 100, 50, 0) pixel into
+    # (0, 0, 0, 0) with no error.
+    png: Path = tmp_path / "figure.png"
+    picture = Image.new("RGBA", (64, 64), (10, 20, 30, 255))
+    picture.putpixel((5, 5), (200, 100, 50, 0))
+    picture.save(png, format="PNG")
+    monkeypatch.setattr(lab_bench_2, "MAX_PICTURE_BASE64_BYTES", _b64_size(png) - 1)
+
+    with pytest.raises(LabBench2RowError, match="case 4: lossless WebP changed the figure's"):
+        record_to_sample(
+            _row(id="fitted-row"), case_id=4, fetch=lambda prefix: [png], fitted={4: "fitted-row"}
+        )
+
+
+def test_a_16_bit_figure_fails_the_build_before_it_is_re_encoded(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # WHY refuse up front: Pillow saves a 16-bit PNG as 8-bit WebP with no error, and both
+    # sides clip the same way in RGBA, so the round-trip comparison alone would pass it.
+    png: Path = tmp_path / "figure.png"
+    picture = Image.new("I;16", (64, 64))
+    picture.putpixel((1, 1), 40_000)
+    picture.save(png, format="PNG")
+    monkeypatch.setattr(lab_bench_2, "MAX_PICTURE_BASE64_BYTES", _b64_size(png) - 1)
+
+    with pytest.raises(LabBench2RowError, match="case 4: the figure is I;16"):
+        record_to_sample(
+            _row(id="fitted-row"), case_id=4, fetch=lambda prefix: [png], fitted={4: "fitted-row"}
+        )
+
+
 def test_a_figure_lossless_webp_cannot_fit_fails_the_build(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
