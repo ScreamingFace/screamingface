@@ -72,7 +72,7 @@ from screamingface_engine.operation_accounting import (
 from screamingface_engine.operation_calls import record_operation_call
 from screamingface_engine.request_scope import RequestScope, RequestScopeError, current_scope
 from screamingface_engine.trace_scope import current_traceparent
-from screamingface_engine.world import candidate_call_retry
+from screamingface_engine.world import candidate_call_retry, case_file_refs
 from screamingface_engine.world.accounting import (
     CallAccounting,
     avoided_usd_for_outcome,
@@ -846,6 +846,8 @@ async def _post_answered(
     Returns the last answer and whether a retry followed a try that may have been billed: a lost
     reply (`_post_completion`) or a 5xx (`may_have_billed`). A recorded fact only (OME-1687).
     """
+    # FEATURE (OME-1970 PR 7): Case files by blob reference, swapped once for every try below.
+    headers, body = await _case_files_by_reference(http_client, headers, body)
     retries: int = candidate_call_retry.CANDIDATE_CALL_RETRIES if in_candidate_invocation() else 0
     possibly_billed: bool = False
     retry_number: int = 0
@@ -886,6 +888,78 @@ async def _post_answered(
             deadline, 0, _transport_budget(http_client, headers)
         ):
             return resp, possibly_billed
+
+
+# A gateway that answers the upload path like this was built before the route (OME-1970 PR 4).
+_NO_UPLOAD_ROUTE = frozenset({404, 405})
+
+
+class _GatewayUploader:
+    """The gateway's upload route, as this run's caller (`case_file_refs.CaseFileUploader`)."""
+
+    __slots__ = ("_client", "_token")
+
+    def __init__(self, client: httpx.AsyncClient, token: str) -> None:
+        self._client = client
+        self._token = token
+
+    async def upload(self, digest: str, data: bytes) -> str | None:
+        """Put one file on the gateway; the type it read, or ``None`` when it has no route.
+
+        INVARIANT: the log names the file by its digest prefix and size only, never the token or
+        a byte of the file; a refusal keeps the gateway's own code (`_raise_for_status`), so a
+        413 ``blob_too_large`` or 422 ``blob_digest_mismatch`` is permanent and a 5xx retryable.
+        """
+        headers: dict[str, str] = {
+            **_headers(current_scope()),
+            case_file_refs.RUN_TOKEN_HEADER: self._token,
+        }
+        try:
+            resp: httpx.Response = await self._client.put(
+                case_file_refs.BLOB_UPLOAD_PATH.format(digest=digest), content=data, headers=headers
+            )
+        except httpx.TransportError as exc:
+            raise ResolutionError(
+                f"aigateway file upload failed at the transport layer: {_transport_detail(exc)}",
+                code="aigateway_transport_error",
+                permanent=False,
+            ) from exc
+        if resp.status_code in _NO_UPLOAD_ROUTE:
+            logger.info(
+                "case file upload route absent status=%s; run sends inline", resp.status_code
+            )
+            return None
+        _raise_for_status(resp)
+        stored: object = _json_or_raise(resp).get("media_type")
+        if not isinstance(stored, str):
+            raise ResolutionError(
+                "aigateway stored a file but named no type for it",
+                code="aigateway_bad_response",
+                permanent=True,
+            )
+        logger.info("case file uploaded sha256=%s… bytes=%d", digest[:12], len(data))
+        return stored
+
+
+async def _case_files_by_reference(
+    http_client: httpx.AsyncClient, headers: dict[str, str], body: dict
+) -> tuple[dict[str, str], dict]:
+    """``headers`` and ``body`` as sent: Case files by reference plus the run token, or unchanged.
+
+    Unchanged unless the world sends by reference and a run is bound (`reference_run`), and never
+    for a streaming body (the gateway answers a stream carrying a reference with a 422). A run
+    the first upload turned inline comes back unchanged too, so the flag-off bytes hold.
+    """
+    run: case_file_refs.RunCaseFiles | None = case_file_refs.reference_run()
+    messages: object = body.get("messages")
+    if run is None or body.get("stream") or not isinstance(messages, list):
+        return headers, body
+    sent: list[dict[str, Any]] = await case_file_refs.reference_parts(
+        messages, _GatewayUploader(http_client, run.token), run
+    )
+    if run.inline:
+        return headers, body
+    return {**headers, case_file_refs.RUN_TOKEN_HEADER: run.token}, {**body, "messages": sent}
 
 
 @dataclass(slots=True)

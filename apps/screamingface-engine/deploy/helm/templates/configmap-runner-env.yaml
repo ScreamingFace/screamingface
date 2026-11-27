@@ -46,6 +46,9 @@ data:
   # set it; now it does.
   AIGATEWAY_MODEL: {{ . | quote }}
   {{- end }}
+  # OME-1970: Case files by blob reference (`world/case_file_refs.py`); "false" keeps today's
+  # inline requests. Always rendered, so the Runner never decides it from its own fallback.
+  AIGATEWAY_BLOB_REFS: {{ .Values.config.aigatewayBlobRefs | quote }}
   # Where this Job parks a result too large to ride the stream inline (OME-929).
   #
   # INVARIANT: these must name the SAME store as the App's own copy in `configmap.yaml`. Both are

@@ -538,6 +538,10 @@ AIGATEWAY_BASE_URL = "AIGATEWAY_BASE_URL"
 AIGATEWAY_MODEL = "AIGATEWAY_MODEL"
 """Overrides the default route declared in the image's `url4.toml` (`config.aigatewayModel`)."""
 
+AIGATEWAY_BLOB_REFS = "AIGATEWAY_BLOB_REFS"
+"""``true`` sends Case files by blob reference (OME-1970); the chart's ``config.aigatewayBlobRefs``,
+rendered ``false`` by default. Overrides ``[aigateway] blob_refs`` in the image's `url4.toml`."""
+
 TAVILY_API_KEY = "TAVILY_API_KEY"
 """Injected from the Tavily Secret by `envFrom`, so the Secret's KEY must be this exact name.
 Absent => web tools stay off."""
@@ -794,6 +798,7 @@ DEPLOY_TIME = frozenset(
         NATS_URL,
         AIGATEWAY_BASE_URL,
         AIGATEWAY_MODEL,
+        AIGATEWAY_BLOB_REFS,
         TAVILY_API_KEY,
         RUNNER_CONFIG,
         ARTIFACTS_DIR,
@@ -827,6 +832,7 @@ DEPLOY_TIME = frozenset(
 
 __all__ = [
     "AIGATEWAY_BASE_URL",
+    "AIGATEWAY_BLOB_REFS",
     "AIGATEWAY_MODEL",
     "ARTIFACTS_DIR",
     "BRIDGE_MEMORY_BUDGET_BYTES",

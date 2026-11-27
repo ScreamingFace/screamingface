@@ -59,6 +59,7 @@ from screamingface_engine.runner.summary import RunOutcome, RunSummary
 from screamingface_engine.trace_scope import bind_node_span, run_trace_scope
 from screamingface_engine.world.accounting import PRICING_VERSION, UNPRICED, accumulate
 from screamingface_engine.world.attachment_parts import BlobReader
+from screamingface_engine.world.case_file_refs import run_case_files
 from screamingface_engine.world.chat_turn import dispatch_chat_turn
 from screamingface_engine.world.connector import (
     key_refusal_as_url4_error,
@@ -1180,10 +1181,13 @@ class Url4Executor(Executor):
             # malformed scope value raising outside it would leave the consumer's `drain`
             # waiting forever on a bridge nobody closes — a run that hangs instead of failing.
             try:
+                # FEATURE (OME-1970 PR 7): one run token and one set of uploaded Case files per
+                # run, bound here so every model call the run spawns shares them.
                 with (
                     run_trace_scope(trace),
                     self._scope_context(),
                     capture_outcomes() as tally,
+                    run_case_files(),
                 ):
                     _bind_frozen_copy_mode(tally)
                     state.capture_tally = tally

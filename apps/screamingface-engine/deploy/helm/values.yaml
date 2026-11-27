@@ -163,6 +163,11 @@ config:
   # back to loopback (127.0.0.1:9105) — which inside a worker pod is that pod itself, so any
   # deployment doing real inference MUST set this to the aigateway Service URL.
   aigatewayBaseUrl: ""
+  # OME-1970: send each Case file (picture or PDF) to aigateway once per run and a few-byte blob
+  # reference on every model call, instead of the file's base64 on every call. Needs an aigateway
+  # with the upload route (`PUT /v1/blobs/sha256/{digest}`); a run against one without it falls
+  # back to inline by itself. Off => every request is today's, byte for byte.
+  aigatewayBlobRefs: false
   # NOTE: there is deliberately no `port` here. The App serves on a hardcoded 9108 (cli.py) and
   # reads no port from its environment, so a value could only ever misconfigure the containerPort
   # away from the port actually being listened on. Use `service.port` to change what the cluster

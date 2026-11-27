@@ -121,6 +121,10 @@
         "aigatewayModel": {
           "type": "string",
           "description": "Overrides the default model route declared in the Runner image's url4.toml. Empty uses the image default; must name a model url4.toml declares."
+        },
+        "aigatewayBlobRefs": {
+          "type": "boolean",
+          "description": "OME-1970: send each Case file to aigateway once per run and a blob reference on every model call. Needs aigateway's upload route; without it a run falls back to inline. Off keeps every request byte-identical."
         }
       },
       "additionalProperties": false,

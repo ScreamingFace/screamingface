@@ -93,6 +93,7 @@ _AIGATEWAY_KEYS = frozenset(
         "timeout_s",
         "queue_timeout_s",
         "web_tool_max_iterations",
+        "blob_refs",
     }
 )
 _MODEL_KEYS = frozenset({"id", "web_search", "public_schema"})
@@ -205,6 +206,8 @@ class AigatewaySection:
     timeout_s: float = 60.0
     queue_timeout_s: float | None = None
     web_tool_max_iterations: int = DEFAULT_WEB_TOOL_MAX_ITERATIONS
+    # FEATURE (OME-1970 PR 7): send Case files by blob reference (`world/case_file_refs.py`).
+    blob_refs: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -561,6 +564,7 @@ def _parse_aigateway(
             "web_tool_max_iterations",
             DEFAULT_WEB_TOOL_MAX_ITERATIONS,
         ),
+        blob_refs=_bool(table, "blob_refs", default=False),
     )
     section = _apply_env(section, env)
     if include_extra_models:
@@ -647,7 +651,17 @@ def _apply_env(section: AigatewaySection, env: Mapping[str, str]) -> AigatewaySe
         section = replace(section, base_url=env[job_env.AIGATEWAY_BASE_URL])
     if env.get(job_env.AIGATEWAY_MODEL):
         section = replace(section, default_model=_normalize_id(env[job_env.AIGATEWAY_MODEL]))
+    if env.get(job_env.AIGATEWAY_BLOB_REFS):
+        section = replace(section, blob_refs=_env_flag(env, job_env.AIGATEWAY_BLOB_REFS))
     return section
+
+
+def _env_flag(env: Mapping[str, str], name: str) -> bool:
+    """A ``true``/``false`` environment value; anything else is a config error, never a guess."""
+    value: str = env[name].strip().lower()
+    if value not in ("true", "false"):
+        raise WorldConfigError(f"{name} must be 'true' or 'false', got {env[name]!r}")
+    return value == "true"
 
 
 def _reject_unroutable_default(default_model: str) -> None:
