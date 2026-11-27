@@ -7,6 +7,13 @@ to one string — the flatten silently dropped every image and answered 200 with
 INVARIANT: a non-text part is never dropped silently. It parses into a `MediaPart` /
 `RemoteImagePart`, or raises `UnsupportedContentPart` (422) naming the provider and part type.
 Plugins import this module; core never imports a plugin.
+
+FEATURE (OME-1970): a **reference part** names a Case file the caller uploaded to the gateway
+earlier (`PUT /v1/blobs/sha256/{digest}`) by ``blob:sha256/<64 hex>``, the SHA-256 of its bytes,
+where an inline part holds its ``data:`` URI. The admission checks here (`check_messages`,
+`text_only`) judge it as the inline part it stands for; the chat route swaps it for that inline
+part inside the upstream slot (`core/blob_refs.py`), so an adapter's `parse_content` never meets
+one and refuses it if it ever does.
 """
 
 from __future__ import annotations
@@ -42,6 +49,18 @@ _IMAGE_DETAILS = frozenset({"auto", "low", "high"})
 # INVARIANT: scope is images and PDFs (OME-1541 spec). An audio/video payload wrapped in an image
 # or file envelope is refused by MIME, not dispatched under the wrong part type.
 _FILE_MIMES = frozenset({"application/pdf"})
+# FEATURE (OME-1970): the reference part's spelling, and its two declared facts about the file.
+BLOB_REFERENCE_PREFIX = "blob:sha256/"
+# WHY lowercase hex only: one file has one name, as the upload route spells it.
+_BLOB_REFERENCE_RE = re.compile(r"blob:sha256/(?P<sha256>[0-9a-f]{64})")
+REFERENCE_FIELDS = ("x_media_type", "x_size")
+# INVARIANT: a reference part's shape is closed. Any other key would ride to the provider beside
+# the swapped-in file, and change the cache key away from the inline request's.
+_REFERENCE_INNER_KEYS: Mapping[str, frozenset[str]] = {
+    "image_url": frozenset({"url", "detail"}),
+    "file": frozenset({"file_data", "filename"}),
+}
+_REFERENCE_VALUE_KEY: Mapping[str, str] = {"image_url": "url", "file": "file_data"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,7 +91,26 @@ class RemoteImagePart:
     detail: str | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class BlobRefPart:
+    """A Case file in the gateway's own memory, named by the SHA-256 of its bytes (OME-1970).
+
+    ``mime`` and ``size_bytes`` are what the caller declared (``x_media_type``, ``x_size``); the
+    route checks both against the stored file before anything is keyed or sent.
+    """
+
+    kind: Literal["image", "file"]
+    mime: str
+    sha256: str
+    size_bytes: int
+    filename: str | None = None
+    detail: str | None = None
+
+
+# What an adapter carries: references are swapped for inline parts before any adapter runs.
 ContentPart = TextPart | MediaPart | RemoteImagePart
+# What the admission checks judge, before that swap.
+AdmittedPart = ContentPart | BlobRefPart
 
 
 @dataclass(frozen=True, slots=True)
@@ -145,14 +183,31 @@ def parse_content(content: Any, *, provider: str) -> list[ContentPart]:
 
     Text handling deliberately matches the flatteners this replaces: any dict carrying a
     non-empty ``text``/``content`` string is text, and empty text and non-dict junk are skipped.
+
+    INVARIANT (OME-1970): this is the adapters' parser, which runs after the in-slot swap, so a
+    reference part reaching it is a gateway bug; it is refused, never sent upstream as text.
     """
+    parts: list[ContentPart] = []
+    for part in _admitted_parts(content, provider):
+        if isinstance(part, BlobRefPart):
+            raise UnsupportedContentPart(
+                provider=provider,
+                part_type="image_url" if part.kind == "image" else "file",
+                reason="unresolved_blob_reference",
+            )
+        parts.append(part)
+    return parts
+
+
+def _admitted_parts(content: Any, provider: str) -> list[AdmittedPart]:
+    """`parse_content` for the admission checks: reference parts are kept as `BlobRefPart`."""
     if content is None:
         return []
     if isinstance(content, str):
         return [TextPart(content)]
     if not isinstance(content, list):
         return [TextPart(str(content))]
-    parts: list[ContentPart] = []
+    parts: list[AdmittedPart] = []
     for item in content:
         if isinstance(item, str):
             parts.append(TextPart(item))
@@ -168,7 +223,8 @@ def text_of(parts: Iterable[ContentPart]) -> str:
     return "\n".join(part.text for part in parts if isinstance(part, TextPart))
 
 
-def has_media(parts: Iterable[ContentPart]) -> bool:
+def has_media(parts: Iterable[AdmittedPart]) -> bool:
+    """Whether any part is not text."""
     return any(not isinstance(part, TextPart) for part in parts)
 
 
@@ -190,7 +246,8 @@ def check_messages(
         if not isinstance(message, Mapping):
             continue
         role = str(message.get("role") or "user")
-        for part in parse_content(message.get("content"), provider=provider):
+        # WHY the admitting parser: a reference part is judged as the inline part it stands for.
+        for part in _admitted_parts(message.get("content"), provider):
             if isinstance(part, TextPart):
                 continue
             part_type = "image_url" if part_kind(part) == "image" else "file"
@@ -298,20 +355,111 @@ def _media_parts(messages: object) -> Iterable[Mapping[str, Any]]:
 
 
 def _declared_mime(part: Mapping[str, Any], part_type: str) -> str | None:
+    """The MIME a media part declares: its `data:` header, or a reference's ``x_media_type``."""
     value = part.get(part_type)
     if part_type == "image_url":
         raw = value.get("url") if isinstance(value, Mapping) else value
     else:
         raw = value.get("file_data") if isinstance(value, Mapping) else None
+    if isinstance(raw, str) and raw.startswith(BLOB_REFERENCE_PREFIX):
+        declared = part.get("x_media_type")
+        return declared.lower() if isinstance(declared, str) else None
     inline = parse_data_uri(raw) if isinstance(raw, str) else None
     return inline.mime if inline is not None else None
 
 
-def part_kind(part: MediaPart | RemoteImagePart) -> Literal["image", "file"]:
+def part_kind(part: MediaPart | RemoteImagePart | BlobRefPart) -> Literal["image", "file"]:
+    """Whether a media part is an image or a file (a PDF)."""
     return "image" if isinstance(part, RemoteImagePart) else part.kind
 
 
-def _parse_item(item: Mapping[str, Any], provider: str) -> ContentPart | None:
+def parse_blob_reference(item: Mapping[str, Any], *, provider: str) -> BlobRefPart | None:
+    """The reference part ``item`` is, ``None`` for any other part, or a typed 422 (OME-1970).
+
+    The wire shape is the inline part's, with the reference where the ``data:`` URI stands:
+
+        {"type": "image_url", "image_url": {"url": "blob:sha256/<64 hex>", "detail": "high"},
+         "x_media_type": "image/png", "x_size": 7900000}
+        {"type": "file", "file": {"file_data": "blob:sha256/<64 hex>", "filename": "a.pdf"},
+         "x_media_type": "application/pdf", "x_size": 1200000}
+
+    A part is a reference when that one value is a string starting ``blob:``; it is then held to
+    a closed shape: 64 lowercase hex characters, ``x_media_type`` fitting the part type as an
+    inline part's MIME must (``image/*``, or ``application/pdf``), ``x_size`` a positive int (the
+    decoded size), and no key beyond those shown. ``blob:`` is not a URL: nothing is fetched.
+    """
+    declared_type = item.get("type")
+    if not isinstance(declared_type, str) or declared_type not in _REFERENCE_VALUE_KEY:
+        return None
+    part_type: str = declared_type
+    inner = item.get(part_type)
+    if not isinstance(inner, Mapping):
+        return None
+    raw = cast("Mapping[str, Any]", inner).get(_REFERENCE_VALUE_KEY[part_type])
+    if not isinstance(raw, str) or not raw.startswith("blob:"):
+        return None
+    kind: Literal["image", "file"] = "image" if part_type == "image_url" else "file"
+
+    def refuse(reason: str) -> UnsupportedContentPart:
+        return UnsupportedContentPart(provider=provider, part_type=part_type, reason=reason)
+
+    match = _BLOB_REFERENCE_RE.fullmatch(raw)
+    if match is None:
+        raise refuse("malformed_blob_reference")
+    if (
+        not set(item) <= {"type", part_type, *REFERENCE_FIELDS}
+        or not set(inner) <= (_REFERENCE_INNER_KEYS[part_type])
+    ):
+        raise refuse("blob_reference_unexpected_field")
+    mime = item.get("x_media_type")
+    fits = isinstance(mime, str) and (
+        mime.lower().startswith("image/") if kind == "image" else mime.lower() in _FILE_MIMES
+    )
+    if not fits:
+        raise refuse("blob_reference_x_media_type")
+    size = item.get("x_size")
+    # WHY `type(...) is int`: `True` is an int to `isinstance`, and is no size.
+    if type(size) is not int or size <= 0:
+        raise refuse("blob_reference_x_size")
+    filename = inner.get("filename")
+    if filename is not None and not isinstance(filename, str):
+        raise refuse("blob_reference_filename")
+    return BlobRefPart(
+        kind=kind,
+        mime=cast("str", mime).lower(),
+        sha256=match["sha256"],
+        size_bytes=size,
+        filename=filename or None,
+        detail=_image_detail(inner, provider) if kind == "image" else None,
+    )
+
+
+def reference_digest_of(item: object) -> str | None:
+    """The SHA-256 an already-admitted reference part names, or ``None`` for any other part.
+
+    WHY no shape check: `parse_blob_reference` held the part to its closed shape at admission;
+    this only finds the part again, in the swap and the key form (`core/blob_refs.py`).
+    """
+    if not isinstance(item, Mapping):
+        return None
+    part_type = cast("Mapping[str, Any]", item).get("type")
+    if not isinstance(part_type, str) or part_type not in _REFERENCE_VALUE_KEY:
+        return None
+    inner = cast("Mapping[str, Any]", item).get(part_type)
+    raw = (
+        cast("Mapping[str, Any]", inner).get(_REFERENCE_VALUE_KEY[part_type])
+        if isinstance(inner, Mapping)
+        else None
+    )
+    match = _BLOB_REFERENCE_RE.fullmatch(raw) if isinstance(raw, str) else None
+    return match["sha256"] if match is not None else None
+
+
+def _parse_item(item: Mapping[str, Any], provider: str) -> AdmittedPart | None:
+    """One content part, typed; an unknown typed part is refused (fail closed)."""
+    reference = parse_blob_reference(item, provider=provider)
+    if reference is not None:
+        return reference
     part_type = item.get("type")
     if part_type == "image_url":
         return _parse_image(item.get("image_url"), provider)
@@ -393,7 +541,8 @@ def text_only(content: Any, *, provider: str, role: str) -> str:
     # INVARIANT: refuses media rather than dropping it — `check_messages` normally refuses
     # first; this keeps the adapter itself from ever being the silent drop.
     """
-    parts = parse_content(content, provider=provider)
+    parts = _admitted_parts(content, provider)
+    texts: list[TextPart] = []
     for part in parts:
         if not isinstance(part, TextPart):
             raise UnsupportedContentPart(
@@ -401,7 +550,8 @@ def text_only(content: Any, *, provider: str, role: str) -> str:
                 part_type="image_url" if part_kind(part) == "image" else "file",
                 reason=f"media in a {role} message",
             )
-    return text_of(parts)
+        texts.append(part)
+    return text_of(texts)
 
 
 def gemini_parts(parts: Iterable[ContentPart], *, provider: str) -> list[dict[str, Any]]:

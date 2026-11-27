@@ -14,6 +14,7 @@ The store never logs and never returns a stored request: the route that calls it
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from dataclasses import dataclass
@@ -25,6 +26,11 @@ from tortoise.transactions import in_transaction
 
 from aigateway.core.oauth.store import ensure_anonymous_account
 from aigateway.core.request_cache.canonical import canonical_digest
+from aigateway.core.request_cache.reference_digest import (
+    BlobReference,
+    ReferencedFileLookup,
+    canonical_digest_with_references,
+)
 
 from .models import STATUS_OPEN, STATUS_SEALED, FrozenCopy, FrozenCopyEntry
 
@@ -62,17 +68,60 @@ class ClaimOutcome:
     first: bool
 
 
-def request_digest(kind: EntryKind, request: Any, attempt: int | None = None) -> str:
+def request_digest(
+    kind: EntryKind,
+    request: Any,
+    attempt: int | None = None,
+    *,
+    files: ReferencedFileLookup | None = None,
+) -> str:
     """The entry key; ``attempt`` is the caller's Attempt number (2 or more, OME-1458).
 
     WHY beside the request: ingress strips the ``cache`` object that carries the number, so
     without it Attempt 1 and Attempt 2 of one Case would share a key. Attempt 1 adds nothing,
     so its digest is unchanged.
+
+    ``files`` is given only for a request that carries Case files by blob reference
+    (OME-1970): each `BlobReference` is hashed as the stored file's ``data:`` URI, so the
+    digest is the one the same request gets inline today and a copy captured either way is
+    replayed either way (decision 2). Raises `UnknownBlobReference` for a file it lacks.
     """
     key: dict[str, Any] = {"kind": kind, "request": request}
     if attempt is not None:
         key["attempt"] = attempt
-    return canonical_digest(key)
+    if files is None:
+        return canonical_digest(key)
+    return canonical_digest_with_references(key, files)
+
+
+async def _request_digest_off_loop(
+    kind: EntryKind, request: Any, attempt: int | None, files: ReferencedFileLookup | None
+) -> str:
+    """`request_digest`, in a worker thread when it must hash referenced files.
+
+    WHY: the digest of a reference request hashes each stored file again (37 ms for 18.3 MB
+    of base64, measured 26 Nov on an M4 Max); on the event loop that would stall every other
+    call. An inline request keeps today's path, with no thread hop.
+    """
+    if files is None:
+        return request_digest(kind, request, attempt)
+    return await asyncio.to_thread(request_digest, kind, request, attempt, files=files)
+
+
+def _stored_form(value: Any) -> Any:
+    """``value`` with each `BlobReference` written as its wire text, ``blob:sha256/<hex>``.
+
+    WHY the reference and not the file: the stored request is never read back (replay
+    matches on the digest; the sweep reads neither JSON column), so the row only needs to
+    say which file was sent, and stays a few KB instead of the file's size.
+    """
+    if isinstance(value, BlobReference):
+        return value.text
+    if isinstance(value, dict):
+        return {key: _stored_form(nested) for key, nested in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_stored_form(item) for item in value]
+    return value
 
 
 def request_digest_prefix(kind: EntryKind, request: Any, attempt: int | None = None) -> str:
@@ -183,19 +232,26 @@ class FrozenCopyStore:
         attempt: int | None = None,
         case_key: str,
         occurrence: int,
+        files: ReferencedFileLookup | None = None,
     ) -> None:
         """Insert one entry. Raises on any failure; the caller decides what that means.
 
         ``case_key`` and ``occurrence`` are the call key of the request (Q27). Replay reads that
         exact key.
 
+        ``files`` is given only for a request carrying Case files by blob reference: the digest
+        is today's inline one, computed off the event loop, and the row stores the reference
+        text in place of each file (see `_stored_form`).
+
         Raises:
             FrozenCopyEntryTooLarge: request plus response is over the per-entry cap.
             FrozenCopySealed: the copy is not open.
             CanonicalizationError: the request cannot be digested deterministically.
+            UnknownBlobReference: ``files`` holds no file for a reference in the request.
         """
-        digest = request_digest(kind, request, attempt)
-        if _json_bytes(request) + _json_bytes(response) > self._max_entry_bytes:
+        digest: str = await _request_digest_off_loop(kind, request, attempt, files)
+        stored: Any = request if files is None else _stored_form(request)
+        if _json_bytes(stored) + _json_bytes(response) > self._max_entry_bytes:
             raise FrozenCopyEntryTooLarge
         async with in_transaction():
             current = await FrozenCopy.filter(id=copy.id).select_for_update().first()
@@ -210,7 +266,7 @@ class FrozenCopyStore:
                 kind=kind,
                 case_key=case_key,
                 request_digest=digest,
-                request_json=request,
+                request_json=stored,
                 response_json=response,
                 status_code=status_code,
                 seq=current.entry_seq,
@@ -225,8 +281,11 @@ class FrozenCopyStore:
         attempt: int | None,
         case_key: str,
         occurrence: int,
+        files: ReferencedFileLookup | None = None,
     ) -> FrozenCopyEntry | None:
         """The replay lookup rule at one call key (design §4.4, Q27); ``None`` is a miss.
+
+        ``files``: as `capture`. A reference request finds the entry its inline twin stored.
 
         1. The successful entry with the highest ``seq`` at the key (case key, occurrence,
            digest).
@@ -237,7 +296,7 @@ class FrozenCopyStore:
             frozen_copy_id=copy.id,
             kind=kind,
             case_key=case_key,
-            request_digest=request_digest(kind, request, attempt),
+            request_digest=await _request_digest_off_loop(kind, request, attempt, files),
             occurrence=occurrence,
         )
         success = await entries.filter(status_code=_SUCCESS_STATUS).order_by("-seq").first()

@@ -283,6 +283,7 @@ async def _dispatch_with_backpressure(
     body: dict[str, Any],
     *,
     on_dispatch: Callable[[], None] | None = None,
+    in_slot: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
 ) -> Any:
     """Run ``plugin.chat_completion`` under the gateway's backpressure stack:
     a per-provider concurrency slot wrapping the overload-retry loop.
@@ -297,16 +298,27 @@ async def _dispatch_with_backpressure(
     ``attempt_index``. Conflating the two is a plan §12 stop condition, so the hook
     belongs here — inside the retry loop — and not at the call site, which cannot see
     individual attempts.
+
+    ``in_slot`` (OME-1970) turns ``body`` into the body actually sent, once, after the slot is
+    taken and before the first attempt: the chat route passes the blob-reference swap
+    (`RunFiles.inline`), so a request waiting for its slot holds only its small JSON, and a file
+    the store dropped meanwhile is refused before any upstream spend. Retries reuse the result.
     """
     settings = request.app.state.settings
 
-    async def _attempt() -> Any:
-        if on_dispatch is not None:
-            on_dispatch()
-        try:
-            return await plugin.chat_completion(body)
-        except (Timeout, httpx.TimeoutException):
-            raise ProviderExecutionTimeout() from None
+    async def _in_slot() -> Any:
+        # FEATURE (OME-1970): the body sent upstream is built here, inside the slot.
+        sent: dict[str, Any] = body if in_slot is None else in_slot(body)
+
+        async def _attempt() -> Any:
+            if on_dispatch is not None:
+                on_dispatch()
+            try:
+                return await plugin.chat_completion(sent)
+            except (Timeout, httpx.TimeoutException):
+                raise ProviderExecutionTimeout() from None
+
+        return await with_overload_retry(_attempt, policy=RetryPolicy.from_settings(settings))
 
     # FEATURE (OME-1132): the provider call as a CHILD span — "which provider was slow",
     # answerable at last. Deliberately wraps the WHOLE block, slot wait and retries included,
@@ -320,11 +332,7 @@ async def _dispatch_with_backpressure(
     # is the cheaper of the two costs.
     with provider_span(provider):
         try:
-            return await dispatch_with_budgets(
-                request,
-                provider,
-                lambda: with_overload_retry(_attempt, policy=RetryPolicy.from_settings(settings)),
-            )
+            return await dispatch_with_budgets(request, provider, _in_slot)
         except asyncio.CancelledError:
             if not getattr(request.state, "provider_disconnect_cancelled", False):
                 raise

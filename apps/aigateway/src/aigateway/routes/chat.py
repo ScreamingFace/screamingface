@@ -41,6 +41,7 @@ from litellm.exceptions import (
 
 from ..core.auth.middleware import CurrentAccount
 from ..core.auth_types import AuthMode
+from ..core.blob_refs import BlobUnknown, RunFiles, checked_run_files, key_form
 from ..core.content_parts import check_input_modalities, provider_media_refusal
 from ..core.credential_blob import DispatchObservation
 from ..core.endpoint_access import EndpointOperation, permits
@@ -78,10 +79,13 @@ from ..core.provider_access import (
 )
 from ..core.provider_error_text import credential_values
 from ..core.registry import ProviderRegistry
+from ..core.request_cache.global_controls import GlobalCacheControls
+from ..core.request_cache.reference_digest import ReferencedFileLookup, UnknownBlobReference
 from ..core.request_hardening import chat_body_shape_error, prepare_ingress_body
 from ..core.retry import case_insensitive_header
 from ..core.upstream_attempts import with_observed_litellm_client
 from ..unhandled_errors import generic_detail
+from .blobs import RUN_TOKEN_HEADER
 from .chat_accounting import (
     accounting_handler,
     attach_hit_metadata,
@@ -94,6 +98,7 @@ from .chat_accounting import (
     note_dispatch_failure,
 )
 from .chat_cache_stage import (
+    GlobalCacheOutcome,
     global_cache_headers,
     look_up_global_cache,
     set_global_cache_headers,
@@ -171,8 +176,13 @@ async def _dispatch_and_finalize_accounting(
     account_id: str,
     target: CredentialTarget,
     observation: DispatchObservation | None = None,
+    files: RunFiles | None = None,
 ) -> Any:
-    """Dispatch once through the provider and finalize any observed accounting evidence."""
+    """Dispatch once through the provider and finalize any observed accounting evidence.
+
+    ``files`` (OME-1970): the request's Case files by blob reference; each is swapped for its
+    stored file inside the upstream slot.
+    """
     dispatch_body = dispatch_body_with_accounting(body, accounting, accounting_handler(request))
     # FEATURE (contract C7): an unaccounted LiteLLM dispatch gets the attempt handler, so every
     # physical send reaches the attempt header; an accounted one already carries a handler.
@@ -182,11 +192,20 @@ async def _dispatch_and_finalize_accounting(
         handler=getattr(request.app.state, "upstream_attempts_handler", None),
     )
     on_dispatch = accounting.note_dispatch if accounting is not None else None
+    # WHY only when there are references: an inline call's dispatch is called exactly as before.
+    swap: dict[str, Any] = {} if files is None else {"in_slot": files.inline}
     try:
         with bound_dispatch(accounting):
             provider_response = await _dispatch_with_backpressure(
-                request, plugin, provider, dispatch_body, on_dispatch=on_dispatch
+                request, plugin, provider, dispatch_body, on_dispatch=on_dispatch, **swap
             )
+    except BlobUnknown:
+        # WHY not the dispatch-failure funnel below: nothing reached the provider, so there is
+        # no provider failure to classify, and no credential may be marked for a missing file.
+        finalize_provider_evidence(
+            accounting, plugin=plugin, request_body=body, final_response=None
+        )
+        raise
     except HTTPException as exc:
         if getattr(exc, "aigw_response_conversion_error", False):
             note_conversion_failure(accounting)
@@ -334,8 +353,11 @@ class _Capture:
         attempt: int | None = None,
         case_key: str = "",
         occurrence: int = 0,
+        files: ReferencedFileLookup | None = None,
     ) -> None:
         self._store = store
+        # OME-1970: given only for a request in key form (`blob_refs.key_form`); see `capture`.
+        self._files = files
         self._request = request
         self._copy = copy_row
         self._attempt = attempt
@@ -363,6 +385,7 @@ class _Capture:
                 attempt=self._attempt,
                 case_key=self._case_key,
                 occurrence=self._occurrence,
+                files=self._files,
             )
         except FrozenCopySealed:
             self.outcome = "refused"
@@ -403,8 +426,9 @@ class _Capture:
         if retry_after is not None:
             stored[STORED_HEADERS_FIELD] = {RETRY_AFTER_HEADER: retry_after}
         # WHY: no client received a 499, so it is never an answer a replay may serve; the outcome
-        # stays `failed` (nothing stored).
-        if status_code != CLIENT_DISCONNECTED_STATUS:
+        # stays `failed` (nothing stored). Nor is `blob_unknown` (OME-1970): it says the gateway
+        # lacked a file, not what the model answered, and the Engine repeats that very call.
+        if status_code != CLIENT_DISCONNECTED_STATUS and not isinstance(exc, BlobUnknown):
             await self.record(stored, status_code)
         if not self.headers:
             return
@@ -421,13 +445,19 @@ async def _begin_capture(
     snapshot: dict[str, Any] | None,
     streaming: bool,
     attempt: int | None,
+    files: RunFiles | None = None,
 ) -> _Capture:
     """Check the copy named by ``X-AIGW-Frozen-Copy``.
 
     Valid means: the copy exists, belongs to the caller, is ``open``, the call is not a stream
     (the gateway has no assembled body for a stream), and the two key headers are well formed
     (design §4.2). Anything else, an empty or malformed id included, is ``refused``.
+
+    ``files`` (OME-1970): a request carrying Case files by blob reference is captured in key
+    form, so its digest is the inline request's (decision 2) and its row holds the references.
     """
+    if files is not None and snapshot is not None:
+        snapshot = key_form(snapshot)
     raw = request.headers.get(COPY_HEADER)
     store = frozen_copy_store_for(request.app)
     if raw is None or snapshot is None:
@@ -458,7 +488,31 @@ async def _begin_capture(
         attempt=attempt,
         case_key=case_key,
         occurrence=occurrence,
+        files=None if files is None else files.lookup,
     )
+
+
+async def _look_up_cache(
+    request: Request,
+    *,
+    body: dict[str, Any],
+    plugin: ProviderPluginBase[Any],
+    controls: GlobalCacheControls,
+    files: RunFiles | None,
+) -> GlobalCacheOutcome:
+    """The global cache stage; a reference request is keyed as its inline twin (OME-1970).
+
+    With ``files``, the key form is hashed with each file read from the store (decision 2). A
+    file the store dropped since the scope check is `BlobUnknown`, never a bypass.
+    """
+    if files is None:
+        return await look_up_global_cache(request, body=body, plugin=plugin, controls=controls)
+    try:
+        return await look_up_global_cache(
+            request, body=key_form(body), plugin=plugin, controls=controls, files=files.lookup
+        )
+    except UnknownBlobReference as unknown:
+        raise BlobUnknown(unknown.sha256) from None
 
 
 def _admit_media(
@@ -468,8 +522,15 @@ def _admit_media(
     plugin: ProviderPluginBase[Any],
     provider: str,
     streaming: bool,
-) -> dict[str, Any]:
-    """The data:-only media guard, accounted like the other ingress refusals (OME-1542)."""
+    caller: object,
+) -> tuple[dict[str, Any], RunFiles | None]:
+    """The data:-only media guard, accounted like the other ingress refusals (OME-1542).
+
+    FEATURE (OME-1970): then the reference stage. INVARIANT (decision 3): its scope check runs
+    here, before the frozen-copy check and the cache lookup, so a call whose files are not this
+    run's (another run's token, none, never uploaded) is `blob_unknown` even when a cached answer
+    for the same bytes exists. ``None`` for a request with no reference part.
+    """
     try:
         refuse_remote_media(
             body.get("messages") or [],
@@ -490,11 +551,19 @@ def _admit_media(
                 admitted=getattr(request.app.state, "admitted_models", {}),
             ),
         )
+        files: RunFiles | None = checked_run_files(
+            body.get("messages") or [],
+            store=request.app.state.media_store,
+            caller=caller,
+            token=request.headers.get(RUN_TOKEN_HEADER),
+            provider=provider,
+            streaming=streaming,
+        )
     except HTTPException:
         if not streaming:
             begin_accounting(request, plugin=plugin, provider=provider, model=body.get("model", ""))
         raise
-    return body
+    return body, files
 
 
 @router.post("/v1/chat/completions")
@@ -574,12 +643,14 @@ async def chat_completions(request: Request, response: Response, current: Curren
     # process never fetches a caller's URL (LiteLLM would, for Anthropic, Ollama and the OpenAI
     # wire). INVARIANT: BEFORE the cache stage, credential resolution and dispatch — a refused
     # request can neither hit nor fill the cache, and nothing is sent upstream.
-    body = _admit_media(
+    # OME-1970: and Case files by blob reference are scope-checked (``files``, else ``None``).
+    body, files = _admit_media(
         request,
         plugin.strip_provider_dispatch_controls(body),
         plugin=plugin,
         provider=provider,
         streaming=streaming,
+        caller=current.id,
     )
 
     # OME-303: non-streaming accounting is gateway-owned and default-on. Streaming
@@ -618,13 +689,14 @@ async def chat_completions(request: Request, response: Response, current: Curren
         snapshot=capture_snapshot,
         streaming=streaming,
         attempt=cache_controls.attempt,
+        files=files,
     )
     try:
         # AIDEV-NOTE: do not wrap this in ``in_transaction()``. On Postgres, a failed
         # cache SELECT or hit-metadata UPDATE aborts the outer transaction even though
         # this stage converts the failure to a bypass, poisoning later route statements.
-        cache_outcome = await look_up_global_cache(
-            request, body=body, plugin=plugin, controls=cache_controls
+        cache_outcome = await _look_up_cache(
+            request, body=body, plugin=plugin, controls=cache_controls, files=files
         )
         if accounting is not None:
             accounting.cache_status = cache_outcome.status
@@ -776,6 +848,7 @@ async def chat_completions(request: Request, response: Response, current: Curren
             account_id=account_id,
             target=target,
             observation=observation,
+            files=files,
         )
         result = request.app.state.taxonomy_plugin.sanitize_provider_response(result)
 
