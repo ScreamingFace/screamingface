@@ -10,7 +10,7 @@ from collections.abc import Awaitable, Callable, Iterator, Sequence
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 from threading import Lock
-from typing import TYPE_CHECKING, Literal, Protocol, overload
+from typing import TYPE_CHECKING, Literal, NoReturn, Protocol, overload
 
 if TYPE_CHECKING:
     from screamingface.errors import PlanningError
@@ -69,6 +69,10 @@ type _AsyncBenchmarkLoading = Callable[
 ]
 type _SyncOperatorLoading = Callable[[], _OperatorCatalog]
 type _AsyncOperatorLoading = Callable[[], Awaitable[_OperatorCatalog]]
+# FEATURE (C12 capability gate): the Client's reader, which refuses unless the Engine advertises
+# every ID it is given.
+type _SyncCapabilityCheck = Callable[[frozenset[str]], None]
+type _AsyncCapabilityCheck = Callable[[frozenset[str]], Awaitable[None]]
 
 _NAMED_CALLS = 3
 _logger = logging.getLogger(__name__)
@@ -92,6 +96,8 @@ def evaluate_sync(
     cases: object = None,
     detach: Literal[False] = False,
     deadline_s: int | None = None,
+    required_capabilities: frozenset[str] = frozenset(),
+    require_capabilities: _SyncCapabilityCheck | None = None,
 ) -> Report: ...
 
 
@@ -113,6 +119,8 @@ def evaluate_sync(
     cases: object = None,
     detach: Literal[True] = ...,
     deadline_s: int | None = None,
+    required_capabilities: frozenset[str] = frozenset(),
+    require_capabilities: _SyncCapabilityCheck | None = None,
 ) -> str: ...
 
 
@@ -134,6 +142,8 @@ def evaluate_sync(
     cases: object = None,
     detach: bool = False,
     deadline_s: int | None = None,
+    required_capabilities: frozenset[str] = frozenset(),
+    require_capabilities: _SyncCapabilityCheck | None = None,
 ) -> Report | str: ...
 
 
@@ -154,6 +164,8 @@ def evaluate_sync(  # noqa: PLR0915 - the Evaluation's phases, in order
     cases: object = None,
     detach: bool = False,
     deadline_s: int | None = None,
+    required_capabilities: frozenset[str] = frozenset(),
+    require_capabilities: _SyncCapabilityCheck | None = None,
 ) -> Report | str:
     """Run the complete synchronous Evaluation workflow behind the Client interface; with
     ``detach``, register the Run and return its id instead (E5 P2 spec D11, D14)."""
@@ -176,6 +188,9 @@ def evaluate_sync(  # noqa: PLR0915 - the Evaluation's phases, in order
         operators=_operators_sync(values, load_operators),
         warn_judge_writers=False,
     )
+    # FEATURE (C12): a plan that needs Engine capabilities reads them once, fresh, now that it
+    # compiled: before the Model listing, the mint, registration and the follow.
+    _require_capabilities_sync(required_capabilities, require_capabilities)
     # FEATURE (OME-1193, OME-1307): stamp the declared sitting (`answer_seed`) and the capture
     # request (`capture`) onto every compiled Candidate ONCE, so the transport, the progress
     # observer and the report all see the same objects.
@@ -246,6 +261,8 @@ async def evaluate_async(
     cases: object = None,
     detach: Literal[False] = False,
     deadline_s: int | None = None,
+    required_capabilities: frozenset[str] = frozenset(),
+    require_capabilities: _AsyncCapabilityCheck | None = None,
 ) -> Report: ...
 
 
@@ -267,6 +284,8 @@ async def evaluate_async(
     cases: object = None,
     detach: Literal[True] = ...,
     deadline_s: int | None = None,
+    required_capabilities: frozenset[str] = frozenset(),
+    require_capabilities: _AsyncCapabilityCheck | None = None,
 ) -> str: ...
 
 
@@ -288,6 +307,8 @@ async def evaluate_async(
     cases: object = None,
     detach: bool = False,
     deadline_s: int | None = None,
+    required_capabilities: frozenset[str] = frozenset(),
+    require_capabilities: _AsyncCapabilityCheck | None = None,
 ) -> Report | str: ...
 
 
@@ -308,6 +329,8 @@ async def evaluate_async(  # noqa: PLR0915 - see evaluate_sync
     cases: object = None,
     detach: bool = False,
     deadline_s: int | None = None,
+    required_capabilities: frozenset[str] = frozenset(),
+    require_capabilities: _AsyncCapabilityCheck | None = None,
 ) -> Report | str:
     """Run the complete asynchronous Evaluation workflow behind the Client interface; with
     ``detach``, register the Run and return its id instead."""
@@ -330,6 +353,8 @@ async def evaluate_async(  # noqa: PLR0915 - see evaluate_sync
         operators=await _operators_async(values, load_operators),
         warn_judge_writers=False,
     )
+    # FEATURE (C12): see the sync twin.
+    await _require_capabilities_async(required_capabilities, require_capabilities)
     # FEATURE (OME-1193, OME-1307): see the sync twin — one stamped tuple (seed and capture) for
     # transport, observer and report alike.
     selected_candidates = _cache_intent_candidates(
@@ -402,6 +427,44 @@ async def _operators_async(
     if load_operators is None or not recipes_need_operators(values):
         return None
     return await load_operators()
+
+
+def _require_capabilities_sync(
+    required: frozenset[str], require: _SyncCapabilityCheck | None
+) -> None:
+    """Refuse a plan that needs a capability the Engine does not advertise.
+
+    INVARIANT (C12): an empty requirement never asks the Engine, and a requirement with no
+    reader fails closed instead of submitting unchecked.
+    """
+
+    if not required:
+        return
+    if require is None:
+        _no_capability_reader(required)
+    require(required)
+
+
+async def _require_capabilities_async(
+    required: frozenset[str], require: _AsyncCapabilityCheck | None
+) -> None:
+    """The async twin of ``_require_capabilities_sync``."""
+
+    if not required:
+        return
+    if require is None:
+        _no_capability_reader(required)
+    await require(required)
+
+
+def _no_capability_reader(required: frozenset[str]) -> NoReturn:
+    from screamingface.errors import EngineCapabilityError
+
+    raise EngineCapabilityError(
+        "this Evaluation needs SF Engine capabilities, but no capability reader is configured",
+        permanent=True,
+        details={"missing": sorted(required)},
+    )
 
 
 def _settled_sync(
