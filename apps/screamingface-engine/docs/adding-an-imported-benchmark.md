@@ -417,6 +417,11 @@ changed Case set moved the id). Everything else holds it:
   read at most about 1.5 points low; and a re-grade cannot move them, because the judge request
   changed and every judged Case misses the pinned cache. A judge whose request changes can be
   re-graded only once sending chosen judge calls live is built (OME-1979).
+  A second named exception (owner, 2026-11-27, OME-1970): hle and hle_diamond held their id
+  when one picture, Case 250 (hle_diamond Case 35), was shrunk from 14950 to 8000 px wide.
+  Every Claude and GPT-pro Candidate already failed that Case without reading it, so their old
+  entries read at most one Case low; other Candidates now see a smaller picture there, and a
+  pinned-cache replay of an old entry misses that one Case.
 - **Changed Cases**: the id moves. A re-grade cannot move these entries, since their old replies
   answer a different exam. OME-1701 moved worldsense, stereoset and onet_m6 when their Case sets
   changed.

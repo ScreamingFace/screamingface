@@ -7728,6 +7728,10 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="hle",
+        # HELD by named exception (owner, 2026-11-27, OME-1970): the Case set changed by one
+        # picture (the 14950 px one, shrunk to 8000 px, a Named Deviation in prepare.py), which
+        # the revision rule says moves the id. Held because Claude and GPT-pro Candidates
+        # already failed that Case unread, so their old scores can only be low by one Case.
         published_revision="d30effc2a0698079",
         title="Humanity's Last Exam (HLE)",
         description=(
@@ -8350,6 +8354,10 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="hle_diamond",
+        # HELD by named exception (owner, 2026-11-27, OME-1970): the Case set changed by one
+        # picture (the 14950 px one, shrunk to 8000 px, a Named Deviation in prepare.py), which
+        # the revision rule says moves the id. Held because Claude and GPT-pro Candidates
+        # already failed that Case unread, so their old scores can only be low by one Case.
         published_revision="9640c5c7e59fc61e",
         title="Humanity's Last Exam: Diamond (HLE-Diamond)",
         description=(
@@ -9513,6 +9521,10 @@ def _task_replay_pins(cases_spec: TaskReplayCasesSpec) -> tuple[str, ...]:
         # only when set, so no published revision moves (spec R18).
         excluded: str = ",".join(sorted(cases_spec.excluded_sample_ids))
         pins = (*pins, f"excluded_sample_ids={excluded}")
+    if cases_spec.shrunk_picture_sample_ids is not None:
+        # WHY: the same rule for OME-1970's Named Deviation, a picture shrunk to 8000 px.
+        shrunk: str = ",".join(sorted(cases_spec.shrunk_picture_sample_ids))
+        pins = (*pins, f"shrunk_picture_sample_ids={shrunk}")
     if cases_spec.source_pins:
         # WHY (OME-1460, R7): the same task and digest read from two different Hub commits
         # are two Benchmarks. Only when set, so no URL-only row's revision moves; sorted, so

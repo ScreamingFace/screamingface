@@ -276,8 +276,8 @@ def captured_case_records(
     Args:
         task: the built Task, as the eval's task function returned it.
         spec: the declaration whose writer options apply (``has_answer_key``,
-            ``keep_sample_metadata``) and whose ``excluded_sample_ids`` are left out; its
-            seal is not read here.
+            ``keep_sample_metadata``) and whose ``excluded_sample_ids`` are left out and
+            ``shrunk_picture_sample_ids`` shrunk; its seal is not read here.
         answered_pass: also run each Sample's chain a second time with a real-looking reply,
             refusing a chain that asks the model again after it (OME-1602, F4). The import
             child turns it on; image builds replay an import that already passed it.
@@ -302,6 +302,14 @@ def captured_case_records(
     # questions), and the Cases are numbered over what is kept (spec R18).
     if spec.excluded_sample_ids is not None:
         samples = without_excluded_samples(spec.excluded_sample_ids, samples)
+    if spec.shrunk_picture_sample_ids is not None:
+        # Lazy: the shrink needs Pillow, the `benchmarks` extra, which only the replay child
+        # has; no other row reaches this line (OME-1970).
+        from screamingface_engine_inspect.shrunk_pictures import with_shrunk_pictures
+
+        # WHY after the exclusions and before capture: the shrunk picture is what capture
+        # renders into the Case, so the Case Digest seals it.
+        samples = with_shrunk_pictures(spec.shrunk_picture_sample_ids, samples)
     inputs: list[tuple[str, list[str] | None]] = asyncio.run(
         _captured_inputs(task, samples, answered_pass)
     )
