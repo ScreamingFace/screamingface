@@ -8,6 +8,7 @@ reaching into the individual route modules.
 from screamingface_engine.rest.artifacts import router as artifact_router
 from screamingface_engine.rest.benchmarks import router as benchmark_router
 from screamingface_engine.rest.blobs import router as blob_router
+from screamingface_engine.rest.capabilities import router as capability_router
 from screamingface_engine.rest.catalog import router as catalog_router
 from screamingface_engine.rest.connections import router as connection_router
 from screamingface_engine.rest.credits import router as credit_router
@@ -21,6 +22,7 @@ __all__ = [
     "artifact_router",
     "benchmark_router",
     "blob_router",
+    "capability_router",
     "catalog_router",
     "connection_router",
     "credit_router",
