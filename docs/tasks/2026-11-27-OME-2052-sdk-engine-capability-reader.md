@@ -1,13 +1,13 @@
 ---
 id: OME-2052
 linear_url: https://linear.app/openmined/issue/OME-2052/read-engine-capabilities-before-gated-submissions
-status: In Review
+status: Done
 type: task
 priority: high
 labels: [client-sf, autonomous, agentic]
 parent: OME-1306
 created: 2026-11-27
-closed:
+closed: 2026-11-27
 ---
 
 # Read Engine capabilities before gated submissions
@@ -26,3 +26,5 @@ Spec: `docs/spec/2026-11-16-router-recipe-extension/` C12.
 Plan: `docs/plan/2026-11-16-router-recipe-extension.md` sections 9, 10, and 16.
 Ledger: `docs/work/2026-11-27-sdk-engine-capability-reader.md`.
 Branch: `OME-2052-sdk-engine-capability-reader`.
+
+Merged [PR #2097](https://github.com/ScreamingFace/screamingface/pull/2097) as `7ec6329e2`.

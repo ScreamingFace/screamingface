@@ -93,8 +93,11 @@ Each case is written first and must fail first.
     lines), `tests/test_evaluation_capabilities.py` (366 lines).
   - Modified: `_evaluation/runner.py` (+65/-1) and `client.py` (+9).
   - No prior test changed.
-- **Commit:** this ledger ships in the same publication commit as the implementation; the branch
-  history and PR record its exact SHA. The candidate base is `456b9cba`.
+- **Commit:** one, `573f4a462` on `OME-2052-sdk-engine-capability-reader`, holding the
+  implementation, this ledger and the task mirror, on base `456b9cba`.
+  [PR #2097](https://github.com/ScreamingFace/screamingface/pull/2097) was squash-merged on
+  2026-11-27 as `7ec6329e2`. At the merged head, 22 CI checks passed and 14 were skipped; none
+  failed or remained pending.
 - **RED first:**
   - The codec file failed collection: the module did not exist.
   - The runner file had 16 failures:
