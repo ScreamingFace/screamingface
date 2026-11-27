@@ -89,7 +89,7 @@ _FINGERPRINTS: dict[str, str] = {
     # OME-1970: the one 14950 px picture (hle Case 250, hle_diamond Case 35) is shrunk to
     # 8000×1488, a Named Deviation, so the Case Digests and fingerprints moved again
     # (hle 6bf010527abe2411, hle_diamond 7261715107987e29 after OME-1939). OWNER DECISION
-    # PENDING (OME-1970): hold vs move — see ledger; the published ids are held meanwhile.
+    # OME-1970: the published ids are HELD by named exception (owner, 2026-11-27).
     "hle": "0c3d712629ad9515",
     # hle_diamond: published id 9640c5c7e59fc61e (fingerprint was the same).
     "hle_diamond": "02f3cbc9fce746be",
