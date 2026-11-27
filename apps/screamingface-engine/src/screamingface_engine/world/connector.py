@@ -28,6 +28,7 @@ from screamingface_engine.benchmarks.case_context import (
 )
 from screamingface_engine.benchmarks.picture_admission import (
     admit_run_attachments,
+    register_inline_path,
     register_model_sight,
 )
 from screamingface_engine.candidate_scope import in_candidate_invocation
@@ -51,7 +52,7 @@ from screamingface_engine.retrieval_policy import (
     RetrievalPolicy,
     current_retrieval_policy,
 )
-from screamingface_engine.world import gateway_transport
+from screamingface_engine.world import case_file_refs, gateway_transport
 from screamingface_engine.world.attachment_parts import (
     AttachmentPartError,
     attachment_parts,
@@ -133,6 +134,10 @@ class AigatewayConfig:
     #   concurrently, so an unbounded fan-out is an unbounded burst of upstream requests.
     web_tool_max_result_bytes: int = 32_768
     web_tool_max_calls_per_turn: int = 8
+    # FEATURE (OME-1970 PR 7): upload each Case file once per run and send blob references
+    # (`world/case_file_refs.py`). WHY off by default: a gateway without the upload route is
+    # still served inline, and every existing request stays byte-identical until this is on.
+    blob_refs: bool = False
 
     def __post_init__(self) -> None:
         for value in (self.timeout_s, self.queue_timeout_s):
@@ -431,6 +436,10 @@ async def build_aigateway_world(
     for path in routes:
         node.endpoint(path)(call_model)
     _GATEWAY_CLIENTS[node] = http_client
+    # FEATURE (OME-1970 decision 8): an inline world refuses an oversize Case when its Cases are
+    # served, before any spend; a reference world sends a few-byte reference instead.
+    if not cfg.blob_refs:
+        register_inline_path(node)
     register_model_sight(
         node,
         _GatewayModelSight(
@@ -626,18 +635,19 @@ async def _chat_completion_loop(
             **extra,
             **attempt_body_field(cache_attempt),
         }
-        choice = await gateway_transport.round_trip(
-            http_client,
-            real_model_id=real_model_id,
-            headers=headers,
-            body=body,
-            cache=scope.cache,
-            max_tokens=sampling.get("max_tokens"),
-            operation_accounting=operation_accounting,
-            replay_frozen_copy=scope.replay_frozen_copy,
-            signal_accounting=signal_accounting,
-            reply_logprobs=reply_rounds,
-        )
+        with case_file_refs.sent_by_reference(cfg.blob_refs):
+            choice = await gateway_transport.round_trip(
+                http_client,
+                real_model_id=real_model_id,
+                headers=headers,
+                body=body,
+                cache=scope.cache,
+                max_tokens=sampling.get("max_tokens"),
+                operation_accounting=operation_accounting,
+                replay_frozen_copy=scope.replay_frozen_copy,
+                signal_accounting=signal_accounting,
+                reply_logprobs=reply_rounds,
+            )
         content, tool_calls = choice.content, choice.tool_calls
         if not tool_calls:
             # Recorded HERE, not per round trip: a tool loop is several round trips serving ONE

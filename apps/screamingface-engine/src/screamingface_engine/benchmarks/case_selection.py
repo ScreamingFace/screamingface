@@ -9,6 +9,7 @@ from screamingface_engine.benchmarks.phases import observe_phase
 from screamingface_engine.benchmarks.picture_admission import (
     refuse_blind_candidate,
     refuse_blind_models,
+    refuse_oversize_inline_cases,
 )
 from screamingface_engine.benchmarks.selection import CaseSelection
 from screamingface_engine.process_memory import log_process_memory
@@ -49,7 +50,18 @@ def cases_handler(
         # WHY a coroutine only here: the selection check above stays synchronous, so a bad
         # selection still raises at the call, before anything is awaited.
         if node is not None:
-            return _admitted(node, [row for row in rows if isinstance(row, dict)], served)
+            # OME-1970 decision 8: only the Cases this run sends are measured for the inline cap.
+            sent: list[object] = (
+                rows[: selection.count]
+                if selection.is_prefix
+                else [rows[case_id - 1] for case_id in selection.case_ids]
+            )
+            return _admitted(
+                node,
+                [row for row in rows if isinstance(row, dict)],
+                [row for row in sent if isinstance(row, dict)],
+                served,
+            )
         # INVARIANT: validation finishes before inference; URL4 owns slicing and indexing.
         return served
 
@@ -70,8 +82,14 @@ def _selected_rows(rows: list[object], selection: CaseSelection) -> str:
     return json.dumps(selected, ensure_ascii=False, separators=(",", ":"))
 
 
-async def _admitted(node: Url4Node, rows: list[dict[str, object]], raw: str) -> str:
-    """Serve ``raw`` once the run's Candidate may see this Benchmark's pictures."""
+async def _admitted(
+    node: Url4Node, rows: list[dict[str, object]], sent: list[dict[str, object]], raw: str
+) -> str:
+    """Serve ``raw`` once the run's Candidate may see this Benchmark's pictures.
+
+    ``sent`` are the selected Cases; an inline world refuses one too big to send (OME-1970).
+    """
+    refuse_oversize_inline_cases(node, sent)
     await refuse_blind_models(node, rows)
     return raw
 

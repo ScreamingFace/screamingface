@@ -307,6 +307,7 @@ def _aigateway_config(section: AigatewaySection) -> AigatewayConfig:
         timeout_s=section.timeout_s,
         queue_timeout_s=section.queue_timeout_s,
         web_tool_max_iterations=section.web_tool_max_iterations,
+        blob_refs=section.blob_refs,
     )
 
 

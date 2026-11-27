@@ -46,7 +46,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Protocol
-from weakref import WeakKeyDictionary
+from weakref import WeakKeyDictionary, WeakSet
 
 from screamingface_engine.benchmarks.candidate_input import (
     CandidateInputError,
@@ -135,6 +135,62 @@ class _RunAdmission:
 _RUN_ADMISSION: ContextVar[_RunAdmission | None] = ContextVar(
     "picture_admission_run_files", default=None
 )
+
+
+GATEWAY_BODY_CAP_BYTES: int = 12 * 1024 * 1024
+"""The gateway's default request body cap (aigateway ``max_request_bytes``, OME-1926).
+
+The Engine cannot ask the gateway for it, so it is mirrored here and pinned to the gateway's
+source by ``test_connector_case_file_refs.py``.
+"""
+
+INLINE_REQUEST_HEADROOM_BYTES: int = 256 * 1024
+"""What a request carries besides the Case: the headroom of
+``test_picture_case_limits_fit_the_gateway.py`` (model, parameters, a synthesizer's answers)."""
+
+INLINE_CASE_LIMIT_BYTES: int = GATEWAY_BODY_CAP_BYTES - INLINE_REQUEST_HEADROOM_BYTES
+"""The largest Case input, in UTF-8 bytes, that an inline request still fits (decision 8)."""
+
+_INLINE_NODES: WeakSet[Url4Node] = WeakSet()
+"""The nodes whose world sends Case files inline (blob references off), so the cap applies."""
+
+
+def register_inline_path(node: Url4Node) -> None:
+    """Mark ``node``'s world as one that sends Case files inline, so its Cases routes check size."""
+
+    _INLINE_NODES.add(node)
+
+
+def refuse_oversize_inline_cases(node: Url4Node, rows: Iterable[Mapping[str, object]]) -> None:
+    """Refuse the run when a selected Case is too big to send inline (OME-1970 decision 8).
+
+    FEATURE: with blob references off, every call carries the Case's files inline, and the
+    gateway refuses a body over its cap with a 413 on every call. Checked where the Cases are
+    served, so the run fails by name with nothing sent; a reference world is never checked.
+
+    Example: limit 12,320,768; Case 7's input is 13,000,000 bytes → ``intent_error`` "Case 7 is
+    13,000,000 bytes with its files inline; an inline request fits a Case of at most 12,320,768".
+
+    Raises:
+        ResolutionError: ``intent_error`` (permanent), naming each oversize Case and its size.
+    """
+
+    if node not in _INLINE_NODES:
+        return
+    oversize: list[str] = [
+        f"Case {row.get('id')} is {size:,} bytes"
+        for row in rows
+        if isinstance(value := row.get("input"), str)
+        and (size := len(value.encode("utf-8"))) > INLINE_CASE_LIMIT_BYTES
+    ]
+    if oversize:
+        logger.info("inline run refused oversize_cases=%d", len(oversize))
+        raise ResolutionError(
+            f"{'; '.join(oversize)} with its files inline; an inline request fits a Case of at "
+            f"most {INLINE_CASE_LIMIT_BYTES:,} bytes. Nothing was sent to a model.",
+            code=ErrorCode.INTENT_ERROR,
+            permanent=True,
+        )
 
 
 def register_model_sight(node: Url4Node, reader: ModelSightReader) -> None:
@@ -528,6 +584,8 @@ __all__ = [
     "node_model_routes",
     "refuse_blind_candidate",
     "refuse_blind_models",
+    "refuse_oversize_inline_cases",
+    "register_inline_path",
     "register_model_sight",
     "run_expression_scope",
     "run_model_routes",
