@@ -1,9 +1,9 @@
 ---
 ticket: OME-2050
 stack: screamingface-engine
-status: in_progress
+status: done
 started: 2026-11-27
-finished:
+finished: 2026-11-27
 ---
 
 # engine-capability-discovery — dormant Engine capability discovery (C12, Unit 6)
@@ -78,8 +78,11 @@ Each case is written first and must fail first, at the real App boundary:
   - `app.py`: +2.
   - `test_rest_capabilities.py`: new, 277 lines, 40 cases.
   - No prior test changed.
-- **Commit:** this ledger ships in the same publication commit as the implementation; the branch
-  history and PR record its exact SHA. The candidate base is `61c83cbcb`.
+- **Commit:** one, `1b7b42d08` on `OME-2050-engine-capability-discovery`, holding the
+  implementation, this ledger and the task mirror, on base `61c83cbcb`.
+  [PR #2092](https://github.com/ScreamingFace/screamingface/pull/2092) (head `1b7b42d08` on
+  `61c83cbcb`) was squash-merged on 2026-11-27 as `727a7645d`. At that head 23 CI checks passed
+  and 4 jobs were skipped (`plan`, `images`, `finish`, `engine`).
 - **RED:** 39 of the 40 new cases failed before the change:
   - 404 for the route;
   - no refusal for any of the 25 refused values;

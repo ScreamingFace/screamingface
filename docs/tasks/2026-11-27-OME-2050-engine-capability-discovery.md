@@ -1,13 +1,13 @@
 ---
 id: OME-2050
 linear_url: https://linear.app/openmined/issue/OME-2050/serve-dormant-engine-capability-discovery
-status: In Review
+status: Done
 type: task
 priority: high
 labels: [screamingface-engine, autonomous, agentic]
 parent: OME-1306
 created: 2026-11-27
-closed:
+closed: 2026-11-27
 ---
 
 # Serve dormant Engine capability discovery
@@ -25,3 +25,5 @@ Spec: `docs/spec/2026-11-16-router-recipe-extension/` C12.
 Plan: `docs/plan/2026-11-16-router-recipe-extension.md` sections 9 and 16.
 Ledger: `docs/work/2026-11-27-engine-capability-discovery.md`.
 Branch: `OME-2050-engine-capability-discovery`.
+
+Merged [PR #2092](https://github.com/ScreamingFace/screamingface/pull/2092) as `727a7645d`.
