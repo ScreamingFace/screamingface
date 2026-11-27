@@ -1,0 +1,38 @@
+[project]
+name = "screamingface-bert-reference"
+version = "0.1.0"
+description = "Isolated fixed-label classifier reference boundary"
+requires-python = ">=3.12,<3.13"
+dependencies = ["uvicorn==0.54.0"]
+
+[build-system]
+requires = ["hatchling==1.32.4"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = ["hatchling==1.32.4", "pyright==1.1.414", "pytest==9.0.3", "ruff==0.17.4"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/bert_reference"]
+
+[tool.hatch.build.targets.sdist]
+include = ["/src/bert_reference", "/pyproject.toml", "/uv.lock", "/README.md", "/target.toml"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["bert_reference"]
+
+[tool.pyright]
+pythonVersion = "3.12"
+typeCheckingMode = "strict"
+include = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
