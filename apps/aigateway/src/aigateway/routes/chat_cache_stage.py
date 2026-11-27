@@ -24,6 +24,7 @@ connection, a credential blob or a database.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from collections.abc import Mapping
@@ -39,7 +40,12 @@ from ..core.request_cache.credential_guard import holds_sealed_credential
 from ..core.request_cache.entry_metadata import CacheEntryMetadata
 from ..core.request_cache.global_controls import GlobalCacheControls
 from ..core.request_cache.global_keys import GlobalCacheKeyResult
-from ..core.request_cache.global_plan import BYPASS_DISABLED, build_global_cache_plan
+from ..core.request_cache.global_plan import (
+    BYPASS_DISABLED,
+    build_global_cache_plan,
+    build_reference_cache_plan,
+)
+from ..core.request_cache.reference_digest import ReferencedFileLookup
 from ..core.request_cache.store import CachedEntry
 from ..plugins.taxonomy.entry_metadata import cache_entry_metadata_from_session
 
@@ -144,6 +150,7 @@ async def look_up_global_cache(
     body: dict[str, Any],
     plugin: ProviderPluginBase,
     controls: GlobalCacheControls,
+    files: ReferencedFileLookup | None = None,
 ) -> GlobalCacheOutcome:
     """Decide eligibility and, when eligible, try to serve this request from cache.
 
@@ -153,7 +160,9 @@ async def look_up_global_cache(
     what the caller sent. It must NOT yet have a resolved auth mode or a credential.
 
     INVARIANT: totally non-raising. Every outcome is a status plus a published
-    reason.
+    reason. One exception (OME-1970): ``files``, given only for a body carrying Case files
+    by blob reference (nothing passes it yet; the gateway's reference parts will), lets
+    `UnknownBlobReference` escape, so the route can answer "unknown file".
     """
     store = request.app.state.request_cache_store
     try:
@@ -163,9 +172,22 @@ async def look_up_global_cache(
         logger.warning("cache availability check failed; treating the cache as unavailable")
         return GlobalCacheOutcome(status="bypass", reason=CACHE_UNAVAILABLE_REASON)
 
-    decision = build_global_cache_plan(
-        body=body, plugin=plugin, controls=controls, cache_enabled=enabled
-    )
+    if files is None:
+        decision = build_global_cache_plan(
+            body=body, plugin=plugin, controls=controls, cache_enabled=enabled
+        )
+    else:
+        # WHY a worker thread: this key hashes each stored file again (37 ms for 18.3 MB of
+        # base64, measured 26 Nov), which on the loop would stall every other call. The
+        # plan is pure, so it is safe off the loop.
+        decision = await asyncio.to_thread(
+            build_reference_cache_plan,
+            body=body,
+            plugin=plugin,
+            controls=controls,
+            cache_enabled=enabled,
+            files=files,
+        )
     if isinstance(decision, CacheBypass):
         reason = _publishable(decision.reason)
         if reason == BYPASS_DISABLED:
