@@ -55,8 +55,16 @@ MemberStatus = Literal["answered", "fail"]  # I-A3: a member is never "abstain"
 # code (fail_closed is a failure code, so they never share a status).
 # E4c (OME-1291, budget BU-5): budget_refused = a Budget refused the branch a Gate wanted and no
 # branch that makes no call could answer; a scored decline, never a failure code.
+# C10 (Router, Unit 6): no_selection = a Router selected no candidate and had no default. Readers
+# accept it before any writer exists; it is appended so every earlier position stays the same.
 AbstainReason = Literal[
-    "no_votes", "cut_not_met", "output_missing", "gate_not_met", "in_band", "budget_refused"
+    "no_votes",
+    "cut_not_met",
+    "output_missing",
+    "gate_not_met",
+    "in_band",
+    "budget_refused",
+    "no_selection",
 ]
 AnswerReason = Literal[
     "empty",
@@ -73,6 +81,7 @@ AnswerReason = Literal[
     "gate_not_met",
     "in_band",
     "budget_refused",
+    "no_selection",
 ]
 ABSTAIN_REASONS: tuple[AbstainReason, ...] = (
     "no_votes",
@@ -81,7 +90,11 @@ ABSTAIN_REASONS: tuple[AbstainReason, ...] = (
     "gate_not_met",
     "in_band",
     "budget_refused",
+    "no_selection",
 )
+# INVARIANT (C10): only a Router writes no_selection. NoVotes, the one combine writer that takes a
+# reason, keeps every other word, so no Gate, Band, Pick or budget path can raise it.
+_NO_VOTES_REASONS: frozenset[AbstainReason] = frozenset(ABSTAIN_REASONS) - {"no_selection"}
 # E4b part 5 (gate-record PRD): the words of a vote gate. ``GateCmp`` is the PASS condition: when
 # ``observed cmp threshold`` holds, the step keeps the majority (P4).
 GateCmp = Literal[">=", ">", "<=", "<"]
@@ -141,7 +154,7 @@ class NoVotes(Exception):
     records result.status="abstain" with this reason; it is never a failure code."""
 
     def __init__(self, message: str = "", *, reason: AbstainReason = "no_votes") -> None:
-        if reason not in ABSTAIN_REASONS:
+        if reason not in _NO_VOTES_REASONS:
             raise ValueError("unknown abstain reason")
         super().__init__(message or reason)
         self.reason: AbstainReason = reason

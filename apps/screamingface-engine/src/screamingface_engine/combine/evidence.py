@@ -26,6 +26,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
 
 from screamingface_engine.combine.ports import (
+    ABSTAIN_REASONS,
     EXCLUDE_REASONS,
     GATE_OBSERVE,
     MAX_NARROW_STEPS,
@@ -73,6 +74,10 @@ class AnswerRecord(_EvidenceModel):
             raise ValueError("an answer record has a reason exactly when it did not answer")
         if self.status == "fail" and self.value is not None:
             raise ValueError("a failed answer has no value")
+        # INVARIANT (C10): a failed member has a failure word, never an abstain word, as the SDK
+        # answer row reads it; so a Router abstention reads only on an abstain result, both sides.
+        if self.status == "fail" and self.reason in ABSTAIN_REASONS:
+            raise ValueError("a failed answer has a failure reason, not an abstain reason")
         # AR-I2 / AR-I3: an exclude reason goes with "excluded", and only with it.
         if (self.status == "excluded") != (self.reason in EXCLUDE_REASONS):
             raise ValueError("an excluded answer has an exclude reason, and only it has one")

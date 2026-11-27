@@ -26,8 +26,16 @@ from screamingface._report_primitives import _optional_number
 ANSWER_SCHEMA = "screamingface.answer.v1"
 type AnswerStatus = Literal["answered", "abstain", "fail", "excluded"]
 type MemberStatus = Literal["answered", "fail", "excluded"]
+# C10 (Router, Unit 6): no_selection = a Router selected no candidate and had no default. The SDK
+# reads it before any writer exists; it is never a failure or an exclude reason.
 type AbstainReason = Literal[
-    "no_votes", "cut_not_met", "output_missing", "gate_not_met", "in_band", "budget_refused"
+    "no_votes",
+    "cut_not_met",
+    "output_missing",
+    "gate_not_met",
+    "in_band",
+    "budget_refused",
+    "no_selection",
 ]
 type ExcludeReason = Literal["no_signal", "no_weight", "not_selected"]
 type AnswerReason = Literal[
@@ -46,6 +54,8 @@ type AnswerReason = Literal[
     "in_band",
     # E4c (OME-1291): a Budget refused the branch a Gate wanted.
     "budget_refused",
+    # C10: a Router selected no candidate and had no default.
+    "no_selection",
     # A rule of the combine step left an answered member out (E4b part 2): no signal, no weight.
     "no_signal",
     "no_weight",

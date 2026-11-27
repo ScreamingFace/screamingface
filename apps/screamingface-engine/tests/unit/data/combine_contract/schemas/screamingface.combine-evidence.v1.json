@@ -47,7 +47,8 @@
                 "output_missing",
                 "gate_not_met",
                 "in_band",
-                "budget_refused"
+                "budget_refused",
+                "no_selection"
               ],
               "type": "string"
             },
@@ -444,7 +445,8 @@
                 "output_missing",
                 "gate_not_met",
                 "in_band",
-                "budget_refused"
+                "budget_refused",
+                "no_selection"
               ],
               "type": "string"
             },

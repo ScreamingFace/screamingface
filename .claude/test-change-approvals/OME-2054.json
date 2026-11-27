@@ -1,0 +1,58 @@
+{
+  "issue": "OME-2054",
+  "branch": "OME-2054-router-no-selection-readers",
+  "approver": "Dmitry Stebukov (owner)",
+  "date": "2026-11-27",
+  "scope": "C10 lockstep reader transition only: add no_selection to the two pinned answer reason schemas; add the word to six exact Engine and four exact Client SDK prior-test files through 13 additive assertion transitions. The edits only extend exact word lists or counts, or exclude the Router-only reason from legacy writer-coverage sets. No assertion is removed or weakened, both schema IDs stay unchanged, and no other prior test or fixture changes.",
+  "reason": "Approved in chat on 2026-11-27 for the C10 reader-first compatibility change under OME-1306. Engine and Client SDK must accept the same abstain/no_selection bytes before any writer exists, while Gate, Band, Pick, Budget and NoVotes keep their legacy output behavior. The base and approved blobs below were independently verified against the reviewed candidate and current main.",
+  "files": {
+    "apps/screamingface-engine/tests/unit/data/combine_contract/schemas/screamingface.combine-evidence.v1.json": {
+      "base_blob": "db067f2be462652c44a3d4212340fa0d21608158",
+      "approved_blob": "eae9ebf5fab150167f37b2cf128b5d10c5426a77"
+    },
+    "apps/screamingface-engine/tests/unit/test_combine_band.py": {
+      "base_blob": "2a79e58a72c011b51efc6702da631448ce5dcd94",
+      "approved_blob": "1a47847dee0a0a758b9de191367e653aa986b6cf"
+    },
+    "apps/screamingface-engine/tests/unit/test_combine_evidence_contract_fixture.py": {
+      "base_blob": "d9df5ec0a67a119815ad597135b0b0d4c92f05b3",
+      "approved_blob": "9e6b55293c430948549abd2f53bfe0989f822397"
+    },
+    "apps/screamingface-engine/tests/unit/test_combine_evidence_words.py": {
+      "base_blob": "059dc827432f5fde8f0ae8c7e1c864f7fe1909e1",
+      "approved_blob": "814a5454f3537ed1cc4f9a53010ebe1bda855a1c"
+    },
+    "apps/screamingface-engine/tests/unit/test_combine_gate_words.py": {
+      "base_blob": "561939bc784df3d00466feb37d5d6189b7fc75ec",
+      "approved_blob": "a622df08ff1e63a8bfb4302e5b4779847335e6f8"
+    },
+    "apps/screamingface-engine/tests/unit/test_combine_pick_output.py": {
+      "base_blob": "e8ecd83c4a8f334fad7b5325f77254767cbc9d92",
+      "approved_blob": "2cbb326ebc51146054c72b9409c07345ae0990ba"
+    },
+    "apps/screamingface-engine/tests/unit/test_e4c_decision_cases.py": {
+      "base_blob": "cfab822320ca0a140c79a93c80d12feb12af0a07",
+      "approved_blob": "ec011232f83313ec7d2ea81d975169a56c4cb4bc"
+    },
+    "packages/screamingface/tests/data/schemas/screamingface.answer.v1.json": {
+      "base_blob": "f2275ecb6cb7a3174f14d7cb728d24f44ce31102",
+      "approved_blob": "5f2ea30fc7d290822b1b621c31923581e0f7593f"
+    },
+    "packages/screamingface/tests/test_band_words.py": {
+      "base_blob": "e82b4fa46ffe9f62cfe4221532efb8a59b6074c5",
+      "approved_blob": "6021e90eff6a8b66685c1d78d5c18d28d24fd2f5"
+    },
+    "packages/screamingface/tests/test_evidence_words.py": {
+      "base_blob": "01d9ea3400a7415e4747b3f8876d0fded2f1ffe7",
+      "approved_blob": "ec2c6e71f07d57f66d2daab6914be40f7ab5da31"
+    },
+    "packages/screamingface/tests/test_gate_words.py": {
+      "base_blob": "fe473507796a4ec18ce239f1a1fcd642d057cc97",
+      "approved_blob": "430d5361ec96dbad7e58c8665348c02067785eb4"
+    },
+    "packages/screamingface/tests/test_pick_output.py": {
+      "base_blob": "49408f2520950463f91a5823d0d942956e1087ec",
+      "approved_blob": "011a8372c30249608ab62dfaa4e857a4fbe5a0a8"
+    }
+  }
+}

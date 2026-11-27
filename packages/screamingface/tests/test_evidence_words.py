@@ -370,7 +370,8 @@ def test_sdk_record_words_equal_the_evidence_schema_enums() -> None:
     assert sorted(_words(record["properties"]["status"])) == sorted(MEMBER_STATUSES)
     assert sorted(MEMBER_STATUSES) == ["answered", "excluded", "fail"]
     assert set(_words(record["properties"]["reason"])) == ANSWER_REASONS
-    assert len(ANSWER_REASONS) == 16  # E4c (OME-1291, budget #6, owner-approved edit)
+    # C10 (Router no_selection reader, owner-approved edit): 16 -> 17
+    assert len(ANSWER_REASONS) == 17  # E4c (OME-1291, budget #6, owner-approved edit)
     assert _words(pinned["$defs"]["CutRecord"]["properties"]["order"]) == sorted(SIGNAL_ORDERS)
     assert sorted(SIGNAL_ORDERS) == ["max", "min"]
     assert ANSWER_STATUSES == {"answered", "abstain", "fail", "excluded"}
@@ -458,11 +459,13 @@ def test_answer_v1_and_evidence_v1_snapshots_match() -> None:
 
     assert pinned == {
         # E4c (OME-1291, budget #6, owner-approved edit): + budget_refused
+        # C10 (Router no_selection reader, owner-approved edit): + no_selection
         "abstain_reason": [
             "budget_refused",
             "cut_not_met",
             "gate_not_met",
             "in_band",
+            "no_selection",
             "no_votes",
             "output_missing",
         ],
@@ -477,6 +480,7 @@ def test_answer_v1_and_evidence_v1_snapshots_match() -> None:
             "in_band",
             "missing",
             "no_match",
+            "no_selection",
             "no_signal",
             "no_votes",
             "no_weight",

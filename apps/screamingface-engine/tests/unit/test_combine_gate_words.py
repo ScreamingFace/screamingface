@@ -774,12 +774,19 @@ def test_gate_not_met_is_an_abstain_word_on_both_sides() -> None:
         "gate_not_met",
         "in_band",
         "budget_refused",
+        "no_selection",  # C10 (Router no_selection reader, owner-approved edit)
     )
 
     assert get_args(AbstainReason) == words
     assert ABSTAIN_REASONS == words
     # E4c (OME-1291, budget #6, owner-approved edit)
-    assert get_args(AnswerReason)[-3:] == ("gate_not_met", "in_band", "budget_refused")
+    # C10 (Router no_selection reader, owner-approved edit): + no_selection
+    assert get_args(AnswerReason)[-4:] == (
+        "gate_not_met",
+        "in_band",
+        "budget_refused",
+        "no_selection",
+    )
     assert NoVotes(reason="gate_not_met").reason == "gate_not_met"
     result = ResultRecord(member_id=None, value=None, status="abstain", reason="gate_not_met")
     assert result.reason == "gate_not_met"
