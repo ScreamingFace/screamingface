@@ -7728,9 +7728,10 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="hle",
-        # OWNER DECISION PENDING (OME-1970): hold vs move — see ledger. Held here while the
-        # owner decides: the Case set changed by one picture (the shrunk 14950 px one, a
-        # Named Deviation in prepare.py), which the revision rule says moves the id.
+        # HELD by named exception (owner, 2026-11-27, OME-1970): the Case set changed by one
+        # picture (the 14950 px one, shrunk to 8000 px, a Named Deviation in prepare.py), which
+        # the revision rule says moves the id. Held because Claude and GPT-pro Candidates
+        # already failed that Case unread, so their old scores can only be low by one Case.
         published_revision="d30effc2a0698079",
         title="Humanity's Last Exam (HLE)",
         description=(
@@ -8353,9 +8354,10 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="hle_diamond",
-        # OWNER DECISION PENDING (OME-1970): hold vs move — see ledger. Held here while the
-        # owner decides: the Case set changed by one picture (the shrunk 14950 px one, a
-        # Named Deviation in prepare.py), which the revision rule says moves the id.
+        # HELD by named exception (owner, 2026-11-27, OME-1970): the Case set changed by one
+        # picture (the 14950 px one, shrunk to 8000 px, a Named Deviation in prepare.py), which
+        # the revision rule says moves the id. Held because Claude and GPT-pro Candidates
+        # already failed that Case unread, so their old scores can only be low by one Case.
         published_revision="9640c5c7e59fc61e",
         title="Humanity's Last Exam: Diamond (HLE-Diamond)",
         description=(

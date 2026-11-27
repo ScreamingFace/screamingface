@@ -12,7 +12,7 @@
     },
     "apps/screamingface-engine/tests/unit/inspect/test_benchmark_fingerprints.py": {
       "base_blob": "25c31d8d3fc59e9672ebc6c3b720abe5fcb750dd",
-      "approved_blob": "b07f43be5a7d3172e27d249e7ce6c44729545494"
+      "approved_blob": "f75c986f7ddcfd8afa3a41ac0475defa3a06c970"
     }
   }
 }

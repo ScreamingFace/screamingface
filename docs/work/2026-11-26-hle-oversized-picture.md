@@ -49,7 +49,7 @@ seal-time picture-side check (a later PR) never refuses HLE. No other Case chang
 ## Acceptance
 
 - Both rows reseal on linux/amd64 with only the one Case changed (old vs new compared by Case id).
-- Published revisions held (`OWNER DECISION PENDING (OME-1970)`), bump lines prepared, not applied.
+- Published revisions held by named exception (owner, 2026-11-27).
 
 ## Outcome (fill at the end — required before COMMIT)
 
@@ -73,14 +73,10 @@ seal-time picture-side check (a later PR) never refuses HLE. No other Case chang
   pyright on the 7 touched Python files clean, pyright also clean extra-less. Not run:
   `run_gates.py` (full gate, CI's job).
 - **Deviations:**
-  - **OWNER DECISION PENDING (OME-1970): hold vs move.** The revision rule says a changed Case
-    set moves the published id; HLE's id was held once before by named exception (OME-1939).
-    This unit HOLDS both ids (`d30effc2a0698079`, `9640c5c7e59fc61e`) until the owner decides.
-    For a move, `just engine benchmark-bump` asks for: `published_revision` →
-    `0c3d712629ad9515` (hle) / `02f3cbc9fce746be` (hle_diamond) on the rows, the same in
-    `test_published_revisions.py` with a comment naming the old id, a CHANGELOG line, a team
-    post, and a re-grade after deploy (`regradable_from` only if the Cases did not change; here
-    one did).
+  - **Published revisions HELD (owner, 2026-11-27).** The revision rule says a changed Case
+    set moves the id; the owner held both (`d30effc2a0698079`, `9640c5c7e59fc61e`) as a second
+    named exception after OME-1939, because Claude and GPT-pro Candidates already failed that
+    one Case unread. Recorded in `docs/adding-an-imported-benchmark.md`.
   - The fix is keyed by inspect_evals' Sample id (`hle_350ce3fb`), the handle capture sees, not
     the Hub row id directly; a test pins `create_stable_id("66f1b940f8bb4425f74e4299",
     prefix="hle") == "hle_350ce3fb"`.
