@@ -10,7 +10,12 @@ import pytest
 from pydantic import ValidationError
 
 from aigateway.config import Settings
-from aigateway.core.blob_upload import base64_length
+from aigateway.core.blob_upload import MAX_BLOB_UPLOAD_BYTES, base64_length
+from aigateway.core.media_store import ENTRY_OVERHEAD_BYTES, SCOPE_OVERHEAD_BYTES
+
+# The smallest legal store: one largest upload's base64 plus one file's and one run's
+# bookkeeping.
+SMALLEST_STORE = base64_length(MAX_BLOB_UPLOAD_BYTES) + ENTRY_OVERHEAD_BYTES + SCOPE_OVERHEAD_BYTES
 
 
 def test_the_defaults_hold_two_largest_files_for_one_run_deadline(
@@ -39,16 +44,16 @@ def test_both_settings_read_the_environment(monkeypatch: pytest.MonkeyPatch) -> 
 def test_a_store_smaller_than_one_largest_file_is_refused(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("AIGW_BLOB_STORE_MAX_BYTES", "19999999")
+    monkeypatch.setenv("AIGW_BLOB_STORE_MAX_BYTES", str(SMALLEST_STORE - 1))
 
     with pytest.raises(ValidationError, match="AIGW_BLOB_STORE_MAX_BYTES"):
         Settings()
 
 
 def test_a_store_of_exactly_one_largest_file_is_accepted(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("AIGW_BLOB_STORE_MAX_BYTES", "20000000")
+    monkeypatch.setenv("AIGW_BLOB_STORE_MAX_BYTES", str(SMALLEST_STORE))
 
-    assert Settings().blob_store_max_bytes == 20_000_000
+    assert Settings().blob_store_max_bytes == SMALLEST_STORE
 
 
 @pytest.mark.parametrize("name", ["AIGW_BLOB_STORE_MAX_BYTES", "AIGW_BLOB_SCOPE_TTL_SECONDS"])
