@@ -9,6 +9,7 @@ from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 from .core.blob_upload import MAX_BLOB_UPLOAD_BYTES, base64_length
+from .core.media_store import ENTRY_OVERHEAD_BYTES, SCOPE_OVERHEAD_BYTES
 
 AuthMode = Literal["jwt", "cloudflare_headers", "disabled"]
 
@@ -207,8 +208,8 @@ class Settings(BaseSettings):
     # (15,000,000 bytes on disk = 20,000,000 of base64). The real value is set with the byte
     # budget (OME-1970 PR 6) from a measurement of a Linux gateway pod's idle memory; the only
     # number so far is ~259 MiB idle on macOS, against a 512 Mi pod limit in prod.
-    # INVARIANT: at least one largest file in base64 (refused below otherwise), or the largest
-    # legal upload could never be stored.
+    # INVARIANT: at least one largest file in base64 plus the store's per-file and per-run
+    # overheads (refused below otherwise), or the largest legal upload could never be stored.
     blob_store_max_bytes: int = Field(
         default=40_000_000, gt=0, validation_alias="AIGW_BLOB_STORE_MAX_BYTES"
     )
@@ -416,12 +417,14 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def _validate_blob_store_fits_one_file(self) -> Settings:
         """Refuse a file store too small to hold the largest file the upload route accepts."""
-        smallest: int = base64_length(MAX_BLOB_UPLOAD_BYTES)
+        smallest: int = (
+            base64_length(MAX_BLOB_UPLOAD_BYTES) + ENTRY_OVERHEAD_BYTES + SCOPE_OVERHEAD_BYTES
+        )
         if self.blob_store_max_bytes < smallest:
             raise ValueError(
                 f"AIGW_BLOB_STORE_MAX_BYTES ({self.blob_store_max_bytes}) is below {smallest}, the "
-                f"base64 size of the largest upload ({MAX_BLOB_UPLOAD_BYTES} bytes); the store "
-                "could never hold such a file"
+                f"base64 size of the largest upload ({MAX_BLOB_UPLOAD_BYTES} bytes) plus the "
+                "store's per-file and per-run overheads; the store could never hold such a file"
             )
         return self
 

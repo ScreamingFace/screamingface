@@ -68,6 +68,14 @@ reference parts.
   `test_gateway_codes_parity.py` 2 passed. ruff check, ruff format and pyright clean on every
   touched file. Mutation check: a file write and a token log line added to the route turned
   the disk and log tests red, then reverted.
+- **Review fix (2026-11-27):** the store's budget counted only each file's base64, so tiny
+  uploads (a 3-byte JPEG is charged 4 bytes) and fresh tokens held about 417 bytes of bookkeeping
+  per file and an uncharged record per scope: about 600,000 tiny uploads would pass the 512 Mi
+  pod limit. Each file is now charged `ENTRY_OVERHEAD_BYTES` (1024) and each live scope
+  `SCOPE_OVERHEAD_BYTES` (1024); a scope is forgotten with its last file, keeping its deadline
+  within one upload. The settings check counts both overheads. New store tests flood 10,000
+  tiny files, with one token and with a fresh token each, and assert the file and scope counts
+  stay bounded; 69 passed in the 5 PR test files, ruff and pyright clean.
 - **Deviations:** (1) The gateway codes are `blob_digest_mismatch`, `blob_too_large` and
   `blob_unsupported_media_type`, not url4's `x.blob_digest_mismatch`: the gateway's code list
   admits only `[a-z][a-z0-9_]*` (`tests/unit/_gateway_error_code_scan.py`), so a dotted code
