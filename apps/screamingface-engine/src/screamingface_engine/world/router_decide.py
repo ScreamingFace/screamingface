@@ -16,25 +16,33 @@ occurrence did not record (`router_provenance`), raises.
 
 from __future__ import annotations
 
+import functools
 import re
 from collections.abc import Mapping
 from typing import Any, TypeGuard
 
+from pydantic import TypeAdapter, ValidationError
+
 from screamingface_engine.benchmarks.failure_classes import benchmark_contract_error
 from screamingface_engine.router_decision import (
     DRAFT_SCHEMA,
-    REVISION_SCHEME,
     RouterDecisionError,
+    RouterDraft,
     parse_router_draft,
 )
-from screamingface_engine.router_vocabulary import RouterPolicy, strict_json
+from screamingface_engine.router_vocabulary import (
+    REVISION_SCHEME,
+    SCORES_CONTRACT,
+    RouterPolicy,
+    ScoreRow,
+    strict_json,
+)
 from screamingface_engine.world.router_evidence import (
     RowFailure,
     bounded_code,
     read_keywords,
     read_llm_reply,
 )
-from screamingface_engine.world.router_keywords import keyword_labels
 from screamingface_engine.world.router_provenance import (
     bound_row,
     first_run,
@@ -44,14 +52,14 @@ from screamingface_engine.world.router_provenance import (
     remember,
 )
 from screamingface_engine.world.router_spec import (
-    SCORES_CONTRACT,
-    AdmittedSpec,
     ChoiceScoring,
     FixedScoring,
     LlmSelector,
     RegexSelector,
+    RouterSpec,
 )
 from screamingface_engine.world.router_steps import (
+    FAILURE_KEYS,
     NOT_RUN,
     Accepted,
     Carried,
@@ -76,8 +84,7 @@ from screamingface_engine.world.routing_policy import (
 
 _DECIDE_KEYS = frozenset({"admit", "evidence"})
 _CLASSIFICATION_KEYS = frozenset({"object", "model", "contract", "scores"})
-_SCORE_KEYS = frozenset({"label", "score"})
-_FAILURE_KEYS = frozenset({"code", "permanent"})
+_SCORE_ROWS = TypeAdapter(list[ScoreRow])
 _CANDIDATE_SLOT = re.compile(r"c(0|[1-9][0-9]*)")
 _OPEN = "[{}]"
 _CLOSED = "[]"
@@ -155,21 +162,25 @@ def decide(call: StepCall) -> str:
     admission = proven_admit(context["admit"], "decide", router)
     evidence = context["evidence"]
     if isinstance(admission, Carried):
-        return remember("decide", router, _carried(router, admission, evidence))
+        return remember("decide", router, *_carried(router, admission, evidence))
     admitted = admission.admitted
     read = _evidence(admission, evidence)
     if read is None:
-        return remember("decide", router, _invalid(router, admitted))
+        return remember("decide", router, *_invalid(router, admitted))
     result = apply_policy(
         _rule(admitted),
         read,
         labels=admitted.definition.labels,
         has_default=admitted.definition.default is not None,
     )
-    return remember("decide", router, _decided(router, admitted, read, result))
+    return remember("decide", router, *_decided(router, admitted, read, result))
 
 
-def _carried(router: str, admission: Carried, evidence: object) -> str:
+_Drafted = tuple[str, RouterDraft]
+"""A draft's text and the typed draft it validated as, recorded together (`remember`)."""
+
+
+def _carried(router: str, admission: Carried, evidence: object) -> _Drafted:
     """The failed draft of an occurrence ADMIT did not accept: nothing ran after it."""
     if evidence not in (NOT_RUN, _CLOSED):
         raise benchmark_contract_error("router decide: an unadmitted occurrence ran a classifier")
@@ -177,7 +188,7 @@ def _carried(router: str, admission: Carried, evidence: object) -> str:
     return _draft(router, None, _FAILED, None, failure)
 
 
-def _rule(admitted: AdmittedSpec) -> PolicyRule:
+def _rule(admitted: RouterSpec) -> PolicyRule:
     policy = admitted.definition.policy
     if not isinstance(policy, RouterPolicy):
         # INVARIANT: a router spec carries a router-policy (`router_spec.RouterSpec`).
@@ -214,7 +225,7 @@ def _selector(admission: Accepted, classifier: LlmSelector | RegexSelector, row:
 def _regex(row: str, classifier: RegexSelector, question: str) -> Evidence:
     """The KEYWORDS labels, when they are the ones KEYWORDS gives the admitted question.
 
-    INVARIANT (C4): KEYWORDS is pure (`router_keywords`), so its row is recomputed rather
+    INVARIANT (C4): KEYWORDS is pure (`keyword_labels`), so its row is recomputed rather
     than trusted; an error row or other labels cannot come from it.
     """
     labels = tuple(rule.label for rule in classifier.rules)
@@ -222,6 +233,40 @@ def _regex(row: str, classifier: RegexSelector, question: str) -> Evidence:
     if found.labels != keyword_labels(classifier, question):
         raise benchmark_contract_error("router decide keywords are not the question's keywords")
     return found
+
+
+KEYWORDS_WINDOW = 65_536
+"""E4c `branch.KEYWORDS_WINDOW`: the characters of the question RE2 reads."""
+
+
+def keyword_labels(selector: RegexSelector, question: str) -> tuple[str, ...]:
+    """The labels E4c KEYWORDS returns for ``question`` under ``selector``'s rules (C2, C4).
+
+    INVARIANT: E4c KEYWORDS exactly (`world/branch.py` `_keywords`): RE2, the first 65,536
+    characters, every rule in declared order, the first match unless ``multi``.
+    WHY no import of `world.branch`: it imports url4, and the Router steps stay off the url4
+    allowlist (`router_steps`); a test pins the window to E4c's.
+    WHY RE2 is imported only here: `extract` imports google-re2, which a process that only reads
+    a world file or runs a non-regex Router may lack (the SDK runtime does).
+    """
+    from screamingface_engine.combine.operators.extract import re2_head
+
+    head = re2_head(question, KEYWORDS_WINDOW)
+    matched = tuple(
+        rule.label
+        for rule in selector.rules
+        if _compiled(rule.pattern, rule.ignore_case).search(head) is not None
+    )
+    return matched if selector.multi else matched[:1]
+
+
+# WHY cached: every Case of a run reads the same rules; each pattern compiles once. The C2
+# reader already compiled each pattern, so this cannot fail for an admitted definition.
+@functools.lru_cache(maxsize=256)
+def _compiled(pattern: str, ignore_case: bool) -> Any:
+    from screamingface_engine.combine.operators.extract import compile_regex
+
+    return compile_regex({"pattern": pattern, "ignore_case": ignore_case})
 
 
 def _one_row(evidence: object) -> str:
@@ -262,28 +307,40 @@ def _json_object(value: object) -> dict[str, Any] | None:
 
 
 def _classification(document: dict[str, Any], model: str) -> bool:
-    """Exactly the classification document of this occurrence's classifier (C7)."""
-    scores = document.get("scores")
+    """Exactly the classification document of this occurrence's classifier (C7).
+
+    INVARIANT: every row is a C5 score row before the policy reads it, so a label or a score the
+    record would refuse is invalid evidence, never an exception out of DECIDE.
+    """
     return (
         set(document) == _CLASSIFICATION_KEYS
         and document["object"] == "classification"
         and document["model"] == model
         and document["contract"] == SCORES_CONTRACT
-        and isinstance(scores, list)
-        and all(isinstance(row, dict) and set(row) == _SCORE_KEYS for row in scores)
+        and _score_rows(document["scores"])
     )
+
+
+def _score_rows(value: object) -> bool:
+    try:
+        _SCORE_ROWS.validate_python(value)
+    except ValidationError:
+        return False
+    return True
 
 
 def _failure_shape(value: object) -> TypeGuard[dict[str, Any]]:
     return (
         isinstance(value, dict)
-        and set(value) == _FAILURE_KEYS
+        and set(value) == FAILURE_KEYS
         and isinstance(value["code"], str)
         and isinstance(value["permanent"], bool)
     )
 
 
-def _decided(router: str, admitted: AdmittedSpec, evidence: Evidence, result: PolicyResult) -> str:
+def _decided(
+    router: str, admitted: RouterSpec, evidence: Evidence, result: PolicyResult
+) -> _Drafted:
     if result.failure is not None:
         failure = result.failure
         document = {"phase": failure.phase, "code": failure.code, "permanent": failure.permanent}
@@ -321,33 +378,36 @@ def _record(evidence: Evidence) -> Mapping[str, object]:
     }
 
 
-def _invalid(router: str, admitted: AdmittedSpec) -> str:
+def _invalid(router: str, admitted: RouterSpec) -> _Drafted:
     failure = {"phase": "decide", "code": ROUTER_EVIDENCE_INVALID, "permanent": True}
     return _draft(router, admitted, _FAILED, None, failure)
 
 
 def _draft(
     router: str,
-    admitted: AdmittedSpec | None,
+    admitted: RouterSpec | None,
     decision: Mapping[str, object],
     evidence: Mapping[str, object] | None,
     failure: Mapping[str, object] | None,
-) -> str:
-    """One draft, validated by the reader OPEN and JOIN use (`parse_router_draft`)."""
+) -> _Drafted:
+    """One draft, validated once by the C5 reader (`parse_router_draft`), and its typed form.
+
+    WHY the policy from the typed spec: a `router-policy` has no defaulted key, so its JSON form
+    is exactly the decoded policy the revision hashed (C3).
+    """
     document: dict[str, object] = {
         "schema": DRAFT_SCHEMA,
         "router": router,
         "revision": None if admitted is None else admitted.revision,
         "revision_scheme": None if admitted is None else REVISION_SCHEME,
-        "policy": None if admitted is None else admitted.definition_json["policy"],
+        "policy": None if admitted is None else admitted.definition.policy.model_dump(mode="json"),
         "evidence": None if evidence is None else dict(evidence),
         **decision,
     }
     if failure is not None:
         document["failure"] = dict(failure)
     text = compact_json(document)
-    parse_router_draft(text)
-    return text
+    return text, parse_router_draft(text)
 
 
-__all__ = ["candidate_slot", "decide", "open_branch"]
+__all__ = ["KEYWORDS_WINDOW", "candidate_slot", "decide", "keyword_labels", "open_branch"]

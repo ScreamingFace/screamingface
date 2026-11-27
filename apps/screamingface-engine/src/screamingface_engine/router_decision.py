@@ -39,6 +39,7 @@ from screamingface_engine.router_vocabulary import (
     Code,
     Evidence,
     Index,
+    Outcome,
     Reason,
     Revision,
     RouterBinding,
@@ -55,9 +56,7 @@ from screamingface_engine.router_vocabulary import (
 
 DRAFT_SCHEMA = "screamingface.router-decision-draft.v1"
 DECISION_SCHEMA = "screamingface.router-decision.v1"
-REVISION_SCHEME = "router-definition-v1"
 
-Outcome = Literal["selected", "default", "no_selection", "failed"]
 DraftPhase = Literal["input", "admit", "classify", "decide"]
 
 _SELECTED_REASONS = frozenset({"unique_max", "exact"})
@@ -384,8 +383,8 @@ def parse_router_draft(text: str) -> RouterDraft:
     Raises:
         RouterDecisionError: the text is not one consistent draft.
     """
-    draft = _read(RouterDraft, text, "router decision draft")
-    if draft.failure is None and "failure" in _decoded(text, "router decision draft"):
+    decoded, draft = _read(RouterDraft, text, "router decision draft")
+    if draft.failure is None and "failure" in decoded:
         # WHY here: `failure: null` and no `failure` key validate alike; the draft has the key
         # only when its outcome failed (C5).
         raise RouterDecisionError(
@@ -400,23 +399,19 @@ def parse_router_decision(text: str) -> RouterDecision:
     Raises:
         RouterDecisionError: the text is not one consistent completed record.
     """
-    return _read(RouterDecision, text, "router decision")
+    return _read(RouterDecision, text, "router decision")[1]
 
 
-def _decoded(text: str, owner: str) -> dict[str, object]:
+def _read[T: BaseModel](kind: type[T], text: str, owner: str) -> tuple[dict[str, object], T]:
+    """The strict JSON object ``text`` decodes to, and ``text`` validated as ``kind``."""
     try:
         decoded = strict_json(text)
     except ValueError as exc:
         raise RouterDecisionError(f"{owner} is not strict JSON") from exc
     if not isinstance(decoded, dict):
         raise RouterDecisionError(f"{owner} is a JSON object")
-    return decoded
-
-
-def _read[T: BaseModel](kind: type[T], text: str, owner: str) -> T:
-    _decoded(text, owner)
     try:
-        return kind.model_validate_json(text)
+        return decoded, kind.model_validate_json(text)
     except ValidationError as exc:
         raise RouterDecisionError(f"{owner} is invalid at {field_rule(exc)}") from None
 

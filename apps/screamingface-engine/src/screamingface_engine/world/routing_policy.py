@@ -18,10 +18,17 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Literal
 
-# WHY from the C5 codec: the policy's outcome, reason and parse words are the ones the record
-# carries, so one vocabulary keeps a decision and its record from drifting apart.
-from screamingface_engine.router_decision import Outcome, Reason
-from screamingface_engine.router_vocabulary import Parse, best_reason, exact_reason
+# WHY the shared vocabulary and not the C5 codec: the policy's outcome, reason and parse words
+# are the ones the record carries, so one vocabulary keeps a decision and its record from drifting
+# apart, and the policy never depends on how a record is read.
+from screamingface_engine.router_vocabulary import (
+    Outcome,
+    Parse,
+    Reason,
+    best_reason,
+    exact_reason,
+    selector_rule,
+)
 
 ROUTER_EVIDENCE_INVALID = "router_evidence_invalid"
 ROUTING_AMBIGUOUS = "routing_ambiguous"
@@ -169,20 +176,8 @@ def _complete(scores: Sequence[tuple[str, float]], labels: Sequence[str]) -> boo
 
 def _consistent(evidence: SelectorEvidence, labels: Sequence[str]) -> bool:
     """The selector evidence is one its source can produce, and names only candidates."""
-
-    recognized, unknown, parse = evidence.labels, evidence.unknown, evidence.parse
-    allowed: tuple[Parse, ...] = (
-        ("ok", "no_match") if evidence.source == "regex" else ("ok", "unrecognized", "unparsed")
-    )
-    return (
-        parse in allowed
-        and len(set(recognized)) == len(recognized)
-        and all(label in labels for label in recognized)
-        and (parse != "ok" or (bool(recognized) and not unknown))
-        and (parse != "unrecognized" or bool(unknown))
-        and (parse != "no_match" or not recognized)
-        and (evidence.source == "llm" or not unknown)
-    )
+    rule = selector_rule(evidence.source, evidence.labels, evidence.unknown, evidence.parse)
+    return rule is None and all(label in labels for label in evidence.labels)
 
 
 def _fallback(reason: Reason, unknown: tuple[str, ...], has_default: bool) -> PolicyResult:

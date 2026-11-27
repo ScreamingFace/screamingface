@@ -33,7 +33,7 @@ from screamingface_engine.operation_provenance import (
     recorded_step,
 )
 from screamingface_engine.world import branch
-from screamingface_engine.world.router_keywords import KEYWORDS_WINDOW
+from screamingface_engine.world.router_decide import KEYWORDS_WINDOW
 from screamingface_engine.world.router_provenance import url4_row
 
 # --- step documents -------------------------------------------------------------------------------

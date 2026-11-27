@@ -17,13 +17,10 @@ import hashlib
 import json
 import re
 from collections.abc import Callable
-from dataclasses import dataclass
 from typing import Annotated, Any, Literal
 
 from pydantic import (
     AfterValidator,
-    BaseModel,
-    ConfigDict,
     Discriminator,
     Field,
     Tag,
@@ -34,15 +31,18 @@ from pydantic import (
 from screamingface_engine.combine.ports import CombineError, utf8_exceeds
 from screamingface_engine.router_vocabulary import (
     MAX_LABEL_BYTES,
+    REVISION_SCHEME,
+    SCORES_CONTRACT,
     Label,
+    Revision,
+    RouterBinding,
     RouterPolicy,
+    StrictModel,
     strict_json,
 )
 from screamingface_engine.router_vocabulary import field_rule as masked_field_rule
 
 ROUTER_SPEC_SCHEMA = "screamingface.router-spec.v1"
-REVISION_SCHEME = "router-definition-v1"
-SCORES_CONTRACT = "classification-scores-v1"
 DEFINITION_INVALID = "router_definition_invalid"
 ROUTER_UNSUPPORTED = "router_unsupported"
 
@@ -54,8 +54,6 @@ MAX_DESCRIPTION_CHARS = 1024
 MAX_INSTRUCTIONS_CHARS = 4096
 MAX_RULE_PATTERN_CHARS = 256
 
-_REVISION = re.compile(r"sha256:[0-9a-f]{64}")
-_ROUTER = re.compile(r"router_[1-9][0-9]*")
 _SELECTOR = re.compile(r"selector_[1-9][0-9]*")
 _MODEL = re.compile(r"model_[1-9][0-9]*")
 _SYNTHESIS = re.compile(r"synthesis_[1-9][0-9]*")
@@ -97,26 +95,15 @@ def _binding(pattern: re.Pattern[str], name: str) -> Callable[[str], str]:
     return check
 
 
-def _revision_text(value: str) -> str:
-    if _REVISION.fullmatch(value) is None:
-        raise ValueError("a revision is sha256:<64 hex>")
-    return value
-
-
 Description = Annotated[str, Field(min_length=1, max_length=MAX_DESCRIPTION_CHARS)]
 Instructions = Annotated[str, Field(min_length=1, max_length=MAX_INSTRUCTIONS_CHARS)]
 RouteId = Annotated[str, Field(min_length=1)]
-RouterBinding = Annotated[str, AfterValidator(_binding(_ROUTER, "router"))]
 SelectorBinding = Annotated[str, AfterValidator(_binding(_SELECTOR, "selector"))]
 ModelBinding = Annotated[str, AfterValidator(_binding(_MODEL, "model"))]
 SynthesisBinding = Annotated[str, AfterValidator(_binding(_SYNTHESIS, "synthesis"))]
 
 
-class _Strict(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True, frozen=True, allow_inf_nan=False)
-
-
-class ModelRef(_Strict):
+class ModelRef(StrictModel):
     """C2 ``Model``: the canonical Model ID, its prompt and exactly the call's parameters."""
 
     model: RouteId
@@ -124,14 +111,14 @@ class ModelRef(_Strict):
     params: dict[str, str]
 
 
-class FixedScoring(_Strict):
+class FixedScoring(StrictModel):
     source: Literal["scoring"]
     model: RouteId
     contract: Literal["classification-scores-v1"]
     input: Literal["text"]
 
 
-class ChoiceScoring(_Strict):
+class ChoiceScoring(StrictModel):
     source: Literal["scoring"]
     model: RouteId
     contract: Literal["classification-scores-v1"]
@@ -139,7 +126,7 @@ class ChoiceScoring(_Strict):
     instructions: Instructions
 
 
-class LlmSelector(_Strict):
+class LlmSelector(StrictModel):
     source: Literal["llm"]
     model: ModelRef
     labels: tuple[Label, ...] = Field(min_length=1, max_length=MAX_CANDIDATES)
@@ -147,7 +134,7 @@ class LlmSelector(_Strict):
     multi: bool
 
 
-class RegexRule(_Strict):
+class RegexRule(StrictModel):
     """One rule as ``RegexClassifier._spec()["rules"]`` writes it (the E4c Keywords rule)."""
 
     label: Label
@@ -169,7 +156,7 @@ class RegexRule(_Strict):
         return self
 
 
-class RegexSelector(_Strict):
+class RegexSelector(StrictModel):
     source: Literal["regex"]
     rules: tuple[RegexRule, ...] = Field(min_length=1, max_length=MAX_CANDIDATES)
     multi: bool
@@ -193,12 +180,12 @@ Classifier = Annotated[
 ]
 
 
-class PlainCandidate(_Strict):
+class PlainCandidate(StrictModel):
     label: Label
     model: ModelRef
 
 
-class DescribedCandidate(_Strict):
+class DescribedCandidate(StrictModel):
     label: Label
     model: ModelRef
     description: Description
@@ -216,26 +203,26 @@ Candidate = Annotated[
 ]
 
 
-class UniqueArgmax(_Strict):
+class UniqueArgmax(StrictModel):
     type: Literal["unique-argmax-v1"]
 
 
 Policy = Annotated[RouterPolicy | UniqueArgmax, Field(discriminator="type")]
 
 
-class ModelSynthesizer(_Strict):
+class ModelSynthesizer(StrictModel):
     kind: Literal["model"]
     model: ModelRef
 
 
-class PinnedStep(_Strict):
+class PinnedStep(StrictModel):
     """A combine-spec pinned step: the operator id and its arguments."""
 
     op: Annotated[str, Field(min_length=1)]
     args: dict[str, Any]
 
 
-class VoteSynthesizer(_Strict):
+class VoteSynthesizer(StrictModel):
     kind: Literal["vote"]
     extract: PinnedStep | None
     normalize: PinnedStep | None
@@ -244,7 +231,7 @@ class VoteSynthesizer(_Strict):
 Synthesizer = Annotated[ModelSynthesizer | VoteSynthesizer, Field(discriminator="kind")]
 
 
-class Definition(_Strict):
+class Definition(StrictModel):
     """C2 ``D``: everything that enters the revision."""
 
     classifier: Classifier
@@ -304,7 +291,7 @@ class Definition(_Strict):
             raise ValueError("quorum is all or 1..the candidate count")
 
 
-class Calls(_Strict):
+class Calls(StrictModel):
     """The compiler binding each role's model call carries; not part of the revision."""
 
     classifier: SelectorBinding | None
@@ -317,12 +304,12 @@ class Calls(_Strict):
         return tuple(binding for binding in roles if binding is not None)
 
 
-class RouterSpec(_Strict):
+class RouterSpec(StrictModel):
     """The validated ``router-spec.v1`` envelope."""
 
     schema_id: Literal["screamingface.router-spec.v1"] = Field(alias="schema")
     router: RouterBinding
-    revision: Annotated[str, AfterValidator(_revision_text)]
+    revision: Revision
     revision_scheme: Literal["router-definition-v1"]
     calls: Calls
     definition: Definition
@@ -347,32 +334,11 @@ class RouterSpec(_Strict):
         return self
 
 
-@dataclass(frozen=True, slots=True)
-class AdmittedSpec:
-    """A validated envelope plus the decoded definition value its revision hashes."""
-
-    spec: RouterSpec
-    definition_json: dict[str, Any]
-
-    @property
-    def router(self) -> str:
-        return self.spec.router
-
-    @property
-    def revision(self) -> str:
-        return self.spec.revision
-
-    @property
-    def calls(self) -> Calls:
-        return self.spec.calls
-
-    @property
-    def definition(self) -> Definition:
-        return self.spec.definition
-
-
-def parse_router_spec(text: str) -> AdmittedSpec:
+def parse_router_spec(text: str) -> RouterSpec:
     """Validate one ``router-spec.v1`` envelope (C2) and recompute its revision (C3).
+
+    INVARIANT: the decoded definition is read once, here, for its revision, and never kept: the
+    typed spec is the one form every later reader uses (ADMIT records it for the later steps).
 
     Raises:
         RouterSpecError: ``router_definition_invalid``; the message names a field and a rule.
@@ -392,7 +358,7 @@ def parse_router_spec(text: str) -> AdmittedSpec:
         raise RouterSpecError(f"router spec is invalid at {field_rule(exc)}") from None
     if definition_revision(raw["definition"]) != spec.revision:
         raise RouterSpecError("router spec revision does not recompute from its definition")
-    return AdmittedSpec(spec=spec, definition_json=raw["definition"])
+    return spec
 
 
 def field_rule(exc: ValidationError) -> str:
@@ -412,7 +378,6 @@ __all__ = [
     "ROUTER_SPEC_SCHEMA",
     "ROUTER_UNSUPPORTED",
     "SCORES_CONTRACT",
-    "AdmittedSpec",
     "Calls",
     "ChoiceScoring",
     "DescribedCandidate",

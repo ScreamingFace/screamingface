@@ -19,7 +19,8 @@ from __future__ import annotations
 import contextvars
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 from screamingface_engine.combine.decision import GateDecision
 from screamingface_engine.combine.evidence import CombineEvidence, GateRecord, PendingCombine
@@ -32,11 +33,16 @@ from screamingface_engine.operation_provenance import (
     AttemptFact,
     current_attempt_facts,
     latest_attempt_fact,
+    live_scopes,
     open_provenance,
     record_attempt_fact,
 )
 from screamingface_engine.request_identity import ModelRequestKey, model_request_key
-from screamingface_engine.router_decision import RouterDecision
+
+if TYPE_CHECKING:
+    # WHY a type only: this leaf carries the completed Router record JOIN hands it and never
+    # reads one, so importing it never loads the C5 codec.
+    from screamingface_engine.router_decision import RouterDecision
 
 
 @dataclass(frozen=True, slots=True)
@@ -120,7 +126,14 @@ class _OperationCallIdentity:
 type OperationCallRecorder = list[OperationCall]
 type RequestAccountingRecorder = list[RequestAccounting]
 
-_recorders: contextvars.ContextVar[tuple[OperationCallRecorder, ...]] = contextvars.ContextVar(
+
+@dataclass(slots=True)
+class _CallScope:
+    calls: OperationCallRecorder = field(default_factory=list[OperationCall])
+    ended: bool = False
+
+
+_recorders: contextvars.ContextVar[tuple[_CallScope, ...]] = contextvars.ContextVar(
     "screamingface_engine_operation_call_recorders", default=()
 )
 _identity: contextvars.ContextVar[_OperationCallIdentity | None] = contextvars.ContextVar(
@@ -133,16 +146,20 @@ _accounting_recorders: contextvars.ContextVar[tuple[RequestAccountingRecorder, .
 
 @contextmanager
 def capture_operation_calls(*, isolated: bool = False) -> Iterator[OperationCallRecorder]:
-    """Capture terminal calls in this scope; nesting mirrors `capture_model_outcomes`."""
+    """Capture terminal calls in this scope; nesting mirrors `capture_model_outcomes`.
 
-    recorder: OperationCallRecorder = []
+    INVARIANT (C4, C8): the recorder and the provenance channel end with this scope; a task that
+    outlives it reads and publishes no call there or in any enclosing scope (`live_scopes`).
+    """
+
+    scope = _CallScope()
     active = () if isolated else _recorders.get()
-    token = _recorders.set((*active, recorder))
+    token = _recorders.set((*active, scope))
     try:
-        # INVARIANT (C4, C8): the provenance channel opens and closes with this scope.
         with open_provenance(isolated=isolated):
-            yield recorder
+            yield scope.calls
     finally:
+        scope.ended = True
         _recorders.reset(token)
 
 
@@ -221,7 +238,7 @@ def record_operation_call(
     # WHY two record shapes: Candidate projection needs the terminal output, while the run-wide
     # grading join must remain payload-free. One publication point feeds each active scope without
     # retaining prompts or judge outputs for the lifetime of the run.
-    if _recorders.get():
+    if _live():
         call = OperationCall(
             path=identity.path,
             params=identity.params,
@@ -250,7 +267,7 @@ def _publish_internal(
 ) -> None:
     """Publish one call with no provider accounting, and the fields that set its kind."""
 
-    if not _recorders.get():
+    if not _live():
         return
     _publish(
         OperationCall(
@@ -336,8 +353,12 @@ def provider_calls_by_fingerprint(
     return index
 
 
+def _live() -> tuple[OperationCallRecorder, ...]:
+    return tuple(scope.calls for scope in live_scopes(_recorders.get()))
+
+
 def _publish(call: OperationCall) -> None:
-    for recorder in _recorders.get():
+    for recorder in _live():
         recorder.append(call)
 
 
@@ -357,7 +378,7 @@ def current_request_accounting() -> RequestAccountingRecorder | None:
 def current_operation_calls() -> tuple[OperationCall, ...] | None:
     """A snapshot of the INNERMOST active capture scope's calls, or None outside every scope."""
 
-    active = _recorders.get()
+    active = _live()
     return tuple(active[-1]) if active else None
 
 
@@ -367,7 +388,7 @@ def latest_operation_call(predicate: Callable[[OperationCall], bool]) -> Operati
     WHY no snapshot: the search reads the recorder in place and copies no call list.
     """
 
-    active = _recorders.get()
+    active = _live()
     if not active:
         return None
     return next((call for call in reversed(active[-1]) if predicate(call)), None)

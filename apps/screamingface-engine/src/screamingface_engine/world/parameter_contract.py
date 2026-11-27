@@ -34,6 +34,12 @@ _PROVIDER_ADMITS = frozenset({"supported", "conditional", "unknown"})
 INVARIANT: as the SDK's stage 3, only ``unsupported`` refuses among the published values; a value
 outside the vocabulary, or not a string, is unreadable evidence and misfits.
 """
+_SCHEMA_KEYS = frozenset({"type", "minimum", "maximum", "enum", "items", "pattern", "maxLength"})
+"""The keys the Gateway renders (`ParameterSchema.to_json_schema`); an item schema renders `type`.
+
+INVARIANT: any other key is unreadable. The Gateway forbids it and the SDK would skip it, so an
+unknown constraint (`exclusiveMaximum`, an item `maxLength`) would read as absent protection.
+"""
 
 
 def value_fits(rule: object, value: object) -> bool:
@@ -58,7 +64,7 @@ def _support_admits(support: object) -> bool:
 
 def _schema_fits(schema: dict[str, Any], value: object) -> bool:
     kinds = _kinds(schema.get("type"))
-    if not kinds or not _constraints_readable(schema):
+    if not kinds or not _constraints_readable(schema, kinds):
         return False
     return (
         any(_TYPES[kind](value) for kind in kinds)
@@ -70,44 +76,94 @@ def _schema_fits(schema: dict[str, Any], value: object) -> bool:
     )
 
 
-def _kinds(declared: object, *, list_ok: bool = True) -> tuple[str, ...]:
-    """The schema's type names, or none when any is not a known name.
-
-    WHY ``list_ok``: an item schema names one type, as the Gateway publishes it.
-    """
-    declared_kinds = declared if list_ok and isinstance(declared, list) else [declared]
+def _kinds(declared: object) -> tuple[str, ...]:
+    """The schema's type names, or none when any is not a known name or a name repeats."""
+    declared_kinds = declared if isinstance(declared, list) else [declared]
     known = tuple(kind for kind in declared_kinds if isinstance(kind, str) and kind in _TYPES)
-    return known if known and len(known) == len(declared_kinds) else ()
+    return known if known and len(known) == len(declared_kinds) == len(set(known)) else ()
 
 
-def _constraints_readable(schema: dict[str, Any]) -> bool:
+def _constraints_readable(schema: dict[str, Any], kinds: tuple[str, ...]) -> bool:
+    """Whether every constraint lies where the Gateway publishes and the SDK decodes alike.
+
+    INVARIANT: as the Gateway and the SDK, `pattern` and `maxLength` stand only on a top-level
+    type list holding ``string``; on any other they could never fire and would read as absent
+    protection, so the row is unreadable.
+    WHY the stricter reader wins where they differ (an unknown key, a repeated type name,
+    inverted bounds, a blank, padded or repeated enum member): a row either refuses never leads
+    to a paid call here.
+    """
     low, high, length = schema.get("minimum"), schema.get("maximum"), schema.get("maxLength")
     pattern, enum, items = schema.get("pattern"), schema.get("enum"), schema.get("items")
+    floor, ceiling = _bound(low), _bound(high)
     return (
-        (low is None or _number(low))
-        and (high is None or _number(high))
+        schema.keys() <= _SCHEMA_KEYS
+        and (low is None or floor is not None)
+        and (high is None or ceiling is not None)
+        and (floor is None or ceiling is None or floor <= ceiling)
+        and ((length is None and pattern is None) or "string" in kinds)
         and (length is None or (_TYPES["integer"](length) and length >= 1))
-        and (pattern is None or _compiles(pattern))
-        and (enum is None or isinstance(enum, list))
-        and (
-            items is None
-            or (isinstance(items, dict) and bool(_kinds(items.get("type"), list_ok=False)))
-        )
+        and (pattern is None or _pattern_readable(pattern))
+        and (enum is None or _enum_readable(enum))
+        and (items is None or _items_readable(items))
     )
 
 
-def _compiles(pattern: object) -> bool:
-    if not isinstance(pattern, str):
+def _items_readable(items: object) -> bool:
+    """An item schema of ``type`` alone, naming one type but ``array``: the readers' item rule."""
+    if not (isinstance(items, dict) and items.keys() == {"type"}):
+        return False
+    declared = items["type"]
+    return isinstance(declared, str) and declared in _TYPES and declared != "array"
+
+
+def _enum_readable(enum: object) -> bool:
+    """Distinct non-blank strings without surrounding blanks.
+
+    WHY strings only: ``True == 1`` in Python, so a number or a boolean member would let a value
+    of another type pass. WHY unpadded: the SDK strips a member and the Gateway does not, so a
+    padded member names a different value to each.
+    """
+    return (
+        isinstance(enum, list)
+        and all(isinstance(member, str) and member == member.strip() != "" for member in enum)
+        and len(set(enum)) == len(enum)
+    )
+
+
+def _pattern_readable(pattern: object) -> bool:
+    """A string anchored with ``^`` and ``$`` that compiles.
+
+    WHY anchored although `_string_fits` full-matches: the Gateway publishes the pattern and
+    refuses an unanchored one, which a JSON Schema reader would match partially.
+    WHY the wider catch: the compiler recurses once per nesting level and raises `OverflowError`
+    for a repetition count past its limit; such a pattern is unreadable, never an exception out
+    of ADMIT.
+    """
+    if not (isinstance(pattern, str) and pattern.startswith("^") and pattern.endswith("$")):
         return False
     try:
         re.compile(pattern)
-    except re.error:
+    except (re.error, RecursionError, OverflowError):
         return False
     return True
 
 
-def _number(value: object) -> bool:
-    return isinstance(value, int | float) and not isinstance(value, bool) and math.isfinite(value)
+def _bound(value: object) -> float | None:
+    """A bound as the Gateway stores it and the SDK reads it, a finite float; none if unreadable.
+
+    WHY the float: both convert a bound to a float and compare the sent value with that float,
+    so a bound no float holds exactly (``2**53 + 1``) bounds at its nearest float there, and here.
+    WHY the catch: JSON carries an integer of any size; one past every float is unreadable here,
+    never an `OverflowError` out of ADMIT.
+    """
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return None
+    try:
+        bound = float(value)
+    except OverflowError:
+        return None
+    return bound if math.isfinite(bound) else None
 
 
 def _finite(value: object) -> bool:
@@ -115,12 +171,11 @@ def _finite(value: object) -> bool:
 
 
 def _in_bounds(value: object, low: object, high: object) -> bool:
-    """Whether a number is within the bounds; `_constraints_readable` admitted each as a number."""
+    """Whether a number meets each bound as the float both readers compare it with."""
     if isinstance(value, bool) or not isinstance(value, int | float):
         return True
-    return (not isinstance(low, int | float) or low <= value) and (
-        not isinstance(high, int | float) or value <= high
-    )
+    floor, ceiling = _bound(low), _bound(high)
+    return (floor is None or floor <= value) and (ceiling is None or value <= ceiling)
 
 
 def _string_fits(value: object, length: object, pattern: object) -> bool:

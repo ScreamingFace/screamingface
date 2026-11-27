@@ -42,7 +42,6 @@ from screamingface_engine.world.router_provenance import first_run, proven_admit
 from screamingface_engine.world.router_spec import (
     DEFINITION_INVALID,
     ROUTER_UNSUPPORTED,
-    AdmittedSpec,
     ChoiceScoring,
     Definition,
     DescribedCandidate,
@@ -50,12 +49,14 @@ from screamingface_engine.world.router_spec import (
     LlmSelector,
     ModelRef,
     ModelSynthesizer,
+    RouterSpec,
     RouterSpecError,
     parse_router_spec,
 )
 from screamingface_engine.world.router_steps import (
     NOT_RUN,
     ROUTER_CLASSIFY_ROUTE,
+    Accepted,
     Carried,
     StepCall,
     accepted_document,
@@ -148,18 +149,22 @@ async def admit(ports: RouterPorts, call: StepCall, files: Callable[[], Awaitabl
     question = read_input(call.context)
     if isinstance(question, Carried):
         # INVARIANT (C4): an input failure takes precedence and reads nothing.
-        return remember("admit", router, failed_document(question.code, question.permanent))
+        failed = failed_document(question.code, question.permanent)
+        return remember("admit", router, failed, question)
     try:
-        await _checked(ports, _admitted(call.intent, router), question)
+        admitted = _admitted(call.intent, router)
+        await _checked(ports, admitted, question)
     except _Refused as refusal:
-        return remember("admit", router, refused_document(refusal.code, refusal.permanent))
+        refused = refused_document(refusal.code, refusal.permanent)
+        return remember("admit", router, refused, Carried("admit", refusal.code, refusal.permanent))
     # WHY after the preflight: the scoring CLASSIFY, the selector and every branch depend on this
     # document, so none reaches a provider before the run's files are admitted.
     await files()
-    return remember("admit", router, accepted_document(question, strict_json(call.intent)))
+    accepted = accepted_document(question, strict_json(call.intent))
+    return remember("admit", router, accepted, Accepted(question, admitted))
 
 
-def _admitted(intent: str, router: str) -> AdmittedSpec:
+def _admitted(intent: str, router: str) -> RouterSpec:
     """The validated envelope of this occurrence, or a refusal before any read."""
     if current_operation_calls() is None:
         # INVARIANT (C4): a Router never runs model I/O where its record would be lost.
@@ -177,7 +182,7 @@ def _admitted(intent: str, router: str) -> AdmittedSpec:
     return admitted
 
 
-async def _checked(ports: RouterPorts, admitted: AdmittedSpec, question: str) -> None:
+async def _checked(ports: RouterPorts, admitted: RouterSpec, question: str) -> None:
     definition = admitted.definition
     scope = current_scope()
     scoring = isinstance(definition.classifier, FixedScoring | ChoiceScoring)

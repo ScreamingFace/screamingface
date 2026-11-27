@@ -4,7 +4,7 @@ FEATURE: Router Recipe extension. A process that reads a world file through `wor
 SDK runtime CLI does, before it starts an Engine) may run without the Engine's `google-re2`
 dependency, so reading a world file, its routing profiles included, and reading or running a
 fixed, scoring or llm Router never import RE2. Only a regex selector loads it: the C2 reader
-compiles each rule pattern and DECIDE recomputes KEYWORDS (`router_keywords`).
+compiles each rule pattern and DECIDE recomputes KEYWORDS (`router_decide`).
 
 INVARIANT: without RE2 a regex selector is never admitted. ADMIT fails before any read, provider
 call or C5 record, and the failure is the missing module, never a refusal of the definition.
@@ -38,7 +38,7 @@ from screamingface_engine.job_env import RUNNER_CONFIG
 from screamingface_engine.operation_calls import OperationCall, capture_operation_calls
 from screamingface_engine.request_scope import request_scope
 from screamingface_engine.world.config import load_config
-from screamingface_engine.world.router_keywords import KEYWORDS_WINDOW, keyword_labels
+from screamingface_engine.world.router_decide import KEYWORDS_WINDOW, keyword_labels
 from screamingface_engine.world.router_spec import RegexSelector, RouterSpecError, parse_router_spec
 from url4.dag import run as url4_run
 

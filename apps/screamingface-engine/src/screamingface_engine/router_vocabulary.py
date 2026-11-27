@@ -30,6 +30,7 @@ from pydantic import (
 from screamingface_engine.combine.ports import utf8_exceeds
 
 SCORES_CONTRACT = "classification-scores-v1"
+REVISION_SCHEME = "router-definition-v1"
 MAX_LABEL_BYTES = 64
 MAX_UNKNOWN_CHARS = 64
 MAX_UNKNOWN_LABELS = 32
@@ -38,7 +39,8 @@ Parse = Literal["ok", "no_match", "unrecognized", "unparsed"]
 
 CODE = re.compile(r"[a-z][a-z0-9_.]{0,63}")
 """A bounded failure code: 1-64 of a-z, 0-9, `_` and `.`, from a letter."""
-_ROUTER = re.compile(r"router_[1-9][0-9]*")
+ROUTER_BINDING = re.compile(r"router_[1-9][0-9]*")
+"""An occurrence binding: ``router_N``."""
 _REVISION = re.compile(r"sha256:[0-9a-f]{64}")
 _CALL_BINDING = re.compile(r"(?:router|selector|model|synthesis)_[1-9][0-9]*")
 
@@ -103,10 +105,12 @@ def field_rule(exc: ValidationError, masked: frozenset[str] = frozenset()) -> st
 
 
 def _label(value: str) -> str:
+    # INVARIANT (C7): the Gateway's and the SDK's label rule, the whole Unicode `C` category
+    # (control, format, surrogate, private use, unassigned), so no label they refuse goes out.
     if (
         not value
         or utf8_exceeds(value, MAX_LABEL_BYTES)
-        or any(unicodedata.category(char) in ("Cc", "Cs") for char in value)
+        or any(unicodedata.category(char).startswith("C") for char in value)
     ):
         raise ValueError("a label is 1-64 UTF-8 bytes with no control character")
     return value
@@ -123,7 +127,7 @@ def _matches(pattern: re.Pattern[str], rule: str) -> AfterValidator:
 
 Label = Annotated[str, AfterValidator(_label)]
 Code = Annotated[str, _matches(CODE, "a code is 1-64 of a-z, 0-9, _ and . from a letter")]
-RouterBinding = Annotated[str, _matches(_ROUTER, "a router binding is router_N")]
+RouterBinding = Annotated[str, _matches(ROUTER_BINDING, "a router binding is router_N")]
 Revision = Annotated[str, _matches(_REVISION, "a revision is sha256:<64 hex>")]
 CallBinding = Annotated[str, _matches(_CALL_BINDING, "a call binding is <role>_N")]
 UnknownLabel = Annotated[str, Field(min_length=1, max_length=MAX_UNKNOWN_CHARS)]
@@ -177,28 +181,47 @@ class SelectorRecord(StrictModel):
     @model_validator(mode="after")
     def _producible(self) -> SelectorRecord:
         """The evidence is one its source can produce (C5 evidence forms)."""
-        labels, unknown, parse = self.labels, self.unknown, self.parse
-        allowed = (
-            ("ok", "no_match") if self.source == "regex" else ("ok", "unrecognized", "unparsed")
-        )
-        if parse not in allowed:
-            raise ValueError("parse is one the source writes")
-        if len(set(labels)) != len(labels) or len(set(unknown)) != len(unknown):
-            raise ValueError("labels and unknown name each token once")
-        if parse != "unrecognized" and unknown:
-            raise ValueError("only an unrecognized reply keeps unknown tokens")
-        if (parse == "ok") != bool(labels) and parse != "unrecognized":
-            raise ValueError("ok names a label; no_match and unparsed name none")
-        if parse == "unrecognized" and not unknown:
-            raise ValueError("an unrecognized reply keeps its unknown tokens")
+        broken = selector_rule(self.source, self.labels, self.unknown, self.parse)
+        if broken is not None:
+            raise ValueError(broken)
         return self
+
+
+def selector_rule(
+    source: str, labels: Sequence[str], unknown: Sequence[str], parse: Parse
+) -> str | None:
+    """The first C5 evidence-form rule a selector reading breaks, or None when it holds them all.
+
+    INVARIANT: one rule for the C5 record (`SelectorRecord`) and the C6 policy
+    (`routing_policy`), so a decision never stands on evidence its record could not hold.
+    """
+    allowed = ("ok", "no_match") if source == "regex" else ("ok", "unrecognized", "unparsed")
+    rules = (
+        (parse not in allowed, "parse is one the source writes"),
+        (
+            len(set(labels)) != len(labels) or len(set(unknown)) != len(unknown),
+            "labels and unknown name each token once",
+        ),
+        (
+            parse != "unrecognized" and bool(unknown),
+            "only an unrecognized reply keeps unknown tokens",
+        ),
+        (
+            (parse == "ok") != bool(labels) and parse != "unrecognized",
+            "ok names a label; no_match and unparsed name none",
+        ),
+        (parse == "unrecognized" and not unknown, "an unrecognized reply keeps its unknown tokens"),
+    )
+    return next((rule for broken, rule in rules if broken), None)
 
 
 Evidence = Annotated[ScoringRecord | SelectorRecord, Field(discriminator="source")]
 
 
-# --- the C6 reason an evidence gives ------------------------------------------------------------
+# --- the C5 outcome and the C6 reason an evidence gives ------------------------------------------
 
+Outcome = Literal["selected", "default", "no_selection", "failed"]
+"""C5 `outcome`: what the policy decided, the words a decision and its record share."""
 Reason = Literal[
     "unique_max", "exact", "tie", "empty", "unknown_only", "unknown_selected", "multiple_selected"
 ]
@@ -230,6 +253,8 @@ __all__ = [
     "MAX_LABEL_BYTES",
     "MAX_UNKNOWN_CHARS",
     "MAX_UNKNOWN_LABELS",
+    "REVISION_SCHEME",
+    "ROUTER_BINDING",
     "SCORES_CONTRACT",
     "CallBinding",
     "Code",
@@ -238,6 +263,7 @@ __all__ = [
     "Index",
     "Label",
     "ModelId",
+    "Outcome",
     "Parse",
     "Reason",
     "Revision",
@@ -251,5 +277,6 @@ __all__ = [
     "best_reason",
     "exact_reason",
     "field_rule",
+    "selector_rule",
     "strict_json",
 ]

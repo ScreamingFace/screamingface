@@ -45,7 +45,7 @@ from screamingface_engine.world.router_provenance import (
     proven_admit,
     proven_draft,
 )
-from screamingface_engine.world.router_spec import AdmittedSpec, LlmSelector, RegexSelector
+from screamingface_engine.world.router_spec import LlmSelector, RegexSelector, RouterSpec
 from screamingface_engine.world.router_steps import (
     ROUTER_JOIN_ROUTE,
     Accepted,
@@ -158,7 +158,7 @@ def _accepted(admission: Accepted, draft: RouterDraft, slots: dict[str, object])
     return _branch(admitted, opened, rows[opened][0], classifier_call)
 
 
-def _check_agrees(admitted: AdmittedSpec, draft: RouterDraft) -> None:
+def _check_agrees(admitted: RouterSpec, draft: RouterDraft) -> None:
     definition = admitted.definition
     failure = draft.failure
     if (
@@ -171,7 +171,7 @@ def _check_agrees(admitted: AdmittedSpec, draft: RouterDraft) -> None:
         raise benchmark_contract_error("router join decision and admit describe different routers")
 
 
-def _opened(admitted: AdmittedSpec, draft: RouterDraft) -> str | None:
+def _opened(admitted: RouterSpec, draft: RouterDraft) -> str | None:
     """The slot OPEN opened for ``draft``: the selected candidate, the default, or none."""
     if draft.outcome == "selected":
         if _subset(admitted):
@@ -182,13 +182,13 @@ def _opened(admitted: AdmittedSpec, draft: RouterDraft) -> str | None:
     return _DEFAULT_SLOT if draft.outcome == "default" else None
 
 
-def _slot_names(admitted: AdmittedSpec) -> set[str]:
+def _slot_names(admitted: RouterSpec) -> set[str]:
     candidates = len(admitted.definition.candidates)
     names = {"panel"} if _subset(admitted) else {f"c{index}" for index in range(candidates)}
     return names | {_DEFAULT_SLOT} if admitted.definition.default is not None else names
 
 
-def _subset(admitted: AdmittedSpec) -> bool:
+def _subset(admitted: RouterSpec) -> bool:
     policy = admitted.definition.policy
     return isinstance(policy, RouterPolicy) and policy.select == "all"
 
@@ -197,7 +197,7 @@ def _subset(admitted: AdmittedSpec) -> bool:
 
 
 def _branch(
-    admitted: AdmittedSpec, slot: str, row: str, classifier_call: dict[str, object] | None
+    admitted: RouterSpec, slot: str, row: str, classifier_call: dict[str, object] | None
 ) -> _Ending:
     """The chosen branch's answer or failure, and its attempts when its call made any (C8)."""
     index = candidate_slot(slot)
@@ -227,7 +227,7 @@ def _branch(
     return _Ending(read, "answered", None, branches, classifier_call)
 
 
-def _classifier_call(admitted: AdmittedSpec, draft: RouterDraft) -> dict[str, object] | None:
+def _classifier_call(admitted: RouterSpec, draft: RouterDraft) -> dict[str, object] | None:
     """The classifier's call from its attempt fact; null for regex or when it made no attempt.
 
     INVARIANT (C5): evidence exists only because its call answered, so evidence with no
@@ -263,7 +263,7 @@ def _attempts(fact: AttemptFact) -> dict[str, object]:
     }
 
 
-def _record(draft: RouterDraft, admitted: AdmittedSpec | None, ending: _Ending) -> RouterDecision:
+def _record(draft: RouterDraft, admitted: RouterSpec | None, ending: _Ending) -> RouterDecision:
     document = draft.document()
     selected: list[dict[str, object]] = []
     if admitted is not None:

@@ -20,8 +20,17 @@ LIMITS_CONTRACT = "classifier-limits-v1"
 CHOICE_INPUT_CONTRACT = "classification-choice-input-v1"
 MAX_LIMIT = 2147483647
 
-_TEXT_KEYS = ("max_labels", "max_label_bytes", "max_text_chars")
-_CHOICE_KEYS = (*_TEXT_KEYS, "max_options", "max_description_chars", "max_instructions_chars")
+_TEXT_MAXIMA = {"max_labels": MAX_LIMIT, "max_label_bytes": MAX_LIMIT, "max_text_chars": MAX_LIMIT}
+# WHY these maxima: the C7 choice ranges are the C16 bounds a Router can send (candidates,
+# labels, descriptions, instructions), and the Gateway refuses a choice target outside them.
+_CHOICE_MAXIMA = {
+    "max_labels": 32,
+    "max_label_bytes": 64,
+    "max_text_chars": MAX_LIMIT,
+    "max_options": 32,
+    "max_description_chars": 1024,
+    "max_instructions_chars": 4096,
+}
 _CONTRACT_SETS = (("text",), ("choice",), ("text", "choice"))
 
 
@@ -69,8 +78,8 @@ def read_capability(input_contracts: object, limits: object) -> ClassifierCapabi
         return None
     if limits is None:
         return ClassifierCapability(contracts, None) if contracts == ("text",) else None
-    keys = _CHOICE_KEYS if "choice" in contracts else _TEXT_KEYS
-    return ClassifierCapability(contracts, dict(limits)) if _valid_limits(limits, keys) else None
+    maxima = _CHOICE_MAXIMA if "choice" in contracts else _TEXT_MAXIMA
+    return ClassifierCapability(contracts, dict(limits)) if _valid_limits(limits, maxima) else None
 
 
 def choice_fits(capability: ClassifierCapability, request: ChoiceRequest) -> bool:
@@ -130,14 +139,19 @@ def choice_input(request: ChoiceRequest) -> dict[str, object]:
     }
 
 
-def _valid_limits(limits: object, keys: tuple[str, ...]) -> TypeGuard[dict[str, int | str]]:
-    if not isinstance(limits, dict) or set(limits) != {"contract", *keys}:
+def _valid_limits(limits: object, maxima: dict[str, int]) -> TypeGuard[dict[str, int | str]]:
+    if not isinstance(limits, dict) or set(limits) != {"contract", *maxima}:
         return False
-    return limits["contract"] == LIMITS_CONTRACT and all(_limit(limits[key]) for key in keys)
+    if limits["contract"] != LIMITS_CONTRACT or not all(
+        _limit(limits[key], most) for key, most in maxima.items()
+    ):
+        return False
+    # INVARIANT (C7): a choice answer may return every option it was offered.
+    return "max_options" not in maxima or limits["max_options"] <= limits["max_labels"]
 
 
-def _limit(value: object) -> bool:
-    return isinstance(value, int) and not isinstance(value, bool) and 1 <= value <= MAX_LIMIT
+def _limit(value: object, most: int) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and 1 <= value <= most
 
 
 def _bound(limits: dict[str, int | str], key: str) -> int:

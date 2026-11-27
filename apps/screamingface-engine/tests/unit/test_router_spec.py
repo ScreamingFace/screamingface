@@ -148,7 +148,7 @@ def test_accepted_choice_envelope_keeps_calls_and_definition() -> None:
     )
     assert spec.calls.candidates == ("model_1", "model_2")
     assert [candidate.label for candidate in spec.definition.candidates] == ["code", "general"]
-    assert spec.definition_json == _d()
+    assert spec.definition.model_dump(mode="json", by_alias=True) == _d()
 
 
 def test_accepted_fixed_and_selector_envelopes() -> None:

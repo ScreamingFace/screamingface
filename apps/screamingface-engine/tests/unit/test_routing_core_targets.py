@@ -257,7 +257,7 @@ def test_text_fits_reads_only_the_text_contract() -> None:
 
 
 def _choice_keys() -> dict[str, int]:
-    return {"max_options": 4, "max_description_chars": 20, "max_instructions_chars": 20}
+    return {"max_options": 3, "max_description_chars": 20, "max_instructions_chars": 20}
 
 
 def test_the_choice_input_keeps_option_order_and_exact_keys() -> None:

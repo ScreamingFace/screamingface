@@ -21,9 +21,7 @@ INVARIANT: an error message names a field or a rule, never a value from the cont
 
 from __future__ import annotations
 
-import functools
 import json
-import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Literal
@@ -35,8 +33,8 @@ from screamingface_engine.router_decision import (
     RouterDraft,
     parse_router_draft,
 )
-from screamingface_engine.router_vocabulary import CODE, strict_json
-from screamingface_engine.world.router_spec import AdmittedSpec, RouterSpecError, parse_router_spec
+from screamingface_engine.router_vocabulary import CODE, ROUTER_BINDING, strict_json
+from screamingface_engine.world.router_spec import RouterSpec, RouterSpecError, parse_router_spec
 
 ROUTER_PREFIX = "/ensemble/router/v1"
 ROUTER_ADMIT_ROUTE = f"{ROUTER_PREFIX}/admit"
@@ -50,8 +48,8 @@ MAX_ROUTER_CONTEXT_BYTES = 1024 * 1024
 NOT_RUN = '{"not_run":true}'
 """The scoring CLASSIFY result beside a non-accepted ADMIT: nothing ran (C4)."""
 
-_ROUTER = re.compile(r"router_[1-9][0-9]*")
-_FAILURE_KEYS = frozenset({"code", "permanent"})
+FAILURE_KEYS = frozenset({"code", "permanent"})
+"""The keys of a failure carried as data: its bounded code and its permanence (C4)."""
 _CARRIERS: Mapping[str, Literal["input", "admit"]] = {"failed": "input", "refused": "admit"}
 
 
@@ -69,7 +67,7 @@ class Accepted:
     """ADMIT accepted the occurrence: the question and the validated envelope."""
 
     question: str
-    admitted: AdmittedSpec
+    admitted: RouterSpec
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,7 +85,7 @@ Admission = Accepted | Carried
 def step_binding(params: Mapping[str, str], step: str) -> str:
     """The occurrence binding of a step that takes exactly ``binding=router_N``."""
     value = params.get("binding")
-    if set(params) != {"binding"} or value is None or _ROUTER.fullmatch(value) is None:
+    if set(params) != {"binding"} or value is None or ROUTER_BINDING.fullmatch(value) is None:
         raise benchmark_contract_error(f"router {step} takes exactly one param, binding=router_N")
     return value
 
@@ -128,11 +126,27 @@ def read_input(text: str) -> Carried | str:
     raise benchmark_contract_error("router admit context is the input or its failure")
 
 
-def read_admit(value: object, step: str) -> Admission:
-    """ADMIT's result document, as a later step's context carries it (JSON text)."""
+def admit_document(value: object, step: str) -> dict[str, object]:
+    """ADMIT's result as a later step's context carries it: JSON text of one strict object."""
     if not isinstance(value, str):
         raise benchmark_contract_error(f"router {step} admit is JSON text")
-    document = step_object(value, step)
+    return step_object(value, step)
+
+
+def admit_router(document: Mapping[str, object]) -> str | None:
+    """The router an accepted ADMIT result names, or None (a carried failure names none)."""
+    spec = document.get("spec") if set(document) == {"input", "spec"} else None
+    router = spec.get("router") if isinstance(spec, dict) else None
+    return router if isinstance(router, str) else None
+
+
+def read_admit(document: Mapping[str, object], step: str) -> Admission:
+    """An ADMIT result no step recorded a typed value for, read and validated from its document.
+
+    WHY only then: a step that proves its context is the recorded ADMIT result reads the value
+    ADMIT recorded (`router_provenance.proven_admit`), so this runs for a context it cannot prove
+    (to refuse it by its rule) or for a document recorded without its value.
+    """
     if set(document) == {"input", "spec"} and isinstance(document["input"], str):
         return Accepted(document["input"], _admitted(document["spec"], step))
     if len(document) == 1:
@@ -189,7 +203,7 @@ def read_rows(value: object, owner: str) -> list[str]:
 def _failure(value: object, phase: Literal["input", "admit"], step: str) -> Carried:
     if (
         not isinstance(value, dict)
-        or set(value) != _FAILURE_KEYS
+        or set(value) != FAILURE_KEYS
         or not isinstance(value["code"], str)
         or CODE.fullmatch(value["code"]) is None
         or not isinstance(value["permanent"], bool)
@@ -198,18 +212,12 @@ def _failure(value: object, phase: Literal["input", "admit"], step: str) -> Carr
     return Carried(phase, value["code"], value["permanent"])
 
 
-def _admitted(envelope: object, step: str) -> AdmittedSpec:
-    """The envelope ADMIT accepted, validated again: a later step trusts no context."""
+def _admitted(envelope: object, step: str) -> RouterSpec:
+    """The envelope of an unproven ADMIT result, validated: a later step trusts no context."""
     try:
-        return _parsed(compact_json(envelope))
+        return parse_router_spec(compact_json(envelope))
     except RouterSpecError:
         raise benchmark_contract_error(f"router {step} admit holds no valid spec") from None
-
-
-# WHY cached: every step of every Case re-reads the same envelope text.
-@functools.lru_cache(maxsize=64)
-def _parsed(text: str) -> AdmittedSpec:
-    return parse_router_spec(text)
 
 
 def compact_json(document: object) -> str:
@@ -218,6 +226,7 @@ def compact_json(document: object) -> str:
 
 
 __all__ = [
+    "FAILURE_KEYS",
     "MAX_ROUTER_CONTEXT_BYTES",
     "NOT_RUN",
     "ROUTER_ADMIT_ROUTE",
@@ -231,6 +240,8 @@ __all__ = [
     "Carried",
     "StepCall",
     "accepted_document",
+    "admit_document",
+    "admit_router",
     "check_keys",
     "compact_json",
     "failed_document",

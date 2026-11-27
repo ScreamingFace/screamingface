@@ -6,8 +6,9 @@ step therefore accepts only what the capture scope's provenance channel (`operat
 recorded for this occurrence:
 
 - ADMIT, the scoring CLASSIFY, DECIDE and JOIN each run once per binding, claimed before any
-  work; ADMIT and DECIDE record their result; CLASSIFY, OPEN, DECIDE and JOIN accept
-  an ADMIT result or a draft only when it is the recorded one, compared as canonical values;
+  work; ADMIT and DECIDE record their result with the typed value they validated it as;
+  CLASSIFY, OPEN, DECIDE and JOIN accept an ADMIT result or a draft only when it is the recorded
+  one, compared as canonical values, and then read that typed value instead of validating again;
 - a scoring classification, a selector row and a branch row are accepted only as the recorded
   outcome of the call of that binding and Model, an answer only with its C8 attempt fact; the
   step then reads the recorded reply, never the caller's bytes.
@@ -24,6 +25,7 @@ import json
 from typing import Any
 
 from screamingface_engine.benchmarks.failure_classes import benchmark_contract_error
+from screamingface_engine.combine.ports import utf8_exceeds
 from screamingface_engine.operation_provenance import (
     CallOutcome,
     ProvenanceConflict,
@@ -36,15 +38,20 @@ from screamingface_engine.operation_provenance import (
     provenance_open,
     record_step,
     recorded_step,
+    step_payload,
 )
 from screamingface_engine.router_decision import RouterDraft
 from screamingface_engine.router_vocabulary import strict_json
 from screamingface_engine.world.models.registry import decode_route_id
 from screamingface_engine.world.router_evidence import RowFailure, bounded_code, read_error_row
 from screamingface_engine.world.router_steps import (
+    MAX_ROUTER_CONTEXT_BYTES,
     ROUTER_CLASSIFY_ROUTE,
     Accepted,
     Admission,
+    Carried,
+    admit_document,
+    admit_router,
     read_admit,
     read_draft,
     read_rows,
@@ -65,12 +72,16 @@ def first_run(step: RouterStep, binding: str) -> None:
         raise benchmark_contract_error(str(conflict)) from None
 
 
-def remember(step: Step, binding: str, text: str) -> str:
-    """Record ``text`` as this occurrence's ``step`` result (in a capture scope) and return it."""
+def remember(step: Step, binding: str, text: str, typed: Admission | RouterDraft) -> str:
+    """Record ``text`` as this occurrence's ``step`` result (in a capture scope) and return it.
+
+    ``typed`` is what the step validated ``text`` as; a later step that proves its context is
+    ``text`` reads it back (`proven_admit`, `proven_draft`).
+    """
     if not provenance_open():
         return text
     try:
-        record_step(step, binding, strict_json(text))
+        record_step(step, binding, strict_json(text), typed)
     except ProvenanceConflict as conflict:
         raise benchmark_contract_error(str(conflict)) from None
     return text
@@ -82,7 +93,11 @@ def proven_admit(value: object, step: str, binding: str | None = None) -> Admiss
     ``binding`` is the step's own occurrence binding; CLASSIFY and OPEN have none, so a carried
     failure there (which runs and opens nothing) is read unproven, and DECIDE/JOIN prove it.
     """
-    admission = read_admit(value, step)
+    document = admit_document(value, step)
+    typed = _typed("admit", binding if binding is not None else admit_router(document), document)
+    if isinstance(typed, Accepted | Carried):
+        return typed
+    admission = read_admit(document, step)
     accepted = isinstance(admission, Accepted)
     router = admission.admitted.router if isinstance(admission, Accepted) else binding
     if binding is not None and router != binding:
@@ -96,6 +111,12 @@ def proven_admit(value: object, step: str, binding: str | None = None) -> Admiss
 
 def proven_draft(value: object, step: str, binding: str | None = None) -> RouterDraft:
     """DECIDE's draft as ``step`` reads it, when it is the one DECIDE recorded for its router."""
+    document = _draft_document(value)
+    if document is not None:
+        router = binding if binding is not None else document.get("router")
+        typed = _typed("decide", router if isinstance(router, str) else None, document)
+        if isinstance(typed, RouterDraft):
+            return typed
     draft = read_draft(value, step)
     if binding is not None and draft.router != binding:
         raise benchmark_contract_error(f"router {step} binding and decision name different routers")
@@ -182,6 +203,27 @@ def _outcome(binding: str, step: str) -> CallOutcome | None:
 def _answered_fact(binding: str) -> bool:
     fact = latest_attempt_fact(binding)
     return fact is not None and fact.status == "answered"
+
+
+def _typed(step: Step, binding: str | None, document: object) -> object | None:
+    """The typed value ``step`` recorded for ``binding``, when ``document`` is its document.
+
+    INVARIANT: canonical equality precedes the typed value (`step_payload`); outside a scope
+    (whose channel `step_payload` cannot see), or for a document recorded without its value,
+    there is none and the caller reads the document itself.
+    """
+    return None if binding is None else step_payload(step, binding, canonical_document(document))
+
+
+def _draft_document(value: object) -> dict[str, object] | None:
+    """A draft context's strict JSON object, or None when `read_draft` would refuse it."""
+    if not isinstance(value, str) or utf8_exceeds(value, MAX_ROUTER_CONTEXT_BYTES):
+        return None
+    try:
+        document = strict_json(value)
+    except ValueError:
+        return None
+    return document if isinstance(document, dict) else None
 
 
 def _recorded(step: Step, binding: str, value: object) -> bool:

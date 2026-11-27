@@ -86,7 +86,7 @@ def test_an_invalid_row_is_unusable(contracts: object, limits: object) -> None:
 
 
 def test_both_bounds_of_a_limit_read() -> None:
-    assert read_capability(["choice"], _choice(max_options=1, max_labels=2147483647)) is not None
+    assert read_capability(["choice"], _choice(max_options=1, max_labels=32)) is not None
 
 
 # --- does a choice input fit ----------------------------------------------------------------------
@@ -114,7 +114,7 @@ def test_an_input_at_every_limit_fits() -> None:
     ("limits", "request_changes"),
     [
         pytest.param({"max_options": 2}, {}, id="options"),
-        pytest.param({"max_labels": 2}, {}, id="labels"),
+        pytest.param({"max_options": 2, "max_labels": 2}, {}, id="labels"),
         pytest.param({"max_label_bytes": 6}, {"labels": ("ééé", "general", "math")}, id="bytes"),
         pytest.param({}, {"descriptions": ("d" * 21, "e", "f")}, id="description"),
         pytest.param({}, {"instructions": "i" * 31}, id="instructions"),
