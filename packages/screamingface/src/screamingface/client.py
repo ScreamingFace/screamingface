@@ -77,6 +77,7 @@ class Client:
             _seed_access_tokens,
         )
         from screamingface._engine.benchmark import BenchmarkResources
+        from screamingface._engine.capabilities import EngineCapabilities
         from screamingface._engine.catalog import Benchmarks, Models, OperatorCatalogResource
         from screamingface._engine.connections import Connections
         from screamingface._engine.transport import Url4CloudTransport
@@ -143,6 +144,8 @@ class Client:
         self.chat: Chat = Chat(self)
         self._benchmark_resources = BenchmarkResources(self._http)
         self._operator_catalog = OperatorCatalogResource(self._http)
+        # FEATURE (C12): the one capability reader, over the same Engine GET as the catalogues.
+        self._capabilities = EngineCapabilities(self._http_get, self._engine_url)
         self.connections: Connections = Connections(self._http_request, self._engine_url)
         self.leaderboards: Leaderboards = Leaderboards(
             self._scoreboard_request,
@@ -532,6 +535,8 @@ class Client:
             cases=cases,
             detach=detach,
             deadline_s=deadline_s,
+            # WHY no requirement: no public Recipe needs a capability yet, so nothing is read.
+            require_capabilities=self._capabilities.require,
         )
         return self._evaluated(evaluated)
 
@@ -882,6 +887,7 @@ class AsyncClient:
             _seed_access_tokens,
         )
         from screamingface._engine.benchmark import AsyncBenchmarkResources
+        from screamingface._engine.capabilities import AsyncEngineCapabilities
         from screamingface._engine.catalog import (
             AsyncBenchmarks,
             AsyncModels,
@@ -953,6 +959,8 @@ class AsyncClient:
         self.chat: AsyncChat = AsyncChat(self)
         self._benchmark_resources = AsyncBenchmarkResources(self._http)
         self._operator_catalog = AsyncOperatorCatalogResource(self._http)
+        # FEATURE (C12): see Client.
+        self._capabilities = AsyncEngineCapabilities(self._http_get, self._engine_url)
         self.connections: AsyncConnections = AsyncConnections(self._http_request, self._engine_url)
         self.leaderboards: AsyncLeaderboards = AsyncLeaderboards(
             self._scoreboard_request,
@@ -1303,6 +1311,7 @@ class AsyncClient:
             cases=cases,
             detach=detach,
             deadline_s=deadline_s,
+            require_capabilities=self._capabilities.require,
         )
         return await self._evaluated(evaluated)
 
