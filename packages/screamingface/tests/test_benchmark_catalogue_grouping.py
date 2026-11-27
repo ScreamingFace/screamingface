@@ -142,8 +142,10 @@ def test_every_row_carries_its_provenance_chip_linked_to_the_source() -> None:
     html = _static_html(_two_tier_handler())
     assert "ScreamingFace" in html
     assert "inspect_evals" in html
-    assert LEADERBOARD_URL in html
-    assert INSPECT_EVALS_URL in html
+    # OME-1494: the per-origin source links are gone; a Benchmark links its own paper, harness
+    # and website from its provenance block (tests/test_benchmark_views_provenance.py).
+    assert LEADERBOARD_URL not in html
+    assert INSPECT_EVALS_URL not in html
 
 
 def test_unmapped_origin_chip_renders_without_a_link() -> None:

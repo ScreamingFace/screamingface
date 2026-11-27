@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from html import escape
 from typing import TYPE_CHECKING
+from urllib.parse import urlsplit
 
 from screamingface._catalogue_vocabulary import (
     DECLARED_DIFFICULTY_TIERS,
@@ -19,7 +20,13 @@ if TYPE_CHECKING:
     from typing import Protocol
 
     from screamingface._surface.chain import Pipeline, Step, _Block
-    from screamingface.discovery import Benchmark, ModelDetails, ModelInfo
+    from screamingface.discovery import (
+        Benchmark,
+        BenchmarkProvenance,
+        ModelDetails,
+        ModelInfo,
+        PublishedScore,
+    )
     from screamingface.model import Model
     from screamingface.recipe import Recipe
 
@@ -161,39 +168,28 @@ def models_rows_html(records: Sequence[ModelInfo]) -> str:
     )
 
 
-# FEATURE: benchmark provenance (OME-1114) — origin → (label, source URL), shown as
-# a per-row chip since the two-axis map landed (OME-1257).
-# WHY SDK-side: pure presentation of one server field; the Engine ships no links.
-# An origin absent from this map still renders — a plain chip named by the origin
-# string, with no source link — so a newer Engine's new origin degrades gracefully.
-_ORIGIN_SOURCES: Mapping[str, tuple[str, str]] = {
-    "screamingface": ("ScreamingFace", "https://leaderboard.screamingface.ai/"),
-    "inspect_evals": ("inspect_evals", "https://ukgovernmentbeis.github.io/inspect_evals/"),
+# FEATURE: benchmark provenance (OME-1114) — the display name of an origin, shown as a
+# per-row chip since the two-axis map landed (OME-1257).
+# WHY names only, no links (OME-1494): every Benchmark now carries its own paper, harness
+# and website in its provenance block, and a second source of links drifts from the first.
+# An origin absent from this map still renders — a plain chip named by the origin string —
+# so a newer Engine's new origin degrades gracefully.
+_ORIGIN_LABELS: Mapping[str, str] = {
+    "screamingface": "ScreamingFace",
+    "inspect_evals": "inspect_evals",
 }
 
 
 def origin_label(origin: str) -> str:
     """Human name for one origin; an unmapped origin names itself."""
 
-    label, _ = _ORIGIN_SOURCES.get(origin, (origin, ""))
-    return label
+    return _ORIGIN_LABELS.get(origin, origin)
 
 
 def origin_chip_html(origin: str) -> str:
-    """One provenance chip per row — linked to its source collection when mapped.
+    """One provenance chip per row; the ours/imported distinction stays visible (OME-1114)."""
 
-    DON'T-REGRESS (OME-1114): the two-axis map (OME-1257) moved provenance from
-    top-level tabs to this per-row chip; the ours/imported distinction AND the
-    source-collection links must stay visible in the listing.
-    """
-
-    label, url = _ORIGIN_SOURCES.get(origin, (origin, ""))
-    if not url:
-        return f"<span class='sf-chip'>{escape(label)}</span>"
-    return (
-        f"<a class='sf-chip' href='{escape(url)}' target='_blank' "
-        f"rel='noopener'>{escape(label)}</a>"
-    )
+    return f"<span class='sf-chip'>{escape(origin_label(origin))}</span>"
 
 
 # FEATURE: the two-axis catalogue map (OME-1257) — tier → (shelf title, one-line
@@ -368,6 +364,91 @@ def attempts_chip_html(benchmark: Benchmark) -> str:
     )
 
 
+def saturation_chip_html(benchmark: Benchmark) -> str:
+    """The listing's mark for a Benchmark's saturation verdict (OME-1494); nothing for "unknown".
+
+    WHY "unknown" shows nothing: it says no frontier score is recorded, and a Benchmark from an
+    Engine that predates the verdict must render exactly as before. The word is an open set, so
+    one this build has never seen renders verbatim, unstyled.
+    """
+
+    if benchmark.saturation == "unknown":
+        return ""
+    return _chip(f"saturation: {benchmark.saturation}")
+
+
+def provenance_items(
+    provenance: BenchmarkProvenance | None, saturation: str | None
+) -> tuple[tuple[str, str], ...]:
+    """(label, escaped HTML) pairs for the block a Benchmark declared; absent facts are omitted.
+
+    INVARIANT (OME-1494): a missing field leaves no item, never a dash, and every link comes from
+    the block itself. Shared by the Benchmark card and the leaderboard strip so the two views
+    cannot disagree.
+    """
+
+    declared = _declared_html(provenance) if provenance is not None else {}
+    verdict = saturation if saturation and saturation != "unknown" else ""
+    values = {**declared, "saturation": escape(verdict)}
+    return tuple((label, values[label]) for label in _PROVENANCE_ORDER if values.get(label, ""))
+
+
+# The order a reader meets the block in: who wrote it, where to read it, how it scored, then
+# the cautions and the notebook that runs it.
+_PROVENANCE_ORDER: tuple[str, ...] = (
+    "authors",
+    "paper",
+    "harness",
+    "website",
+    "licence",
+    "humans",
+    "frontier",
+    "saturation",
+    "warning",
+    "notebook",
+)
+
+
+def _declared_html(block: BenchmarkProvenance) -> dict[str, str]:
+    """Each declared fact as escaped HTML; a fact the block lacks (or a non-http link) is ""."""
+
+    licence = block.license
+    if licence and block.license_note:
+        licence = f"{licence} · {block.license_note}"
+    return {
+        "authors": escape(block.authors or ""),
+        "paper": _link(block.paper_url, block.paper_url),
+        "harness": _link(block.harness_url, block.harness_url),
+        "website": _link(block.homepage_url, block.homepage_url),
+        "licence": escape(licence or ""),
+        "humans": _published_score_html(block.human_baseline),
+        "frontier": _published_score_html(block.frontier_score),
+        "warning": escape(block.content_warning or ""),
+        "notebook": _mono(block.notebook) if block.notebook else "",
+    }
+
+
+def _published_score_html(published: PublishedScore | None) -> str:
+    """One score as a percentage linked to its source: "96.8% Llama 3.1 405B (2024-07)"."""
+
+    if published is None:
+        return ""
+    text = f"{published.score:.1%}"
+    if published.model:
+        text += f" {published.model}"
+    if published.as_of:
+        text += f" ({published.as_of})"
+    return _link(published.source_url, text) or escape(text)
+
+
+def _link(url: str | None, text: str | None) -> str:
+    """An anchor for an http(s) URL; empty for any other scheme, so nothing unsafe is linked."""
+
+    if not url or text is None or urlsplit(url).scheme not in ("http", "https"):
+        return ""
+    return f"<a href='{escape(url)}' target='_blank' rel='noopener'>{escape(text)}</a>"
+
+
 def benchmarks_rows_html(records: Sequence[Benchmark]) -> str:
     if not records:
         return "<div class='sf-catalog__empty'>No benchmarks match.</div>"
@@ -380,6 +461,7 @@ def benchmarks_rows_html(records: Sequence[Benchmark]) -> str:
             + origin_chip_html(record.origin)
             + inverted_grade_chip_html(record)
             + attempts_chip_html(record)
+            + saturation_chip_html(record)
         )
         + f"<div class='sf-card__hint'>{escape(record.description)}</div></div>"
         for record in records
@@ -393,7 +475,7 @@ def benchmark_card_html(benchmark: Benchmark) -> str:
         _field("id", _mono(benchmark.id))
         + _field("cases", escape(str(benchmark.case_count)))
         + _field("revision", _mono(benchmark.revision))
-        + _field("origin", _origin_value_html(benchmark.origin))
+        + _field("origin", escape(origin_label(benchmark.origin)))
         + (
             _field("grading", escape(f"Inverted: {INVERTED_GRADE_MEANING}"), wide=True)
             if benchmark.inverted_grade
@@ -405,6 +487,10 @@ def benchmark_card_html(benchmark: Benchmark) -> str:
             else ""
         )
         + _field("description", escape(benchmark.description), wide=True)
+        + "".join(
+            _field(label, value, wide=True)
+            for label, value in provenance_items(benchmark.provenance, benchmark.saturation)
+        )
     )
     return (
         f"{CARD_STYLE}<div class='sf-ui sf-card {NO_MATH}' aria-label='ScreamingFace benchmark'>"
@@ -516,15 +602,6 @@ def _kind_word(recipe: Recipe) -> str:
 def _provider_of(route: str) -> str:
     head = route.split("/", 1)[0]
     return head if head and head != route else "—"
-
-
-def _origin_value_html(origin: str) -> str:
-    """Origin as a link to its source collection when the map knows it."""
-
-    _, url = _ORIGIN_SOURCES.get(origin, (origin, ""))
-    if not url:
-        return escape(origin)
-    return f"<a href='{escape(url)}' target='_blank' rel='noopener'>{escape(origin)}</a>"
 
 
 def _mono(value: str) -> str:

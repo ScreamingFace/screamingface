@@ -28,6 +28,8 @@ from screamingface._scoreboard.submission_notice import (
     prepare_submission_notice,
 )
 from screamingface._ui.leaderboard_view import LeaderboardCatalog
+from screamingface.discovery import BenchmarkProvenance
+from screamingface.discovery import PublishedScore as _PublishedBenchmarkScore
 from screamingface.errors import LeaderboardError
 from screamingface.leaderboard import (
     Leaderboard,
@@ -1250,9 +1252,64 @@ def _decode_info(value: object) -> LeaderboardInfo:
                 root.get("dataset_url"), "Leaderboard benchmark dataset_url"
             ),
             created_at=_timestamp(root.get("created_at"), "Leaderboard benchmark created_at"),
+            provenance=_decode_provenance(root.get("provenance")),
+            saturation=_optional_text(root.get("saturation"), "Leaderboard benchmark saturation"),
         )
     except (TypeError, ValueError) as exc:
         _invalid(str(exc), exc)
+
+
+_PROVENANCE_TEXT_KEYS = (
+    "paper_url",
+    "authors",
+    "citation",
+    "homepage_url",
+    "harness_url",
+    "license",
+    "license_note",
+    "content_warning",
+    "notebook",
+)
+_PROVENANCE_HANDLE_KEYS = ("inspect_contributors", "contributors")
+_PROVENANCE_SCORE_KEYS = ("human_baseline", "frontier_score")
+
+
+def _decode_provenance(value: object) -> BenchmarkProvenance | None:
+    """The Scoreboard's nested Benchmark Provenance block (OME-1494); null or absent is None.
+
+    A key the block does not carry is left out, never filled; a key that is present must have
+    its shape. Keys this build does not know are ignored, as the Scoreboard itself does.
+    """
+
+    if value is None:
+        return None
+    root = _mapping(value, "Leaderboard benchmark provenance")
+    fields: dict[str, object] = {}
+    for key in _PROVENANCE_TEXT_KEYS:
+        if root.get(key) is not None:
+            fields[key] = _text(root[key], f"Leaderboard benchmark provenance {key}")
+    for key in _PROVENANCE_HANDLE_KEYS:
+        if root.get(key) is not None:
+            fields[key] = tuple(
+                _text(handle, f"Leaderboard benchmark provenance {key} entry")
+                for handle in _array(root[key], f"Leaderboard benchmark provenance {key}")
+            )
+    for key in _PROVENANCE_SCORE_KEYS:
+        if root.get(key) is not None:
+            fields[key] = _decode_published_score(
+                root[key], f"Leaderboard benchmark provenance {key}"
+            )
+    return BenchmarkProvenance(**fields) if fields else None  # type: ignore[arg-type]
+
+
+def _decode_published_score(value: object, label: str) -> _PublishedBenchmarkScore:
+    root = _mapping(value, label)
+    return _PublishedBenchmarkScore(
+        score=_number(root.get("score"), f"{label} score"),
+        source_url=_text(root.get("source_url"), f"{label} source_url"),
+        model=_optional_text(root.get("model"), f"{label} model"),
+        as_of=_optional_text(root.get("as_of"), f"{label} as_of"),
+    )
 
 
 def _decode_entry(value: object) -> LeaderboardEntry:

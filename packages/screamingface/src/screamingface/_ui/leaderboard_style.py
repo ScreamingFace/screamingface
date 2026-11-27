@@ -40,6 +40,9 @@ __THEME_RULES__
   border-bottom:1px solid var(--sf-lb-line-2);padding:0 4px 8px}
 .sf-lb__field-label{color:var(--sf-lb-ink-2);white-space:nowrap}
 .sf-lb__field-value{font-weight:500;color:var(--sf-lb-ink)}
+/* OME-1494: the Benchmark provenance strip above the rows; wraps, so a long block never scrolls. */
+.sf-lb__strip{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 16px;margin-top:12px}
+.sf-lb__strip a{color:inherit}
 /* OME-832: .sf-lb__checkbox is unused. Its control was removed (OME-820) and
    returns with OME-821, so the rules are kept rather than re-added. This comment
    ships to the reader in page source, hence the brevity. */
