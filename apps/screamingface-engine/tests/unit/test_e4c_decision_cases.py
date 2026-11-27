@@ -164,9 +164,10 @@ def test_the_scenarios_cover_the_decision_shapes() -> None:
     }
     assert any(record["result"] is None for record in records)
     # cut_not_met and output_missing are combine-step reasons; no Gate result writes them.
+    # C10 (owner-approved edit): no_selection is a Router word only; no Gate result writes it.
     assert {result["reason"] for result in results if result["status"] == "abstain"} == set(
         get_args(AbstainReason)
-    ) - {"cut_not_met", "output_missing"}
+    ) - {"cut_not_met", "output_missing", "no_selection"}
     assert {entry["reason"] for record in records for entry in record["not_run"]} == set(
         get_args(NotRunReason)
     )

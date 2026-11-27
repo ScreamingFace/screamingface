@@ -16,7 +16,7 @@ from typing import Annotated, Literal
 
 from pydantic import Field, model_validator
 
-from screamingface_engine.combine.ports import AbstainReason
+from screamingface_engine.combine.ports import ABSTAIN_REASONS, AbstainReason
 from screamingface_engine.router_vocabulary import (
     CallBinding,
     Code,
@@ -31,6 +31,9 @@ Phase = Literal["input", "admit", "classify", "decide", "generate", "default", "
 SynthesisStatus = Literal["answered", "abstained", "failed"]
 EngineAttempts = Annotated[int, Field(ge=1)]
 """C8: every Engine request of one logical call; a call with no attempt has no `Attempts`."""
+# INVARIANT (C5, C10): a synthesis runs only on a selected subset, so it never abstains with
+# no_selection, the C6 outcome of selecting none. It keeps every other answer.v1 abstain word.
+_SYNTHESIS_REASONS: frozenset[AbstainReason] = frozenset(ABSTAIN_REASONS) - {"no_selection"}
 
 
 def _check_billed(upstream: int | None, billed: bool) -> None:
@@ -45,6 +48,8 @@ def _check_outcome(status: SynthesisStatus, reason: object, code: object) -> Non
         status == "failed"
     ):
         raise ValueError("reason is present exactly when abstained and code when failed")
+    if reason is not None and reason not in _SYNTHESIS_REASONS:
+        raise ValueError("a synthesis reason is never no_selection, the outcome of selecting none")
 
 
 class ClassifierCall(StrictModel):

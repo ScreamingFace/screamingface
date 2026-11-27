@@ -529,6 +529,7 @@ _GATE_NOT_MET_WORDS = {
     "gate_not_met",
     "in_band",
     "budget_refused",
+    "no_selection",  # C10 (Router no_selection reader, owner-approved edit)
 }
 
 
@@ -572,7 +573,8 @@ def test_sdk_reason_words_equal_the_engine_enum() -> None:
     result_reason = pinned["$defs"]["ResultRecord"]["properties"]["reason"]
 
     assert {word for words in _enum_lists(answer_reason) for word in words} == ANSWER_REASONS
-    assert len(ANSWER_REASONS) == 16  # E4c (OME-1291, budget #6, owner-approved edit)
+    # C10 (Router no_selection reader, owner-approved edit): 16 -> 17
+    assert len(ANSWER_REASONS) == 17  # E4c (OME-1291, budget #6, owner-approved edit)
     assert {word for words in _enum_lists(result_reason) for word in words} == ABSTAIN_REASONS
     assert ABSTAIN_REASONS == _GATE_NOT_MET_WORDS
 
@@ -588,7 +590,8 @@ def test_schema_snapshots_hold_gate_not_met() -> None:
     answer_v1 = json.loads(_ANSWER_V1.read_text(encoding="utf-8"))
 
     # E4c (OME-1291, budget #6, owner-approved edit)
-    assert answer_reason[-3:] == ["gate_not_met", "in_band", "budget_refused"]
+    # C10 (Router no_selection reader, owner-approved edit): + no_selection
+    assert answer_reason[-4:] == ["gate_not_met", "in_band", "budget_refused", "no_selection"]
     assert result_reason == [
         "no_votes",
         "cut_not_met",
@@ -596,12 +599,14 @@ def test_schema_snapshots_hold_gate_not_met() -> None:
         "gate_not_met",
         "in_band",
         "budget_refused",
+        "no_selection",
     ]
     assert answer_v1["abstain_reason"] == [
         "budget_refused",
         "cut_not_met",
         "gate_not_met",
         "in_band",
+        "no_selection",
         "no_votes",
         "output_missing",
     ]

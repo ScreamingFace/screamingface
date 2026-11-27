@@ -4,6 +4,7 @@
     "cut_not_met",
     "gate_not_met",
     "in_band",
+    "no_selection",
     "no_votes",
     "output_missing"
   ],
@@ -30,6 +31,7 @@
     "in_band",
     "missing",
     "no_match",
+    "no_selection",
     "no_signal",
     "no_votes",
     "no_weight",
