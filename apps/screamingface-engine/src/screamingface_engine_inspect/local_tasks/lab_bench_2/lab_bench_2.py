@@ -88,8 +88,9 @@ NOT_CORRECT_SCORE: Final[float] = 0.0
 #: they take 3,578,520 and 4,031,124 bytes of base64 with every pixel kept, so the only change
 #: the Candidate sees is the file format (HLE and MathVista already send WebP). WHY not shrink
 #: the pixels: a smaller PNG is not smaller here (5% fewer pixels gave 10.4 MB, noisier to
-#: compress), and lossless keeps the authors' exam. The published revision holds (owner,
-#: 2026-11-26: no stored runs on this Benchmark yet).
+#: compress), and lossless keeps the authors' exam. The published revision holds by named
+#: exception (owner, 2026-11-27): the model gets exactly the same pixels; only the file format
+#: changed.
 FITTED_TO_THE_PICTURE_FLOOR: Final[Mapping[str, Mapping[int, str]]] = {
     "figqa2-img": {
         4: "882b5ff3-83b4-4e64-a7d3-88af1476cfa0-img",

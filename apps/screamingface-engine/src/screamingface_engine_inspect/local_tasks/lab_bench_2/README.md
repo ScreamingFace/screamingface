@@ -68,8 +68,9 @@ Benchmark score is the mean over the Cases run.
   bytes of base64 as PNG, over the 5,242,880 that Amazon Bedrock accepts per picture; OpenRouter
   can serve any Claude call from Bedrock, so they would fail on some calls. Re-saved as lossless
   WebP they are 3,578,520 and 4,031,124 bytes with every pixel identical. The question text
-  still names `figure.png`, as the authors' harness does. The published revision holds: no run
-  on this Benchmark was stored before the change.
+  still names `figure.png`, as the authors' harness does. The published revision holds by
+  named exception (owner, 2026-11-27): the model gets exactly the same pixels; only the file
+  format changed.
 - **No response schema.** The authors and the port ask the judge for a JSON
   `{rationale, result}` object. Our judge provider sends only the row's pinned params, so
   every reply is read by the port's fallback, the `result` line their prompt asks for.

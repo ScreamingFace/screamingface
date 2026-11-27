@@ -113,8 +113,9 @@ parity_test_reason: "No test runs the authors' harness. tests/unit/inspect/test_
 
 ## Since the audit (2026-11-26, OME-1970)
 
-The fingerprint moved from `770667413b4b1e51` to `116fa81617e07878`; the published id holds (owner
-decision 2026-11-26: no run on this Benchmark was stored). Cases 4 and 82 now send their figure
+The fingerprint moved from `770667413b4b1e51` to `56b6f3cd02eae7e4`; the published id holds by
+named exception (owner, 2026-11-27): the model gets exactly the same pixels, and only the file
+format changed. Cases 4 and 82 now send their figure
 as lossless WebP instead of PNG, because as PNG they were 5,530,200 and 5,479,724 bytes of base64,
 over the 5,242,880 that Amazon Bedrock accepts per picture, and OpenRouter can serve any Claude
 call from Bedrock. As WebP they are 3,578,520 and 4,031,124 bytes, and every pixel is identical

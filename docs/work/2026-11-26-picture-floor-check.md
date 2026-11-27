@@ -18,7 +18,9 @@ depending on the host OpenRouter picks. This unit adds the per-picture floor to 
 (OME-1970 Plan PR 2, decision 7), and in the same PR fits the only two published Cases over it,
 `labbench2_figqa2_img` Cases 4 and 82, by re-encoding their PNGs as lossless WebP (same
 pixels), so the image build keeps sealing that Benchmark. The owner folded the old PR 1 into
-this one and ruled the published revision HOLDS (26 Nov: no stored runs on this Benchmark).
+this one and ruled the published revision HOLDS (26 Nov: no stored runs on this Benchmark; on
+27 Nov, after one entry reached the board, re-ruled as a named exception: same pixels, only the
+file format changed).
 
 ## Planned changes
 
@@ -78,7 +80,8 @@ this one and ruled the published revision HOLDS (26 Nov: no stored runs on this 
   their WebP bytes are unchanged, so the digests hold. `shrunk_pictures.py` imports the 8000 px
   side from `picture_input.py` instead of defining it twice.
 - **Deviations:** (1) The old PR 1 (labbench2 revision) is folded in, and its published revision
-  holds instead of moving (owner, 2026-11-26). (2) Lossless WebP instead of the plan's "Pillow
+  holds instead of moving, the third named exception in `adding-an-imported-benchmark.md`
+  (owner, 2026-11-27: same pixels, only the file format changed). (2) Lossless WebP instead of the plan's "Pillow
   optimize=True, then downscale": `optimize` saved 0.3%, a 5% downscale made the PNG bigger; WebP
   keeps every pixel and fits. (3) A patch limit (GPT's 30,000 patches of 32 px, each side
   rounded up) joins the planned bytes and side limits, from the 6 Nov HLE run errors. (4) A header the reader

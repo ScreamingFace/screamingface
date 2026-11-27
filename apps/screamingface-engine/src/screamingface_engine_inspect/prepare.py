@@ -2220,7 +2220,8 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
     # NAMED DEVIATION (OME-1970, re-sealed on linux/amd64 2026-11-26): Cases 4 and 82 send their
     #   figure as lossless WebP (same pixels), to fit the hosts' 5,242,880-byte picture floor
     #   (FITTED_TO_THE_PICTURE_FLOOR in the Task). The other 99 Cases are byte-identical to the
-    #   2026-11-04 seal. The published revision holds (owner, 2026-11-26: no stored runs).
+    #   2026-11-04 seal. The published revision HOLDS by named exception (owner,
+    #   2026-11-27): the model gets exactly the same pixels; only the file format changed.
     "labbench2_figqa2_img": TaskReplayCasesSpec(
         task="screamingface_engine_inspect.local_tasks.lab_bench_2.lab_bench_2:lab_bench_2_figqa2_img",
         case_count=101,
