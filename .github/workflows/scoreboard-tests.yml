@@ -80,7 +80,7 @@ jobs:
       - name: Run benchmark picker keyboard tests
         run: node --test tests/portal/benchmark-picker-keyboard.test.js
       - name: Catalog summary UI regressions
-        run: node --test tests/portal/catalog.test.js tests/portal/catalog-search-toggle.test.js
+        run: node --test tests/portal/catalog.test.js tests/portal/catalog-search-toggle.test.js tests/portal/catalog-fusion-order.test.js
       - name: Portal theme initialization regressions
         run: node --test tests/portal/theme-init.test.js tests/portal/catalog-accessibility.test.js
       - name: Catalog session preference regressions

@@ -6,6 +6,14 @@
   var PAGE_SIZE = 9;
   var SCORED_PREFERENCE = "sf_catalog_has_scores";
 
+  // Unchanged from the original inline sort: case-folded display name, then id as the
+  // final tiebreaker. Extracted so the fusion-leads partition can apply it unmodified
+  // within each partition rather than duplicating or altering the comparison itself.
+  function alphaCompare(a, b) {
+    return (a.display_name || a.id).localeCompare(b.display_name || b.id, "en", { sensitivity: "base" }) ||
+      a.id.localeCompare(b.id, "en");
+  }
+
   function init() {
     var nodes = {};
     ["status", "cards", "more", "search", "scored", "count", "controls"].forEach(function (name) {
@@ -90,9 +98,13 @@
     P.fetchJson("/v1/benchmarks/summary").then(function (data) {
       // No fallback to 86 detailed requests: a failed summary has an explicit error state.
       if (!data || !Array.isArray(data.benchmarks)) throw new Error("Invalid catalog response");
+      // STORY: fusion-leading benchmarks surface first; the existing alpha comparator is
+      // untouched and still breaks ties within each partition. A benchmark with no
+      // `fusion_leads` (older fixtures, or the signal genuinely absent) sorts as "not
+      // leading" rather than crashing.
       catalog = data.benchmarks.slice().sort(function (a, b) {
-        return (a.display_name || a.id).localeCompare(b.display_name || b.id, "en", { sensitivity: "base" }) ||
-          a.id.localeCompare(b.id, "en");
+        var leadRank = (a.fusion_leads ? 0 : 1) - (b.fusion_leads ? 0 : 1);
+        return leadRank || alphaCompare(a, b);
       });
       nodes.controls.hidden = false;
       applyFilters();

@@ -90,7 +90,7 @@ def test_summary_matches_ranked_boards_and_omits_details(catalog_client: TestCli
     }
     assert {row["id"]: row["best_score"] for row in rows} == expected
     for row in rows:
-        assert set(row) == {"id", "display_name", "description", "focus", "best_score"}
+        assert set(row) == {"id", "display_name", "description", "focus", "best_score", "fusion_leads"}
         board = catalog_client.get(f"/v1/leaderboard/{row['id']}?top=1")
         assert board.status_code == 200
         scores = [entry["score"] for entry in board.json()["entries"]]

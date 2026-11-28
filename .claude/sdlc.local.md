@@ -53,7 +53,7 @@ stacks:
       - uv run pyright
       - uv run pytest --cov=scoreboard --cov-fail-under=80 -q
       - node --test tests/portal/benchmark-picker-keyboard.test.js
-      - node --test tests/portal/catalog.test.js
+      - node --test tests/portal/catalog.test.js tests/portal/catalog-fusion-order.test.js
       - node --test tests/portal/catalog-session.test.js
       - node --test tests/portal/theme-init.test.js tests/portal/catalog-accessibility.test.js
       # The portal's pure logic, under Node's built-in runner — no package.json, no

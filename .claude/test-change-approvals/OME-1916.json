@@ -1,0 +1,13 @@
+{
+  "issue": "OME-1916",
+  "branch": "OME-1916-fusion-leads-landing",
+  "approver": "Filip Boltuzic",
+  "date": "2026-11-25",
+  "reason": "Owner approved adding fusion_leads to the field set asserted by test_summary_matches_ranked_boards_and_omits_details. The ticket's decided criterion requires exposing a fusion-vs-solo-model comparison on each row of GET /v1/benchmarks/summary; this test pins that row's exact key set, so the new field necessarily extends it. Same pattern as OME-1852's extension of _PUBLIC_BOARD_ENTRY_FIELDS.",
+  "files": {
+    "apps/scoreboard/tests/unit/test_catalog_summary.py": {
+      "base_blob": "54a67ed1f7e3c93f5a3a85594ea023f46e83685b",
+      "approved_blob": "3fd91e4a48021c0a0e7e6ef3eeb9c0eb5d5f0ec6"
+    }
+  }
+}

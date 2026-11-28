@@ -27,9 +27,24 @@ packages = ["src/scoreboard"]
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+# OME-1916: test_catalog_summary.py carries an owner-approved test-contract edit, tracked
+# byte-exact in .claude/test-change-approvals/OME-1916.json (base_blob/approved_blob pin
+# the whole file's git blob hash, same mechanism OME-1852 used). The approved line is one
+# character set literal over 100 chars; `ruff format` has no per-line or per-rule
+# exemption (only `ruff check` does, via per-file-ignores below), and reformatting the
+# line, or wrapping it with `# fmt: off`/`# fmt: on`, would change its bytes and invalidate
+# that approval. Excluded here instead of touching the approved file — this is the only
+# file ruff skips in the project, and only because of this one pinned line.
+extend-exclude = ["tests/unit/test_catalog_summary.py"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "C901", "PLR0911", "PLR0912", "PLR0915", "PLR1702"]
+
+[tool.ruff.lint.per-file-ignores]
+# Belt-and-suspenders: documents the same E501 exemption for `ruff check` specifically,
+# in case the `extend-exclude` entry above is ever narrowed to format-only in a future
+# ruff release.
+"tests/unit/test_catalog_summary.py" = ["E501"]
 
 [tool.ruff.lint.mccabe]
 # Day-1 threshold — see apps/scoreboard/docs/complexity-baseline.md
