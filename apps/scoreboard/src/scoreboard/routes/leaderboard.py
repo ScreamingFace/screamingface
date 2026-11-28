@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Annotated, Self, cast
+from typing import Annotated, Any, Self, cast
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, Request, Response
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_serializer, model_validator
 from tortoise import BaseDBAsyncClient
 
 from scoreboard.classification.candidate_kind import CandidateKindVerdict
@@ -38,6 +38,7 @@ from scoreboard.scores.schemas import (
     ScoreSchema,
     SpecHistoryRow,
     SubmittedBy,
+    _publish_authors_metadata,
 )
 from scoreboard.scores.store import ScoreStore, benchmark_to_schema
 
@@ -76,6 +77,11 @@ class RankedLeaderboardEntry(BaseModel):
     submitted_at: datetime
     submitted_by: SubmittedBy
     authors: Authors = None
+    # FEATURE: OME-2015 — mirrors `LeaderboardEntry.authors_metadata` (see the AIDEV-NOTE below:
+    # the two DTOs must stay in step). Masked the same way, by the published author name.
+    authors_metadata: dict[str, dict[str, Any]] | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
     verified_by_screamingface: bool
     url4_expression: str
     # AIDEV-NOTE: this class mirrors LeaderboardEntry field-for-field plus `rank`,
@@ -145,6 +151,19 @@ class RankedLeaderboardEntry(BaseModel):
     # client reads "absent" and "null" the same way: no Reproduce.
     pinned_cache: str | None = Field(default=None, exclude_if=lambda value: value is None)
 
+    @field_serializer("authors_metadata", when_used="json")
+    def publish_authors_metadata(
+        self, value: dict[str, dict[str, Any]] | None
+    ) -> dict[str, dict[str, Any]] | None:
+        if value is None:
+            return None
+        credit_line = (
+            self.authors
+            if self.authors is not None
+            else ([] if self.submitted_by is None else [self.submitted_by])
+        )
+        return _publish_authors_metadata(value, credit_line)
+
 
 class LeaderboardResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -199,8 +218,25 @@ class HistorySubmission(BaseModel):
     submitted_at: datetime
     submitted_by: SubmittedBy
     authors: Authors = None
+    # FEATURE: OME-2015 — mirrors `SpecHistoryRow.authors_metadata` / `LeaderboardEntry`'s field.
+    authors_metadata: dict[str, dict[str, Any]] | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
     verified_by_screamingface: bool
     run_cost_usd: RunCostUsd
+
+    @field_serializer("authors_metadata", when_used="json")
+    def publish_authors_metadata(
+        self, value: dict[str, dict[str, Any]] | None
+    ) -> dict[str, dict[str, Any]] | None:
+        if value is None:
+            return None
+        credit_line = (
+            self.authors
+            if self.authors is not None
+            else ([] if self.submitted_by is None else [self.submitted_by])
+        )
+        return _publish_authors_metadata(value, credit_line)
 
 
 class HistoryResponse(BaseModel):
@@ -303,6 +339,7 @@ def _history_submission(score: SpecHistoryRow | ScoreSchema) -> HistorySubmissio
         submitted_at=score.submitted_at,
         submitted_by=score.submitted_by,
         authors=score.authors,
+        authors_metadata=score.authors_metadata,
         verified_by_screamingface=score.verified_by_screamingface,
         run_cost_usd=reproduction_cost(
             score.run_cost_usd,

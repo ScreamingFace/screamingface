@@ -1,0 +1,17 @@
+{
+  "issue": "OME-2015",
+  "branch": "OME-2015-author-website",
+  "approver": "Filip Boltuzic",
+  "date": "2026-11-26",
+  "reason": "Owner approved four routine, forced-by-design test edits for authors_metadata (website/full_name on the leaderboard, history, and owned-entries reads). Two are call-site substring updates in test_multiple_authors.py (formatAuthors now takes a second argument); one is that same file's every-field-non-default fixture guard needing a value for the new field; the fourth is an identical-shaped exhaustive model_fields guard on SpecHistoryRow in test_credit_metadata_review_round2.py, found during the post-implementation full-suite sweep. All four are pure additions/mechanical signature-follow edits, not weakenings, matching the OME-1852 _PUBLIC_BOARD_ENTRY_FIELDS precedent.",
+  "files": {
+    "apps/scoreboard/tests/unit/test_multiple_authors.py": {
+      "base_blob": "50fe75dc53c121507e47d46fc19124dd3829ef34",
+      "approved_blob": "f686a3137adff3611f5d474a2f1e90e6c02019cc"
+    },
+    "apps/scoreboard/tests/unit/test_credit_metadata_review_round2.py": {
+      "base_blob": "7b650bcebe7147f95aeb17d5f4068c0ed7866e63",
+      "approved_blob": "9c8764b9464fab3c455b5206693af1c825123aa8"
+    }
+  }
+}

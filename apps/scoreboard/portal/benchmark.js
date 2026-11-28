@@ -279,7 +279,9 @@
       var backendsTd = P.el("td", null, P.formatProviders(entry.ran_with_providers));
       backendsTd.appendChild(renderOpenness(entry));
       tr.appendChild(backendsTd);
-      tr.appendChild(P.el("td", null, P.formatAuthors(entry.authors)));
+      var authorsTd = P.el("td", null);
+      authorsTd.appendChild(P.formatAuthors(entry.authors, entry.authors_metadata));
+      tr.appendChild(authorsTd);
       tr.appendChild(appendGradedNote(renderScoreCell(entry.score, barMin, barMax), entry));
       // WHY the title: the cell rounds to cents, but the frontier compares the full stored
       // Decimal — so two rows inside one cent render identically while only one is marked. The

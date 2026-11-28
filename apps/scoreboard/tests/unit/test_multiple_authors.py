@@ -197,9 +197,12 @@ async def test_another_submitter_cannot_rewrite_public_author_credit(tortoise_db
 def test_portal_renders_author_lists_in_leaderboard_and_history() -> None:
     portal = Path(__file__).resolve().parents[2] / "portal"
 
-    assert "P.formatAuthors(entry.authors)" in (portal / "benchmark.js").read_text()
+    assert (
+        "P.formatAuthors(entry.authors, entry.authors_metadata)"
+        in (portal / "benchmark.js").read_text()
+    )
     assert "P.formatSubmitter(s.submitted_by)" in (portal / "spec.js").read_text()
-    assert "P.formatAuthors(s.authors)" in (portal / "spec.js").read_text()
+    assert "P.formatAuthors(s.authors, s.authors_metadata)" in (portal / "spec.js").read_text()
     assert "<th>Submitter</th>" in (portal / "spec.html").read_text()
     assert "<th>Authors</th>" in (portal / "spec.html").read_text()
 
@@ -225,7 +228,24 @@ async def test_owned_entries_carry_every_field_with_a_non_default_value(
     """
     store = ScoreStore()
     await store.register_benchmark(benchmark_id="hle", display_name="HLE", visibility="private")
-    submission = _submission(authors=[ALICE, BOB], metadata={"benchmark_revision": "rev-9"})
+    # OME-2015: authors_metadata is built directly rather than via `_submission` (which has no
+    # such kwarg), so it carries a non-default, non-None value too, the same way every other
+    # nullable field here does.
+    submission = ScoreSubmission(
+        benchmark_id="hle",
+        spec_id="spec-1",
+        url4_expression="url4://benchmark/hle/spec-1",
+        submitted_by=ALICE,
+        authors=[ALICE, BOB],
+        score=0.75,
+        total_questions=100,
+        correct_questions=75,
+        ran_with_providers=["openai"],
+        run_cost_usd=Decimal("1.000000"),
+        run_cost_status="complete",
+        metadata={"benchmark_revision": "rev-9"},
+        authors_metadata={ALICE: {"full_name": "Alice A"}},
+    )
     await store.submit(submission, identity_verified=True)
     row = await Score.get(spec_id="spec-1")
 
@@ -265,7 +285,7 @@ def test_portal_leaderboard_table_has_no_submitter_column() -> None:
 
     assert 'label: "Submitter"' not in benchmark_js
     assert "P.formatSubmitter(entry.submitted_by)" not in benchmark_js
-    assert "P.formatAuthors(entry.authors)" in benchmark_js
+    assert "P.formatAuthors(entry.authors, entry.authors_metadata)" in benchmark_js
     assert "P.formatSubmitter(s.submitted_by)" in (portal / "spec.js").read_text()
 
 
@@ -318,3 +338,41 @@ def test_submission_rejects_an_unbounded_repeated_author_payload() -> None:
     # JSON field merely because duplicate entries do not consume the credit cap.
     with pytest.raises(ValidationError, match="authors must serialize to at most 4096 bytes"):
         _submission(authors=[repeated] * 20)
+
+
+@pytest.mark.asyncio
+async def test_leaderboard_history_and_owned_entries_carry_authors_metadata(
+    tortoise_db: None,
+) -> None:
+    """FEATURE: OME-2015 — `authors_metadata` (website/full_name) reaches every read path that
+    shows a credit line, masked by the published author name exactly like `ScoreSchema` already
+    does, and the staff-side projection keeps the full address key.
+    """
+    store = ScoreStore()
+    await store.register_benchmark(benchmark_id="hle", display_name="HLE")
+    metadata = {ALICE: {"website": "https://alice.example/", "full_name": "Alice A"}}
+    submission = ScoreSubmission(
+        benchmark_id="hle",
+        spec_id="spec-1",
+        url4_expression="url4://benchmark/hle/spec-1",
+        submitted_by=ALICE,
+        authors=[ALICE, BOB],
+        authors_metadata=metadata,
+        score=0.75,
+        total_questions=100,
+        correct_questions=75,
+        ran_with_providers=["openai"],
+        run_cost_usd=Decimal("1.000000"),
+        run_cost_status="complete",
+    )
+    await store.submit(submission)
+
+    leaderboard = await store.leaderboard("hle")
+    history = await store.list_for_spec("hle", "spec-1")
+    owned = await store.list_owned_entries("hle", owner=ALICE)
+
+    expected_public = {"alice": {"website": "https://alice.example/", "full_name": "Alice A"}}
+    assert json.loads(leaderboard[0].model_dump_json())["authors_metadata"] == expected_public
+    assert json.loads(history[0].model_dump_json())["authors_metadata"] == expected_public
+    # `list_owned_entries` is read by its own owner (OME-894) — staff-shape, full address key.
+    assert owned[0].authors_metadata == metadata

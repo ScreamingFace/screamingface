@@ -52,7 +52,9 @@
     tr.appendChild(P.el("td", null, P.formatDate(s.submitted_at)));
     tr.appendChild(revisionCell(s, benchmarkId, revisions));
     tr.appendChild(P.el("td", "cell-wrap", P.formatSubmitter(s.submitted_by)));
-    tr.appendChild(P.el("td", "cell-wrap", P.formatAuthors(s.authors)));
+    var authorsTd = P.el("td", "cell-wrap");
+    authorsTd.appendChild(P.formatAuthors(s.authors, s.authors_metadata));
+    tr.appendChild(authorsTd);
     tr.appendChild(P.el("td", "num", P.formatScore(s.score)));
     tr.appendChild(P.el("td", "num", P.formatQuestions(s.total_questions)));
     return tr;
