@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import base64
 import json
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -39,8 +40,12 @@ from screamingface_engine_inspect.capture import captured_case_records  # noqa: 
 from screamingface_engine_inspect.conversation_input import conversation_messages  # noqa: E402
 from screamingface_engine_inspect.picture_input import (  # noqa: E402
     MAX_CASE_BYTES,
+    MAX_PICTURE_BASE64_BYTES,
+    MAX_PICTURE_PATCHES,
+    MAX_PICTURE_SIDE_PX,
     MAX_PICTURES,
     PictureCaseError,
+    picture_patches,
 )
 from screamingface_engine_inspect.prepare import TaskReplayCasesSpec, case_digest  # noqa: E402
 from screamingface_engine_inspect.task_replay import replay_environment  # noqa: E402
@@ -336,18 +341,21 @@ def _picture_up_to(limit: int, *, over: bool = False) -> ContentImage:
 
 
 def test_one_big_picture_inside_the_case_limit_is_saved() -> None:
-    # STORY: TableQA's Case 186 holds one 5.21 MB picture (measured 2026-10-26); there is no
-    # limit per picture, only the Case's, so it imports (owner decision, 2026-10-26).
-    case_input: str = _input(_figqa_sample(_picture_up_to(5_300_000)))
+    # STORY: TableQA's Case 186 holds one 5.21 MB picture (5,207,804 bytes as a data: URI,
+    # measured 2026-10-26); it is under the per-picture floor (OME-1970), so it imports.
+    case_input: str = _input(_figqa_sample(_picture_up_to(5_207_804)))
 
-    assert len(case_input) > 5_300_000 - 4
+    assert len(case_input) > 5_207_804 - 4
 
 
 def test_a_case_at_its_limit_is_saved_and_one_over_it_is_refused() -> None:
-    # WHY the margin: the Case is the picture plus the envelope and the rendered question.
-    _input(_figqa_sample(_picture_up_to(MAX_CASE_BYTES - 1_000)))
+    # WHY two pictures: one picture alone stops at the per-picture floor (OME-1970) long
+    # before the Case limit. WHY the margin: the Case is the pictures plus the envelope and
+    # the rendered question.
+    half: int = MAX_CASE_BYTES // 2
+    _input(_figqa_sample(_picture_up_to(half - 500), _picture_up_to(half - 500)))
 
-    message: str = _refusal(_figqa_sample(_picture_up_to(MAX_CASE_BYTES, over=True)))
+    message: str = _refusal(_figqa_sample(_picture_up_to(half), _picture_up_to(half, over=True)))
 
     assert f"{MAX_CASE_BYTES:,}" in message
 
@@ -380,6 +388,164 @@ def test_too_many_pictures_are_refused_before_any_is_read() -> None:
     message: str = _refusal(_figqa_sample(*[picture] * (MAX_PICTURES + 1)))
 
     assert f"{MAX_PICTURES + 1} pictures" in message
+
+
+# ── the per-picture floor (OME-1970) ─────────────────────────────────────────
+# STORY: OpenRouter picks the host for each call; Bedrock refuses a picture over 5 MiB of
+# base64, Claude one with a side over 8000 px, GPT pro models one over 30,000 patches. A
+# sealed Case must pass on every host, so the seal refuses a picture over any of them.
+
+
+def test_a_picture_at_the_floor_is_saved_and_one_base64_step_over_is_refused() -> None:
+    # WHY the URI's payload: Bedrock counts the base64 text, 5,242,880 bytes of it (refusal
+    # read on 26 Nov: "5599764 bytes > 5242880 bytes"), not the file.
+    header: int = len("data:image/png;base64,")
+    _input(_figqa_sample(_picture_up_to(MAX_PICTURE_BASE64_BYTES + header)))
+
+    message: str = _refusal(
+        _figqa_sample(_picture_up_to(MAX_PICTURE_BASE64_BYTES + header, over=True))
+    )
+
+    assert message.startswith("case 1: picture 1 is 5,242,884 bytes as base64")
+    assert f"{MAX_PICTURE_BASE64_BYTES:,}" in message
+
+
+def _png_header(width: int, height: int) -> bytes:
+    """A PNG's signature and IHDR chunk saying ``width`` × ``height``; no pixels follow."""
+
+    ihdr: bytes = width.to_bytes(4, "big") + height.to_bytes(4, "big") + b"\x08\x02\x00\x00\x00"
+    return b"\x89PNG\r\n\x1a\n" + len(ihdr).to_bytes(4, "big") + b"IHDR" + ihdr + b"\x00" * 4
+
+
+def _jpeg_header(width: int, height: int) -> bytes:
+    """A JPEG start, an APP0 segment to skip, then a baseline SOF0 frame of that size."""
+
+    app0: bytes = b"\xff\xe0" + (16).to_bytes(2, "big") + b"JFIF\x00" + b"\x00" * 9
+    sof0: bytes = (
+        b"\xff\xc0"
+        + (17).to_bytes(2, "big")
+        + b"\x08"
+        + height.to_bytes(2, "big")
+        + width.to_bytes(2, "big")
+        + b"\x03"
+        + b"\x00" * 9
+    )
+    return b"\xff\xd8" + app0 + sof0
+
+
+def _gif_header(width: int, height: int) -> bytes:
+    """A GIF89a logical screen of that size."""
+
+    return b"GIF89a" + width.to_bytes(2, "little") + height.to_bytes(2, "little") + b"\x00" * 3
+
+
+def _riff(chunk: bytes, body: bytes) -> bytes:
+    """A WebP file: the RIFF header, then one chunk named ``chunk`` holding ``body``."""
+
+    return (
+        b"RIFF"
+        + (4 + 8 + len(body)).to_bytes(4, "little")
+        + b"WEBP"
+        + chunk
+        + len(body).to_bytes(4, "little")
+        + body
+    )
+
+
+def _webp_vp8x_header(width: int, height: int) -> bytes:
+    """An extended WebP (VP8X) whose canvas is that size, stored as size minus one."""
+
+    body: bytes = (
+        b"\x00" * 4 + (width - 1).to_bytes(3, "little") + (height - 1).to_bytes(3, "little")
+    )
+    return _riff(b"VP8X", body)
+
+
+def _webp_vp8l_header(width: int, height: int) -> bytes:
+    """A lossless WebP (VP8L): 14 bits of width minus one, then 14 of height minus one."""
+
+    bits: int = (width - 1) | ((height - 1) << 14)
+    body: bytes = b"\x2f" + bits.to_bytes(4, "little") + b"\x00" * 4
+    return _riff(b"VP8L", body)
+
+
+def _webp_vp8_header(width: int, height: int) -> bytes:
+    """A lossy WebP (VP8): a key frame tag, the start code, then 14-bit width and height."""
+
+    body: bytes = (
+        b"\x00" * 3 + b"\x9d\x01\x2a" + width.to_bytes(2, "little") + height.to_bytes(2, "little")
+    ) + b"\x00" * 4
+    return _riff(b"VP8 ", body)
+
+
+_HEADERS: dict[str, tuple[str, Callable[[int, int], bytes]]] = {
+    "png": ("image/png", _png_header),
+    "jpeg": ("image/jpeg", _jpeg_header),
+    "gif": ("image/gif", _gif_header),
+    "webp-vp8x": ("image/webp", _webp_vp8x_header),
+    "webp-vp8l": ("image/webp", _webp_vp8l_header),
+    "webp-vp8": ("image/webp", _webp_vp8_header),
+}
+
+
+@pytest.mark.parametrize("kind", sorted(_HEADERS))
+def test_a_side_at_8000_px_is_saved_and_8001_is_refused(kind: str) -> None:
+    # STORY: HLE's Case 250 (14950 × 2780 px) failed on every Claude Candidate on 6 Nov.
+    # WHY a 14-bit format still reaches 8001: VP8 and VP8L hold up to 16383 px a side.
+    mime, header = _HEADERS[kind]
+    _input(_figqa_sample(ContentImage(image=_data_uri(mime, header(MAX_PICTURE_SIDE_PX, 10)))))
+
+    wide: str = _refusal(
+        _figqa_sample(ContentImage(image=_data_uri(mime, header(MAX_PICTURE_SIDE_PX + 1, 10))))
+    )
+    tall: str = _refusal(
+        _figqa_sample(ContentImage(image=_data_uri(mime, header(10, MAX_PICTURE_SIDE_PX + 1))))
+    )
+
+    assert "picture 1 is 8001 × 10 px" in wide and "8000" in wide
+    assert "picture 1 is 10 × 8001 px" in tall
+
+
+def test_patches_are_counted_as_gpt_counts_them_each_side_rounded_up() -> None:
+    # STORY: GPT-6 Astra Pro and GPT-6.1 Terra Pro refused HLE's Case 250 (14950 × 2780 px) on
+    # 6 Nov: "requires 40716 patches after processing, exceeding the limit of 30000".
+    # INVARIANT: our count equals GPT's. ⌈14950/32⌉ × ⌈2780/32⌉ = 468 × 87 = 40,716, while plain
+    # pixels / 1024 gives 40,587 — so a pixel budget is the wrong measure.
+    assert picture_patches(14950, 2780) == 40_716
+    assert picture_patches(32, 32) == 1
+    assert picture_patches(33, 32) == 2
+
+
+def test_a_picture_over_the_patch_budget_is_refused_though_each_side_fits() -> None:
+    # 8000 × 3840 is 250 × 120 = 30,000 patches, exactly GPT's limit; one more row of pixels
+    # starts a new row of patches, 250 × 121 = 30,250.
+    _input(_figqa_sample(ContentImage(image=_data_uri("image/png", _png_header(8000, 3840)))))
+
+    message: str = _refusal(
+        _figqa_sample(ContentImage(image=_data_uri("image/png", _png_header(8000, 3841))))
+    )
+
+    assert "picture 1 is 8000 × 3841 px, 30,250 patches" in message
+    assert f"{MAX_PICTURE_PATCHES:,}" in message
+
+
+def test_a_picture_under_30_720_000_pixels_but_over_30_000_patches_is_refused() -> None:
+    # WHY: 7985 × 3847 is 30,718,295 pixels, under a 30,000 × 32 × 32 pixel budget, yet
+    # 250 × 121 = 30,250 patches, which GPT refuses. A review sealed it under the old pixel rule.
+    message: str = _refusal(
+        _figqa_sample(ContentImage(image=_data_uri("image/png", _png_header(7985, 3847))))
+    )
+
+    assert "picture 1 is 7985 × 3847 px, 30,250 patches" in message
+
+
+def test_a_header_too_short_to_read_is_left_to_the_signature_check() -> None:
+    # WHY not refused: the seal names a picture's type from its signature and never decodes
+    # it (the provider does). A header we cannot read carries no size to check; _PNG is the
+    # 16-byte stand-in every other test in this file seals.
+    case_input: str = _input(_figqa_sample(ContentImage(image=_data_uri("image/png", _PNG))))
+
+    assert _PNG_B64 in case_input
 
 
 # ── shapes the importer refuses ──────────────────────────────────────────────

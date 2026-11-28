@@ -110,3 +110,16 @@ parity_test_reason: "No test runs the authors' harness. tests/unit/inspect/test_
 - **Two accuracies.** The authors print "Accuracy (overall)", which counts failures as incorrect, and "Attempted Accuracy" (`fork:evals/run_evals.py:188,192`). The paper's reports have 0 failures, so both equal the published number. Our `withhold` is the overall one.
 - **[inspect_evals](https://github.com/UKGovernmentBEIS/inspect_evals)** lists LABBench2 only as an external eval. Its register points to the [Generality-Labs port at `081864a`](https://github.com/Generality-Labs/lab-bench/tree/081864af494b180ecf6aae3f7333e384c0d227af/src/lab_bench_2). By our README (`:71-75`), that port carries the paper-era file sentence and judge template, so it is closer to the paper's Candidate prompt than we are. This audit did not install or diff the port, so it is no `comparable-to-inspect` evidence. The origin is `screamingface` and that verdict does not apply.
 - **The row's Frontier Score source.** `benchmarks.py:7474-7477` reads 0.614 "from the figure's pixels" (62 of 101). The authors' report gives it exactly: 62/101, `average_scores` 0.614 (Checks run 14). The report is a stronger citation than the figure.
+
+## Since the audit (2026-11-26, OME-1970)
+
+The fingerprint moved from `770667413b4b1e51` to `56b6f3cd02eae7e4`; the published id holds by
+named exception (owner, 2026-11-27): the model gets exactly the same pixels, and only the file
+format changed. Cases 4 and 82 now send their figure
+as lossless WebP instead of PNG, because as PNG they were 5,530,200 and 5,479,724 bytes of base64,
+over the 5,242,880 that Amazon Bedrock accepts per picture, and OpenRouter can serve any Claude
+call from Bedrock. As WebP they are 3,578,520 and 4,031,124 bytes, and every pixel is identical
+(decoded and compared). The prompt row's "picture bytes … differ on []" against 0cabab27 now
+holds for 99 of 101 Cases; on Cases 4 and 82 the bytes differ and the pixels do not. The other
+99 Cases are byte-identical to the audited seal. No verdict changes: the Candidate reads the same
+pixels, and the file-name text still says `figure.png`, as the authors' harness does.

@@ -22,10 +22,12 @@ Stages, in execution order (``picture_case_text``):
               Each picture's bytes come from its ``data:`` URI, or from a file the eval wrote
               into this import's own cache, and its type is read from the bytes, not from
               the label.
-    Stage 4 — the limits: at most 20 pictures, and 8 MB for the whole Case with its pictures
-              inline. WHY no limit per picture: a picture is never bigger than its Case, so
-              the Case limit already bounds the request, and TableQA has a 5.21 MB picture
-              (owner decision, 2026-10-26).
+    Stage 4 — the limits: at most 20 pictures; each picture under the hosts' floor (5 MiB
+              of base64, 8000 px a side, 30,000 patches of 32 px), read from its header without
+              decoding a pixel; and 8 MB for the whole Case with its pictures inline. WHY a
+              limit per picture now: OpenRouter picks the host for each call, and the
+              smallest host refuses a picture the Case limit lets through (OME-1970; this
+              reverses the 2026-10-26 "no limit per picture" decision).
     Stage 5 — seal the envelope and read it back with the shared parser, so a Case the
               importer writes is always one the connector and the scorer can open.
 
@@ -60,6 +62,7 @@ from screamingface_engine.benchmarks.candidate_input import (
     parse_candidate_input,
 )
 from screamingface_engine_inspect.conversation_input import picture_case_input
+from screamingface_engine_inspect.picture_size import picture_size
 from screamingface_engine_inspect.prepare import PrepareError
 
 if TYPE_CHECKING:
@@ -71,6 +74,24 @@ if TYPE_CHECKING:
 MAX_CASE_BYTES: int = 8_000_000
 #: The most pictures one Case may carry.
 MAX_PICTURES: int = 20
+
+# FEATURE: the hosts' floor (OME-1970) — a sealed Case passes on every host OpenRouter can pick.
+#: The most base64 text one picture may take: 5 MiB. Amazon Bedrock, which OpenRouter can pick
+#: for any Claude call, counts the base64 text, not the file (probed 24 and 26 Nov 2026:
+#: "image exceeds 5 MB maximum: 5599764 bytes > 5242880 bytes"), so about 3.93 MB of file.
+MAX_PICTURE_BASE64_BYTES: int = 5 * 1024 * 1024
+#: The longest side one picture may have. Claude's documented limit on every route
+#: (https://platform.claude.com/docs/en/build-with-claude/vision); HLE's Case 250, 14950 px wide,
+#: failed on every Claude Candidate on 6 Nov 2026 with a provider 400.
+MAX_PICTURE_SIDE_PX: int = 8000
+#: The side of one GPT patch, the square GPT cuts a picture into before counting it.
+PICTURE_PATCH_SIDE_PX: int = 32
+#: The most patches one picture may take: GPT's limit. GPT-6 Astra Pro refused HLE's Case 250
+#: (14950 × 2780 px) on 6 Nov 2026: "requires 40716 patches ... exceeding the limit of 30000",
+#: and 40,716 is ⌈14950/32⌉ × ⌈2780/32⌉ = 468 × 87, so each side rounds up to a whole patch.
+#: WHY patches, not pixels: a pixel budget (30,000 × 32 × 32) lets 7985 × 3847 px through,
+#: 30,718,295 pixels but 250 × 121 = 30,250 patches, which GPT refuses.
+MAX_PICTURE_PATCHES: int = 30_000
 
 #: How system text joins the prompt, the same blank line a text Case folds it with.
 #: AIDEV-NOTE: twin of capture.py's ``_MESSAGE_SEPARATOR``; capture imports this module, so they
@@ -221,9 +242,9 @@ def _picture_part(image: ContentImage, case_id: int, number: int) -> ImagePart:
     media_type: str | None = _media_type(data)
     if media_type is None:
         _refuse(case_id, f"picture {number} is not a PNG, JPEG, GIF or WebP")
-    image_url: ImageUrl = {
-        "url": f"data:{media_type};base64,{base64.b64encode(data).decode('ascii')}"
-    }
+    encoded: str = base64.b64encode(data).decode("ascii")
+    _within_picture_floor(encoded, picture_size(data), case_id, number)
+    image_url: ImageUrl = {"url": f"data:{media_type};base64,{encoded}"}
     if image.detail == "original":
         _refuse(
             case_id,
@@ -278,6 +299,52 @@ def _import_cache_root() -> Path | None:
     return Path(evals_cache).parent if evals_cache else None
 
 
+def picture_patches(width: int, height: int) -> int:
+    """How many 32 px patches GPT counts for a picture, each side rounded up to a whole patch.
+
+    e.g. HLE's knot picture, 14950 × 2780 px → 468 × 87 = 40,716 patches, the number GPT's
+    refusal quoted; 8000 × 3840 → 250 × 120 = 30,000, exactly the limit.
+    """
+
+    across: int = -(-width // PICTURE_PATCH_SIDE_PX)
+    down: int = -(-height // PICTURE_PATCH_SIDE_PX)
+    return across * down
+
+
+def _within_picture_floor(
+    encoded: str, size: tuple[int, int] | None, case_id: int, number: int
+) -> None:
+    """Stage 4 — refuse one picture over any host's floor, naming the limit it breaks.
+
+    e.g. Case 4's figure, 5,530,200 bytes of base64 → "picture 1 is 5,530,200 bytes as base64;
+    a picture carries at most 5,242,880"; HLE's knot picture, 14950 × 2780 px → over 8000 px.
+    """
+
+    if len(encoded) > MAX_PICTURE_BASE64_BYTES:
+        _refuse(
+            case_id,
+            f"picture {number} is {len(encoded):,} bytes as base64; a picture carries at most "
+            f"{MAX_PICTURE_BASE64_BYTES:,}",
+        )
+    # WHY a header we cannot read passes: the seal names a type from its signature and never
+    # decodes the picture (the provider does), so an unreadable header carries no size to check.
+    if size is None:
+        return
+    width, height = size
+    if max(width, height) > MAX_PICTURE_SIDE_PX:
+        _refuse(
+            case_id,
+            f"picture {number} is {width} × {height} px; a side is at most {MAX_PICTURE_SIDE_PX}",
+        )
+    patches: int = picture_patches(width, height)
+    if patches > MAX_PICTURE_PATCHES:
+        _refuse(
+            case_id,
+            f"picture {number} is {width} × {height} px, {patches:,} patches of "
+            f"{PICTURE_PATCH_SIDE_PX} px; a picture takes at most {MAX_PICTURE_PATCHES:,}",
+        )
+
+
 def _media_type(data: bytes) -> str | None:
     """The picture type the bytes start with, or ``None`` when they are none of the four."""
 
@@ -298,6 +365,11 @@ def _refuse(case_id: int, detail: str) -> NoReturn:
 __all__ = [
     "MAX_CASE_BYTES",
     "MAX_PICTURES",
+    "MAX_PICTURE_BASE64_BYTES",
+    "MAX_PICTURE_PATCHES",
+    "MAX_PICTURE_SIDE_PX",
+    "PICTURE_PATCH_SIDE_PX",
     "PictureCaseError",
+    "picture_patches",
     "picture_case_text",
 ]

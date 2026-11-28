@@ -422,6 +422,12 @@ changed Case set moved the id). Everything else holds it:
   Every Claude and GPT-pro Candidate already failed that Case without reading it, so their old
   entries read at most one Case low; other Candidates now see a smaller picture there, and a
   pinned-cache replay of an old entry misses that one Case.
+  A third named exception (owner, 2026-11-27, OME-1970): labbench2_figqa2_img held its id when
+  Cases 4 and 82 started sending their figure as lossless WebP instead of PNG, to fit Bedrock's
+  5,242,880-byte picture floor. The model gets exactly the same pixels (the build decodes the
+  WebP and compares); only the file format changed, so the one entry already on that board
+  keeps its meaning. A pinned-cache replay of it misses those two Cases, whose request bytes
+  changed.
 - **Changed Cases**: the id moves. A re-grade cannot move these entries, since their old replies
   answer a different exam. OME-1701 moved worldsense, stereoset and onet_m6 when their Case sets
   changed.

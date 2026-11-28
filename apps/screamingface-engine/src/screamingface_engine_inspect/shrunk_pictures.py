@@ -35,16 +35,14 @@ import io
 from collections.abc import Collection, Sequence
 from typing import TYPE_CHECKING, Any
 
+# WHY import the side limit: the seal check refuses a picture over it, so the size a picture
+# shrinks to is that same number, defined once (8000 px, Claude's limit; on the 6 Nov 2026 prod
+# HLE runs every Claude Candidate refused hle Case 250's 14950 px picture).
+from screamingface_engine_inspect.picture_input import MAX_PICTURE_SIDE_PX
 from screamingface_engine_inspect.prepare import PrepareError
 
 if TYPE_CHECKING:
     from inspect_ai.dataset import Sample
-
-#: The longest picture side every model host we serve accepts. WHY 8000: Claude documents 8000
-#: px per side, and on the 6 Nov 2026 prod HLE runs every Claude Candidate refused hle Case 250's
-#: 14950 px picture ("The upstream provider rejected the request."); GPT-pro models refused it
-#: too ("requires 40716 patches after processing, exceeding the limit of 30000").
-MAX_PICTURE_SIDE_PX: int = 8000
 
 #: The one picture format this deviation re-encodes. WHY only PNG: its re-encode is lossless;
 #: JPEG or WebP would also need a chosen quality, a decision no row has made.

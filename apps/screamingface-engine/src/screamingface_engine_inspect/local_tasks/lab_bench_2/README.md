@@ -28,7 +28,8 @@ import's own cache (`INSPECT_EVALS_CACHE_DIR/lab_bench_2/…`), and checks it ag
 bucket's md5. The importer then seals the picture inside the Case, so nothing is fetched at
 run time. The figures are not a recorded Case Source (our own urllib, as GDPval's reference
 files): the Case Digest is their pin, and a figure the authors replace fails the next build.
-Largest Case with its picture inline: 5.53 MB (FigQA2), under the 8 MB Case limit.
+Largest Case with its picture inline: 5.23 MB (FigQA2), under the 8 MB Case limit and the
+5,242,880-byte per-picture floor, after the two figures below are re-sent as WebP.
 
 ## The prompt
 
@@ -62,6 +63,14 @@ Benchmark score is the mean over the Cases run.
 
 ## Named deviations
 
+- **Two FigQA2 figures are sent as lossless WebP, not PNG** (OME-1970, owner 2026-11-26).
+  Cases 4 and 82 (dataset ids `882b5ff3…-img`, `13ad1153…-img`) are 5,530,200 and 5,479,724
+  bytes of base64 as PNG, over the 5,242,880 that Amazon Bedrock accepts per picture; OpenRouter
+  can serve any Claude call from Bedrock, so they would fail on some calls. Re-saved as lossless
+  WebP they are 3,578,520 and 4,031,124 bytes with every pixel identical. The question text
+  still names `figure.png`, as the authors' harness does. The published revision holds by
+  named exception (owner, 2026-11-27): the model gets exactly the same pixels; only the file
+  format changed.
 - **No response schema.** The authors and the port ask the judge for a JSON
   `{rationale, result}` object. Our judge provider sends only the row's pinned params, so
   every reply is read by the port's fallback, the `result` line their prompt asks for.

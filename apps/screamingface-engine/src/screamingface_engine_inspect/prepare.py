@@ -2217,11 +2217,16 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
     # Case Sources, as recorded at import (review them; the Case Digest pins them):
     #   hugging-face EdisonScientific/labbench2/figqa2-img
     #     pin revision 3678e7e38748477d0606407468db9cd7e2f2e667
+    # NAMED DEVIATION (OME-1970, re-sealed on linux/amd64 2026-11-26): Cases 4 and 82 send their
+    #   figure as lossless WebP (same pixels), to fit the hosts' 5,242,880-byte picture floor
+    #   (FITTED_TO_THE_PICTURE_FLOOR in the Task). The other 99 Cases are byte-identical to the
+    #   2026-11-04 seal. The published revision HOLDS by named exception (owner,
+    #   2026-11-27): the model gets exactly the same pixels; only the file format changed.
     "labbench2_figqa2_img": TaskReplayCasesSpec(
         task="screamingface_engine_inspect.local_tasks.lab_bench_2.lab_bench_2:lab_bench_2_figqa2_img",
         case_count=101,
-        case_digest="14980c37ac16c1228c9556bcc5c803723ff9d441225c0bba3f81e4c3b54340c0",
-        case_set_digest="f4e5424845f67be7a203f84e12bbd8c76a71ca6e6966dacb66341a2a0eddd4e0",
+        case_digest="e0bd1dbc03268e8fcc680999aa763ad29cc40cf2e2e9d0d48cdf6ecba9736f12",
+        case_set_digest="060e620b7d7a518dc37480951b9cd869ce52c9b76b50020642c4659f377fa5bf",
         keep_sample_metadata=True,
         keep_sample_input=True,
         source_pins={

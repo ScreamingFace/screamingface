@@ -44,6 +44,7 @@ from PIL import Image  # noqa: E402
 from replayed_cases_helpers import replay_in_process_over_rows  # noqa: E402
 
 from screamingface_engine_inspect.benchmarks import _task_replay_pins  # noqa: E402
+from screamingface_engine_inspect.picture_input import PictureCaseError  # noqa: E402
 from screamingface_engine_inspect.prepare import (  # noqa: E402
     HLE_OVERSIZED_PICTURE_SAMPLE_IDS,
     TASK_REPLAY_CASES,
@@ -234,13 +235,15 @@ def test_the_real_task_serves_the_named_row_shrunk_and_the_next_row_as_it_was(
     key: str, tmp_path: Path
 ) -> None:
     """Through the row's real Task and capture: the Hub row named by the deviation reaches the
-    Candidate at 8000 px wide, and a second oversized row the deviation does not name keeps its
-    9000 px (a later seal check, not this deviation, is what refuses such a row)."""
+    Candidate at 8000 px wide, and a row the deviation does not name keeps its picture as it was.
 
-    original: str = _data_uri(_png(WIDE))
+    WHY the unlisted row's picture fits: since OME-1970 PR 2 the seal refuses any picture over
+    8000 px a side (the next test), so only the named row may arrive oversized."""
+
+    unlisted_size: tuple[int, int] = (100, 30)
     rows: list[dict[str, Any]] = [
-        _hub_row(OVERSIZED_ROW_ID, original, key),
-        _hub_row("stand-in-unlisted", original, key),
+        _hub_row(OVERSIZED_ROW_ID, _data_uri(_png(WIDE)), key),
+        _hub_row("stand-in-unlisted", _data_uri(_png(unlisted_size)), key),
     ]
 
     prepared: list[PreparedCase] = replay_in_process_over_rows(
@@ -248,7 +251,23 @@ def test_the_real_task_serves_the_named_row_shrunk_and_the_next_row_as_it_was(
     )
 
     assert _case_picture(prepared[0]).size == (8000, 27)
-    assert _case_picture(prepared[1]).size == WIDE
+    assert _case_picture(prepared[1]).size == unlisted_size
+
+
+@pytest.mark.parametrize("key", ["hle", "hle_diamond"])
+def test_the_seal_refuses_an_oversized_row_the_deviation_does_not_name(
+    key: str, tmp_path: Path
+) -> None:
+    """INVARIANT: the deviation shrinks only the row it names; any other picture over 8000 px
+    fails the build by Case at the seal's per-picture floor (OME-1970 PR 2), never sealed."""
+
+    rows: list[dict[str, Any]] = [
+        _hub_row(OVERSIZED_ROW_ID, _data_uri(_png(WIDE)), key),
+        _hub_row("stand-in-unlisted", _data_uri(_png(WIDE)), key),
+    ]
+
+    with pytest.raises(PictureCaseError, match=r"case 2: picture 1 is 9000 × 30 px"):
+        replay_in_process_over_rows(key, rows, tmp_path, shrink_named_pictures=True)
 
 
 @pytest.mark.parametrize("key", ["hle", "hle_diamond"])
