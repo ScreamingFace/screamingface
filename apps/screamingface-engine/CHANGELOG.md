@@ -24,6 +24,94 @@
 * A start whose run-queue publish may have been stored, though its own send went unanswered or the start was cancelled, keeps its caller's in-flight slot instead of freeing it while the run executes anyway (OME-1859). The start still answers 503 (or is cancelled). The held attempts of one start take one slot however many timed out, and its retry is never refused because of them. A held slot is freed when the runner next sees the run's terminal frame (a Run cancel's tombstone included), once the run can no longer exist (twice its deadline plus 300 s), or after the one-hour reservation lease. A publish that no JetStream server answers now gets a retryable 503 instead of a plain 500.
 * Attribute collected IFEval model-call failures using the existing collected error kind from the candidate execution boundary, including Gateway-rewritten diagnostic codes. Unmarked errors and protected checker failures retain grading attribution.
 
+## [2.3.0](https://github.com/ScreamingFace/screamingface/compare/screamingface-engine-v2.2.0...screamingface-engine-v2.3.0) (2026-11-28)
+
+
+### Features
+
+* **aigateway:** add 49 OpenRouter models to the curated list, and a seed check command ([#1914](https://github.com/ScreamingFace/screamingface/issues/1914)) ([e5eb6c6](https://github.com/ScreamingFace/screamingface/commit/e5eb6c6082171d9d579f9e673fb7bec1ad7c4147))
+* **engine:** a driver-started run reports its record, keeps its result and runs once ([ce45a2c](https://github.com/ScreamingFace/screamingface/commit/ce45a2ce597cebe0fb731f4b7a276932eb8540d1))
+* **engine:** keep a Run's starts, stop reason, lease and follow stamp ([1efb622](https://github.com/ScreamingFace/screamingface/commit/1efb622a5efe5f8c79fd3afd6621acccd3499b28))
+* **engine:** POST /runs takes every Candidate's start, and a Run's context, results and events reach its owner ([75956b2](https://github.com/ScreamingFace/screamingface/commit/75956b2e9f6003b57759fa0e818c41e0088938fd))
+* **engine:** retire the X-SF-Run start binding and the names-only POST /runs ([718c8b3](https://github.com/ScreamingFace/screamingface/commit/718c8b3fba1cf4cb2724d238a48f2d6bfd3d5ad4))
+* **engine:** the Engine drives each Run's Candidates and stops a Run when it should stop ([495e1d8](https://github.com/ScreamingFace/screamingface/commit/495e1d857a97616233021ccd0a79405db6c1600d))
+* **engine:** the Engine drives every Run, so a Run can go on detached (E5 P2) ([c8f69d5](https://github.com/ScreamingFace/screamingface/commit/c8f69d54272a94d2bf7d6f6593eda22169fcd7c6))
+* OpenAI-compatible chat endpoint (Engine) and chat on recipes and clients (SDK) (OME-1963) ([#1937](https://github.com/ScreamingFace/screamingface/issues/1937)) ([8a9df90](https://github.com/ScreamingFace/screamingface/commit/8a9df90f910b47a85aa61050e4332add94c46105))
+* **router:** read no-selection abstentions ([#2101](https://github.com/ScreamingFace/screamingface/issues/2101)) ([61f471f](https://github.com/ScreamingFace/screamingface/commit/61f471f76ae2b9d7b11a3dd21d6e3ce579997159))
+* **screamingface-engine:** add EnigmaEval puzzle-hunt Benchmark as a local Task (OME-1874) ([336499a](https://github.com/ScreamingFace/screamingface/commit/336499abb5f36b5ac38bb386652f5fd9640035db))
+* **screamingface-engine:** add shared routing core ([#2088](https://github.com/ScreamingFace/screamingface/issues/2088)) ([61c83cb](https://github.com/ScreamingFace/screamingface/commit/61c83cbcb70f41088937e6446d456396b9c8e23e))
+* **screamingface-engine:** grade a multiple-choice letter inside a wrapper like $B, **B** or (B) (OME-1907) ([97fcf52](https://github.com/ScreamingFace/screamingface/commit/97fcf52716a6df55d4be3f43351416946af14066))
+* **screamingface-engine:** mark a Benchmark from an outside contributor as external ([15a1f7b](https://github.com/ScreamingFace/screamingface/commit/15a1f7b288d75c1c8d38484c8777df3db340be98))
+* **screamingface-engine:** mark a Benchmark from an outside contributor as external (OME-1960) ([afcab7c](https://github.com/ScreamingFace/screamingface/commit/afcab7c794a7df828bdca52c33930b7f1ac7588c))
+* **screamingface-engine:** mark FutureX-Past as an external Benchmark ([9262a43](https://github.com/ScreamingFace/screamingface/commit/9262a43a6e9d2226b1b3e5b2c382f9f78e12e482))
+* **screamingface-engine:** move the 47 revisions OME-1907's grading change touches, with a batch re-grade script (OME-1958) ([#1926](https://github.com/ScreamingFace/screamingface/issues/1926)) ([c3a9bd7](https://github.com/ScreamingFace/screamingface/commit/c3a9bd7cda35e76e3b438f68317fb6887227054a))
+* **screamingface-engine:** re-grade an old leaderboard entry from its pinned cache (OME-1909) ([#1896](https://github.com/ScreamingFace/screamingface/issues/1896)) ([7912025](https://github.com/ScreamingFace/screamingface/commit/79120258cbc1613c36b225237a03f279f8680ba5))
+* **screamingface-engine:** route one answer through a BYOM routing profile (OME-1822, OME-1823) ([#2016](https://github.com/ScreamingFace/screamingface/issues/2016)) ([343aea6](https://github.com/ScreamingFace/screamingface/commit/343aea663c7eb2fb9f3cf025c11bd9d1ffcfc4c8))
+* **screamingface-engine:** say when a replayed frozen copy expired (OME-1947) ([#1920](https://github.com/ScreamingFace/screamingface/issues/1920)) ([06ea6cd](https://github.com/ScreamingFace/screamingface/commit/06ea6cd8d35c514a74b37b9c966db6bc9371d753))
+* **screamingface-engine:** serve BTF-3's yes/no questions as a local Task ([0cd999b](https://github.com/ScreamingFace/screamingface/commit/0cd999bf82dc9bf590e6c676ce65a0e492517e57))
+* **screamingface-engine:** serve BTF-3's yes/no questions as a local Task (OME-1938) ([e4272b1](https://github.com/ScreamingFace/screamingface/commit/e4272b1d5a079b19582e62ab21ba8de941f11d36))
+* **screamingface-engine:** serve dormant capability discovery ([#2092](https://github.com/ScreamingFace/screamingface/issues/2092)) ([727a764](https://github.com/ScreamingFace/screamingface/commit/727a7645d01c7a721b6d2f44d685399c10481405))
+* **screamingface-engine:** serve FutureX-Past as two local Tasks ([34c4d40](https://github.com/ScreamingFace/screamingface/commit/34c4d408e515af711c13a333a635c70be9634a6c))
+
+
+### Bug Fixes
+
+* **engine:** address HupBaHa's third review on the fail-closed record ([07b09fe](https://github.com/ScreamingFace/screamingface/commit/07b09fe7f35a4b155159fbb71b1dc9f3628bda9e))
+* **engine:** address the review on the fail-closed record ([0cb591c](https://github.com/ScreamingFace/screamingface/commit/0cb591c3ed8b8f3c7e051807193570511ee21dbd))
+* **engine:** address the review rounds on the E5 P2 Engine ([7e76a19](https://github.com/ScreamingFace/screamingface/commit/7e76a197bd01697e52b8d34f2952c348eee80fec))
+* **engine:** address the second review on the fail-closed record ([dbfda9a](https://github.com/ScreamingFace/screamingface/commit/dbfda9adb934f35c44cff76fa874552978e61ad5))
+* **engine:** end the sync wait when the disconnect check swallows a cancel (OME-1962) ([#1933](https://github.com/ScreamingFace/screamingface/issues/1933)) ([1bf9a42](https://github.com/ScreamingFace/screamingface/commit/1bf9a4277527d85e91d92debfe135f1e9eba8b5a))
+* **engine:** fail a Candidate whose run summary has a malformed figure ([acc7712](https://github.com/ScreamingFace/screamingface/commit/acc77128d7db41ce37f8ec86ad004c4acb6b6faa))
+* **engine:** fail a Candidate whose run summary is malformed, and keep a finished Run's deadline ([3405ceb](https://github.com/ScreamingFace/screamingface/commit/3405ceb3e8410324936c07fbb5f2c22b11d04fad))
+* **engine:** leave a finished Run's deadline where it is ([b74e26f](https://github.com/ScreamingFace/screamingface/commit/b74e26f62d10b5109c25831e549c8b89dac20890))
+* **engine:** roll each bundled Garage when its config changes ([275e72d](https://github.com/ScreamingFace/screamingface/commit/275e72d12ecf99f5cd095e1ee8a43c9c51f00e1f))
+* **engine:** turn on fsync in the bundled Garages ([837bd97](https://github.com/ScreamingFace/screamingface/commit/837bd97342ccfb9fe83f4dbaa2b8a31cdcb0df9d))
+* **screamingface-engine:** answer the FutureX-Past scorer review findings ([922548a](https://github.com/ScreamingFace/screamingface/commit/922548af97bef5a5e8e6dd67718b0cdfcbdffb07))
+* **screamingface-engine:** apply the paper's length adjustment and low judge effort to HealthBench Professional (OME-1998) ([e65f672](https://github.com/ScreamingFace/screamingface/commit/e65f672f6276c555071fc58eb6ef6d44619935f9))
+* **screamingface-engine:** declare the activity stage of MedXpertQA's reasoning-text route ([42dbb8a](https://github.com/ScreamingFace/screamingface/commit/42dbb8a50062d0539183faa1e97518f7a7e70928))
+* **screamingface-engine:** decode MedXpertQA's turn-1 record strictly before the commit turn ([17cf5dd](https://github.com/ScreamingFace/screamingface/commit/17cf5dd0e97a22fe5766657d650721a024b3d6b8))
+* **screamingface-engine:** drop a lifted writer's instruction unless it read the Case, pin SDK-compiled recipes ([daf84d2](https://github.com/ScreamingFace/screamingface/commit/daf84d2227c5ad01f1f324e17f2aee57b8365640))
+* **screamingface-engine:** keep the harness's word boundary for the commit letter, and hash the reply rule ([c7587b3](https://github.com/ScreamingFace/screamingface/commit/c7587b31d986505ccd64d86826c9815203d5b9a8))
+* **screamingface-engine:** lift only the error codes the Gateway declares (OME-2010, OME-2011) ([#2025](https://github.com/ScreamingFace/screamingface/issues/2025)) ([afe8ec8](https://github.com/ScreamingFace/screamingface/commit/afe8ec8ea6c3cf60a10988e3de257159ddebfead))
+* **screamingface-engine:** mark btf3 an external contribution and record the test-edit approval (OME-1938) ([11225e1](https://github.com/ScreamingFace/screamingface/commit/11225e192c4b20bfe3f6ad6fb2ea02e179205f13))
+* **screamingface-engine:** name btf3's no-forecast rule a deviation and pin the reader's odd reads (OME-1938) ([79fdf5d](https://github.com/ScreamingFace/screamingface/commit/79fdf5d50e71c3ddce694cae2c2255fa9941e91c))
+* **screamingface-engine:** promise the same JSON value in ASCII, not json.dumps's spelling (OME-1961) ([f971c94](https://github.com/ScreamingFace/screamingface/commit/f971c940f1564c87ba5a982aaa2acd06ddb8cdc0))
+* **screamingface-engine:** score HealthBench Professional the paper's way ([3149a02](https://github.com/ScreamingFace/screamingface/commit/3149a02c01fb59471b4afc2476a08d8c1e4e3cd9))
+* **screamingface-engine:** send MedXpertQA's commit turn as a continuation of the Candidate's own chat ([a617202](https://github.com/ScreamingFace/screamingface/commit/a617202542397afb57d6ce554a85c86b5aef1411))
+* **screamingface-engine:** send MedXpertQA's commit turn as a continuation of the Candidate's own chat (OME-1980) ([83d157f](https://github.com/ScreamingFace/screamingface/commit/83d157f263c5c55f2e877abb9b61e0b59b376e6f))
+* **screamingface-engine:** send only the reasoning text on MedXpertQA's commit turn ([5c3b733](https://github.com/ScreamingFace/screamingface/commit/5c3b7339556ecc1fe788ff6425a373ddf6cc75a7))
+* **screamingface-engine:** send only the reasoning text on MedXpertQA's commit turn (OME-1786) ([28842dc](https://github.com/ScreamingFace/screamingface/commit/28842dc45aaa025565180364b1d2bc16658887d0))
+* **screamingface-engine:** serve Cases as ASCII so a full run fits the memory budget (OME-1961) ([fb40b1a](https://github.com/ScreamingFace/screamingface/commit/fb40b1a3e0eff57bfcdeee99b03cc5a529c8b47b))
+* **screamingface-engine:** serve Cases as ASCII so a full run fits the memory budget (OME-1961) ([eabdd87](https://github.com/ScreamingFace/screamingface/commit/eabdd878c0df6883944ca2fd0837cb574af87f56))
+* **screamingface-engine:** shrink HLE's one 14950 px picture to 8000 px (OME-1970) ([7e93840](https://github.com/ScreamingFace/screamingface/commit/7e9384073922c0098bbfd9f338508f37456a40e0))
+* **screamingface-engine:** shrink HLE's one picture over 8000 px so Claude and GPT pro can read it (OME-1970, PR 1 of 9) ([6417fa3](https://github.com/ScreamingFace/screamingface/commit/6417fa31d46f0d77990802aac37672a0d7468a69))
+* **screamingface-engine:** state MedXpertQA's real first-letter rule on its page ([cead49d](https://github.com/ScreamingFace/screamingface/commit/cead49de6c2f20b1092059e4f7d0bb561ff9f935))
+* **screamingface-engine:** state MedXpertQA's real first-letter rule on its page (OME-1982) ([5f72fe3](https://github.com/ScreamingFace/screamingface/commit/5f72fe3331816f80c2f5092662de9cad173346d7))
+* **screamingface-engine:** stop a run when the provider refuses the key (OME-1989) ([#2002](https://github.com/ScreamingFace/screamingface/issues/2002)) ([d37932d](https://github.com/ScreamingFace/screamingface/commit/d37932d616b9f80f96df0fb47082c251692dacf8))
+* **screamingface-engine:** stop the FutureX-Past Judge sending temperature 0 ([#1960](https://github.com/ScreamingFace/screamingface/issues/1960)) ([24cdbc7](https://github.com/ScreamingFace/screamingface/commit/24cdbc725dffb35ddae9192482df1f5f2ca673ef))
+* **screamingface-engine:** strip the turn-1 answer, keep member accounting, log the commit path ([f71d42e](https://github.com/ScreamingFace/screamingface/commit/f71d42ed0be417b07cb3726f8413c6dafcb1a8ed))
+* **screamingface-engine:** teach the fidelity checker the external origin ([5a6ab65](https://github.com/ScreamingFace/screamingface/commit/5a6ab653645a8979148c7549e01609a6da766d7c))
+* **screamingface-engine:** tell the model MedXpertQA's commit turn wants the option letter only ([37b4182](https://github.com/ScreamingFace/screamingface/commit/37b41820ec3dcc1a20d1a85df8d87fabdd1cf03a))
+* **screamingface-engine:** tell the model MedXpertQA's commit turn wants the option letter only (OME-2018) ([d69e15a](https://github.com/ScreamingFace/screamingface/commit/d69e15a588d443921900702d5c4a5f7e4838f1a0))
+* **screamingface:** address the review on the Client port ([ed31a62](https://github.com/ScreamingFace/screamingface/commit/ed31a62be98308920af0430dcaf29e0065ff9f80))
+* **screamingface:** prepare only the named Benchmarks' datasets on a paid smoke press ([9866897](https://github.com/ScreamingFace/screamingface/commit/98668970ee874e59b26ecb52d6c399ea85d513aa))
+* **screamingface:** prepare only the named Benchmarks' datasets on a paid smoke press (OME-2016) ([60832b9](https://github.com/ScreamingFace/screamingface/commit/60832b973d3ea91dfb4971e11168d35064744c26))
+
+
+### Refactors
+
+* **screamingface:** leave one transport port, the follow-a-Run port ([df564fd](https://github.com/ScreamingFace/screamingface/commit/df564fdcda3a0158556f0a5fa2afc55affc64058))
+
+
+### Documentation
+
+* **screamingface-engine:** close the btf3 ledger and mirror, and stop crediting FutureSearch with the replicated paper (OME-1938) ([53b4374](https://github.com/ScreamingFace/screamingface/commit/53b4374dd3a6eeebe78bbb020541f2e7ea6f33c3))
+* **screamingface-engine:** hold HLE and HLE Diamond's published revisions by named exception ([0f23032](https://github.com/ScreamingFace/screamingface/commit/0f2303225703071a2b0fece3b5ee6e1fa24f50f7))
+* **screamingface-engine:** hold out EnigmaEval's three over-cap puzzles as a final decision (OME-1874) ([7f9a1f6](https://github.com/ScreamingFace/screamingface/commit/7f9a1f6e424e4c5c94dae5379f2b0f80254b1062))
+* **screamingface-engine:** match the FutureX-Past row and record to review ([97067fb](https://github.com/ScreamingFace/screamingface/commit/97067fbeaf557a0ec5d764361141e91bb330a7b5))
+* **screamingface-engine:** re-audit both FutureX-Past Fidelity Records ([6ec1ec3](https://github.com/ScreamingFace/screamingface/commit/6ec1ec3672c22bf2d35a616bfe588a55915ddbb3))
+* **screamingface-engine:** say what HealthBench Professional computes, not "the paper's score" ([da02dda](https://github.com/ScreamingFace/screamingface/commit/da02dda2b5c977a33f010eff042703ff29e93d34))
+
 ## [2.2.0](https://github.com/ScreamingFace/screamingface/compare/screamingface-engine-v2.1.0...screamingface-engine-v2.2.0) (2026-11-17)
 
 
