@@ -841,6 +841,9 @@ td.col-run { white-space: nowrap; }
 }
 .revision-selector__select:focus-visible { outline: 2px solid var(--accent-solid); outline-offset: 2px; }
 .revision-selector__static { color: var(--ink); }
+/* The selected revision's note: a full-width line of its own under the selector row. */
+.revision-selector__change { flex: 0 0 100%; margin: 0; overflow-wrap: anywhere; }
+.revision-selector__change[hidden] { display: none; }
 .revision-notice { font-family: var(--f-mono); font-size: var(--text-sm); color: var(--ink-2); margin: 0 0 var(--space-5); }
 .revision-notice[hidden] { display: none; }
 .revision-pointer {

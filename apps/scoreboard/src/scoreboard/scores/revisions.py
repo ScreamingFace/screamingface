@@ -19,6 +19,26 @@ from .models import BenchmarkRevision
 if TYPE_CHECKING:
     from .store import ScoreStore
 
+#: A safety bound on the revision note text the board stores (OME-2001). NOT the style target:
+#: an author aims for about 120 characters and nothing fails on that. This only stops another
+#: service's catalogue from putting unbounded text into the database and onto the page.
+REVISION_NOTE_STORAGE_BOUND = 500
+
+
+def usable_revision_note(value: object) -> str | None:
+    """The note when it is one non-empty line within the storage bound, else None.
+
+    One rule for both boundaries: the catalogue reader drops what this refuses, and
+    `record_revision` raises on it.
+    """
+
+    if not isinstance(value, str):
+        return None
+    note: str = value.strip()
+    if not note or len(note) > REVISION_NOTE_STORAGE_BOUND or not note.isprintable():
+        return None
+    return note
+
 
 class RevisionSummary(BaseModel):
     """One revision as the selector shows it."""
@@ -36,9 +56,14 @@ class RevisionSummary(BaseModel):
     # read through the board's own query, so the label never promises a count the board lacks.
     result_count: int
     current: bool
+    # OME-2001: what changed in this revision and whether scores still compare, as the Engine
+    # published it. None when no note was published; plain text, never markup.
+    note: str | None = None
 
 
-async def record_revision(benchmark_id: str, revision: str, case_count: int | None) -> None:
+async def record_revision(
+    benchmark_id: str, revision: str, case_count: int | None, note: str | None = None
+) -> None:
     """Record a revision the first time the board sees it; fill only what is still unknown.
 
     INVARIANTS:
@@ -47,8 +72,20 @@ async def record_revision(benchmark_id: str, revision: str, case_count: int | No
     - A count the Engine gave is never rewritten. The Engine's count replaces a count that is
       unknown or was inferred by the migration (largest question count among results), because
       for the revision it still publishes the Engine's own count is authoritative.
+    - The note follows the Engine (OME-2001): a note given here REPLACES the stored one, so a
+      typo fixed on the Engine's row reaches the page; None KEEPS the stored one, so an Engine
+      that serves no note never erases a reason readers already see.
+
+    Raises:
+        ValueError: `note` is given but is not one non-empty line within
+            `REVISION_NOTE_STORAGE_BOUND` characters. Nothing is written.
     """
 
+    if note is not None and usable_revision_note(note) != note:
+        raise ValueError(
+            "revision note must be one non-empty line of at most "
+            f"{REVISION_NOTE_STORAGE_BOUND} characters"
+        )
     existing = await BenchmarkRevision.get_or_none(benchmark_id=benchmark_id, revision=revision)
     if existing is None:
         try:
@@ -57,6 +94,7 @@ async def record_revision(benchmark_id: str, revision: str, case_count: int | No
                 revision=revision,
                 first_seen_at=datetime.now(UTC),
                 case_count=case_count,
+                note=note,
             )
         except IntegrityError:
             # WHY: two seed passes can race on the first sighting; the unique rule keeps one row
@@ -64,12 +102,16 @@ async def record_revision(benchmark_id: str, revision: str, case_count: int | No
             existing = await BenchmarkRevision.get(benchmark_id=benchmark_id, revision=revision)
         else:
             return
-    if case_count is None:
-        return
-    if existing.case_count is None or existing.case_count_inferred:
+    changed: list[str] = []
+    if case_count is not None and (existing.case_count is None or existing.case_count_inferred):
         existing.case_count = case_count
         existing.case_count_inferred = False
-        await existing.save(update_fields=["case_count", "case_count_inferred"])
+        changed += ["case_count", "case_count_inferred"]
+    if note is not None and existing.note != note:
+        existing.note = note
+        changed.append("note")
+    if changed:
+        await existing.save(update_fields=changed)
 
 
 async def find_revision(
@@ -130,6 +172,7 @@ async def list_revisions(
                 case_count_inferred=False if current else row.case_count_inferred,
                 result_count=result_count,
                 current=current,
+                note=row.note,
             )
         )
         newer_seen_at = row.first_seen_at

@@ -319,6 +319,12 @@ MEDXPERT = Benchmark(
         "which the harness leaves unsaid. " + ANSWER_FORMAT
     ),
     revision=REVISION,
+    # What the leaderboard shows under the revision selector (OME-2001); it describes the
+    # move to REVISION (OME-1980), so a later move writes a new line.
+    revision_note=(
+        "The commit turn now continues the model's own chat, as the official harness does. "
+        "Not comparable with older revisions."
+    ),
     case_count=CASE_COUNT,
     build=_build,
     install=install_medxpert,

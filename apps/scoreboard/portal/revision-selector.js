@@ -160,6 +160,15 @@
     return selected && selected.case_count_inferred ? "Case count inferred from results." : null;
   }
 
+  // The selected revision's note as the page shows it under the selector: the day the
+  // board first saw the revision, then the Engine's own line saying what changed and whether
+  // scores still compare. Null when the revision has no note, so the page shows nothing extra.
+  function noteLine(selected) {
+    var note = selected && typeof selected.note === "string" ? selected.note.trim() : "";
+    if (!note) return null;
+    return about(selected) + day(selected.first_seen_at) + " · " + note;
+  }
+
   // Nobody can submit to an earlier revision, so only the current one invites a first run.
   function emptyBoardText(selected) {
     return selected && !selected.current
@@ -219,6 +228,7 @@
     isRevisionNotFound: isRevisionNotFound,
     listedRevision: listedRevision,
     scopeNote: scopeNote,
+    noteLine: noteLine,
     emptyBoardText: emptyBoardText,
     unlistedScopeNotice: unlistedScopeNotice,
     historyBest: historyBest,

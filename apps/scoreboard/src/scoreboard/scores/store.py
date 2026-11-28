@@ -1326,6 +1326,7 @@ class ScoreStore:
         case_count: int | None | _Unset = _UNSET,
         provenance: dict[str, object] | None | _Unset = _UNSET,
         saturation: str | None | _Unset = _UNSET,
+        revision_note: str | None = None,
     ) -> BenchmarkSchema:
         defaults: dict[str, object] = {
             "display_name": display_name,
@@ -1366,6 +1367,9 @@ class ScoreStore:
                 benchmark_id,
                 revision,
                 None if isinstance(case_count, _Unset) else case_count,
+                # OME-2001: the note belongs to the revision row, not the Benchmark row, so
+                # it is handed straight through; None keeps whatever is stored.
+                revision_note,
             )
         return benchmark_to_schema(benchmark)
 
