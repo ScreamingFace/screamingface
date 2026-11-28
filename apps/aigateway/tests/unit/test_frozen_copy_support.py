@@ -21,11 +21,15 @@ COPY_HEADER = "X-AIGW-Frozen-Copy"
 CAPTURE_HEADER = "X-AIGW-Capture"
 CASE_KEY_HEADER = "X-AIGW-Case-Key"
 OCCURRENCE_HEADER = "X-AIGW-Call-Occurrence"
+BINDING_HEADER = "X-AIGW-Call-Binding"
+ATTEMPT_HEADER = "X-AIGW-Call-Attempt"
 PATCH_TARGET = "aigateway.plugins.anthropic_provider.plugin.AnthropicProviderPlugin.chat_completion"
 
 Entry = tuple[Literal["chat", "tool"], Any, Any, int]
 # (case key, occurrence, request, response, status code) of one chat entry (Q27).
 KeyedEntry = tuple[str, int, Any, Any, int]
+# (case key, occurrence, binding, attempt, request, response, status code) of one classify entry.
+ClassificationEntry = tuple[str, int, str, int | None, dict[str, Any], dict[str, Any], int]
 CASE_A = "a" * 32
 CASE_B = "b" * 32
 
@@ -51,6 +55,12 @@ def chat_response(marker: str) -> dict[str, Any]:
         "id": marker,
         "choices": [{"message": {"content": f"answer {marker}"}, "finish_reason": "stop"}],
     }
+
+
+def classification_body(**overrides: Any) -> dict[str, Any]:
+    body: dict[str, Any] = {"model": "hf-inference/sentiment", "input": "a clear answer"}
+    body.update(overrides)
+    return body
 
 
 def store() -> FrozenCopyStore:
@@ -85,6 +95,15 @@ def call_key(case_key: str = "", occurrence: int = 0) -> dict[str, str]:
     return {CASE_KEY_HEADER: case_key, OCCURRENCE_HEADER: str(occurrence)}
 
 
+def classification_call_key(
+    case_key: str = "", occurrence: int = 0, binding: str = "router_1", attempt: int | None = None
+) -> dict[str, str]:
+    headers = call_key(case_key, occurrence) | {BINDING_HEADER: binding}
+    if attempt is not None:
+        headers[ATTEMPT_HEADER] = str(attempt)
+    return headers
+
+
 def seed_keyed_copy(
     client: TestClient, owner_id: UUID, entries: list[KeyedEntry], *, seal: bool = True
 ) -> str:
@@ -102,6 +121,37 @@ def seed_keyed_copy(
                 status_code,
                 case_key=case_key,
                 occurrence=occurrence,
+            )
+        if seal:
+            await frozen.seal(copy.id, owner_id)
+        return str(copy.id)
+
+    return run_async(client, _seed)
+
+
+def seed_classification_copy(
+    client: TestClient,
+    owner_id: UUID,
+    entries: list[ClassificationEntry],
+    *,
+    seal: bool = True,
+) -> str:
+    """A copy with each classification stored under its complete C9 logical-call key."""
+
+    async def _seed() -> str:
+        frozen = store()
+        copy = await frozen.open(owner_id)
+        for case_key, occurrence, binding, attempt, request, response, status_code in entries:
+            await frozen.capture(
+                copy,
+                "classify",
+                request,
+                response,
+                status_code,
+                attempt=attempt,
+                case_key=case_key,
+                occurrence=occurrence,
+                binding=binding,
             )
         if seal:
             await frozen.seal(copy.id, owner_id)

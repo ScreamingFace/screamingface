@@ -14,7 +14,7 @@ copy, so that the expiry rule keeps the copy.
 
 from __future__ import annotations
 
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -24,7 +24,12 @@ from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 from ..call_context import current_call_id, current_trace_id
 from ..core.auth.copy_claim import require_copy_claimer
 from ..core.auth.middleware import CurrentAccount
-from ..core.frozen_copy.headers import STORED_HEADERS_FIELD, MalformedCallKey, parse_call_key
+from ..core.frozen_copy.headers import (
+    STORED_HEADERS_FIELD,
+    MalformedCallKey,
+    parse_call_key,
+    parse_classification_call_key,
+)
 from ..core.frozen_copy.models import (
     STATUS_ABANDONED,
     STATUS_EXPIRED,
@@ -48,6 +53,7 @@ from ..plugins.taxonomy.render import (
     merged_error_detail,
     render_aigw_metadata,
 )
+from .classifications import _model_and_input
 
 router = APIRouter()
 
@@ -134,18 +140,27 @@ class SealRequest(BaseModel):
     provenance: Provenance | None = None
 
 
+def _malformed_call_key(exc: MalformedCallKey) -> HTTPException:
+    return HTTPException(
+        status_code=400,
+        detail={"code": "malformed_call_key", "message": f"{exc} is missing or malformed"},
+    )
+
+
 def _call_key(request: Request) -> tuple[str, int]:
     """The request's call key (Q27). A bad or missing key is a 400, never a fallback."""
     try:
         return parse_call_key(request.headers)
     except MalformedCallKey as exc:
-        raise HTTPException(
-            status_code=400,
-            detail={
-                "code": "malformed_call_key",
-                "message": f"{exc} is missing or malformed",
-            },
-        ) from None
+        raise _malformed_call_key(exc) from None
+
+
+def _classification_call_key(request: Request) -> tuple[str, int, str, int | None]:
+    """The classify-only extension of the shared call key; malformed stays the shared 400."""
+    try:
+        return parse_classification_call_key(request.headers)
+    except MalformedCallKey as exc:
+        raise _malformed_call_key(exc) from None
 
 
 def _miss() -> HTTPException:
@@ -201,27 +216,44 @@ def _replay_metadata(captured: Any = None) -> dict[str, Any]:
 
 
 @router.post("/v1/frozen-copies/{copy_id}/chat/completions")
+@router.post("/v1/frozen-copies/{copy_id}/classifications")
 async def replay_chat_completions(
     copy_id: str, request: Request, response: Response, current: CurrentAccount
 ) -> Any:
-    case_key, occurrence = _call_key(request)
+    is_classification = request.url.path.endswith("/classifications")
+    kind: Literal["chat", "classify"]
+    binding: str | None
+    attempt: int | None
+    if is_classification:
+        case_key, occurrence, binding, attempt = _classification_call_key(request)
+        kind = "classify"
+    else:
+        case_key, occurrence = _call_key(request)
+        kind, binding, attempt = "chat", None, None
     copy = await _sealed_copy(request, copy_id)
-    try:
-        body = await request.json()
-    except ValueError:
-        raise HTTPException(status_code=400, detail="request body must be valid JSON") from None
-    shape_error = chat_body_shape_error(body)
-    if shape_error is not None:
-        raise HTTPException(status_code=400, detail=shape_error)
-    body, controls = prepare_ingress_body(body)
+    if is_classification:
+        # WHY reuse pre-credential normalization: both paths digest one contract without live work.
+        model, value = await _model_and_input(request)
+        body = {"model": model, "input": value}
+    else:
+        try:
+            body = await request.json()
+        except ValueError:
+            raise HTTPException(status_code=400, detail="request body must be valid JSON") from None
+        shape_error = chat_body_shape_error(body)
+        if shape_error is not None:
+            raise HTTPException(status_code=400, detail=shape_error)
+        body, controls = prepare_ingress_body(body)
+        attempt = controls.attempt
     try:
         entry = await frozen_copy_store_for(request.app).find(
             copy,
-            "chat",
+            kind,
             body,
-            attempt=controls.attempt,
+            attempt=attempt,
             case_key=case_key,
             occurrence=occurrence,
+            binding=binding,
         )
     except (CanonicalizationError, UnicodeError):
         # A request that cannot be digested was never captured (the capture would have failed).

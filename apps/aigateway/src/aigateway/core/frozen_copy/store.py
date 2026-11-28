@@ -32,6 +32,7 @@ from aigateway.core.request_cache.reference_digest import (
     canonical_digest_with_references,
 )
 
+from .headers import is_classification_binding
 from .models import STATUS_OPEN, STATUS_SEALED, FrozenCopy, FrozenCopyEntry
 
 __all__ = [
@@ -47,7 +48,7 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
-EntryKind = Literal["chat", "tool"]
+EntryKind = Literal["chat", "tool", "classify"]
 
 _SUCCESS_STATUS = 200
 
@@ -74,6 +75,7 @@ def request_digest(
     attempt: int | None = None,
     *,
     files: ReferencedFileLookup | None = None,
+    binding: str | None = None,
 ) -> str:
     """The entry key; ``attempt`` is the caller's Attempt number (2 or more, OME-1458).
 
@@ -87,6 +89,14 @@ def request_digest(
     replayed either way (decision 2). Raises `UnknownBlobReference` for a file it lacks.
     """
     key: dict[str, Any] = {"kind": kind, "request": request}
+    if kind == "classify":
+        if not is_classification_binding(binding):
+            raise ValueError("a classification digest requires a canonical binding")
+        if attempt is not None and attempt < 2:
+            raise ValueError("classification Attempt 1 is represented by no attempt")
+        key["binding"] = binding
+    elif binding is not None:
+        raise ValueError("only a classification digest accepts a binding")
     if attempt is not None:
         key["attempt"] = attempt
     if files is None:
@@ -95,7 +105,11 @@ def request_digest(
 
 
 async def _request_digest_off_loop(
-    kind: EntryKind, request: Any, attempt: int | None, files: ReferencedFileLookup | None
+    kind: EntryKind,
+    request: Any,
+    attempt: int | None,
+    files: ReferencedFileLookup | None,
+    binding: str | None,
 ) -> str:
     """`request_digest`, in a worker thread when it must hash referenced files.
 
@@ -104,8 +118,10 @@ async def _request_digest_off_loop(
     call. An inline request keeps today's path, with no thread hop.
     """
     if files is None:
-        return request_digest(kind, request, attempt)
-    return await asyncio.to_thread(request_digest, kind, request, attempt, files=files)
+        return request_digest(kind, request, attempt, binding=binding)
+    return await asyncio.to_thread(
+        request_digest, kind, request, attempt, files=files, binding=binding
+    )
 
 
 def _stored_form(value: Any) -> Any:
@@ -233,6 +249,7 @@ class FrozenCopyStore:
         case_key: str,
         occurrence: int,
         files: ReferencedFileLookup | None = None,
+        binding: str | None = None,
     ) -> None:
         """Insert one entry. Raises on any failure; the caller decides what that means.
 
@@ -249,7 +266,7 @@ class FrozenCopyStore:
             CanonicalizationError: the request cannot be digested deterministically.
             UnknownBlobReference: ``files`` holds no file for a reference in the request.
         """
-        digest: str = await _request_digest_off_loop(kind, request, attempt, files)
+        digest: str = await _request_digest_off_loop(kind, request, attempt, files, binding)
         stored: Any = request if files is None else _stored_form(request)
         if _json_bytes(stored) + _json_bytes(response) > self._max_entry_bytes:
             raise FrozenCopyEntryTooLarge
@@ -282,6 +299,7 @@ class FrozenCopyStore:
         case_key: str,
         occurrence: int,
         files: ReferencedFileLookup | None = None,
+        binding: str | None = None,
     ) -> FrozenCopyEntry | None:
         """The replay lookup rule at one call key (design §4.4, Q27); ``None`` is a miss.
 
@@ -296,7 +314,7 @@ class FrozenCopyStore:
             frozen_copy_id=copy.id,
             kind=kind,
             case_key=case_key,
-            request_digest=await _request_digest_off_loop(kind, request, attempt, files),
+            request_digest=await _request_digest_off_loop(kind, request, attempt, files, binding),
             occurrence=occurrence,
         )
         success = await entries.filter(status_code=_SUCCESS_STATUS).order_by("-seq").first()

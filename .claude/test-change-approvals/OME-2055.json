@@ -1,0 +1,14 @@
+{
+  "issue": "OME-2055",
+  "branch": "OME-2055-c9-classification-replay",
+  "approver": "Dmitry Stebukov (owner)",
+  "date": "2026-11-28",
+  "scope": "C9 classification replay reader test arrangement only: add binding and attempt header constants, canonical classification request/call-key helpers, the ClassificationEntry tuple, and a seeded sealed-classification-copy helper. Existing chat/tool helpers and assertions remain unchanged; no other prior test or fixture changes.",
+  "reason": "Approved in chat for the dormant reader-first C9 classification replay contract under OME-1306. The helper uses canonical one-based router_1; the earlier router_0 proposal is superseded and must not be published.",
+  "files": {
+    "apps/aigateway/tests/unit/test_frozen_copy_support.py": {
+      "base_blob": "e297e0c3e1363c7c42c1284702f2f69f5343fb00",
+      "approved_blob": "24a6cf7928434b33525fe7aa1cdb6b6df3e7e5ea"
+    }
+  }
+}
