@@ -4,6 +4,28 @@ All notable changes to the ScreamingFace AI Gateway are documented here.
 This project follows [Semantic Versioning](https://semver.org/) and uses
 release tags of the form `aigateway-v<version>`.
 
+## [1.2.0](https://github.com/ScreamingFace/screamingface/compare/aigateway-v1.1.0...aigateway-v1.2.0) (2026-11-28)
+
+
+### Features
+
+* **aigateway:** add 49 OpenRouter models to the curated list, and a seed check command ([#1914](https://github.com/ScreamingFace/screamingface/issues/1914)) ([e5eb6c6](https://github.com/ScreamingFace/screamingface/commit/e5eb6c6082171d9d579f9e673fb7bec1ad7c4147))
+* **aigateway:** add the frozen copy claim route (OME-1947) ([#1918](https://github.com/ScreamingFace/screamingface/issues/1918)) ([eaea494](https://github.com/ScreamingFace/screamingface/commit/eaea4945a84ef6809fac9c38947245b68f71b45a))
+* **aigateway:** key a blob-reference request exactly like today's inline request ([#2068](https://github.com/ScreamingFace/screamingface/issues/2068)) ([1c0e0c9](https://github.com/ScreamingFace/screamingface/commit/1c0e0c9ad5ba2969ac03aeef59636695a28085f7))
+* **aigateway:** list the newest OpenRouter models first ([#1915](https://github.com/ScreamingFace/screamingface/issues/1915)) ([6f5d053](https://github.com/ScreamingFace/screamingface/commit/6f5d0539c57fd2a596cda530c70c5dc54d0402a3))
+* **aigateway:** replay retained Router classifications ([#2103](https://github.com/ScreamingFace/screamingface/issues/2103)) ([8efc5ff](https://github.com/ScreamingFace/screamingface/commit/8efc5ff79ec4e35ae83e52be14cc7aeb0f6ea9ea))
+* **aigateway:** serve structured-choice classification, upstream attempts and seal provenance ([#1988](https://github.com/ScreamingFace/screamingface/issues/1988)) ([9ef7c15](https://github.com/ScreamingFace/screamingface/commit/9ef7c150c3eeb9c70cf9c492ea42b6d3d44c0633))
+* **aigateway:** sweep abandoned frozen copies (OME-1947) ([#1911](https://github.com/ScreamingFace/screamingface/issues/1911)) ([bf3279f](https://github.com/ScreamingFace/screamingface/commit/bf3279fb5dd562b017cef88309d1f36ff221dcfc))
+
+
+### Bug Fixes
+
+* **aigateway,scoreboard:** the frozen copy claim needs no caller address (OME-2038) ([#2064](https://github.com/ScreamingFace/screamingface/issues/2064)) ([0395e57](https://github.com/ScreamingFace/screamingface/commit/0395e573f6d5bfb7451f68a62a4fc1d0f2659f01))
+* **aigateway:** log which validation call refused a provider key (OME-2017) ([#2040](https://github.com/ScreamingFace/screamingface/issues/2040)) ([1cf0eff](https://github.com/ScreamingFace/screamingface/commit/1cf0eff7257bb2b3be4f742a71e0b1f4e275db1a))
+* **aigateway:** name the credential, not a retired Profile, in provider errors ([#1874](https://github.com/ScreamingFace/screamingface/issues/1874)) ([d76e6a4](https://github.com/ScreamingFace/screamingface/commit/d76e6a414e0adca05690a1d3022597df8370188b))
+* **screamingface-engine:** lift only the error codes the Gateway declares (OME-2010, OME-2011) ([#2025](https://github.com/ScreamingFace/screamingface/issues/2025)) ([afe8ec8](https://github.com/ScreamingFace/screamingface/commit/afe8ec8ea6c3cf60a10988e3de257159ddebfead))
+* **screamingface-engine:** stop a run when the provider refuses the key (OME-1989) ([#2002](https://github.com/ScreamingFace/screamingface/issues/2002)) ([d37932d](https://github.com/ScreamingFace/screamingface/commit/d37932d616b9f80f96df0fb47082c251692dacf8))
+
 ## [1.1.0](https://github.com/ScreamingFace/screamingface/compare/aigateway-v1.0.1...aigateway-v1.1.0) (2026-11-16)
 
 
