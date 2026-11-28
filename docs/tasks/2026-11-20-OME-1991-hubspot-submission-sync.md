@@ -21,3 +21,7 @@ Spec: `docs/spec/2026-11-18-hubspot-submission-sync.md`.
 Plan: `docs/plan/2026-11-18-hubspot-submission-sync.md`.
 Ledger: `docs/work/2026-11-18-hubspot-submission-sync.md`.
 Branch: `OME-1991-hubspot-submission-sync`.
+
+Follow-up #2074 (2026-11-26): the CronJob log now carries the run summary and each HubSpot
+write; the SOTA flag reads the run's Recipe (one model node is solo, anything else, self fusion
+included, is a fusion) instead of the Client's `candidate_kind` label.
