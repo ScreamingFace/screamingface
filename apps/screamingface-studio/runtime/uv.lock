@@ -630,7 +630,7 @@ sdist = { url = "https://files.pythonhosted.org/packages/0e/72/a3add0e4eec4eb9e2
 
 [[package]]
 name = "litellm"
-version = "1.104.2"
+version = "1.104.5"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aiohttp" },
@@ -652,10 +652,10 @@ dependencies = [
     { name = "tiktoken" },
     { name = "tokenizers" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/c5/dc/d8597453971ad7ed012389c6197641a01f578f7f86c95d5b94e10c5331ea/litellm-1.104.2.tar.gz", hash = "sha256:f766de3dd38b977ca70f17f409df04c0a9a3e90aed82582a965d348b6e2fe399", size = 19706913, upload-time = "2026-10-08T08:35:09.701Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/43/67/473a8d26c6da986b180be2c378550b37a4cd349346d5aaea292999c42db5/litellm-1.104.5.tar.gz", hash = "sha256:104c39dea3d4e6711d1879bc5659b9f9f66435afde87d81672bf3d52ce6f5c96", size = 19781939, upload-time = "2026-10-21T05:43:16.053Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/70/9a/36e3ea2ad9d79df1d9aa978dde42323321b339e42c71a0d0b9c9a5179dc7/litellm-1.104.2-cp310-abi3-macosx_10_12_x86_64.whl", hash = "sha256:0d43c16d93e7c47cf0a4028eeaa21f95ba677d0828d32be4af5363abdbcf109d", size = 36210138, upload-time = "2026-10-08T08:34:44.183Z" },
-    { url = "https://files.pythonhosted.org/packages/2e/b1/fc43dfd69f08a328f4149d507ac03cd048d147b3577d9e5335adb400a719/litellm-1.104.2-cp310-abi3-macosx_11_0_arm64.whl", hash = "sha256:b3c600700b677799a553f435a2a2b724c01516215acbac873d1b056570bc0a39", size = 34665058, upload-time = "2026-10-08T08:34:47.93Z" },
+    { url = "https://files.pythonhosted.org/packages/01/eb/fbf88cfa8e3b943b502a60880fbe25f662dd8d065c7e5f8d7703dbd65a9f/litellm-1.104.5-cp310-abi3-macosx_10_12_x86_64.whl", hash = "sha256:0bd0019012baf3cfa7c6fdd90ad94447d1fdd6be7d18ddf15587b713acc06006", size = 36283893, upload-time = "2026-10-21T05:42:53.769Z" },
+    { url = "https://files.pythonhosted.org/packages/24/f8/31fac1988ac693999587f895825618280c8d4dddd1dfcc992f03ab43f01e/litellm-1.104.5-cp310-abi3-macosx_11_0_arm64.whl", hash = "sha256:3f9dde414adf8bd95c2ec2901196be8b6d1b9f0f0082beb1fdf88f2267b8b419", size = 34738810, upload-time = "2026-10-21T05:42:57.147Z" },
 ]
 
 [[package]]
@@ -1321,7 +1321,7 @@ requires-dist = [
     { name = "ipyevents", marker = "extra == 'notebook'", specifier = ">=2.0.2,<3" },
     { name = "ipywidgets", marker = "extra == 'notebook'", specifier = ">=7.7.1,<9" },
     { name = "langdetect", marker = "extra == 'runtime'", specifier = "==1.0.9" },
-    { name = "litellm", marker = "extra == 'runtime'", specifier = "==1.104.2" },
+    { name = "litellm", marker = "extra == 'runtime'", specifier = "==1.104.5" },
     { name = "nats-py", marker = "extra == 'runtime'", specifier = ">=2.9.0" },
     { name = "nltk", marker = "extra == 'runtime'", specifier = "==3.10.4" },
     { name = "opentelemetry-exporter-otlp-proto-http", marker = "extra == 'runtime'", specifier = ">=1.30.0" },
@@ -1348,6 +1348,7 @@ dev = [
     { name = "jupyterlab", specifier = ">=4.6.3" },
     { name = "nbclient", specifier = ">=0.10" },
     { name = "nbformat", specifier = ">=5.11.0" },
+    { name = "openai", specifier = "==2.54.0" },
     { name = "pydantic", specifier = ">=2.9" },
     { name = "pyright", specifier = ">=1.1.409" },
     { name = "pytest", specifier = ">=9.0.3" },
