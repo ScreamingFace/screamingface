@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from html import escape
 from typing import overload
 
+from screamingface._ui.cards import provenance_items
 from screamingface._ui.leaderboard_style import LEADERBOARD_STYLE
 from screamingface._ui.report_view import _score_text
 from screamingface._ui.style import NO_MATH
@@ -132,6 +133,7 @@ def leaderboard_html(board: Leaderboard) -> str:
         # this note, which previously said the field was "uniform" — it is not, and that
         # wording argued for the opposite conclusion to the one this code took).
         "</div></div>"
+        f"{_provenance_strip(board.benchmark)}"
         "<div class='sf-lb__table' role='table'>"
         "<div class='sf-lb__row sf-lb__row--head' role='row'>"
         "<span role='columnheader'>#</span><span role='columnheader'>entry</span>"
@@ -143,6 +145,21 @@ def leaderboard_html(board: Leaderboard) -> str:
         f" copies editable Python · <span class='sf-lb__tag'>{benchmark_id}</span>"
         " identifies this benchmark</div></div>"
     )
+
+
+def _provenance_strip(info: LeaderboardInfo) -> str:
+    """The provenance strip above the rows; empty when the Benchmark declared nothing (OME-1494)."""
+
+    items = provenance_items(info.provenance, info.saturation)
+    if not items:
+        return ""
+    fields = "".join(
+        "<span class='sf-lb__field'>"
+        f"<span class='sf-lb__field-label'>{escape(label)}:</span>"
+        f"<span class='sf-lb__field-value'>{value}</span></span>"
+        for label, value in items
+    )
+    return f"<div class='sf-lb__strip'>{fields}</div>"
 
 
 def _catalog_row(value: LeaderboardInfo) -> str:

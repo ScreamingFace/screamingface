@@ -13,6 +13,7 @@ from uuid import UUID
 
 from screamingface._immutable_json import freeze_mapping
 from screamingface._report_primitives import capture_status_value
+from screamingface.discovery import BenchmarkProvenance
 from screamingface.url4 import Url4
 
 
@@ -25,8 +26,19 @@ class LeaderboardInfo:
     description: str | None
     dataset_url: str | None
     created_at: datetime
+    # FEATURE: the Benchmark Provenance block and saturation verdict (OME-1494), as the
+    # Scoreboard's own copy serves them. None = a Scoreboard that predates them or a Benchmark
+    # that declared nothing; the verdict is an open-set word, None when the board holds none.
+    # WHY last: the dataclass is public, so a new field never shifts a positional argument.
+    provenance: BenchmarkProvenance | None = None
+    saturation: str | None = None
 
     def __post_init__(self) -> None:
+        if self.provenance is not None and not isinstance(self.provenance, BenchmarkProvenance):
+            raise TypeError("Leaderboard provenance must be a BenchmarkProvenance")
+        object.__setattr__(
+            self, "saturation", _optional_text(self.saturation, "Leaderboard saturation")
+        )
         object.__setattr__(self, "id", _text(self.id, "Leaderboard id"))
         object.__setattr__(
             self,

@@ -4,6 +4,15 @@
 
 ### Added
 
+* The notebook views show each Benchmark's provenance and saturation. A row of `sf.benchmarks.list()`
+  carries a `saturation: ...` mark when the Engine served a verdict other than `unknown`. A
+  Benchmark card shows the authors, the paper, harness and website links, the licence, the Human
+  Baseline and Frontier Score, the saturation verdict, the content warning and the notebook that
+  runs it, each only when the Benchmark declares it. `LeaderboardInfo` has `provenance` and
+  `saturation`, read from the Scoreboard, and the leaderboard view shows the same strip above the
+  rows. The card and rows no longer link an origin to a fixed collection page: every link comes
+  from the Benchmark's own block. New members: `provenance` and `saturation` on `LeaderboardInfo`.
+
 * A leaderboard submission from a run that failed to grade some of its Cases now says how many
   were graded (`graded_questions`), so the leaderboard can show "505 / 525 graded" beside the
   score. A fully graded run submits exactly what it did before.

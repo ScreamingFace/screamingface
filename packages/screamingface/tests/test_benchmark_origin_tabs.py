@@ -125,8 +125,10 @@ def test_mixed_catalogue_static_html_shows_one_group_per_origin_with_source_link
     html = cast(Any, benchmarks)._repr_html_()
     assert "ScreamingFace" in html
     assert "inspect_evals" in html
-    assert LEADERBOARD_URL in html
-    assert INSPECT_EVALS_URL in html
+    # OME-1494: the per-origin source links are gone; a Benchmark links its own paper, harness
+    # and website from its provenance block (tests/test_benchmark_views_provenance.py).
+    assert LEADERBOARD_URL not in html
+    assert INSPECT_EVALS_URL not in html
     # WHY: our shelf always leads — deterministic order regardless of wire order.
     assert html.index("ScreamingFace") < html.index("inspect_evals")
 
@@ -137,8 +139,8 @@ def test_unmapped_origin_renders_its_own_group_without_a_link() -> None:
 
     html = cast(Any, benchmarks)._repr_html_()
     assert "helm" in html
-    # WHY: only mapped origins get a source anchor — one here (screamingface's).
-    assert html.count("<a ") == 1
+    # WHY: no origin gets a source anchor any more (OME-1494).
+    assert html.count("<a ") == 0
 
 
 def test_screamingface_only_catalogue_keeps_repr_and_gains_the_leaderboard_link() -> None:
@@ -150,7 +152,9 @@ def test_screamingface_only_catalogue_keeps_repr_and_gains_the_leaderboard_link(
 
     assert repr(benchmarks) == "Benchmarks(1)"
     html = cast(Any, benchmarks)._repr_html_()
-    assert LEADERBOARD_URL in html
+    # OME-1494: the per-origin source links are gone; a Benchmark links its own paper, harness
+    # and website from its provenance block (tests/test_benchmark_views_provenance.py).
+    assert LEADERBOARD_URL not in html
 
 
 # ── interactive widget ────────────────────────────────────────────────────────
@@ -178,8 +182,10 @@ def test_widget_keeps_provenance_and_source_links_visible(
         for item in _walk(shown[0])
         if isinstance(item, widgets.HTML) and isinstance(item.value, str)
     ]
-    assert any(LEADERBOARD_URL in body for body in bodies)
-    assert any(INSPECT_EVALS_URL in body for body in bodies)
+    # OME-1494: the per-origin source links are gone; a Benchmark links its own paper, harness
+    # and website from its provenance block (tests/test_benchmark_views_provenance.py).
+    assert not any(LEADERBOARD_URL in body for body in bodies)
+    assert not any(INSPECT_EVALS_URL in body for body in bodies)
     assert any("draco title" in body for body in bodies)
     assert any("gaia title" in body for body in bodies)
 
@@ -227,4 +233,5 @@ def test_benchmark_card_shows_origin_and_its_source_link() -> None:
     html = cast(Any, imported)._repr_html_()
     assert "origin" in html
     assert "inspect_evals" in html
-    assert INSPECT_EVALS_URL in html
+    # OME-1494: the per-origin source link is gone; the card links its own block.
+    assert INSPECT_EVALS_URL not in html
